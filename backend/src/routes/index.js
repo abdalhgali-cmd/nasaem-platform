@@ -11,6 +11,7 @@ import settingsRoutes from "../modules/settings/settings.routes.js";
 import dashboardRoutes from "../modules/dashboard/dashboard.routes.js";
 import branchRoutes from "../modules/branches/branches.routes.js";
 import supplierRoutes from "../modules/suppliers/suppliers.routes.js";
+import userRoutes from "../modules/users/users.routes.js";
 
 const router = Router();
 
@@ -37,6 +38,7 @@ router.get("/health", async (req, res) => {
 });
 
 router.use("/auth", authRoutes);
+router.use("/users", userRoutes);
 router.use("/customers", customerRoutes);
 router.use("/orders", orderRoutes);
 router.use("/payments", paymentRoutes);
