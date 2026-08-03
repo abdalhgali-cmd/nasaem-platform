@@ -6,6 +6,9 @@ import customerRoutes from "../modules/customers/customers.routes.js";
 import orderRoutes from "../modules/orders/orders.routes.js";
 import paymentRoutes from "../modules/payments/payments.routes.js";
 import documentRoutes from "../modules/documents/documents.routes.js";
+import offerRoutes from "../modules/offers/offers.routes.js";
+import settingsRoutes from "../modules/settings/settings.routes.js";
+import dashboardRoutes from "../modules/dashboard/dashboard.routes.js";
 
 const router = Router();
 
@@ -36,5 +39,8 @@ router.use("/customers", customerRoutes);
 router.use("/orders", orderRoutes);
 router.use("/payments", paymentRoutes);
 router.use("/documents", documentRoutes);
+router.use("/offers", offerRoutes);
+router.use("/settings", settingsRoutes);
+router.use("/dashboard", dashboardRoutes);
 
 export default router;
