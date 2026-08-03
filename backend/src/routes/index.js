@@ -9,6 +9,8 @@ import documentRoutes from "../modules/documents/documents.routes.js";
 import offerRoutes from "../modules/offers/offers.routes.js";
 import settingsRoutes from "../modules/settings/settings.routes.js";
 import dashboardRoutes from "../modules/dashboard/dashboard.routes.js";
+import branchRoutes from "../modules/branches/branches.routes.js";
+import supplierRoutes from "../modules/suppliers/suppliers.routes.js";
 
 const router = Router();
 
@@ -42,5 +44,7 @@ router.use("/documents", documentRoutes);
 router.use("/offers", offerRoutes);
 router.use("/settings", settingsRoutes);
 router.use("/dashboard", dashboardRoutes);
+router.use("/branches", branchRoutes);
+router.use("/suppliers", supplierRoutes);
 
 export default router;
