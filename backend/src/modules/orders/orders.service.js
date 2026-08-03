@@ -48,6 +48,11 @@ export async function getOrderById(id) {
 
 export async function createOrder(data, actorUserId = null) {
   const orderNumber = await generateOrderNumber();
+  const creatorUserId = actorUserId || data.assignedUserId;
+
+  if (!creatorUserId) {
+    throw new Error("A valid user is required to create an order history entry");
+  }
 
   const items = data.items.map((item) => {
     const quantity = Number(item.quantity || 1);
@@ -85,7 +90,7 @@ export async function createOrder(data, actorUserId = null) {
           create: {
             oldStatus: "NEW",
             newStatus: "NEW",
-            changedByUserId: actorUserId || data.assignedUserId || data.customerId,
+            changedByUserId: creatorUserId,
             notes: "Order created",
           },
         },
@@ -105,6 +110,10 @@ export async function createOrder(data, actorUserId = null) {
 }
 
 export async function updateOrderStatus(orderId, status, changedByUserId, notes = null) {
+  if (!changedByUserId) {
+    throw new Error("A valid user is required to update order status");
+  }
+
   return prisma.$transaction(async (tx) => {
     const currentOrder = await tx.order.findUnique({
       where: { id: orderId },
