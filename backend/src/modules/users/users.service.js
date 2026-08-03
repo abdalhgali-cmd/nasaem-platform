@@ -7,49 +7,56 @@ async function generateEmployeeNo() {
   return `EMP-${String(nextNumber).padStart(4, "0")}`;
 }
 
+const userListSelect = {
+  id: true,
+  employeeNo: true,
+  fullName: true,
+  email: true,
+  phone: true,
+  role: true,
+  status: true,
+  branchId: true,
+  createdAt: true,
+  updatedAt: true,
+  branch: true,
+};
+
+const userDetailSelect = {
+  id: true,
+  employeeNo: true,
+  fullName: true,
+  email: true,
+  phone: true,
+  role: true,
+  status: true,
+  branchId: true,
+  lastLogin: true,
+  createdAt: true,
+  updatedAt: true,
+  branch: true,
+  assignedOrders: {
+    select: {
+      id: true,
+      orderNumber: true,
+      status: true,
+      totalAmount: true,
+      currency: true,
+      createdAt: true,
+    },
+  },
+};
+
 export async function listUsers() {
   return prisma.user.findMany({
     orderBy: { createdAt: "desc" },
-    include: {
-      branch: true,
-    },
-    select: {
-      id: true,
-      employeeNo: true,
-      fullName: true,
-      email: true,
-      phone: true,
-      role: true,
-      status: true,
-      branchId: true,
-      createdAt: true,
-      updatedAt: true,
-      branch: true,
-    },
+    select: userListSelect,
   });
 }
 
 export async function getUserById(id) {
   return prisma.user.findUnique({
     where: { id },
-    include: {
-      branch: true,
-      assignedOrders: true,
-    },
-    select: {
-      id: true,
-      employeeNo: true,
-      fullName: true,
-      email: true,
-      phone: true,
-      role: true,
-      status: true,
-      branchId: true,
-      lastLogin: true,
-      createdAt: true,
-      updatedAt: true,
-      branch: true,
-    },
+    select: userDetailSelect,
   });
 }
 
@@ -68,18 +75,7 @@ export async function createUser(data) {
       status: data.status,
       branchId: data.branchId || null,
     },
-    select: {
-      id: true,
-      employeeNo: true,
-      fullName: true,
-      email: true,
-      phone: true,
-      role: true,
-      status: true,
-      branchId: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: userListSelect,
   });
 }
 
@@ -87,17 +83,6 @@ export async function changeUserStatus(id, status) {
   return prisma.user.update({
     where: { id },
     data: { status },
-    select: {
-      id: true,
-      employeeNo: true,
-      fullName: true,
-      email: true,
-      phone: true,
-      role: true,
-      status: true,
-      branchId: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: userListSelect,
   });
 }
