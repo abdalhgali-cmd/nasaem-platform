@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import prisma from "../config/database.js";
 import authRoutes from "../modules/auth/auth.routes.js";
+import customerRoutes from "../modules/customers/customers.routes.js";
 
 const router = Router();
 
@@ -28,5 +29,6 @@ router.get("/health", async (req, res) => {
 });
 
 router.use("/auth", authRoutes);
+router.use("/customers", customerRoutes);
 
 export default router;
