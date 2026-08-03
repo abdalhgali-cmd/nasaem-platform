@@ -4,6 +4,8 @@ import prisma from "../config/database.js";
 import authRoutes from "../modules/auth/auth.routes.js";
 import customerRoutes from "../modules/customers/customers.routes.js";
 import orderRoutes from "../modules/orders/orders.routes.js";
+import paymentRoutes from "../modules/payments/payments.routes.js";
+import documentRoutes from "../modules/documents/documents.routes.js";
 
 const router = Router();
 
@@ -32,5 +34,7 @@ router.get("/health", async (req, res) => {
 router.use("/auth", authRoutes);
 router.use("/customers", customerRoutes);
 router.use("/orders", orderRoutes);
+router.use("/payments", paymentRoutes);
+router.use("/documents", documentRoutes);
 
 export default router;
