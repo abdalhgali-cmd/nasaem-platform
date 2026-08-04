@@ -222,13 +222,16 @@ tbody tr:hover {
 
 .badge.status-APPROVED,
 .badge.status-COMPLETED,
-.badge.status-PAID {
+.badge.status-PAID,
+.badge.status-ACTIVE {
   background: #dcfce7;
   color: #166534;
 }
 
 .badge.status-REJECTED,
-.badge.status-CANCELLED {
+.badge.status-CANCELLED,
+.badge.status-INACTIVE,
+.badge.status-SUSPENDED {
   background: #fee2e2;
   color: #991b1b;
 }

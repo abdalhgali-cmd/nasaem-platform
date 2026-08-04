@@ -17,6 +17,7 @@
       <button type="button" data-tab="orders">الطلبات</button>
       <button type="button" data-tab="customers">العملاء</button>
       <button type="button" data-tab="payments">الدفعات</button>
+      <button type="button" data-tab="management">الإدارة</button>
     </div>
 
     <section id="tab-overview">
@@ -92,10 +93,141 @@
         <div class="pagination" id="payments-pagination"></div>
       </div>
     </section>
+
+    <section id="tab-management" class="hidden">
+      <div class="tabs" id="mgmt-tabs">
+        <button type="button" data-mgmt="branches" class="active">الفروع</button>
+        <button type="button" data-mgmt="suppliers">الموردون</button>
+        <button type="button" data-mgmt="services">الخدمات</button>
+        <button type="button" data-mgmt="offers">العروض</button>
+        <button type="button" data-mgmt="users">المستخدمون</button>
+      </div>
+
+      <div id="mgmt-alert"></div>
+
+      <!-- Branches -->
+      <div id="mgmt-branches">
+        <div class="card hidden" id="branch-create-card">
+          <h2>فرع جديد</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="b-code">الرمز *</label><input id="b-code" /></div>
+            <div class="field"><label for="b-name">الاسم *</label><input id="b-name" /></div>
+            <div class="field"><label for="b-phone">الهاتف</label><input id="b-phone" /></div>
+          </div>
+          <button type="button" class="btn" id="branch-create-btn">إضافة فرع</button>
+        </div>
+        <div class="card">
+          <h2>الفروع</h2>
+          <table>
+            <thead><tr><th>الرمز</th><th>الاسم</th><th>الهاتف</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="branches-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Suppliers -->
+      <div id="mgmt-suppliers" class="hidden">
+        <div class="card hidden" id="supplier-create-card">
+          <h2>مورد جديد</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="s-code">الرمز *</label><input id="s-code" /></div>
+            <div class="field"><label for="s-name">الاسم *</label><input id="s-name" /></div>
+            <div class="field"><label for="s-type">النوع *</label><input id="s-type" /></div>
+          </div>
+          <button type="button" class="btn" id="supplier-create-btn">إضافة مورد</button>
+        </div>
+        <div class="card">
+          <h2>الموردون</h2>
+          <table>
+            <thead><tr><th>الرمز</th><th>الاسم</th><th>النوع</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="suppliers-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Services -->
+      <div id="mgmt-services" class="hidden">
+        <div class="card hidden" id="service-create-card">
+          <h2>خدمة جديدة</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="sv-code">الرمز *</label><input id="sv-code" /></div>
+            <div class="field"><label for="sv-name">الاسم *</label><input id="sv-name" /></div>
+            <div class="field"><label for="sv-category">التصنيف *</label><input id="sv-category" /></div>
+            <div class="field"><label for="sv-basePrice">السعر الأساسي</label><input id="sv-basePrice" type="number" min="0" step="0.01" value="0" /></div>
+          </div>
+          <button type="button" class="btn" id="service-create-btn">إضافة خدمة</button>
+        </div>
+        <div class="card">
+          <h2>الخدمات</h2>
+          <table>
+            <thead><tr><th>الرمز</th><th>الاسم</th><th>التصنيف</th><th>السعر الأساسي</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="services-body"></tbody>
+          </table>
+          <div class="pagination" id="services-pagination"></div>
+        </div>
+      </div>
+
+      <!-- Offers -->
+      <div id="mgmt-offers" class="hidden">
+        <div class="card hidden" id="offer-create-card">
+          <h2>عرض جديد</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="of-title">العنوان *</label><input id="of-title" /></div>
+            <div class="field"><label for="of-price">السعر *</label><input id="of-price" type="number" min="0" step="0.01" /></div>
+            <div class="field">
+              <label for="of-status">الحالة</label>
+              <select id="of-status">
+                <option value="DRAFT">مسودة</option>
+                <option value="ACTIVE">نشط</option>
+                <option value="ARCHIVED">مؤرشف</option>
+              </select>
+            </div>
+          </div>
+          <button type="button" class="btn" id="offer-create-btn">إضافة عرض</button>
+        </div>
+        <div class="card">
+          <h2>العروض</h2>
+          <table>
+            <thead><tr><th>العنوان</th><th>السعر</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="offers-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Users -->
+      <div id="mgmt-users" class="hidden">
+        <div class="card hidden" id="user-create-card">
+          <h2>موظف جديد</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="u-fullName">الاسم الكامل *</label><input id="u-fullName" /></div>
+            <div class="field"><label for="u-email">البريد الإلكتروني *</label><input id="u-email" type="email" /></div>
+            <div class="field"><label for="u-password">كلمة المرور *</label><input id="u-password" type="password" /></div>
+            <div class="field">
+              <label for="u-role">الدور</label>
+              <select id="u-role">
+                <option value="EMPLOYEE">موظف</option>
+                <option value="ACCOUNTANT">محاسب</option>
+                <option value="ADMIN">مدير</option>
+                <option value="SUPER_ADMIN">مدير عام</option>
+              </select>
+            </div>
+          </div>
+          <button type="button" class="btn" id="user-create-btn">إضافة موظف</button>
+        </div>
+        <div class="card">
+          <h2>المستخدمون</h2>
+          <table>
+            <thead><tr><th>الرقم الوظيفي</th><th>الاسم</th><th>البريد</th><th>الدور</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script src="/assets/api.js"></script>
   <script src="/assets/layout.js"></script>
   <script src="/assets/admin-dashboard.js"></script>
+  <script src="/assets/admin-management.js"></script>
 </body>
 </html>

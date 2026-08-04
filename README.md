@@ -49,10 +49,11 @@ frontend build step or server needed).
 
 `frontend/login.html`, `frontend/request.html` (create a customer + order,
 matched against the seeded `Service` catalog, then upload documents) and
-`frontend/admin-dashboard.html` (overview stats, orders with status/payment
-management, customers, payments) cover the core day-to-day staff workflow.
-Branches, suppliers, services, offers, settings and user management are
-currently API-only (no dedicated screens yet).
+`frontend/admin-dashboard.html` cover the day-to-day staff workflow: overview
+stats, orders with status/payment management, customers, payments, and a
+"Management" tab (SUPER_ADMIN/ADMIN only) for branches, suppliers, services,
+offers and user accounts. Settings management is currently API-only (no
+dedicated screen yet).
 
 ## Project status
 

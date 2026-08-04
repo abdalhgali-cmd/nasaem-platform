@@ -46,6 +46,10 @@ function canRecordPayment() {
   return ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"].includes(currentUser.role);
 }
 
+function canSeeManagement() {
+  return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
+}
+
 function setupTabVisibility() {
   const tabButtons = document.querySelectorAll("#tabs button");
 
@@ -54,6 +58,9 @@ function setupTabVisibility() {
   }
   if (!canSeePayments()) {
     document.querySelector('[data-tab="payments"]').classList.add("hidden");
+  }
+  if (!canSeeManagement()) {
+    document.querySelector('[data-tab="management"]').classList.add("hidden");
   }
 
   const firstVisible = Array.from(tabButtons).find((btn) => !btn.classList.contains("hidden"));
@@ -93,7 +100,7 @@ function activateTab(tabKey) {
   document.querySelectorAll("#tabs button").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.tab === tabKey);
   });
-  ["overview", "orders", "customers", "payments"].forEach((key) => {
+  ["overview", "orders", "customers", "payments", "management"].forEach((key) => {
     el(`tab-${key}`).classList.toggle("hidden", key !== tabKey);
   });
   loadActiveTabData();
@@ -110,6 +117,7 @@ function loadActiveTabData() {
   if (tab === "orders") loadOrders();
   if (tab === "customers") loadCustomers();
   if (tab === "payments" && canSeePayments()) loadPayments();
+  if (tab === "management" && canSeeManagement()) initManagementTab();
 }
 
 // --- Overview ---

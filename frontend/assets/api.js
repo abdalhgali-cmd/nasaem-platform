@@ -91,6 +91,9 @@ const STATUS_LABELS_AR = {
   PARTIAL: "مدفوع جزئيًا",
   PAID: "مدفوع بالكامل",
   REFUNDED: "مسترجع",
+  ACTIVE: "نشط",
+  INACTIVE: "غير نشط",
+  SUSPENDED: "موقوف",
 };
 
 function statusBadge(status) {
