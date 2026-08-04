@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "test": "node --test",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
@@ -34,6 +35,7 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.4",
-    "prisma": "^6.0.0"
+    "prisma": "^6.0.0",
+    "supertest": "^7.0.0"
   }
 }

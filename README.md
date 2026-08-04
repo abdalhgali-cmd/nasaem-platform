@@ -55,6 +55,41 @@ stats, orders with status/payment management, customers, payments, and a
 offers and user accounts. Settings management is currently API-only (no
 dedicated screen yet).
 
+## Testing
+
+The test suite (`backend/tests/`, Node's built-in test runner + supertest)
+runs real HTTP requests against the Express app and a real PostgreSQL
+database — it is **not** safe to point at a database with real data.
+
+The `npm test` step itself picks up `backend/.env.test` automatically (each
+test file loads it via `tests/env.js`), but the Prisma CLI commands used to
+prepare that database do not — pass the same values explicitly on those
+commands, as shown below, so you don't accidentally migrate/seed your dev
+database instead.
+
+1. Create a disposable database and env file:
+   ```bash
+   createdb nasaem_platform_test   # or: psql -c "CREATE DATABASE nasaem_platform_test;"
+   cd backend && cp .env.test.example .env.test
+   ```
+2. Apply migrations and seed it, using the same `DATABASE_URL` /
+   `SEED_ADMIN_PASSWORD` you just put in `.env.test`:
+   ```bash
+   DATABASE_URL="postgresql://postgres:password@localhost:5432/nasaem_platform_test?schema=public" \
+     npx prisma migrate deploy
+   DATABASE_URL="postgresql://postgres:password@localhost:5432/nasaem_platform_test?schema=public" \
+     SEED_ADMIN_PASSWORD="Test@12345" \
+     npm run prisma:seed
+   ```
+3. Run the tests:
+   ```bash
+   npm test
+   ```
+
+CI (`.github/workflows/ci.yml`) does this automatically against a fresh
+Postgres service container on every push/PR — no local setup needed for
+that path.
+
 ## Project status
 
 See [`docs/errors-and-development-proposal.md`](docs/errors-and-development-proposal.md)
