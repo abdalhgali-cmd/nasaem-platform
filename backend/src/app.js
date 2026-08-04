@@ -1,3 +1,5 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -9,6 +11,10 @@ import rateLimit from "express-rate-limit";
 import apiRouter from "./routes/index.js";
 import notFoundMiddleware from "./middleware/notFound.middleware.js";
 import errorMiddleware from "./middleware/error.middleware.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// backend/src/app.js -> repo root/frontend
+const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 
 const app = express();
 
@@ -24,14 +30,10 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 200,
-    standardHeaders: true,
-    legacyHeaders: false,
-  })
-);
+
+// Static frontend pages (login/request/dashboard) are served same-origin so
+// the cookie-based auth session works without any CORS configuration.
+app.use(express.static(FRONTEND_DIR));
 
 app.get("/", (req, res) => {
   res.json({
@@ -42,7 +44,16 @@ app.get("/", (req, res) => {
   });
 });
 
-app.use("/api", apiRouter);
+app.use(
+  "/api",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+  apiRouter
+);
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);
 

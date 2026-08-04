@@ -119,7 +119,7 @@ export async function createOrder(data, actorUserId = null) {
             oldStatus: "NEW",
             newStatus: "NEW",
             changedByUserId: creatorUserId,
-            notes: "Order created",
+            notes: "تم إنشاء الطلب",
           },
         },
       },

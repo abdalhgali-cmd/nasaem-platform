@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>طلب جديد — نسائم الحرمين</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header class="app-header" id="app-header"></header>
+
+  <main>
+    <div id="page-alert"></div>
+
+    <section class="card hidden" id="role-blocked">
+      <p>هذه الصفحة غير متاحة لدورك الوظيفي الحالي.</p>
+    </section>
+
+    <div id="request-flow">
+      <section class="card">
+        <h2>١. اختر نوع الخدمة</h2>
+        <div class="service-grid" id="service-grid"></div>
+      </section>
+
+      <section class="card hidden" id="subtype-section">
+        <h2>٢. اختر التفاصيل</h2>
+        <div class="field">
+          <label for="subtype-select">النوع الفرعي</label>
+          <select id="subtype-select"></select>
+        </div>
+        <div id="doc-checklist-wrap" class="hidden">
+          <p class="muted" id="checklist-note"></p>
+          <p><strong>المستندات المطلوبة:</strong></p>
+          <ul class="doc-checklist" id="doc-checklist"></ul>
+        </div>
+      </section>
+
+      <section class="card hidden" id="customer-section">
+        <h2>٣. بيانات العميل</h2>
+        <div class="grid cols-2">
+          <div class="field">
+            <label for="c-fullName">الاسم الكامل *</label>
+            <input id="c-fullName" required />
+          </div>
+          <div class="field">
+            <label for="c-passportNo">رقم الجواز *</label>
+            <input id="c-passportNo" required />
+          </div>
+          <div class="field">
+            <label for="c-nationality">الجنسية *</label>
+            <input id="c-nationality" required />
+          </div>
+          <div class="field">
+            <label for="c-phone">رقم الهاتف</label>
+            <input id="c-phone" />
+          </div>
+          <div class="field">
+            <label for="c-email">البريد الإلكتروني</label>
+            <input id="c-email" type="email" />
+          </div>
+          <div class="field">
+            <label for="c-country">الدولة</label>
+            <input id="c-country" />
+          </div>
+        </div>
+      </section>
+
+      <section class="card hidden" id="order-section">
+        <h2>٤. تفاصيل الطلب المالية</h2>
+        <div class="grid cols-3">
+          <div class="field">
+            <label for="o-quantity">الكمية</label>
+            <input id="o-quantity" type="number" min="1" value="1" />
+          </div>
+          <div class="field">
+            <label for="o-unitPrice">السعر *</label>
+            <input id="o-unitPrice" type="number" min="0" step="0.01" required />
+          </div>
+          <div class="field">
+            <label for="o-currency">العملة</label>
+            <select id="o-currency">
+              <option value="SAR">SAR</option>
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+              <option value="EGP">EGP</option>
+              <option value="SDG">SDG</option>
+              <option value="AED">AED</option>
+              <option value="GBP">GBP</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="o-priority">الأولوية</label>
+            <select id="o-priority">
+              <option value="NORMAL">عادية</option>
+              <option value="LOW">منخفضة</option>
+              <option value="HIGH">عالية</option>
+              <option value="URGENT">عاجلة</option>
+            </select>
+          </div>
+        </div>
+        <button type="button" class="btn" id="submit-request-btn">إنشاء الطلب</button>
+      </section>
+    </div>
+
+    <section class="card hidden" id="success-section">
+      <h2>تم إنشاء الطلب بنجاح</h2>
+      <p id="success-summary"></p>
+
+      <h2>رفع المستندات</h2>
+      <div class="grid cols-3">
+        <div class="field">
+          <label for="doc-type">نوع المستند</label>
+          <select id="doc-type">
+            <option value="PASSPORT">صورة الجواز</option>
+            <option value="PHOTO">الصورة الشخصية</option>
+            <option value="VISA">التأشيرة</option>
+            <option value="TICKET">التذكرة</option>
+            <option value="RECEIPT">إيصال</option>
+            <option value="OTHER">أخرى</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="doc-file">الملف (JPEG / PNG / WEBP / PDF)</label>
+          <input id="doc-file" type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" />
+        </div>
+        <div class="field" style="align-self: end">
+          <button type="button" class="btn secondary" id="upload-doc-btn">رفع</button>
+        </div>
+      </div>
+      <ul class="doc-checklist" id="uploaded-list"></ul>
+
+      <button type="button" class="btn" id="new-request-btn">إنشاء طلب آخر</button>
+    </section>
+  </main>
+
+  <script src="/assets/services-data.js"></script>
+  <script src="/assets/api.js"></script>
+  <script src="/assets/layout.js"></script>
+  <script src="/assets/request.js"></script>
+</body>
+</html>

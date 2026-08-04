@@ -1,6 +1,9 @@
 # Nasaem Platform
 
-Backend API for the Nasaem Al-Haramain travel platform (Node.js/Express + Prisma + PostgreSQL).
+Staff back-office for the Nasaem Al-Haramain travel platform: a Node.js/Express +
+Prisma + PostgreSQL API, and a plain HTML/CSS/JS staff frontend (`frontend/`)
+served by the same Express server (same-origin, cookie-based auth, no separate
+frontend build step or server needed).
 
 ## Running with Docker Compose
 
@@ -25,7 +28,9 @@ Backend API for the Nasaem Al-Haramain travel platform (Node.js/Express + Prisma
    ```
 
 4. The API is available at `http://localhost:5000`. Check `GET /api/health` to
-   confirm the database connection is up.
+   confirm the database connection is up. Staff sign in at
+   `http://localhost:5000/login.html` with the seeded admin account
+   (`admin@nasaem-platform.local` / `SEED_ADMIN_PASSWORD`).
 
 ## Running the backend locally (without Docker)
 
@@ -40,9 +45,17 @@ Backend API for the Nasaem Al-Haramain travel platform (Node.js/Express + Prisma
    npm run dev
    ```
 
+## Frontend
+
+`frontend/login.html`, `frontend/request.html` (create a customer + order,
+matched against the seeded `Service` catalog, then upload documents) and
+`frontend/admin-dashboard.html` (overview stats, orders with status/payment
+management, customers, payments) cover the core day-to-day staff workflow.
+Branches, suppliers, services, offers, settings and user management are
+currently API-only (no dedicated screens yet).
+
 ## Project status
 
 See [`docs/errors-and-development-proposal.md`](docs/errors-and-development-proposal.md)
-for a full list of known issues and the development roadmap. The frontend
-(`frontend/`) currently only contains shared service data and does not yet
-include the actual application pages.
+for a full list of known issues, what's been fixed, and the remaining
+development roadmap.
