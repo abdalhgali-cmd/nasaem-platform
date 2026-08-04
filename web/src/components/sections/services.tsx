@@ -1,0 +1,91 @@
+import Link from "next/link";
+import {
+  ArrowLeft,
+  Sparkles,
+  Plane,
+  Hotel,
+  Stamp,
+  Globe,
+  Package,
+} from "lucide-react";
+import { Container } from "@/components/container";
+import { SectionHeading } from "@/components/section-heading";
+import { FadeIn, Stagger } from "@/components/motion/fade-in";
+
+const services = [
+  {
+    icon: Sparkles,
+    title: "باقات العمرة",
+    description: "تأشيرة فقط أو باقة متكاملة تشمل الطيران والفنادق والنقل — بإشراف كامل من الإدارة حتى العودة.",
+    href: "/umrah",
+  },
+  {
+    icon: Stamp,
+    title: "التأشيرات",
+    description: "زيارة عائلية، تأشيرة عمل، أو تأشيرات دولية — نتابع إجراءاتك بدقة وسرعة حتى الاستلام.",
+    href: "/visas",
+  },
+  {
+    icon: Plane,
+    title: "حجز الطيران",
+    description: "أفضل أسعار تذاكر الطيران الداخلي والدولي على أشهر شركات الطيران، برحلة ذهاب أو ذهاب وعودة.",
+    href: "/flights",
+  },
+  {
+    icon: Hotel,
+    title: "حجز الفنادق",
+    description: "فنادق قريبة من الحرمين الشريفين وفي كل الوجهات، بمستويات مختلفة تناسب كل ميزانية.",
+    href: "/hotels",
+  },
+  {
+    icon: Globe,
+    title: "التأشيرات الدولية",
+    description: "الصين، بالي، ودول أفريقيا — نوضح لك المستندات المطلوبة قبل بدء الإجراءات.",
+    href: "/visas",
+  },
+  {
+    icon: Package,
+    title: "باقات السفر الشاملة",
+    description: "برامج سياحية جاهزة تجمع الطيران والإقامة والجولات في باقة واحدة بسعر مريح.",
+    href: "/packages",
+  },
+];
+
+export function Services() {
+  return (
+    <section className="bg-section py-24">
+      <Container>
+        <SectionHeading
+          eyebrow="خدماتنا"
+          title="كل ما تحتاجه لرحلتك في مكان واحد"
+          description="من أول خطوة في التخطيط حتى العودة إلى الوطن، فريقنا يتولى كل التفاصيل نيابة عنك."
+        />
+
+        <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {services.map((service, index) => (
+            <FadeIn key={service.title} delay={index * 0.05} className="h-full">
+              <Link
+                href={service.href}
+                className="group flex h-full flex-col rounded-3xl border border-border bg-card p-7 shadow-sm transition-all duration-300 hover:-translate-y-1.5 hover:border-primary/30 hover:shadow-xl hover:shadow-primary/10"
+              >
+                <span className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-secondary/10 text-primary transition-colors duration-300 group-hover:from-primary group-hover:to-secondary group-hover:text-white dark:text-secondary">
+                  <service.icon className="size-7" />
+                </span>
+                <h3 className="mt-5 text-lg font-bold text-foreground">
+                  {service.title}
+                </h3>
+                <p className="mt-2.5 flex-1 text-sm leading-relaxed text-muted-foreground">
+                  {service.description}
+                </p>
+                <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-bold text-primary dark:text-secondary">
+                  اعرف المزيد
+                  <ArrowLeft className="size-4 transition-transform duration-300 group-hover:-translate-x-1" />
+                </span>
+              </Link>
+            </FadeIn>
+          ))}
+        </Stagger>
+      </Container>
+    </section>
+  );
+}

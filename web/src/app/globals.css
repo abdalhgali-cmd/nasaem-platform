@@ -1,0 +1,207 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --color-background: #ffffff;
+  --color-section: #f5f7fa;
+  --color-foreground: #1f2937;
+  --color-muted: #667085;
+  --color-muted-foreground: #4b5563;
+  --color-border: #e5e7eb;
+  --color-card: #ffffff;
+
+  --color-primary: #0b3d91;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1e88e5;
+  --color-secondary-foreground: #ffffff;
+  --color-accent: #d4af37;
+  --color-accent-foreground: #1f2937;
+
+  --color-success: #16a34a;
+  --color-ring: #1e88e5;
+}
+
+.dark {
+  --color-background: #060a16;
+  --color-section: #0d1424;
+  --color-foreground: #eef1f8;
+  --color-muted: #93a0bd;
+  --color-muted-foreground: #b7c0d6;
+  --color-border: #1c2740;
+  --color-card: #0e162a;
+
+  --color-primary: #2f7bdb;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #4aa0ec;
+  --color-secondary-foreground: #06132a;
+  --color-accent: #e2bf55;
+  --color-accent-foreground: #1a1405;
+
+  --color-success: #22c55e;
+  --color-ring: #4aa0ec;
+}
+
+@theme inline {
+  --color-background: var(--color-background);
+  --color-section: var(--color-section);
+  --color-foreground: var(--color-foreground);
+  --color-muted: var(--color-muted);
+  --color-muted-foreground: var(--color-muted-foreground);
+  --color-border: var(--color-border);
+  --color-card: var(--color-card);
+
+  --color-primary: var(--color-primary);
+  --color-primary-foreground: var(--color-primary-foreground);
+  --color-secondary: var(--color-secondary);
+  --color-secondary-foreground: var(--color-secondary-foreground);
+  --color-accent: var(--color-accent);
+  --color-accent-foreground: var(--color-accent-foreground);
+  --color-success: var(--color-success);
+  --color-ring: var(--color-ring);
+
+  /* --font-cairo / --font-inter are injected at runtime by next/font/google
+     on the <html> element (see app/layout.tsx); `inline` keeps this a
+     live var() reference instead of baking a build-time value. */
+  --font-cairo: var(--font-cairo);
+  --font-inter: var(--font-inter);
+
+  --animate-fade-up: fade-up 0.7s ease-out both;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.5s linear infinite;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-14px);
+    }
+  }
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes slide-out-right {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-cairo), var(--font-inter), system-ui, sans-serif;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-accent-foreground);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .bg-glass {
+    background: color-mix(in srgb, var(--color-card) 65%, transparent);
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+  }
+
+  /* Self-contained (not paired with Tailwind's bg-clip-text/text-transparent):
+     the `background` shorthand below resets background-clip to its default
+     any time it's set, so pairing this with a separate bg-clip-text utility
+     is cascade-order-dependent and silently breaks — this bundles clip +
+     transparent fill in the same rule instead. */
+  .text-gold-shimmer {
+    background: linear-gradient(
+      110deg,
+      var(--color-accent) 20%,
+      #f7e08c 40%,
+      var(--color-accent) 60%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 3s linear infinite;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+}
