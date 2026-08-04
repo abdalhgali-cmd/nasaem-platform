@@ -1,6 +1,8 @@
 import { createOrderSchema, updateOrderStatusSchema } from "./orders.validators.js";
 import { createOrder, getOrderById, listOrders, updateOrderStatus } from "./orders.service.js";
 import { parsePagination } from "../../utils/pagination.js";
+import { logActivity } from "../../utils/activityLog.js";
+import { createNotification } from "../../utils/notifications.js";
 
 export async function getOrders(req, res, next) {
   try {
@@ -54,6 +56,24 @@ export async function storeOrder(req, res, next) {
 
     const order = await createOrder(parsed.data, req.user?.id);
 
+    logActivity({
+      userId: req.user?.id,
+      action: "ORDER_CREATED",
+      entity: "Order",
+      entityId: order.id,
+      req,
+    });
+
+    if (order.assignedUserId && order.assignedUserId !== req.user?.id) {
+      createNotification({
+        title: "طلب جديد مُسند إليك",
+        message: `تم إسناد الطلب ${order.orderNumber} إليك`,
+        type: "ORDER_ASSIGNED",
+        userId: order.assignedUserId,
+        orderId: order.id,
+      });
+    }
+
     return res.status(201).json({
       success: true,
       message: "Order created successfully",
@@ -83,6 +103,24 @@ export async function changeOrderStatus(req, res, next) {
       return res.status(404).json({
         success: false,
         message: "Order not found",
+      });
+    }
+
+    logActivity({
+      userId: req.user?.id,
+      action: "ORDER_STATUS_CHANGED",
+      entity: "Order",
+      entityId: order.id,
+      req,
+    });
+
+    if (order.assignedUserId && order.assignedUserId !== req.user?.id) {
+      createNotification({
+        title: "تحديث حالة الطلب",
+        message: `تم تغيير حالة الطلب ${order.orderNumber} إلى ${order.status}`,
+        type: "ORDER_STATUS_CHANGED",
+        userId: order.assignedUserId,
+        orderId: order.id,
       });
     }
 

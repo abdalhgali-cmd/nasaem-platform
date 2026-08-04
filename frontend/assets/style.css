@@ -75,6 +75,63 @@ a {
   opacity: 0.9;
 }
 
+.notif-wrap {
+  position: relative;
+}
+
+.notif-wrap button#notif-btn {
+  position: relative;
+  font-size: 1rem;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  background: var(--color-danger);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  line-height: 1.3;
+}
+
+.notif-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 300px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 20;
+  direction: rtl;
+}
+
+.notif-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.85rem;
+}
+
+.notif-item:last-child {
+  border-bottom: none;
+}
+
+.notif-item p {
+  margin: 4px 0;
+  color: var(--color-muted);
+}
+
+.notif-item.unread {
+  background: #ecfdf5;
+  cursor: pointer;
+}
+
 main {
   max-width: 1080px;
   margin: 0 auto;

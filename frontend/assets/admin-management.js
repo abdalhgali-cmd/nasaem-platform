@@ -1,6 +1,17 @@
 const mgmtState = {
   wired: false,
   services: { page: 1, limit: 10 },
+  activity: { page: 1, limit: 15 },
+};
+
+const ACTIVITY_ACTION_LABELS_AR = {
+  LOGIN: "تسجيل دخول",
+  LOGOUT: "تسجيل خروج",
+  ORDER_CREATED: "إنشاء طلب",
+  ORDER_STATUS_CHANGED: "تغيير حالة طلب",
+  PAYMENT_RECORDED: "تسجيل دفعة",
+  USER_CREATED: "إنشاء مستخدم",
+  USER_STATUS_CHANGED: "تغيير حالة مستخدم",
 };
 
 function mgmtCanWrite(entity) {
@@ -53,6 +64,7 @@ function wireManagementTabs() {
   el("service-create-btn").addEventListener("click", createService);
   el("offer-create-btn").addEventListener("click", createOffer);
   el("user-create-btn").addEventListener("click", createUserAccount);
+  el("setting-save-btn").addEventListener("click", saveSetting);
 
   el("branches-body").addEventListener("click", handleBranchRowClick);
   el("suppliers-body").addEventListener("click", handleSupplierRowClick);
@@ -65,7 +77,7 @@ function activateMgmtSubTab(key) {
   document.querySelectorAll("#mgmt-tabs button").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.mgmt === key);
   });
-  ["branches", "suppliers", "services", "offers", "users"].forEach((k) => {
+  ["branches", "suppliers", "services", "offers", "users", "settings", "activity"].forEach((k) => {
     el(`mgmt-${k}`).classList.toggle("hidden", k !== key);
   });
   loadActiveMgmtSubTab();
@@ -83,6 +95,8 @@ function loadActiveMgmtSubTab() {
   if (tab === "services") loadServices();
   if (tab === "offers") loadOffers();
   if (tab === "users") loadUsers();
+  if (tab === "settings") loadSettings();
+  if (tab === "activity") loadActivityLogs();
 }
 
 const mgmtAlert = () => el("mgmt-alert");
@@ -357,4 +371,63 @@ function handleUserRowClick(e) {
     .patch(`/users/${btn.dataset.toggleUser}/status`, { status: nextStatus })
     .then(loadUsers)
     .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Settings ---
+
+async function loadSettings() {
+  try {
+    const { data } = await api.get("/settings");
+    el("settings-body").innerHTML = data
+      .map(
+        (s) => `<tr><td>${s.key}</td><td>${s.value}</td><td>${formatDate(s.updatedAt)}</td></tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function saveSetting() {
+  showAlert(mgmtAlert(), "");
+  const key = el("set-key").value.trim();
+  const value = el("set-value").value.trim();
+  if (!key || !value) return showAlert(mgmtAlert(), "المفتاح والقيمة مطلوبان.");
+
+  try {
+    await api.post("/settings", { key, value });
+    el("set-key").value = "";
+    el("set-value").value = "";
+    loadSettings();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+// --- Activity log ---
+
+async function loadActivityLogs() {
+  try {
+    const { page, limit } = mgmtState.activity;
+    const { data, meta } = await api.get(`/activity-logs?page=${page}&limit=${limit}`);
+
+    el("activity-body").innerHTML = data
+      .map(
+        (log) => `
+        <tr>
+          <td>${log.user ? log.user.fullName : "-"}</td>
+          <td>${ACTIVITY_ACTION_LABELS_AR[log.action] || log.action}</td>
+          <td>${log.entity}${log.entityId ? " #" + log.entityId.slice(-6) : ""}</td>
+          <td>${formatDate(log.createdAt)}</td>
+        </tr>`
+      )
+      .join("");
+
+    renderPagination("activity-pagination", meta, (page) => {
+      mgmtState.activity.page = page;
+      loadActivityLogs();
+    });
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
 }

@@ -101,6 +101,8 @@
         <button type="button" data-mgmt="services">الخدمات</button>
         <button type="button" data-mgmt="offers">العروض</button>
         <button type="button" data-mgmt="users">المستخدمون</button>
+        <button type="button" data-mgmt="settings">الإعدادات</button>
+        <button type="button" data-mgmt="activity">سجل النشاط</button>
       </div>
 
       <div id="mgmt-alert"></div>
@@ -220,6 +222,38 @@
             <thead><tr><th>الرقم الوظيفي</th><th>الاسم</th><th>البريد</th><th>الدور</th><th>الحالة</th><th></th></tr></thead>
             <tbody id="users-body"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div id="mgmt-settings" class="hidden">
+        <div class="card">
+          <h2>إعداد جديد / تعديل إعداد</h2>
+          <p class="muted">إدخال مفتاح موجود بالفعل يُحدّث قيمته بدل إنشاء إعداد جديد.</p>
+          <div class="grid cols-2">
+            <div class="field"><label for="set-key">المفتاح *</label><input id="set-key" /></div>
+            <div class="field"><label for="set-value">القيمة *</label><input id="set-value" /></div>
+          </div>
+          <button type="button" class="btn" id="setting-save-btn">حفظ</button>
+        </div>
+        <div class="card">
+          <h2>الإعدادات الحالية</h2>
+          <table>
+            <thead><tr><th>المفتاح</th><th>القيمة</th><th>آخر تحديث</th></tr></thead>
+            <tbody id="settings-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Activity log -->
+      <div id="mgmt-activity" class="hidden">
+        <div class="card">
+          <h2>سجل النشاط</h2>
+          <table>
+            <thead><tr><th>المستخدم</th><th>الإجراء</th><th>الكيان</th><th>التاريخ</th></tr></thead>
+            <tbody id="activity-body"></tbody>
+          </table>
+          <div class="pagination" id="activity-pagination"></div>
         </div>
       </div>
     </section>

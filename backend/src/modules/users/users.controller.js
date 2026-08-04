@@ -1,5 +1,6 @@
 import { createUserSchema, updateUserStatusSchema } from "./users.validators.js";
 import { changeUserStatus, createUser, getUserById, listUsers } from "./users.service.js";
+import { logActivity } from "../../utils/activityLog.js";
 
 export async function getUsers(req, res, next) {
   try {
@@ -49,6 +50,14 @@ export async function storeUser(req, res, next) {
 
     const user = await createUser(parsed.data);
 
+    logActivity({
+      userId: req.user?.id,
+      action: "USER_CREATED",
+      entity: "User",
+      entityId: user.id,
+      req,
+    });
+
     return res.status(201).json({
       success: true,
       message: "User created successfully",
@@ -73,6 +82,14 @@ export async function updateStatus(req, res, next) {
     }
 
     const user = await changeUserStatus(id, parsed.data.status);
+
+    logActivity({
+      userId: req.user?.id,
+      action: "USER_STATUS_CHANGED",
+      entity: "User",
+      entityId: id,
+      req,
+    });
 
     return res.status(200).json({
       success: true,

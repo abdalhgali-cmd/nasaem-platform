@@ -13,6 +13,8 @@ import branchRoutes from "../modules/branches/branches.routes.js";
 import supplierRoutes from "../modules/suppliers/suppliers.routes.js";
 import userRoutes from "../modules/users/users.routes.js";
 import serviceRoutes from "../modules/services/services.routes.js";
+import activityRoutes from "../modules/activity/activity.routes.js";
+import notificationRoutes from "../modules/notifications/notifications.routes.js";
 
 const router = Router();
 
@@ -50,5 +52,7 @@ router.use("/dashboard", dashboardRoutes);
 router.use("/branches", branchRoutes);
 router.use("/suppliers", supplierRoutes);
 router.use("/services", serviceRoutes);
+router.use("/activity-logs", activityRoutes);
+router.use("/notifications", notificationRoutes);
 
 export default router;
