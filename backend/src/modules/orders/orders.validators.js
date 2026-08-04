@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ORDER_PRIORITIES, SUPPORTED_CURRENCIES } from "../../utils/enums.js";
 
 const orderItemSchema = z.object({
   serviceId: z.string().min(1, "Service is required"),
@@ -11,8 +12,8 @@ export const createOrderSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
   assignedUserId: z.string().min(1).optional().nullable(),
   branchId: z.string().min(1).optional().nullable(),
-  currency: z.string().min(2).default("SAR"),
-  priority: z.string().default("NORMAL"),
+  currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
+  priority: z.enum(ORDER_PRIORITIES).default("NORMAL"),
   items: z.array(orderItemSchema).min(1, "At least one order item is required"),
 });
 

@@ -1,13 +1,15 @@
 import { createPaymentSchema } from "./payments.validators.js";
 import { createPayment, getPaymentById, listPayments } from "./payments.service.js";
+import { parsePagination } from "../../utils/pagination.js";
 
 export async function getPayments(req, res, next) {
   try {
-    const payments = await listPayments();
+    const { data, meta } = await listPayments(parsePagination(req.query));
 
     return res.status(200).json({
       success: true,
-      data: payments,
+      data,
+      meta,
     });
   } catch (error) {
     next(error);

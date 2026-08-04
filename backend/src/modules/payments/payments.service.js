@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../../config/database.js";
+import { buildPaginationMeta } from "../../utils/pagination.js";
 
 function toDecimal(value) {
   return new Prisma.Decimal(Number(value || 0).toFixed(2));
@@ -39,15 +40,22 @@ async function recalculateOrderPaymentStatus(db, orderId) {
   return paymentStatus;
 }
 
-export async function listPayments() {
-  return prisma.payment.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      order: {
-        include: { customer: true },
+export async function listPayments({ page, limit, skip }) {
+  const [data, total] = await Promise.all([
+    prisma.payment.findMany({
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: {
+        order: {
+          include: { customer: true },
+        },
       },
-    },
-  });
+    }),
+    prisma.payment.count(),
+  ]);
+
+  return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function getPaymentById(id) {

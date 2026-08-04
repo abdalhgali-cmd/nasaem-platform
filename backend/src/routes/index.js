@@ -12,6 +12,7 @@ import dashboardRoutes from "../modules/dashboard/dashboard.routes.js";
 import branchRoutes from "../modules/branches/branches.routes.js";
 import supplierRoutes from "../modules/suppliers/suppliers.routes.js";
 import userRoutes from "../modules/users/users.routes.js";
+import serviceRoutes from "../modules/services/services.routes.js";
 
 const router = Router();
 
@@ -48,5 +49,6 @@ router.use("/settings", settingsRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/branches", branchRoutes);
 router.use("/suppliers", supplierRoutes);
+router.use("/services", serviceRoutes);
 
 export default router;

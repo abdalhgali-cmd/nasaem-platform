@@ -1,5 +1,5 @@
-import { createOfferSchema } from "./offers.validators.js";
-import { createOffer, getOfferById, listOffers } from "./offers.service.js";
+import { createOfferSchema, updateOfferSchema } from "./offers.validators.js";
+import { createOffer, getOfferById, listOffers, updateOffer } from "./offers.service.js";
 
 export async function getOffers(req, res, next) {
   try {
@@ -52,6 +52,38 @@ export async function storeOffer(req, res, next) {
     return res.status(201).json({
       success: true,
       message: "Offer created successfully",
+      data: offer,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function patchOffer(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = updateOfferSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const offer = await updateOffer(id, parsed.data);
+
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Offer updated successfully",
       data: offer,
     });
   } catch (error) {

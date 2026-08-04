@@ -1,15 +1,27 @@
+import fs from "fs/promises";
+import path from "path";
 import prisma from "../../config/database.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
+import { buildPaginationMeta } from "../../utils/pagination.js";
 
-export async function listDocuments() {
-  return prisma.document.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      order: true,
-      customer: true,
-      uploadedBy: { select: safeUserSelect },
-    },
-  });
+const UPLOAD_ROOT = path.resolve("uploads");
+
+export async function listDocuments({ page, limit, skip }) {
+  const [data, total] = await Promise.all([
+    prisma.document.findMany({
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: {
+        order: true,
+        customer: true,
+        uploadedBy: { select: safeUserSelect },
+      },
+    }),
+    prisma.document.count(),
+  ]);
+
+  return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function getDocumentById(id) {
@@ -41,4 +53,22 @@ export async function createDocument(data) {
       uploadedBy: { select: safeUserSelect },
     },
   });
+}
+
+export async function deleteDocument(id) {
+  const document = await prisma.document.findUnique({ where: { id } });
+
+  if (!document) {
+    return null;
+  }
+
+  await prisma.document.delete({ where: { id } });
+
+  const absolutePath = path.join(UPLOAD_ROOT, document.storagePath);
+
+  // Best-effort cleanup: if the file is already missing, that's fine — the
+  // DB row is the source of truth and it's already been removed above.
+  await fs.unlink(absolutePath).catch(() => {});
+
+  return document;
 }

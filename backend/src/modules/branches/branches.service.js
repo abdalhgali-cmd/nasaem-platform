@@ -32,3 +32,16 @@ export async function createBranch(data) {
     },
   });
 }
+
+export async function updateBranch(id, data) {
+  const existing = await prisma.branch.findUnique({ where: { id } });
+
+  if (!existing) {
+    return null;
+  }
+
+  return prisma.branch.update({
+    where: { id },
+    data,
+  });
+}

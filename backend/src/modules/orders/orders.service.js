@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "../../config/database.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
+import { buildPaginationMeta } from "../../utils/pagination.js";
 
 function toDecimal(value) {
   return new Prisma.Decimal(Number(value || 0).toFixed(2));
@@ -31,19 +32,27 @@ async function generateOrderNumber() {
   return `NH-${year}-${String(nextNumber).padStart(6, "0")}`;
 }
 
-export async function listOrders() {
-  return prisma.order.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      customer: true,
-      assignedUser: { select: safeUserSelect },
-      items: {
-        include: { service: true },
+// The list view intentionally omits items/payments/history (available on
+// getOrderById) to avoid pulling deeply nested relations for every row on
+// every page load.
+export async function listOrders({ page, limit, skip, status }) {
+  const where = status ? { status } : undefined;
+
+  const [data, total] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: {
+        customer: true,
+        assignedUser: { select: safeUserSelect },
       },
-      payments: true,
-      history: true,
-    },
-  });
+    }),
+    prisma.order.count({ where }),
+  ]);
+
+  return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function getOrderById(id) {

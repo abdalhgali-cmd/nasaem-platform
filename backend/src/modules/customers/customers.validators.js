@@ -13,3 +13,5 @@ export const createCustomerSchema = z.object({
   address: z.string().optional(),
   notes: z.string().optional(),
 });
+
+export const updateCustomerSchema = createCustomerSchema.partial();

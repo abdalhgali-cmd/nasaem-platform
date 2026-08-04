@@ -1,14 +1,16 @@
 import path from "path";
 import { createDocumentSchema } from "./documents.validators.js";
-import { createDocument, getDocumentById, listDocuments } from "./documents.service.js";
+import { createDocument, deleteDocument, getDocumentById, listDocuments } from "./documents.service.js";
+import { parsePagination } from "../../utils/pagination.js";
 
 export async function getDocuments(req, res, next) {
   try {
-    const documents = await listDocuments();
+    const { data, meta } = await listDocuments(parsePagination(req.query));
 
     return res.status(200).json({
       success: true,
-      data: documents,
+      data,
+      meta,
     });
   } catch (error) {
     next(error);
@@ -70,6 +72,27 @@ export async function storeDocument(req, res, next) {
       success: true,
       message: "Document created successfully",
       data: document,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function removeDocument(req, res, next) {
+  try {
+    const { id } = req.params;
+    const document = await deleteDocument(id);
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Document removed successfully",
     });
   } catch (error) {
     next(error);

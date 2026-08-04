@@ -1,5 +1,6 @@
 import prisma from "../../config/database.js";
 import { nextSequence } from "../../utils/sequence.js";
+import { buildPaginationMeta } from "../../utils/pagination.js";
 
 function toDateOrNull(value) {
   if (!value) return null;
@@ -12,10 +13,28 @@ async function generateCustomerNo() {
   return `CUS-${String(nextNumber).padStart(6, "0")}`;
 }
 
-export async function listCustomers() {
-  return prisma.customer.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+export async function listCustomers({ page, limit, skip, search }) {
+  const where = search
+    ? {
+        OR: [
+          { fullName: { contains: search, mode: "insensitive" } },
+          { passportNo: { contains: search, mode: "insensitive" } },
+          { customerNo: { contains: search, mode: "insensitive" } },
+        ],
+      }
+    : undefined;
+
+  const [data, total] = await Promise.all([
+    prisma.customer.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    }),
+    prisma.customer.count({ where }),
+  ]);
+
+  return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function getCustomerById(id) {
@@ -45,6 +64,22 @@ export async function createCustomer(data) {
       city: data.city || null,
       address: data.address || null,
       notes: data.notes || null,
+    },
+  });
+}
+
+export async function updateCustomer(id, data) {
+  const existing = await prisma.customer.findUnique({ where: { id } });
+
+  if (!existing) {
+    return null;
+  }
+
+  return prisma.customer.update({
+    where: { id },
+    data: {
+      ...data,
+      birthDate: "birthDate" in data ? toDateOrNull(data.birthDate) : undefined,
     },
   });
 }

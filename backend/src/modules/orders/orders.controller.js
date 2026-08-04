@@ -1,13 +1,18 @@
 import { createOrderSchema, updateOrderStatusSchema } from "./orders.validators.js";
 import { createOrder, getOrderById, listOrders, updateOrderStatus } from "./orders.service.js";
+import { parsePagination } from "../../utils/pagination.js";
 
 export async function getOrders(req, res, next) {
   try {
-    const orders = await listOrders();
+    const { data, meta } = await listOrders({
+      ...parsePagination(req.query),
+      status: req.query.status,
+    });
 
     return res.status(200).json({
       success: true,
-      data: orders,
+      data,
+      meta,
     });
   } catch (error) {
     next(error);
