@@ -11,6 +11,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nasaem_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build:
@@ -22,8 +27,12 @@ services:
     ports:
       - "5000:5000"
     depends_on:
-      - postgres
-    command: sh -c "npx prisma generate && npm run dev"
+      postgres:
+        condition: service_healthy
+    # prisma migrate deploy applies the committed migrations in
+    # backend/prisma/migrations/ — it does NOT create/edit migrations,
+    # so it's safe to run on every container start.
+    command: sh -c "npx prisma migrate deploy && npm run dev"
 
 volumes:
   postgres_data:

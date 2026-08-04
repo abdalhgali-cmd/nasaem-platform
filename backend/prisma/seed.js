@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import prisma from "../src/config/database.js";
+import { nextSequence } from "../src/utils/sequence.js";
 
 async function main() {
   const email = "admin@nasaem-platform.local";
@@ -11,11 +12,20 @@ async function main() {
     return;
   }
 
-  const passwordHash = await bcrypt.hash("Admin@12345", 12);
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD;
+
+  if (!seedPassword) {
+    throw new Error(
+      "SEED_ADMIN_PASSWORD is not set. Set it in your .env before running the seed script."
+    );
+  }
+
+  const passwordHash = await bcrypt.hash(seedPassword, 12);
+  const employeeNo = `EMP-${String(await nextSequence("employee")).padStart(4, "0")}`;
 
   const superAdmin = await prisma.user.create({
     data: {
-      employeeNo: "EMP-0001",
+      employeeNo,
       fullName: "Super Admin",
       email,
       phone: "+0000000000",
@@ -26,6 +36,7 @@ async function main() {
   });
 
   console.log("Super admin created:", superAdmin.email);
+  console.log("Remember to change this password after the first login.");
 }
 
 main()

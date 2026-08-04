@@ -402,3 +402,12 @@ model Setting {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
+
+// Used to generate sequential human-readable numbers (order/customer/employee)
+// via an atomic single-statement upsert, instead of count()-based generation
+// which is subject to race conditions under concurrent requests.
+model Counter {
+  key       String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}

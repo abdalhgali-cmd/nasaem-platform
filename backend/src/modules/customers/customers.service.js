@@ -1,4 +1,5 @@
 import prisma from "../../config/database.js";
+import { nextSequence } from "../../utils/sequence.js";
 
 function toDateOrNull(value) {
   if (!value) return null;
@@ -7,8 +8,7 @@ function toDateOrNull(value) {
 }
 
 async function generateCustomerNo() {
-  const count = await prisma.customer.count();
-  const nextNumber = count + 1;
+  const nextNumber = await nextSequence("customer");
   return `CUS-${String(nextNumber).padStart(6, "0")}`;
 }
 

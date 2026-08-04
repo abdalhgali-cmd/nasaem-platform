@@ -1,10 +1,11 @@
 import prisma from "../../config/database.js";
+import { safeUserSelect } from "../../utils/safeSelects.js";
 
 export async function listBranches() {
   return prisma.branch.findMany({
     orderBy: { createdAt: "desc" },
     include: {
-      users: true,
+      users: { select: safeUserSelect },
       orders: true,
     },
   });
@@ -14,7 +15,7 @@ export async function getBranchById(id) {
   return prisma.branch.findUnique({
     where: { id },
     include: {
-      users: true,
+      users: { select: safeUserSelect },
       orders: true,
     },
   });

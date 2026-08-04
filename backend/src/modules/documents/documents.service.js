@@ -1,4 +1,5 @@
 import prisma from "../../config/database.js";
+import { safeUserSelect } from "../../utils/safeSelects.js";
 
 export async function listDocuments() {
   return prisma.document.findMany({
@@ -6,7 +7,7 @@ export async function listDocuments() {
     include: {
       order: true,
       customer: true,
-      uploadedBy: true,
+      uploadedBy: { select: safeUserSelect },
     },
   });
 }
@@ -17,7 +18,7 @@ export async function getDocumentById(id) {
     include: {
       order: true,
       customer: true,
-      uploadedBy: true,
+      uploadedBy: { select: safeUserSelect },
     },
   });
 }
@@ -37,7 +38,7 @@ export async function createDocument(data) {
     include: {
       order: true,
       customer: true,
-      uploadedBy: true,
+      uploadedBy: { select: safeUserSelect },
     },
   });
 }

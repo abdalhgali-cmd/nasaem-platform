@@ -5,14 +5,20 @@ function toDecimal(value) {
   return new Prisma.Decimal(Number(value || 0).toFixed(2));
 }
 
-async function recalculateOrderPaymentStatus(orderId) {
-  const order = await prisma.order.findUnique({
+// IMPORTANT: `db` must be the transaction client (`tx`) passed down from
+// createPayment's `prisma.$transaction(...)` callback, not the module-level
+// `prisma` client. The plain client runs its own queries outside the open
+// transaction, so it can't see writes the transaction hasn't committed yet
+// (e.g. the payment just created) and silently recalculates against stale
+// data — which is what was happening before this fix.
+async function recalculateOrderPaymentStatus(db, orderId) {
+  const order = await db.order.findUnique({
     where: { id: orderId },
     select: { totalAmount: true },
   });
 
-  const payments = await prisma.payment.findMany({
-    where: { orderId },
+  const payments = await db.payment.findMany({
+    where: { orderId, status: { not: "REFUNDED" } },
     select: { amount: true, status: true },
   });
 
@@ -25,7 +31,7 @@ async function recalculateOrderPaymentStatus(orderId) {
     paymentStatus = "PARTIAL";
   }
 
-  await prisma.order.update({
+  await db.order.update({
     where: { id: orderId },
     data: { paymentStatus },
   });
@@ -76,15 +82,19 @@ export async function createPayment(data) {
         status: data.status || "PAID",
         paidAt: data.paidAt ? new Date(data.paidAt) : new Date(),
       },
+    });
+
+    await recalculateOrderPaymentStatus(tx, data.orderId);
+
+    // Re-fetch with the order relation now that the transaction has applied
+    // the recalculated paymentStatus, so the response reflects reality.
+    return tx.payment.findUnique({
+      where: { id: payment.id },
       include: {
         order: {
           include: { customer: true },
         },
       },
     });
-
-    await recalculateOrderPaymentStatus(data.orderId);
-
-    return payment;
   });
 }

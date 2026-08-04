@@ -1,14 +1,33 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../../config/database.js";
+import { nextSequence } from "../../utils/sequence.js";
+import { safeUserSelect } from "../../utils/safeSelects.js";
 
 function toDecimal(value) {
   return new Prisma.Decimal(Number(value || 0).toFixed(2));
 }
 
+// Allowed forward/back transitions between order statuses. COMPLETED,
+// REJECTED and CANCELLED are terminal — no further transitions from them.
+const ORDER_STATUS_TRANSITIONS = {
+  NEW: ["UNDER_REVIEW", "CANCELLED"],
+  UNDER_REVIEW: ["WAITING_DOCUMENTS", "PAYMENT_PENDING", "REJECTED", "CANCELLED"],
+  WAITING_DOCUMENTS: ["UNDER_REVIEW", "PAYMENT_PENDING", "REJECTED", "CANCELLED"],
+  PAYMENT_PENDING: ["PROCESSING", "REJECTED", "CANCELLED"],
+  PROCESSING: ["APPROVED", "REJECTED", "CANCELLED"],
+  APPROVED: ["COMPLETED", "CANCELLED"],
+  COMPLETED: [],
+  REJECTED: [],
+  CANCELLED: [],
+};
+
+export function isValidOrderStatusTransition(fromStatus, toStatus) {
+  return (ORDER_STATUS_TRANSITIONS[fromStatus] || []).includes(toStatus);
+}
+
 async function generateOrderNumber() {
-  const count = await prisma.order.count();
-  const nextNumber = count + 1;
   const year = new Date().getFullYear();
+  const nextNumber = await nextSequence(`order-${year}`);
   return `NH-${year}-${String(nextNumber).padStart(6, "0")}`;
 }
 
@@ -17,7 +36,7 @@ export async function listOrders() {
     orderBy: { createdAt: "desc" },
     include: {
       customer: true,
-      assignedUser: true,
+      assignedUser: { select: safeUserSelect },
       items: {
         include: { service: true },
       },
@@ -32,7 +51,7 @@ export async function getOrderById(id) {
     where: { id },
     include: {
       customer: true,
-      assignedUser: true,
+      assignedUser: { select: safeUserSelect },
       items: {
         include: { service: true },
       },
@@ -97,7 +116,7 @@ export async function createOrder(data, actorUserId = null) {
       },
       include: {
         customer: true,
-        assignedUser: true,
+        assignedUser: { select: safeUserSelect },
         items: {
           include: { service: true },
         },
@@ -124,6 +143,14 @@ export async function updateOrderStatus(orderId, status, changedByUserId, notes 
       return null;
     }
 
+    if (!isValidOrderStatusTransition(currentOrder.status, status)) {
+      const error = new Error(
+        `Cannot change order status from ${currentOrder.status} to ${status}`
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
     return tx.order.update({
       where: { id: orderId },
       data: {
@@ -139,7 +166,7 @@ export async function updateOrderStatus(orderId, status, changedByUserId, notes 
       },
       include: {
         customer: true,
-        assignedUser: true,
+        assignedUser: { select: safeUserSelect },
         items: {
           include: { service: true },
         },
