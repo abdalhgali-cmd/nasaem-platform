@@ -1,5 +1,5 @@
-import { createBranchSchema } from "./branches.validators.js";
-import { createBranch, getBranchById, listBranches } from "./branches.service.js";
+import { createBranchSchema, updateBranchSchema } from "./branches.validators.js";
+import { createBranch, getBranchById, listBranches, updateBranch } from "./branches.service.js";
 
 export async function getBranches(req, res, next) {
   try {
@@ -52,6 +52,38 @@ export async function storeBranch(req, res, next) {
     return res.status(201).json({
       success: true,
       message: "Branch created successfully",
+      data: branch,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function patchBranch(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = updateBranchSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const branch = await updateBranch(id, parsed.data);
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Branch updated successfully",
       data: branch,
     });
   } catch (error) {

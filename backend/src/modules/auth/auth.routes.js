@@ -1,11 +1,26 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 
-import { login, me } from "./auth.controller.js";
+import { login, logout, me } from "./auth.controller.js";
 import { requireAuth } from "../../middleware/auth.middleware.js";
 
 const router = Router();
 
-router.post("/login", login);
+// Stricter than the app-wide limiter (app.js) to slow down credential
+// stuffing / brute-force attempts against employee accounts specifically.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many login attempts. Please try again later.",
+  },
+});
+
+router.post("/login", loginLimiter, login);
+router.post("/logout", requireAuth, logout);
 router.get("/me", requireAuth, me);
 
 export default router;

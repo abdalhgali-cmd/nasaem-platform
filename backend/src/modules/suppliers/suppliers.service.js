@@ -25,3 +25,16 @@ export async function createSupplier(data) {
     },
   });
 }
+
+export async function updateSupplier(id, data) {
+  const existing = await prisma.supplier.findUnique({ where: { id } });
+
+  if (!existing) {
+    return null;
+  }
+
+  return prisma.supplier.update({
+    where: { id },
+    data,
+  });
+}

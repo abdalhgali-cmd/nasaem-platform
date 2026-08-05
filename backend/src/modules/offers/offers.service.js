@@ -30,3 +30,20 @@ export async function createOffer(data) {
     },
   });
 }
+
+export async function updateOffer(id, data) {
+  const existing = await prisma.offer.findUnique({ where: { id } });
+
+  if (!existing) {
+    return null;
+  }
+
+  return prisma.offer.update({
+    where: { id },
+    data: {
+      ...data,
+      startDate: "startDate" in data ? toDateOrNull(data.startDate) : undefined,
+      endDate: "endDate" in data ? toDateOrNull(data.endDate) : undefined,
+    },
+  });
+}

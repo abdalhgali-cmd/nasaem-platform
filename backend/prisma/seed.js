@@ -1,7 +1,23 @@
 import bcrypt from "bcryptjs";
 import prisma from "../src/config/database.js";
+import { nextSequence } from "../src/utils/sequence.js";
 
-async function main() {
+// Mirrors the category keys in frontend/assets/services-data.js so the
+// staff "new request" page can resolve a real Service.id (needed by
+// POST /api/orders) from the category the employee picks in the UI.
+const SERVICE_CATEGORIES = [
+  { code: "SVC-FLIGHT", name: "تذاكر الطيران", category: "flight" },
+  { code: "SVC-HOTEL", name: "حجز الفنادق", category: "hotel" },
+  { code: "SVC-UMRAH", name: "خدمات العمرة", category: "umrah" },
+  { code: "SVC-FAMILY-VISIT", name: "تأشيرة الزيارة العائلية", category: "family_visit" },
+  { code: "SVC-WORK-VISA", name: "تأشيرة العمل", category: "work_visa" },
+  { code: "SVC-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", category: "egypt_clearance" },
+  { code: "SVC-FERRY", name: "حجز العبارات", category: "ferry" },
+  { code: "SVC-INTL-VISA", name: "التأشيرات الدولية", category: "intl_visa" },
+  { code: "SVC-TASHEEL", name: "حجز مواعيد تساهيل", category: "tasheel" },
+];
+
+async function seedSuperAdmin() {
   const email = "admin@nasaem-platform.local";
 
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -11,11 +27,20 @@ async function main() {
     return;
   }
 
-  const passwordHash = await bcrypt.hash("Admin@12345", 12);
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD;
+
+  if (!seedPassword) {
+    throw new Error(
+      "SEED_ADMIN_PASSWORD is not set. Set it in your .env before running the seed script."
+    );
+  }
+
+  const passwordHash = await bcrypt.hash(seedPassword, 12);
+  const employeeNo = `EMP-${String(await nextSequence("employee")).padStart(4, "0")}`;
 
   const superAdmin = await prisma.user.create({
     data: {
-      employeeNo: "EMP-0001",
+      employeeNo,
       fullName: "Super Admin",
       email,
       phone: "+0000000000",
@@ -26,6 +51,32 @@ async function main() {
   });
 
   console.log("Super admin created:", superAdmin.email);
+  console.log("Remember to change this password after the first login.");
+}
+
+async function seedServiceCategories() {
+  for (const svc of SERVICE_CATEGORIES) {
+    await prisma.service.upsert({
+      where: { code: svc.code },
+      update: {},
+      create: {
+        code: svc.code,
+        name: svc.name,
+        category: svc.category,
+        basePrice: 0,
+        currency: "SAR",
+      },
+    });
+  }
+
+  console.log(`Seeded ${SERVICE_CATEGORIES.length} service categories.`);
+}
+
+async function main() {
+  // Runs on every seed invocation (idempotent via upsert), independent of
+  // whether the super admin already exists.
+  await seedSuperAdmin();
+  await seedServiceCategories();
 }
 
 main()

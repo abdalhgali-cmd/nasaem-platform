@@ -1,9 +1,9 @@
 import prisma from "../../config/database.js";
 import { hashPassword } from "../../utils/password.js";
+import { nextSequence } from "../../utils/sequence.js";
 
 async function generateEmployeeNo() {
-  const count = await prisma.user.count();
-  const nextNumber = count + 1;
+  const nextNumber = await nextSequence("employee");
   return `EMP-${String(nextNumber).padStart(4, "0")}`;
 }
 

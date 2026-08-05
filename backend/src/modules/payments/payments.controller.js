@@ -1,13 +1,17 @@
 import { createPaymentSchema } from "./payments.validators.js";
 import { createPayment, getPaymentById, listPayments } from "./payments.service.js";
+import { parsePagination } from "../../utils/pagination.js";
+import { logActivity } from "../../utils/activityLog.js";
+import { createNotification } from "../../utils/notifications.js";
 
 export async function getPayments(req, res, next) {
   try {
-    const payments = await listPayments();
+    const { data, meta } = await listPayments(parsePagination(req.query));
 
     return res.status(200).json({
       success: true,
-      data: payments,
+      data,
+      meta,
     });
   } catch (error) {
     next(error);
@@ -53,6 +57,25 @@ export async function storePayment(req, res, next) {
       return res.status(404).json({
         success: false,
         message: "Order not found",
+      });
+    }
+
+    logActivity({
+      userId: req.user?.id,
+      action: "PAYMENT_RECORDED",
+      entity: "Payment",
+      entityId: payment.id,
+      req,
+    });
+
+    const assignedUserId = payment.order?.assignedUserId;
+    if (assignedUserId && assignedUserId !== req.user?.id) {
+      createNotification({
+        title: "دفعة جديدة",
+        message: `تم تسجيل دفعة بقيمة ${payment.amount} ${payment.currency} على الطلب ${payment.order.orderNumber}`,
+        type: "PAYMENT_RECORDED",
+        userId: assignedUserId,
+        orderId: payment.orderId,
       });
     }
 

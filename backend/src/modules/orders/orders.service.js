@@ -1,30 +1,58 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../../config/database.js";
+import { nextSequence } from "../../utils/sequence.js";
+import { safeUserSelect } from "../../utils/safeSelects.js";
+import { buildPaginationMeta } from "../../utils/pagination.js";
 
 function toDecimal(value) {
   return new Prisma.Decimal(Number(value || 0).toFixed(2));
 }
 
+// Allowed forward/back transitions between order statuses. COMPLETED,
+// REJECTED and CANCELLED are terminal — no further transitions from them.
+const ORDER_STATUS_TRANSITIONS = {
+  NEW: ["UNDER_REVIEW", "CANCELLED"],
+  UNDER_REVIEW: ["WAITING_DOCUMENTS", "PAYMENT_PENDING", "REJECTED", "CANCELLED"],
+  WAITING_DOCUMENTS: ["UNDER_REVIEW", "PAYMENT_PENDING", "REJECTED", "CANCELLED"],
+  PAYMENT_PENDING: ["PROCESSING", "REJECTED", "CANCELLED"],
+  PROCESSING: ["APPROVED", "REJECTED", "CANCELLED"],
+  APPROVED: ["COMPLETED", "CANCELLED"],
+  COMPLETED: [],
+  REJECTED: [],
+  CANCELLED: [],
+};
+
+export function isValidOrderStatusTransition(fromStatus, toStatus) {
+  return (ORDER_STATUS_TRANSITIONS[fromStatus] || []).includes(toStatus);
+}
+
 async function generateOrderNumber() {
-  const count = await prisma.order.count();
-  const nextNumber = count + 1;
   const year = new Date().getFullYear();
+  const nextNumber = await nextSequence(`order-${year}`);
   return `NH-${year}-${String(nextNumber).padStart(6, "0")}`;
 }
 
-export async function listOrders() {
-  return prisma.order.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      customer: true,
-      assignedUser: true,
-      items: {
-        include: { service: true },
+// The list view intentionally omits items/payments/history (available on
+// getOrderById) to avoid pulling deeply nested relations for every row on
+// every page load.
+export async function listOrders({ page, limit, skip, status }) {
+  const where = status ? { status } : undefined;
+
+  const [data, total] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: {
+        customer: true,
+        assignedUser: { select: safeUserSelect },
       },
-      payments: true,
-      history: true,
-    },
-  });
+    }),
+    prisma.order.count({ where }),
+  ]);
+
+  return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function getOrderById(id) {
@@ -32,7 +60,7 @@ export async function getOrderById(id) {
     where: { id },
     include: {
       customer: true,
-      assignedUser: true,
+      assignedUser: { select: safeUserSelect },
       items: {
         include: { service: true },
       },
@@ -91,13 +119,13 @@ export async function createOrder(data, actorUserId = null) {
             oldStatus: "NEW",
             newStatus: "NEW",
             changedByUserId: creatorUserId,
-            notes: "Order created",
+            notes: "تم إنشاء الطلب",
           },
         },
       },
       include: {
         customer: true,
-        assignedUser: true,
+        assignedUser: { select: safeUserSelect },
         items: {
           include: { service: true },
         },
@@ -124,6 +152,14 @@ export async function updateOrderStatus(orderId, status, changedByUserId, notes 
       return null;
     }
 
+    if (!isValidOrderStatusTransition(currentOrder.status, status)) {
+      const error = new Error(
+        `Cannot change order status from ${currentOrder.status} to ${status}`
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
     return tx.order.update({
       where: { id: orderId },
       data: {
@@ -139,7 +175,7 @@ export async function updateOrderStatus(orderId, status, changedByUserId, notes 
       },
       include: {
         customer: true,
-        assignedUser: true,
+        assignedUser: { select: safeUserSelect },
         items: {
           include: { service: true },
         },

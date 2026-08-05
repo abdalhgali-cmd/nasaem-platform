@@ -402,3 +402,51 @@ model Setting {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
+
+// Used to generate sequential human-readable numbers (order/customer/employee)
+// via an atomic single-statement upsert, instead of count()-based generation
+// which is subject to race conditions under concurrent requests.
+model Counter {
+  key       String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+// One row per known branding slot (see site-assets.constants.js for the
+// fixed list of allowed keys) — the currently-live file for that slot.
+// Uploading again replaces the row (and the old file on disk) rather than
+// versioning, since only the current asset is ever served.
+model SiteAsset {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  fileName    String
+  storagePath String
+  mimeType    String
+  sizeBytes   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum ContactRequestStatus {
+  NEW
+  CONTACTED
+  CLOSED
+}
+
+// Submissions from the public marketing site's contact form (unauthenticated
+// endpoint) — reviewed and actioned by staff, distinct from Customer/Order
+// which represent an already-onboarded client with a real booking.
+model ContactRequest {
+  id        String               @id @default(cuid())
+  name      String
+  phone     String
+  email     String?
+  service   String?
+  message   String
+  status    ContactRequestStatus @default(NEW)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}

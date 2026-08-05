@@ -9,3 +9,5 @@ export const createSupplierSchema = z.object({
   notes: z.string().optional().nullable(),
   active: z.coerce.boolean().optional(),
 });
+
+export const updateSupplierSchema = createSupplierSchema.partial();

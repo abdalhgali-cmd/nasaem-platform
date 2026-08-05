@@ -1,15 +1,29 @@
 import { Router } from "express";
 
-import { requireAuth } from "../../middleware/auth.middleware.js";
-import { requireRole } from "../../middleware/role.middleware.js";
-import { getDocument, getDocuments, storeDocument } from "./documents.controller.js";
+import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
+import { uploadDocument } from "../../middleware/upload.middleware.js";
+import { getDocument, getDocuments, removeDocument, storeDocument } from "./documents.controller.js";
 
 const router = Router();
 
 router.use(requireAuth);
 
+function handleUpload(req, res, next) {
+  uploadDocument(req, res, (error) => {
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || "File upload failed",
+      });
+    }
+
+    next();
+  });
+}
+
 router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getDocuments);
 router.get("/:id", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getDocument);
-router.post("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), storeDocument);
+router.post("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), handleUpload, storeDocument);
+router.delete("/:id", requireRole("SUPER_ADMIN", "ADMIN"), removeDocument);
 
 export default router;

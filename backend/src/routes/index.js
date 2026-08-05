@@ -12,6 +12,12 @@ import dashboardRoutes from "../modules/dashboard/dashboard.routes.js";
 import branchRoutes from "../modules/branches/branches.routes.js";
 import supplierRoutes from "../modules/suppliers/suppliers.routes.js";
 import userRoutes from "../modules/users/users.routes.js";
+import serviceRoutes from "../modules/services/services.routes.js";
+import activityRoutes from "../modules/activity/activity.routes.js";
+import notificationRoutes from "../modules/notifications/notifications.routes.js";
+import contactRequestRoutes from "../modules/contact-requests/contact-requests.routes.js";
+import passportOcrRoutes from "../modules/passport-ocr/passport-ocr.routes.js";
+import siteAssetRoutes from "../modules/site-assets/site-assets.routes.js";
 
 const router = Router();
 
@@ -48,5 +54,11 @@ router.use("/settings", settingsRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/branches", branchRoutes);
 router.use("/suppliers", supplierRoutes);
+router.use("/services", serviceRoutes);
+router.use("/activity-logs", activityRoutes);
+router.use("/notifications", notificationRoutes);
+router.use("/contact-requests", contactRequestRoutes);
+router.use("/passport-ocr", passportOcrRoutes);
+router.use("/site-assets", siteAssetRoutes);
 
 export default router;

@@ -7,3 +7,5 @@ export const createBranchSchema = z.object({
   address: z.string().optional().nullable(),
   active: z.coerce.boolean().optional(),
 });
+
+export const updateBranchSchema = createBranchSchema.partial();

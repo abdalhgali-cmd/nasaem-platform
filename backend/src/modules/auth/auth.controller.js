@@ -1,12 +1,18 @@
 import { loginSchema } from "./auth.validators.js";
 import { getCurrentUser, loginUser } from "./auth.service.js";
+import { getAccessTokenMaxAgeMs } from "../../utils/jwt.js";
+import { logActivity } from "../../utils/activityLog.js";
+
+const AUTH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: "lax",
+  secure: process.env.NODE_ENV === "production",
+};
 
 function sendAuthCookie(res, token) {
   res.cookie("accessToken", token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    ...AUTH_COOKIE_OPTIONS,
+    maxAge: getAccessTokenMaxAgeMs(),
   });
 }
 
@@ -33,6 +39,14 @@ export async function login(req, res, next) {
 
     sendAuthCookie(res, result.token);
 
+    logActivity({
+      userId: result.user.id,
+      action: "LOGIN",
+      entity: "User",
+      entityId: result.user.id,
+      req,
+    });
+
     return res.status(200).json({
       success: true,
       message: "Login successful",
@@ -40,6 +54,29 @@ export async function login(req, res, next) {
         token: result.token,
         user: result.user,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function logout(req, res, next) {
+  try {
+    res.clearCookie("accessToken", AUTH_COOKIE_OPTIONS);
+
+    if (req.user?.id) {
+      logActivity({
+        userId: req.user.id,
+        action: "LOGOUT",
+        entity: "User",
+        entityId: req.user.id,
+        req,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Logout successful",
     });
   } catch (error) {
     next(error);
