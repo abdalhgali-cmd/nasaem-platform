@@ -18,7 +18,11 @@ import {
 import { mainNav, siteConfig } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
-export function SiteHeader() {
+export function SiteHeader({
+  logoUrls,
+}: {
+  logoUrls?: { light?: string; dark?: string };
+}) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = React.useState(false);
   const [open, setOpen] = React.useState(false);
@@ -40,7 +44,7 @@ export function SiteHeader() {
       )}
     >
       <div className="mx-auto flex h-20 w-full max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-10">
-        <Logo />
+        <Logo urls={logoUrls} />
 
         <nav
           aria-label="التصفح الرئيسي"
@@ -94,7 +98,7 @@ export function SiteHeader() {
             <SheetContent>
               <SheetHeader>
                 <SheetTitle>
-                  <Logo />
+                  <Logo urls={logoUrls} />
                 </SheetTitle>
               </SheetHeader>
               <nav

@@ -54,3 +54,26 @@ export const uploadPassportImage = multer({
   fileFilter: imageFileFilter,
   limits: { fileSize: 8 * 1024 * 1024 },
 }).single("image");
+
+const SITE_ASSET_DIR = path.resolve("uploads", "site-assets");
+fs.mkdirSync(SITE_ASSET_DIR, { recursive: true });
+
+const siteAssetStorage = multer.diskStorage({
+  destination(req, file, cb) {
+    cb(null, SITE_ASSET_DIR);
+  },
+  filename(req, file, cb) {
+    // Content-changing filename on every upload — the marketing site's
+    // fetch URL includes ?v=<updatedAt>, so a fresh name here isn't what
+    // busts caches, but it does avoid ever overwriting a file that a
+    // browser/CDN might still have an in-flight request for.
+    const uniqueName = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+
+export const uploadSiteAsset = multer({
+  storage: siteAssetStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
+}).single("image");

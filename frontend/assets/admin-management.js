@@ -30,6 +30,7 @@ function mgmtCanWrite(entity) {
     services: ["SUPER_ADMIN", "ADMIN"],
     offers: ["SUPER_ADMIN", "ADMIN"],
     users: ["SUPER_ADMIN"],
+    "site-assets": ["SUPER_ADMIN", "ADMIN"],
   };
   return (rules[entity] || []).includes(currentUser.role);
 }
@@ -85,13 +86,14 @@ function wireManagementTabs() {
     mgmtState.contactRequests.page = 1;
     loadContactRequests();
   });
+  el("site-assets-grid").addEventListener("change", handleSiteAssetFileChange);
 }
 
 function activateMgmtSubTab(key) {
   document.querySelectorAll("#mgmt-tabs button").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.mgmt === key);
   });
-  ["branches", "suppliers", "services", "offers", "users", "settings", "activity", "contact-requests"].forEach((k) => {
+  ["branches", "suppliers", "services", "offers", "users", "settings", "activity", "contact-requests", "site-assets"].forEach((k) => {
     el(`mgmt-${k}`).classList.toggle("hidden", k !== key);
   });
   loadActiveMgmtSubTab();
@@ -112,6 +114,7 @@ function loadActiveMgmtSubTab() {
   if (tab === "settings") loadSettings();
   if (tab === "activity") loadActivityLogs();
   if (tab === "contact-requests") loadContactRequests();
+  if (tab === "site-assets") loadSiteAssets();
 }
 
 const mgmtAlert = () => el("mgmt-alert");
@@ -501,4 +504,78 @@ function handleContactRequestStatusChange(e) {
     })
     .then(loadContactRequests)
     .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Branding / icons (shown on the public marketing site) ---
+
+const SITE_ASSET_LABELS_AR = {
+  logo: "الشعار — الوضع الفاتح",
+  "logo-dark": "الشعار — الوضع الداكن",
+  "icon-umrah": "أيقونة باقات العمرة",
+  "icon-visa": "أيقونة التأشيرات",
+  "icon-flight": "أيقونة حجز الطيران",
+  "icon-hotel": "أيقونة حجز الفنادق",
+  "icon-international": "أيقونة التأشيرات الدولية",
+  "icon-packages": "أيقونة باقات السفر الشاملة",
+};
+
+async function loadSiteAssets() {
+  try {
+    const { data } = await api.get("/site-assets");
+    const byKey = {};
+    data.forEach((asset) => {
+      byKey[asset.key] = asset;
+    });
+
+    const canWrite = mgmtCanWrite("site-assets");
+
+    el("site-assets-grid").innerHTML = Object.entries(SITE_ASSET_LABELS_AR)
+      .map(([key, label]) => {
+        const asset = byKey[key];
+        const previewSrc = asset
+          ? `/api/site-assets/${key}/file?v=${new Date(asset.updatedAt).getTime()}`
+          : "";
+
+        return `
+          <div class="card" style="text-align: center">
+            <div style="font-weight: 700; margin-bottom: 10px">${label}</div>
+            <div style="height: 84px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; background: #f5f7fa; border-radius: 10px; overflow: hidden">
+              ${
+                previewSrc
+                  ? `<img src="${previewSrc}" alt="" style="max-height: 72px; max-width: 100%; object-fit: contain" />`
+                  : `<span class="muted" style="font-size: 12px">لم يتم الرفع بعد</span>`
+              }
+            </div>
+            ${
+              canWrite
+                ? `<input type="file" accept="image/png,image/jpeg,image/webp" data-site-asset-key="${key}" />`
+                : `<span class="muted" style="font-size: 12px">لا تملك صلاحية التعديل</span>`
+            }
+            ${asset ? `<div class="muted" style="font-size: 11px; margin-top: 8px">آخر تحديث: ${formatDate(asset.updatedAt)}</div>` : ""}
+          </div>`;
+      })
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleSiteAssetFileChange(e) {
+  const input = e.target.closest("[data-site-asset-key]");
+  if (!input || !input.files[0]) return;
+
+  const key = input.dataset.siteAssetKey;
+  const formData = new FormData();
+  formData.append("image", input.files[0]);
+
+  showAlert(mgmtAlert(), "");
+  input.disabled = true;
+
+  api
+    .upload(`/site-assets/${key}`, formData)
+    .then(loadSiteAssets)
+    .catch((error) => {
+      showAlert(mgmtAlert(), error.message);
+      input.disabled = false;
+    });
 }

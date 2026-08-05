@@ -4,47 +4,62 @@ import { ArrowLeft } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
+import { getSiteAssetUrls, type SiteAssetKey } from "@/lib/site-assets";
 
-const services = [
+const services: {
+  key: SiteAssetKey;
+  fallbackIcon: string;
+  title: string;
+  description: string;
+  href: string;
+}[] = [
   {
-    icon: "/icons/umrah.png",
+    key: "icon-umrah",
+    fallbackIcon: "/icons/umrah.png",
     title: "باقات العمرة",
     description: "تأشيرة فقط أو باقة متكاملة تشمل الطيران والفنادق والنقل — بإشراف كامل من الإدارة حتى العودة.",
     href: "/umrah",
   },
   {
-    icon: "/icons/visa.png",
+    key: "icon-visa",
+    fallbackIcon: "/icons/visa.png",
     title: "التأشيرات",
     description: "زيارة عائلية، تأشيرة عمل، أو تأشيرات دولية — نتابع إجراءاتك بدقة وسرعة حتى الاستلام.",
     href: "/visas",
   },
   {
-    icon: "/icons/flight.png",
+    key: "icon-flight",
+    fallbackIcon: "/icons/flight.png",
     title: "حجز الطيران",
     description: "أفضل أسعار تذاكر الطيران الداخلي والدولي على أشهر شركات الطيران، برحلة ذهاب أو ذهاب وعودة.",
     href: "/flights",
   },
   {
-    icon: "/icons/hotel.png",
+    key: "icon-hotel",
+    fallbackIcon: "/icons/hotel.png",
     title: "حجز الفنادق",
     description: "فنادق قريبة من الحرمين الشريفين وفي كل الوجهات، بمستويات مختلفة تناسب كل ميزانية.",
     href: "/hotels",
   },
   {
-    icon: "/icons/international.png",
+    key: "icon-international",
+    fallbackIcon: "/icons/international.png",
     title: "التأشيرات الدولية",
     description: "الصين، بالي، ودول أفريقيا — نوضح لك المستندات المطلوبة قبل بدء الإجراءات.",
     href: "/visas",
   },
   {
-    icon: "/icons/packages.png",
+    key: "icon-packages",
+    fallbackIcon: "/icons/packages.png",
     title: "باقات السفر الشاملة",
     description: "برامج سياحية جاهزة تجمع الطيران والإقامة والجولات في باقة واحدة بسعر مريح.",
     href: "/packages",
   },
 ];
 
-export function Services() {
+export async function Services() {
+  const assetUrls = await getSiteAssetUrls();
+
   return (
     <section className="bg-section py-24">
       <Container>
@@ -62,13 +77,18 @@ export function Services() {
                 className="group flex h-full flex-col rounded-3xl border border-border bg-card p-7 shadow-sm transition-all duration-300 hover:-translate-y-1.5 hover:border-primary/30 hover:shadow-xl hover:shadow-primary/10"
               >
                 <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-secondary/10 transition-transform duration-300 group-hover:scale-105">
-                  <Image
-                    src={service.icon}
-                    alt=""
-                    width={96}
-                    height={96}
-                    className="size-11 object-contain"
-                  />
+                  {assetUrls[service.key] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={assetUrls[service.key]} alt="" className="size-11 object-contain" />
+                  ) : (
+                    <Image
+                      src={service.fallbackIcon}
+                      alt=""
+                      width={96}
+                      height={96}
+                      className="size-11 object-contain"
+                    />
+                  )}
                 </span>
                 <h3 className="mt-5 text-lg font-bold text-foreground">
                   {service.title}

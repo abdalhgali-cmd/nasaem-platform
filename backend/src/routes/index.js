@@ -17,6 +17,7 @@ import activityRoutes from "../modules/activity/activity.routes.js";
 import notificationRoutes from "../modules/notifications/notifications.routes.js";
 import contactRequestRoutes from "../modules/contact-requests/contact-requests.routes.js";
 import passportOcrRoutes from "../modules/passport-ocr/passport-ocr.routes.js";
+import siteAssetRoutes from "../modules/site-assets/site-assets.routes.js";
 
 const router = Router();
 
@@ -58,5 +59,6 @@ router.use("/activity-logs", activityRoutes);
 router.use("/notifications", notificationRoutes);
 router.use("/contact-requests", contactRequestRoutes);
 router.use("/passport-ocr", passportOcrRoutes);
+router.use("/site-assets", siteAssetRoutes);
 
 export default router;

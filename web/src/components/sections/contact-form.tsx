@@ -3,6 +3,7 @@
 import * as React from "react";
 import { CheckCircle2, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { API_URL } from "@/lib/api-url";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
@@ -14,8 +15,6 @@ const services = [
   "باقة سفر شاملة",
   "استفسار آخر",
 ];
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
 
 export function ContactForm() {
   const [status, setStatus] = React.useState<Status>("idle");

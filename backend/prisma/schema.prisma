@@ -412,6 +412,21 @@ model Counter {
   updatedAt DateTime @updatedAt
 }
 
+// One row per known branding slot (see site-assets.constants.js for the
+// fixed list of allowed keys) — the currently-live file for that slot.
+// Uploading again replaces the row (and the old file on disk) rather than
+// versioning, since only the current asset is ever served.
+model SiteAsset {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  fileName    String
+  storagePath String
+  mimeType    String
+  sizeBytes   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 enum ContactRequestStatus {
   NEW
   CONTACTED

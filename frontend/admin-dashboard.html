@@ -104,6 +104,7 @@
         <button type="button" data-mgmt="settings">الإعدادات</button>
         <button type="button" data-mgmt="activity">سجل النشاط</button>
         <button type="button" data-mgmt="contact-requests">طلبات التواصل</button>
+        <button type="button" data-mgmt="site-assets">الهوية والأيقونات</button>
       </div>
 
       <div id="mgmt-alert"></div>
@@ -275,6 +276,19 @@
             <tbody id="contact-requests-body"></tbody>
           </table>
           <div class="pagination" id="contact-requests-pagination"></div>
+        </div>
+      </div>
+
+      <!-- Branding / icons shown on the public marketing site — replacing
+           one here takes effect on the live site within a minute, no
+           redeploy needed (see web/src/lib/site-assets.ts). -->
+      <div id="mgmt-site-assets" class="hidden">
+        <div class="card">
+          <h2>الهوية والأيقونات</h2>
+          <p class="muted">
+            هذه الصور تظهر مباشرة في الموقع العام (الشعار وأيقونات الخدمات). رفع صورة جديدة يستبدل الحالية على الموقع خلال دقيقة تقريبًا دون الحاجة لأي تدخل تقني.
+          </p>
+          <div class="grid cols-3" id="site-assets-grid"></div>
         </div>
       </div>
     </section>

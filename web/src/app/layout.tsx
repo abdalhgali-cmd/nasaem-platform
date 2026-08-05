@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { WhatsAppButton } from "@/components/layout/whatsapp-button";
 import { siteConfig } from "@/lib/site-config";
+import { getSiteAssetUrls } from "@/lib/site-assets";
 
 const cairo = Cairo({
   subsets: ["arabic", "latin"],
@@ -65,9 +66,12 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const assetUrls = await getSiteAssetUrls();
+  const logoUrls = { light: assetUrls.logo, dark: assetUrls["logo-dark"] };
+
   return (
     <html
       lang="ar"
@@ -84,11 +88,11 @@ export default function RootLayout({
           >
             تخطَّ إلى المحتوى الرئيسي
           </a>
-          <SiteHeader />
+          <SiteHeader logoUrls={logoUrls} />
           <main id="main-content" className="flex-1">
             {children}
           </main>
-          <SiteFooter />
+          <SiteFooter logoUrls={logoUrls} />
           <WhatsAppButton />
         </ThemeProvider>
       </body>

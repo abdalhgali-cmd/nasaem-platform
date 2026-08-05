@@ -34,12 +34,16 @@ const socialLinks = [
   { mark: "X", href: siteConfig.social.twitter, label: "إكس" },
 ].filter((item) => item.href);
 
-export function SiteFooter() {
+export function SiteFooter({
+  logoUrls,
+}: {
+  logoUrls?: { light?: string; dark?: string };
+}) {
   return (
     <footer className="border-t border-border bg-section text-foreground">
       <Container className="grid gap-10 py-16 sm:grid-cols-2 lg:grid-cols-4">
         <div className="sm:col-span-2 lg:col-span-1">
-          <Logo />
+          <Logo urls={logoUrls} />
           <p className="mt-5 max-w-xs text-sm leading-relaxed text-muted-foreground">
             {siteConfig.description}
           </p>

@@ -47,6 +47,17 @@ Open [http://localhost:3000](http://localhost:3000).
   that entirely. The homepage services section
   (`src/components/sections/services.tsx`) uses matching branded icons from
   `public/icons/` instead of Lucide for that one section.
+- **Staff-editable branding**: the logo and the six services-section icons
+  can also be replaced live from the staff back-office (`../backend`'s
+  "الهوية والأيقونات" tab) — no redeploy of this site needed. `src/lib/
+  site-assets.ts` fetches `GET {NEXT_PUBLIC_API_URL}/site-assets` (public,
+  no auth) with `next: { revalidate: 60 }`, and `logo.tsx`/`services.tsx`
+  render whichever URL it returns for a given slot via a plain `<img>`
+  (next/image's optimizer only handles local files or hosts listed in
+  `remotePatterns`, so dynamic backend-hosted images intentionally skip it)
+  — falling back to the bundled defaults above when nothing's been
+  uploaded for that slot, or the backend is unreachable (the fetch never
+  throws). A replacement takes effect on this site within about a minute.
 
 ## Content that needs real values before shipping
 
