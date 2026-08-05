@@ -37,6 +37,18 @@
 
       <section class="card hidden" id="customer-section">
         <h2>٣. بيانات العميل</h2>
+
+        <div class="grid cols-3" style="align-items: end; margin-bottom: 14px">
+          <div class="field" style="grid-column: span 2">
+            <label for="passport-image">استخراج البيانات من صورة الجواز</label>
+            <input id="passport-image" type="file" accept="image/jpeg,image/png,image/webp" />
+          </div>
+          <div class="field">
+            <button type="button" class="btn secondary" id="scan-passport-btn">استخراج البيانات</button>
+          </div>
+        </div>
+        <div id="passport-scan-alert"></div>
+
         <div class="grid cols-2">
           <div class="field">
             <label for="c-fullName">الاسم الكامل *</label>
@@ -61,6 +73,19 @@
           <div class="field">
             <label for="c-country">الدولة</label>
             <input id="c-country" />
+          </div>
+          <div class="field">
+            <label for="c-birthDate">تاريخ الميلاد</label>
+            <input id="c-birthDate" type="date" />
+          </div>
+          <div class="field">
+            <label for="c-gender">الجنس</label>
+            <select id="c-gender">
+              <option value="">— غير محدد —</option>
+              <option value="MALE">ذكر</option>
+              <option value="FEMALE">أنثى</option>
+              <option value="OTHER">أخرى</option>
+            </select>
           </div>
         </div>
       </section>

@@ -36,3 +36,21 @@ export const uploadDocument = multer({
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 },
 }).single("file");
+
+const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function imageFileFilter(req, file, cb) {
+  if (!IMAGE_MIME_TYPES.has(file.mimetype)) {
+    return cb(new Error("Unsupported file type. Allowed: JPEG, PNG, WEBP."));
+  }
+
+  cb(null, true);
+}
+
+// Passport scans are processed in-memory for OCR and never written to disk —
+// they aren't a stored document, just a transient input to text extraction.
+export const uploadPassportImage = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 8 * 1024 * 1024 },
+}).single("image");

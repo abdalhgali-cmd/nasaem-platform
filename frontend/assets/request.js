@@ -100,6 +100,85 @@ function wireEvents() {
   el("submit-request-btn").addEventListener("click", submitRequest);
   el("upload-doc-btn").addEventListener("click", uploadDocument);
   el("new-request-btn").addEventListener("click", () => window.location.reload());
+  el("scan-passport-btn").addEventListener("click", scanPassportImage);
+}
+
+// Non-exhaustive ISO 3166-1 alpha-3 -> Arabic name map, covering the
+// nationalities most common for this agency's customers. Unmapped codes
+// (e.g. from a passport we don't have a translation for) are shown as-is
+// so staff can still see and correct the value rather than losing it.
+const COUNTRY_NAME_AR = {
+  SDN: "السودان",
+  SSD: "جنوب السودان",
+  EGY: "مصر",
+  SAU: "السعودية",
+  ARE: "الإمارات",
+  KWT: "الكويت",
+  QAT: "قطر",
+  BHR: "البحرين",
+  OMN: "عمان",
+  JOR: "الأردن",
+  SYR: "سوريا",
+  LBN: "لبنان",
+  IRQ: "العراق",
+  YEM: "اليمن",
+  LBY: "ليبيا",
+  TUN: "تونس",
+  DZA: "الجزائر",
+  MAR: "المغرب",
+  ETH: "إثيوبيا",
+  TCD: "تشاد",
+  ERI: "إريتريا",
+  TUR: "تركيا",
+  GBR: "بريطانيا",
+  USA: "أمريكا",
+};
+
+function countryLabel(code) {
+  if (!code) return "";
+  return COUNTRY_NAME_AR[code] || code;
+}
+
+async function scanPassportImage() {
+  const fileInput = el("passport-image");
+  const file = fileInput.files[0];
+
+  if (!file) {
+    showAlert(el("passport-scan-alert"), "اختر صورة لصفحة بيانات الجواز أولًا.");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const scanBtn = el("scan-passport-btn");
+  scanBtn.disabled = true;
+  scanBtn.textContent = "جارٍ القراءة...";
+  showAlert(el("passport-scan-alert"), "");
+
+  try {
+    const { data } = await api.upload("/passport-ocr/scan", formData);
+
+    const fullName = [data.surname, data.givenNames].filter(Boolean).join(" ");
+    if (fullName) el("c-fullName").value = fullName;
+    if (data.documentNumber) el("c-passportNo").value = data.documentNumber;
+    if (data.nationality) el("c-nationality").value = countryLabel(data.nationality);
+    if (data.issuingCountry) el("c-country").value = countryLabel(data.issuingCountry);
+    if (data.dateOfBirth) el("c-birthDate").value = data.dateOfBirth;
+    if (data.sex === "male") el("c-gender").value = "MALE";
+    else if (data.sex === "female") el("c-gender").value = "FEMALE";
+
+    showAlert(
+      el("passport-scan-alert"),
+      "تم استخراج البيانات — يرجى مراجعتها والتأكد من صحتها قبل المتابعة.",
+      "success"
+    );
+  } catch (error) {
+    showAlert(el("passport-scan-alert"), error.message);
+  } finally {
+    scanBtn.disabled = false;
+    scanBtn.textContent = "استخراج البيانات";
+  }
 }
 
 async function submitRequest() {
@@ -125,6 +204,8 @@ async function submitRequest() {
   submitBtn.textContent = "جارٍ الإنشاء...";
 
   try {
+    const birthDateValue = el("c-birthDate").value;
+
     const { data: customer } = await api.post("/customers", {
       fullName,
       passportNo,
@@ -132,6 +213,8 @@ async function submitRequest() {
       phone: el("c-phone").value.trim() || undefined,
       email: el("c-email").value.trim() || undefined,
       country: el("c-country").value.trim() || undefined,
+      birthDate: birthDateValue ? new Date(birthDateValue).toISOString() : undefined,
+      gender: el("c-gender").value || undefined,
     });
 
     const { data: order } = await api.post("/orders", {

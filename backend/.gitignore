@@ -9,3 +9,8 @@ coverage/
 uploads/
 logs/
 .prisma/
+
+# Decompressed OCR trained-data cache written at runtime next to the
+# vendored eng.traineddata.gz (see ocr-data/README.md) — regenerated from
+# the .gz on first use, not something to commit.
+ocr-data/eng.traineddata

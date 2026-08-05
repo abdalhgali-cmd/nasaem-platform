@@ -2,6 +2,7 @@ import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
+import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 
 export async function createContactRequest(data, req) {
   const contactRequest = await prisma.contactRequest.create({
@@ -37,6 +38,14 @@ export async function createContactRequest(data, req) {
         userId: admin.id,
       })
     )
+  );
+
+  // Not awaited: a slow/unreachable WhatsApp API must not delay the
+  // response to whoever submitted the contact form. No-ops entirely when
+  // WHATSAPP_* env vars aren't set (see utils/whatsapp.js).
+  sendWhatsAppMessage(
+    process.env.WHATSAPP_ADMIN_NUMBER,
+    `طلب تواصل جديد من الموقع\nالاسم: ${contactRequest.name}\nالهاتف: ${contactRequest.phone}\nالرسالة: ${contactRequest.message.slice(0, 200)}`
   );
 
   return contactRequest;
