@@ -35,11 +35,18 @@ Open [http://localhost:3000](http://localhost:3000).
   where desired; `next.config.ts` has no `remotePatterns` configured yet, so
   add your image host there first.
 - **Dark mode** via `next-themes`, class-based, with a header toggle.
-- Branded favicon/apple-icon/Open Graph image are generated at build time
-  via `next/og` (`src/app/icon.tsx`, `apple-icon.tsx`, `opengraph-image.tsx`)
-  — no image assets needed. Note: the OG image renderer (Satori) can't
-  currently shape connected Arabic text, so it uses the Latin brand name;
-  the rest of the site is Arabic throughout.
+- **Branding**: the real logo (`public/logo.png`, background removed) is
+  used in the header/footer via `src/components/logo.tsx`. It swaps to
+  `public/logo-dark.png` — the same art with the navy wordmark recolored to
+  white — in dark mode, since navy-on-near-black loses contrast; the icon
+  artwork itself is unchanged between the two. `favicon.ico`, `icon.png`,
+  `apple-icon.png` (static files under `src/app/`) and `opengraph-image.png`
+  are all derived from the same logo, cropped/composited with Pillow rather
+  than generated via `next/og` — Satori (the `next/og` renderer) can't
+  shape connected Arabic text, so reusing the pre-rendered logo art sidesteps
+  that entirely. The homepage services section
+  (`src/components/sections/services.tsx`) uses matching branded icons from
+  `public/icons/` instead of Lucide for that one section.
 
 ## Content that needs real values before shipping
 

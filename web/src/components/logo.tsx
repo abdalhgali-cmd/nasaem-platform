@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
@@ -6,23 +7,31 @@ export function Logo({ className }: { className?: string }) {
     <Link
       href="/"
       className={cn(
-        "group flex items-center gap-3 rounded-full outline-none",
+        "group flex items-center rounded-full outline-none",
         className
       )}
       aria-label="نسائم الحرمين للسفر والسياحة — الصفحة الرئيسية"
     >
-      <span className="relative flex size-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary via-secondary to-primary text-lg font-black text-white shadow-lg shadow-primary/30 transition-transform duration-300 group-hover:scale-105">
-        <span className="absolute inset-0 rounded-2xl border border-accent/60" />
-        ن
-      </span>
-      <span className="flex flex-col leading-tight">
-        <span className="text-base font-extrabold text-foreground sm:text-lg">
-          نسائم الحرمين
-        </span>
-        <span className="text-[11px] font-medium tracking-wide text-muted-foreground">
-          للسفر والسياحة
-        </span>
-      </span>
+      {/* Two color variants swapped by theme, not filters: the logo's navy
+          wordmark reads fine on light surfaces but loses contrast against
+          the dark theme's near-black background, so logo-dark.png has that
+          text recolored to white (icon artwork unchanged in both). */}
+      <Image
+        src="/logo.png"
+        alt="نسائم الحرمين للسفر والسياحة"
+        width={1536}
+        height={1024}
+        priority
+        className="block h-11 w-auto shrink-0 transition-transform duration-300 group-hover:scale-105 sm:h-12 dark:hidden"
+      />
+      <Image
+        src="/logo-dark.png"
+        alt="نسائم الحرمين للسفر والسياحة"
+        width={1536}
+        height={1024}
+        priority
+        className="hidden h-11 w-auto shrink-0 transition-transform duration-300 group-hover:scale-105 sm:h-12 dark:block"
+      />
     </Link>
   );
 }
