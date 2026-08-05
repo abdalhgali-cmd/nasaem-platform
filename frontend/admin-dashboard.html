@@ -103,6 +103,7 @@
         <button type="button" data-mgmt="users">المستخدمون</button>
         <button type="button" data-mgmt="settings">الإعدادات</button>
         <button type="button" data-mgmt="activity">سجل النشاط</button>
+        <button type="button" data-mgmt="contact-requests">طلبات التواصل</button>
       </div>
 
       <div id="mgmt-alert"></div>
@@ -254,6 +255,26 @@
             <tbody id="activity-body"></tbody>
           </table>
           <div class="pagination" id="activity-pagination"></div>
+        </div>
+      </div>
+
+      <!-- Contact requests (from the public marketing site's contact form) -->
+      <div id="mgmt-contact-requests" class="hidden">
+        <div class="card">
+          <div class="stack" style="justify-content: space-between; margin-bottom: 14px">
+            <h2 style="margin: 0">طلبات التواصل</h2>
+            <select id="contact-request-status-filter">
+              <option value="">كل الحالات</option>
+              <option value="NEW">جديد</option>
+              <option value="CONTACTED">تم التواصل</option>
+              <option value="CLOSED">مغلق</option>
+            </select>
+          </div>
+          <table>
+            <thead><tr><th>الاسم</th><th>الهاتف</th><th>الخدمة</th><th>الرسالة</th><th>الحالة</th><th>التاريخ</th></tr></thead>
+            <tbody id="contact-requests-body"></tbody>
+          </table>
+          <div class="pagination" id="contact-requests-pagination"></div>
         </div>
       </div>
     </section>

@@ -15,6 +15,7 @@ import userRoutes from "../modules/users/users.routes.js";
 import serviceRoutes from "../modules/services/services.routes.js";
 import activityRoutes from "../modules/activity/activity.routes.js";
 import notificationRoutes from "../modules/notifications/notifications.routes.js";
+import contactRequestRoutes from "../modules/contact-requests/contact-requests.routes.js";
 
 const router = Router();
 
@@ -54,5 +55,6 @@ router.use("/suppliers", supplierRoutes);
 router.use("/services", serviceRoutes);
 router.use("/activity-logs", activityRoutes);
 router.use("/notifications", notificationRoutes);
+router.use("/contact-requests", contactRequestRoutes);
 
 export default router;

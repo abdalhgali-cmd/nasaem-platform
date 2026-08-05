@@ -43,12 +43,14 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Content that needs real values before shipping
 
-`src/lib/site-config.ts` holds placeholder contact details (phone, WhatsApp
-number, email, address, social links) — replace these with the real
-business information. Package prices, flight routes, and hotel listings
-across the section components are illustrative placeholders too.
+`src/lib/site-config.ts` holds the real business contact details (phone,
+address, email); social links are intentionally empty until real profile
+URLs are provided (the footer hides that row when empty). Package prices,
+flight routes, and hotel listings across the section components are still
+illustrative placeholders.
 
-The contact form (`src/components/sections/contact-form.tsx`) simulates
-submission client-side — there's no backend endpoint wired up. Point it at
-a real API route (or the staff back-office API in `../backend`) before
-relying on it.
+The contact form (`src/components/sections/contact-form.tsx`) posts to the
+staff back-office API's public `/contact-requests` endpoint (see
+`../backend`). Set `NEXT_PUBLIC_API_URL` (see `.env.example`) to that API's
+base URL — defaults to `http://localhost:5000/api` for local dev. The
+backend must allow this site's origin via its own `CORS_ORIGIN` env var.

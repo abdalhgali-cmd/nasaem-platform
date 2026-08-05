@@ -2,6 +2,7 @@ const mgmtState = {
   wired: false,
   services: { page: 1, limit: 10 },
   activity: { page: 1, limit: 15 },
+  contactRequests: { page: 1, limit: 10, status: "" },
 };
 
 const ACTIVITY_ACTION_LABELS_AR = {
@@ -12,6 +13,13 @@ const ACTIVITY_ACTION_LABELS_AR = {
   PAYMENT_RECORDED: "تسجيل دفعة",
   USER_CREATED: "إنشاء مستخدم",
   USER_STATUS_CHANGED: "تغيير حالة مستخدم",
+  CONTACT_REQUEST_RECEIVED: "استلام طلب تواصل",
+};
+
+const CONTACT_REQUEST_STATUS_LABELS_AR = {
+  NEW: "جديد",
+  CONTACTED: "تم التواصل",
+  CLOSED: "مغلق",
 };
 
 function mgmtCanWrite(entity) {
@@ -71,13 +79,19 @@ function wireManagementTabs() {
   el("services-body").addEventListener("click", handleServiceRowClick);
   el("offers-body").addEventListener("change", handleOfferStatusChange);
   el("users-body").addEventListener("click", handleUserRowClick);
+  el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
+  el("contact-request-status-filter").addEventListener("change", (e) => {
+    mgmtState.contactRequests.status = e.target.value;
+    mgmtState.contactRequests.page = 1;
+    loadContactRequests();
+  });
 }
 
 function activateMgmtSubTab(key) {
   document.querySelectorAll("#mgmt-tabs button").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.mgmt === key);
   });
-  ["branches", "suppliers", "services", "offers", "users", "settings", "activity"].forEach((k) => {
+  ["branches", "suppliers", "services", "offers", "users", "settings", "activity", "contact-requests"].forEach((k) => {
     el(`mgmt-${k}`).classList.toggle("hidden", k !== key);
   });
   loadActiveMgmtSubTab();
@@ -97,6 +111,7 @@ function loadActiveMgmtSubTab() {
   if (tab === "users") loadUsers();
   if (tab === "settings") loadSettings();
   if (tab === "activity") loadActivityLogs();
+  if (tab === "contact-requests") loadContactRequests();
 }
 
 const mgmtAlert = () => el("mgmt-alert");
@@ -430,4 +445,60 @@ async function loadActivityLogs() {
   } catch (error) {
     showAlert(mgmtAlert(), error.message);
   }
+}
+
+// --- Contact requests (public marketing-site form submissions) ---
+
+async function loadContactRequests() {
+  try {
+    const { page, limit, status } = mgmtState.contactRequests;
+    const params = new URLSearchParams({ page, limit });
+    if (status) params.set("status", status);
+
+    const { data, meta } = await api.get(`/contact-requests?${params.toString()}`);
+
+    // name/phone/service/message all come from an unauthenticated public
+    // endpoint — escapeHtml() is required here, not optional, since this is
+    // rendered straight into the staff dashboard via innerHTML.
+    el("contact-requests-body").innerHTML = data
+      .map(
+        (req) => `
+        <tr>
+          <td>${escapeHtml(req.name)}</td>
+          <td dir="ltr">${escapeHtml(req.phone)}</td>
+          <td>${escapeHtml(req.service || "-")}</td>
+          <td style="max-width: 280px; white-space: normal">${escapeHtml(req.message)}</td>
+          <td>
+            <select data-contact-request-status="${req.id}">
+              ${Object.entries(CONTACT_REQUEST_STATUS_LABELS_AR)
+                .map(
+                  ([value, label]) =>
+                    `<option value="${value}" ${value === req.status ? "selected" : ""}>${label}</option>`
+                )
+                .join("")}
+            </select>
+          </td>
+          <td>${formatDate(req.createdAt)}</td>
+        </tr>`
+      )
+      .join("");
+
+    renderPagination("contact-requests-pagination", meta, (page) => {
+      mgmtState.contactRequests.page = page;
+      loadContactRequests();
+    });
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleContactRequestStatusChange(e) {
+  const select = e.target.closest("[data-contact-request-status]");
+  if (!select) return;
+  api
+    .patch(`/contact-requests/${select.dataset.contactRequestStatus}/status`, {
+      status: select.value,
+    })
+    .then(loadContactRequests)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
 }

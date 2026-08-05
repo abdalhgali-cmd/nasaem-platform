@@ -68,6 +68,18 @@ function formatErrors(errors) {
   return messages.join("، ");
 }
 
+// Escapes text before interpolating it into an innerHTML template string.
+// Required for any field that can contain attacker-controlled content — most
+// importantly data from public/unauthenticated endpoints (e.g. contact form
+// submissions), which land in the staff dashboard with no auth gate on the
+// author.
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => {
+    const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+    return map[char];
+  });
+}
+
 function showAlert(container, message, type = "error") {
   container.innerHTML = "";
   if (!message) return;

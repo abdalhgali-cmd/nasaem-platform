@@ -5,17 +5,18 @@ export const siteConfig = {
   description:
     "وكالة سفر وسياحة متكاملة لخدمات العمرة والتأشيرات وحجوزات الطيران والفنادق — نُنجز رحلتك بثقة واحترافية من البداية حتى العودة.",
   url: "https://www.nasaem-alharamain.com",
-  // Placeholder contact details — replace with the real business numbers
-  // before shipping to production.
-  phone: "+249 900 000 000",
-  whatsapp: "249900000000",
-  email: "info@nasaem-alharamain.com",
-  address: "شارع النيل، الخرطوم، السودان",
-  branches: ["الخرطوم", "بورتسودان", "جدة"],
+  phone: "+249 91 103 4372",
+  whatsapp: "249911034372",
+  email: "Nasaem.alHaramain2024@gmail.com",
+  address: "كسلا، شرق الموقف العام، مقابل مخابز باتسري، بجوار استديو جميل",
+  branches: ["كسلا"],
+  // No real social profiles provided yet — left empty rather than linking
+  // to guessed URLs. Fill in and re-enable the footer icons row (see
+  // site-footer.tsx) once accounts exist.
   social: {
-    facebook: "https://facebook.com/nasaemalharamain",
-    instagram: "https://instagram.com/nasaemalharamain",
-    twitter: "https://x.com/nasaemalharamain",
+    facebook: "",
+    instagram: "",
+    twitter: "",
   },
 } as const;
 

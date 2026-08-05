@@ -4,7 +4,7 @@ import * as React from "react";
 import { CheckCircle2, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type Status = "idle" | "submitting" | "success";
+type Status = "idle" | "submitting" | "success" | "error";
 
 const services = [
   "باقة عمرة",
@@ -15,21 +15,50 @@ const services = [
   "استفسار آخر",
 ];
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
+
 export function ContactForm() {
   const [status, setStatus] = React.useState<Status>("idle");
+  const [errorMessage, setErrorMessage] = React.useState("");
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setStatus("submitting");
+    setErrorMessage("");
 
-    // This marketing site has no backend endpoint wired up yet — this
-    // simulates submission so the form is fully demonstrable end-to-end.
-    // Wire this to a real API route (or the staff back-office API) before
-    // going live.
-    window.setTimeout(() => {
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+
+    try {
+      const response = await fetch(`${API_URL}/contact-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.get("name"),
+          phone: formData.get("phone"),
+          email: formData.get("email"),
+          service: formData.get("service"),
+          message: formData.get("message"),
+          // Honeypot: real users never see or fill this field (see CSS
+          // below). Left empty here on every legitimate submission.
+          website: formData.get("website"),
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
+      }
+
       setStatus("success");
-      e.currentTarget.reset();
-    }, 900);
+      form.reset();
+    } catch (error) {
+      setStatus("error");
+      setErrorMessage(
+        error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى"
+      );
+    }
   }
 
   if (status === "success") {
@@ -60,6 +89,21 @@ export function ContactForm() {
       onSubmit={handleSubmit}
       className="rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-8"
     >
+      {/* Honeypot: hidden from real users via CSS (not `type="hidden"`, which
+          some bots skip) and never rendered to a11y tree via aria-hidden +
+          tabIndex=-1. The backend silently discards any submission where
+          this is non-empty. */}
+      <div className="hidden" aria-hidden="true">
+        <label htmlFor="website">اتركه فارغًا</label>
+        <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" />
+      </div>
+
+      {status === "error" ? (
+        <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+          {errorMessage}
+        </div>
+      ) : null}
+
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <label htmlFor="name" className="text-sm font-semibold text-foreground">

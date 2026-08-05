@@ -27,11 +27,12 @@ const trustBadges = [
 
 // lucide-react dropped brand/logo icons (trademark reasons), so social links
 // use plain text monograms instead of guessing at reproduced logo glyphs.
+// Only rendered once a real profile URL exists in site-config.ts.
 const socialLinks = [
   { mark: "f", href: siteConfig.social.facebook, label: "فيسبوك" },
   { mark: "IG", href: siteConfig.social.instagram, label: "إنستغرام" },
   { mark: "X", href: siteConfig.social.twitter, label: "إكس" },
-];
+].filter((item) => item.href);
 
 export function SiteFooter() {
   return (
@@ -42,20 +43,22 @@ export function SiteFooter() {
           <p className="mt-5 max-w-xs text-sm leading-relaxed text-muted-foreground">
             {siteConfig.description}
           </p>
-          <div className="mt-6 flex items-center gap-3">
-            {socialLinks.map(({ mark, href, label }) => (
-              <a
-                key={label}
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={label}
-                className="flex size-10 items-center justify-center rounded-full border border-border bg-card text-xs font-bold text-foreground/70 transition hover:border-primary hover:text-primary"
-              >
-                {mark}
-              </a>
-            ))}
-          </div>
+          {socialLinks.length > 0 ? (
+            <div className="mt-6 flex items-center gap-3">
+              {socialLinks.map(({ mark, href, label }) => (
+                <a
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={label}
+                  className="flex size-10 items-center justify-center rounded-full border border-border bg-card text-xs font-bold text-foreground/70 transition hover:border-primary hover:text-primary"
+                >
+                  {mark}
+                </a>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <nav aria-label="روابط سريعة">
