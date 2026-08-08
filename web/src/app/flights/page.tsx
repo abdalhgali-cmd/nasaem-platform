@@ -5,6 +5,7 @@ import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
 import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
+import { FLIGHT_ROUTES } from "@/lib/flight-routes";
 
 export const metadata: Metadata = {
   title: "حجز تذاكر الطيران",
@@ -12,14 +13,7 @@ export const metadata: Metadata = {
     "احجز تذاكر طيران داخلية ودولية بأفضل الأسعار مع نسائم الحرمين — حجز فردي أو جماعي، ذهاب فقط أو ذهاب وعودة.",
 };
 
-const routes = [
-  { from: "الخرطوم", to: "جدة", price: "410", duration: "٣ ساعات" },
-  { from: "الخرطوم", to: "القاهرة", price: "260", duration: "٢ ساعة ٤٥ دقيقة" },
-  { from: "بورتسودان", to: "جدة", price: "195", duration: "ساعة واحدة" },
-  { from: "الخرطوم", to: "دبي", price: "520", duration: "٤ ساعات" },
-  { from: "الخرطوم", to: "إسطنبول", price: "610", duration: "٥ ساعات ٣٠ دقيقة" },
-  { from: "الخرطوم", to: "المدينة المنورة", price: "455", duration: "٣ ساعات ١٥ دقيقة" },
-];
+const routes = FLIGHT_ROUTES;
 
 const features = [
   { icon: Tag, title: "أفضل الأسعار", description: "مقارنة مستمرة بين شركات الطيران لضمان أفضل سعر متاح." },
@@ -66,8 +60,15 @@ export default function FlightsPage() {
                   </div>
                   <div className="mt-5 flex items-end justify-between">
                     <div>
-                      <span className="text-xs text-muted-foreground">يبدأ من</span>
-                      <p className="text-2xl font-extrabold text-foreground">${route.price}</p>
+                      <span className="text-xs text-muted-foreground">ذهاب وعودة، يبدأ من</span>
+                      <p className="text-2xl font-extrabold text-foreground">
+                        ${route.roundTripPrices.economy}
+                      </p>
+                      {route.roundTripPrices.business ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          رجال الأعمال من ${route.roundTripPrices.business}
+                        </p>
+                      ) : null}
                     </div>
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Clock3 className="size-3.5" />

@@ -3,13 +3,9 @@ import { ArrowLeft, Plane, PlaneLanding, PlaneTakeoff, ShieldCheck, Tag, Clock3 
 import { Container } from "@/components/container";
 import { Button } from "@/components/ui/button";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
+import { FLIGHT_ROUTES } from "@/lib/flight-routes";
 
-const routes = [
-  { from: "الخرطوم", to: "جدة", price: "410" },
-  { from: "الخرطوم", to: "القاهرة", price: "260" },
-  { from: "بورتسودان", to: "جدة", price: "195" },
-  { from: "الخرطوم", to: "دبي", price: "520" },
-];
+const routes = FLIGHT_ROUTES.slice(0, 4);
 
 const perks = [
   { icon: Tag, label: "أسعار تنافسية مقارنة بالسوق" },
@@ -70,10 +66,15 @@ export function FlightBooking() {
                 </div>
                 <div className="mt-5 flex items-end justify-between">
                   <div>
-                    <span className="text-xs text-muted-foreground">يبدأ من</span>
+                    <span className="text-xs text-muted-foreground">ذهاب وعودة، يبدأ من</span>
                     <p className="text-2xl font-extrabold text-foreground">
-                      ${route.price}
+                      ${route.roundTripPrices.economy}
                     </p>
+                    {route.roundTripPrices.business ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        رجال الأعمال من ${route.roundTripPrices.business}
+                      </p>
+                    ) : null}
                   </div>
                   <span className="text-xs font-semibold text-primary opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:text-secondary">
                     اعرض الرحلات ←
