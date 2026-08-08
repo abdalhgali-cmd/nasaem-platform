@@ -3,9 +3,16 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Plane, Hotel, Sparkles, Search, Users, Calendar, MapPin } from "lucide-react";
+import { Plane, Hotel, Sparkles, Search, Users, Calendar, MapPin, Armchair } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  ORIGIN_CITIES,
+  DESTINATION_CITIES,
+  CABIN_CLASSES,
+  defaultFarDepartureDate,
+  defaultFarReturnDate,
+} from "@/lib/flight-routes";
 
 type Tab = "umrah" | "flights" | "hotels";
 
@@ -41,11 +48,18 @@ const inputClass =
 export function BookingSearchWidget() {
   const router = useRouter();
   const [tab, setTab] = React.useState<Tab>("umrah");
-  const [from, setFrom] = React.useState("الخرطوم");
-  const [to, setTo] = React.useState("جدة");
+  const [from, setFrom] = React.useState(ORIGIN_CITIES[0]);
+  const [to, setTo] = React.useState(DESTINATION_CITIES[0]);
+  const [cabinClass, setCabinClass] = React.useState<(typeof CABIN_CLASSES)[number]["value"]>(
+    "economy"
+  );
   const [city, setCity] = React.useState("مكة المكرمة");
-  const [date, setDate] = React.useState("");
-  const [returnDate, setReturnDate] = React.useState("");
+  // Round-trip by default: linking an origin to a destination always implies
+  // a return leg, and defaulting both dates well into the future (rather
+  // than "today") is what surfaces business/first-class fares — those fill
+  // up fastest on near-term dates.
+  const [date, setDate] = React.useState(() => defaultFarDepartureDate());
+  const [returnDate, setReturnDate] = React.useState(() => defaultFarReturnDate());
   const [guests, setGuests] = React.useState(1);
 
   function handleSubmit(e: React.FormEvent) {
@@ -60,6 +74,8 @@ export function BookingSearchWidget() {
       params.set("from", from);
       params.set("to", to);
       if (date) params.set("date", date);
+      if (returnDate) params.set("returnDate", returnDate);
+      params.set("cabinClass", cabinClass);
       params.set("guests", String(guests));
       router.push(`/flights?${params.toString()}`);
     } else {
@@ -130,26 +146,52 @@ export function BookingSearchWidget() {
         {tab === "flights" ? (
           <>
             <FieldShell label="من" icon={MapPin}>
-              <input
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                className={inputClass}
-              />
+              <select value={from} onChange={(e) => setFrom(e.target.value)} className={inputClass}>
+                {ORIGIN_CITIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
             </FieldShell>
             <FieldShell label="إلى" icon={MapPin}>
-              <input
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className={inputClass}
-              />
+              <select value={to} onChange={(e) => setTo(e.target.value)} className={inputClass}>
+                {DESTINATION_CITIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
             </FieldShell>
-            <FieldShell label="تاريخ المغادرة" icon={Calendar}>
+            <FieldShell label="تاريخ الذهاب" icon={Calendar}>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 className={inputClass}
               />
+            </FieldShell>
+            <FieldShell label="تاريخ العودة" icon={Calendar}>
+              <input
+                type="date"
+                value={returnDate}
+                onChange={(e) => setReturnDate(e.target.value)}
+                min={date}
+                className={inputClass}
+              />
+            </FieldShell>
+            <FieldShell label="الدرجة" icon={Armchair}>
+              <select
+                value={cabinClass}
+                onChange={(e) => setCabinClass(e.target.value as typeof cabinClass)}
+                className={inputClass}
+              >
+                {CABIN_CLASSES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
             </FieldShell>
             <FieldShell label="المسافرون" icon={Users}>
               <input
