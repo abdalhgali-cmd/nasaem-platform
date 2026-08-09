@@ -3,6 +3,7 @@ import { Briefcase, Globe2, Plane, Stamp, Users2 } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
+import { ServiceRequestForm } from "@/components/sections/service-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
@@ -56,6 +57,18 @@ const visaCategories = [
   },
 ];
 
+const visaRequestFields = [
+  {
+    name: "visaType",
+    label: "نوع التأشيرة",
+    type: "select" as const,
+    options: visaCategories.map((visa) => visa.title),
+  },
+  { name: "nationality", label: "الجنسية", type: "text" as const, required: true },
+  { name: "travelDate", label: "تاريخ السفر المتوقع", type: "date" as const },
+  { name: "applicants", label: "عدد المتقدمين", type: "number" as const, min: 1, defaultValue: "1" },
+];
+
 export default function VisasPage() {
   return (
     <>
@@ -104,6 +117,19 @@ export default function VisasPage() {
               </FadeIn>
             ))}
           </Stagger>
+        </Container>
+      </section>
+
+      <section className="bg-section py-24">
+        <Container className="max-w-2xl">
+          <SectionHeading
+            eyebrow="اطلب تأشيرتك"
+            title="جاهز؟ اطلب تأشيرتك الآن"
+            description="عبّئ بياناتك وسيتواصل معك فريقنا لتأكيد المستندات المطلوبة لحالتك."
+          />
+          <FadeIn className="mt-10">
+            <ServiceRequestForm id="request" service="تأشيرة" fields={visaRequestFields} />
+          </FadeIn>
         </Container>
       </section>
 

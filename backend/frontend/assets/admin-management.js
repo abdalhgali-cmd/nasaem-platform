@@ -470,7 +470,18 @@ async function loadContactRequests() {
           <td>${escapeHtml(req.name)}</td>
           <td dir="ltr">${escapeHtml(req.phone)}</td>
           <td>${escapeHtml(req.service || "-")}</td>
-          <td style="max-width: 280px; white-space: normal">${escapeHtml(req.message)}</td>
+          <td style="max-width: 280px; white-space: normal">
+            ${escapeHtml(req.message)}
+            ${
+              req.details && Object.keys(req.details).length > 0
+                ? `<ul style="margin: 6px 0 0; padding-inline-start: 16px; font-size: 12px; color: var(--muted, #6b7280)">
+                    ${Object.entries(req.details)
+                      .map(([key, value]) => `<li>${escapeHtml(key)}: ${escapeHtml(String(value))}</li>`)
+                      .join("")}
+                  </ul>`
+                : ""
+            }
+          </td>
           <td>
             <select data-contact-request-status="${req.id}">
               ${Object.entries(CONTACT_REQUEST_STATUS_LABELS_AR)

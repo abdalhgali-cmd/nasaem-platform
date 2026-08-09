@@ -4,6 +4,7 @@ import { Check, Gem, Heart, Plane, Star, Users } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
+import { ServiceRequestForm } from "@/components/sections/service-request-form";
 import { Button } from "@/components/ui/button";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,13 @@ const whyUs = [
   { icon: Gem, title: "جودة مضمونة", description: "نختار شركاءنا من فنادق وشركات طيران بعناية فائقة." },
   { icon: Star, title: "تجربة متكاملة", description: "كل تفاصيل رحلتك في مكان واحد بدون تشتت." },
   { icon: Check, title: "مرونة في التعديل", description: "إمكانية تعديل الباقة لتناسب احتياجاتك الخاصة." },
+];
+
+const packageRequestFields = [
+  { name: "packageType", label: "نوع الباقة", type: "select" as const, options: packages.map((p) => p.name) },
+  { name: "destination", label: "الوجهة المفضلة", type: "text" as const },
+  { name: "travelDate", label: "تاريخ السفر المتوقع", type: "date" as const },
+  { name: "travelers", label: "عدد المسافرين", type: "number" as const, min: 1, defaultValue: "1" },
 ];
 
 export default function PackagesPage() {
@@ -106,12 +114,25 @@ export default function PackagesPage() {
                   </ul>
 
                   <Button asChild variant={pkg.highlighted ? "gold" : "primary"} size="lg" className="mt-8 w-full">
-                    <Link href="/contact">اطلب هذه الباقة</Link>
+                    <Link href="#request">اطلب هذه الباقة</Link>
                   </Button>
                 </div>
               </FadeIn>
             ))}
           </Stagger>
+        </Container>
+      </section>
+
+      <section className="py-24">
+        <Container className="max-w-2xl">
+          <SectionHeading
+            eyebrow="اطلب باقتك"
+            title="جاهز؟ اطلب باقتك الآن"
+            description="عبّئ بياناتك وسيتواصل معك فريقنا لتصميم رحلتك وتأكيد التفاصيل."
+          />
+          <FadeIn className="mt-10">
+            <ServiceRequestForm id="request" service="باقة سفر شاملة" fields={packageRequestFields} />
+          </FadeIn>
         </Container>
       </section>
 
@@ -138,7 +159,7 @@ export default function PackagesPage() {
               أخبرنا بتفاصيل رحلتك ونحن نصمم لك باقة خاصة تناسب ميزانيتك وموعدك.
             </p>
             <Button asChild className="mt-5">
-              <Link href="/contact">تواصل معنا الآن</Link>
+              <Link href="#request">تواصل معنا الآن</Link>
             </Button>
           </FadeIn>
         </Container>

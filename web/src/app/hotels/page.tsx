@@ -4,6 +4,7 @@ import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
 import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
+import { ServiceRequestForm } from "@/components/sections/service-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 
 export const metadata: Metadata = {
@@ -26,6 +27,14 @@ const amenities = [
   { icon: Utensils, label: "إفطار متضمن" },
   { icon: Car, label: "خدمة نقل من وإلى المطار" },
   { icon: Wind, label: "تكييف مركزي" },
+];
+
+const hotelRequestFields = [
+  { name: "city", label: "المدينة", type: "select" as const, options: cities.map((c) => c.city) },
+  { name: "checkin", label: "تاريخ الدخول", type: "date" as const, required: true },
+  { name: "checkout", label: "تاريخ الخروج", type: "date" as const, required: true },
+  { name: "rooms", label: "عدد الغرف", type: "number" as const, min: 1, defaultValue: "1" },
+  { name: "guests", label: "عدد النزلاء", type: "number" as const, min: 1, defaultValue: "1" },
 ];
 
 export default function HotelsPage() {
@@ -79,6 +88,19 @@ export default function HotelsPage() {
               </FadeIn>
             ))}
           </Stagger>
+        </Container>
+      </section>
+
+      <section className="py-24">
+        <Container className="max-w-2xl">
+          <SectionHeading
+            eyebrow="اطلب حجزك"
+            title="جاهز؟ اطلب حجز الفندق الآن"
+            description="عبّئ بياناتك وسيتواصل معك فريقنا لتأكيد التوفر والأسعار."
+          />
+          <FadeIn className="mt-10">
+            <ServiceRequestForm id="request" service="فندق" fields={hotelRequestFields} />
+          </FadeIn>
         </Container>
       </section>
 

@@ -4,14 +4,34 @@ import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 
+// The `message` column is required (NOT NULL) since it predates structured
+// `details` and every dashboard view/notification still reads it. A
+// service-form submission may have no free-text notes at all, so fall back
+// to a readable summary built from its structured fields instead of "".
+function composeMessage(message, details) {
+  const trimmed = message?.trim();
+  if (trimmed) return trimmed;
+
+  if (details && Object.keys(details).length > 0) {
+    return Object.entries(details)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("، ");
+  }
+
+  return "-";
+}
+
 export async function createContactRequest(data, req) {
+  const message = composeMessage(data.message, data.details);
+
   const contactRequest = await prisma.contactRequest.create({
     data: {
       name: data.name,
       phone: data.phone,
       email: data.email || null,
       service: data.service || null,
-      message: data.message,
+      message,
+      details: data.details && Object.keys(data.details).length > 0 ? data.details : undefined,
     },
   });
 

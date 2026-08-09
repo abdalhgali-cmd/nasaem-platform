@@ -443,6 +443,12 @@ model ContactRequest {
   email     String?
   service   String?
   message   String
+  // Structured per-service fields submitted from the service-specific
+  // request forms on the marketing site (e.g. Umrah package type + travel
+  // date + pilgrim count, or flight from/to/dates/cabin class). A flat
+  // string-to-string map — free-text contact-form submissions simply omit
+  // it, so it stays optional rather than becoming a second required input.
+  details   Json?
   status    ContactRequestStatus @default(NEW)
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt

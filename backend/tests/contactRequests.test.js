@@ -2,6 +2,7 @@ import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { createContactRequestSchema } from "../src/modules/contact-requests/contact-requests.validators.js";
 
 // logActivity() is fire-and-forget (not awaited) by the same convention used
 // everywhere else in this codebase, so the write can still be in flight when
@@ -83,10 +84,20 @@ describe("contact requests", () => {
 
   test("SUPER_ADMIN can find, review activity for, and update a submitted request", async () => {
     const phone = `093${suffix}3`;
+    // Also covers a structured service-form submission (no free-text
+    // message, just `details`) end-to-end, reusing this test's single POST
+    // rather than spending another unit of the public endpoint's tight
+    // 5-per-window rate limit (see the "must run last" test below).
     const createRes = await request(app).post("/api/contact-requests").send({
       name: "Fatima Test",
       phone,
-      message: "استفسار عن حجز فندق في مكة المكرمة لمدة أسبوع",
+      service: "طيران",
+      details: {
+        من: "الخرطوم",
+        إلى: "جدة",
+        "تاريخ الذهاب": "2026-11-01",
+        الدرجة: "اقتصادية",
+      },
     });
     assert.equal(createRes.status, 201);
     const id = createRes.body.data.id;
@@ -96,6 +107,13 @@ describe("contact requests", () => {
     const found = listRes.body.data.find((item) => item.id === id);
     assert.ok(found, "expected the newly created request to appear in the NEW-status list");
     assert.equal(found.phone, phone);
+    assert.deepEqual(found.details, {
+      من: "الخرطوم",
+      إلى: "جدة",
+      "تاريخ الذهاب": "2026-11-01",
+      الدرجة: "اقتصادية",
+    });
+    assert.match(found.message, /الخرطوم/);
 
     await waitFor(async () => {
       const activityRes = await adminAgent.get("/api/activity-logs?limit=50");
@@ -116,6 +134,20 @@ describe("contact requests", () => {
       .patch(`/api/contact-requests/${id}/status`)
       .send({ status: "NOT_A_REAL_STATUS" });
     assert.equal(badStatusRes.status, 400);
+  });
+
+  // Checked against the zod schema directly (not via HTTP) so this doesn't
+  // spend a request against the public endpoint's tight 5-per-window rate
+  // limit — the "rate limiter blocks..." test below depends on that budget
+  // being otherwise untouched by the time it runs.
+  test("rejects a submission with neither a message nor details", () => {
+    const parsed = createContactRequestSchema.safeParse({
+      name: "Empty Request Test",
+      phone: "0911111111",
+    });
+
+    assert.equal(parsed.success, false);
+    assert.ok(parsed.error.flatten().fieldErrors.message);
   });
 
   test("updating an unknown contact request returns 404", async () => {

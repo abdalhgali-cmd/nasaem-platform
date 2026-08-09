@@ -4,8 +4,23 @@ import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
 import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
+import { ServiceRequestForm } from "@/components/sections/service-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
-import { FLIGHT_ROUTES } from "@/lib/flight-routes";
+import { FLIGHT_ROUTES, ORIGIN_CITIES, DESTINATION_CITIES, CABIN_CLASSES } from "@/lib/flight-routes";
+
+const flightRequestFields = [
+  { name: "from", label: "من", type: "select" as const, options: [...ORIGIN_CITIES] },
+  { name: "to", label: "إلى", type: "select" as const, options: [...DESTINATION_CITIES] },
+  { name: "date", label: "تاريخ الذهاب", type: "date" as const, required: true },
+  { name: "returnDate", label: "تاريخ العودة", type: "date" as const },
+  {
+    name: "cabinClass",
+    label: "الدرجة",
+    type: "select" as const,
+    options: CABIN_CLASSES.map((c) => c.label),
+  },
+  { name: "passengers", label: "عدد المسافرين", type: "number" as const, min: 1, defaultValue: "1" },
+];
 
 export const metadata: Metadata = {
   title: "حجز تذاكر الطيران",
@@ -79,6 +94,19 @@ export default function FlightsPage() {
               </FadeIn>
             ))}
           </Stagger>
+        </Container>
+      </section>
+
+      <section className="py-24">
+        <Container className="max-w-2xl">
+          <SectionHeading
+            eyebrow="اطلب حجزك"
+            title="جاهز؟ اطلب حجز تذكرتك الآن"
+            description="عبّئ بياناتك وسيتواصل معك فريقنا لتأكيد الأسعار والمواعيد."
+          />
+          <FadeIn className="mt-10">
+            <ServiceRequestForm id="request" service="طيران" fields={flightRequestFields} />
+          </FadeIn>
         </Container>
       </section>
 
