@@ -18,6 +18,15 @@ const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 
 const app = express();
 
+// Railway (and most PaaS hosts) put the app behind a single reverse-proxy
+// hop, which sets X-Forwarded-For. Without this, Express's req.ip resolves
+// to the proxy's own IP for every visitor — so every IP-based rate limiter
+// (below, and the public contact-requests one) was effectively rate-limiting
+// all visitors combined as a single "user" instead of per-client. `1` means
+// "trust exactly one hop", the specific value express-rate-limit's own
+// validation recommends over the permissive (and vulnerable) `true`.
+app.set("trust proxy", 1);
+
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN?.split(",").map((origin) => origin.trim()) ?? true,
