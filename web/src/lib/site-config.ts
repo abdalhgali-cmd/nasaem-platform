@@ -4,7 +4,7 @@ export const siteConfig = {
   shortName: "نسائم الحرمين",
   description:
     "وكالة سفر وسياحة متكاملة لخدمات العمرة والتأشيرات وحجوزات الطيران والفنادق — نُنجز رحلتك بثقة واحترافية من البداية حتى العودة.",
-  url: "https://www.nasaem-alharamain.com",
+  url: "https://nasaem-alharamain.com",
   phone: "+249 91 103 4372",
   whatsapp: "249911034372",
   email: "Nasaem.alHaramain2024@gmail.com",
