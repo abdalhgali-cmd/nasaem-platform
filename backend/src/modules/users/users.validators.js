@@ -13,3 +13,7 @@ export const createUserSchema = z.object({
 export const updateUserStatusSchema = z.object({
   status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED"]),
 });
+
+export const resetUserPasswordSchema = z.object({
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});

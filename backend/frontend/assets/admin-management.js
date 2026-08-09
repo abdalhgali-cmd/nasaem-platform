@@ -13,6 +13,7 @@ const ACTIVITY_ACTION_LABELS_AR = {
   PAYMENT_RECORDED: "تسجيل دفعة",
   USER_CREATED: "إنشاء مستخدم",
   USER_STATUS_CHANGED: "تغيير حالة مستخدم",
+  USER_PASSWORD_RESET: "إعادة تعيين كلمة مرور",
   CONTACT_REQUEST_RECEIVED: "استلام طلب تواصل",
 };
 
@@ -49,6 +50,11 @@ function mgmtCanWrite(entity) {
 // would incorrectly hide the toggle button from ADMIN.
 function canToggleUserStatus() {
   return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
+}
+
+// Mirrors PATCH /users/:id/password's requireRole("SUPER_ADMIN").
+function canResetUserPassword() {
+  return currentUser.role === "SUPER_ADMIN";
 }
 
 function initManagementTab() {
@@ -365,7 +371,10 @@ async function loadUsers() {
           <td>${u.email}</td>
           <td>${ROLE_LABELS_AR[u.role] || u.role}</td>
           <td>${statusBadge(u.status)}</td>
-          <td>${canToggleUserStatus() && u.id !== currentUser.id ? `<button type="button" class="btn secondary" data-toggle-user="${u.id}" data-status="${u.status}">${u.status === "ACTIVE" ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>
+            ${canToggleUserStatus() && u.id !== currentUser.id ? `<button type="button" class="btn secondary" data-toggle-user="${u.id}" data-status="${u.status}">${u.status === "ACTIVE" ? "تعطيل" : "تفعيل"}</button>` : ""}
+            ${canResetUserPassword() ? `<button type="button" class="btn secondary" data-reset-password="${u.id}">تعيين كلمة مرور</button>` : ""}
+          </td>
         </tr>`
       )
       .join("");
@@ -393,6 +402,19 @@ async function createUserAccount() {
 }
 
 function handleUserRowClick(e) {
+  const resetBtn = e.target.closest("[data-reset-password]");
+  if (resetBtn) {
+    const password = window.prompt("أدخل كلمة المرور الجديدة (٨ أحرف على الأقل):");
+    if (!password) return;
+    if (password.length < 8) return showAlert(mgmtAlert(), "كلمة المرور يجب أن تكون ٨ أحرف على الأقل.");
+
+    api
+      .patch(`/users/${resetBtn.dataset.resetPassword}/password`, { password })
+      .then(() => showAlert(mgmtAlert(), "تم تعيين كلمة المرور بنجاح.", "success"))
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+
   const btn = e.target.closest("[data-toggle-user]");
   if (!btn) return;
   const nextStatus = btn.dataset.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";

@@ -66,6 +66,17 @@
     </section>
 
     <section id="tab-customers" class="hidden">
+      <div class="card hidden" id="customer-create-card">
+        <h2>عميل جديد</h2>
+        <div class="grid cols-3">
+          <div class="field"><label for="c-fullName">الاسم الكامل *</label><input id="c-fullName" /></div>
+          <div class="field"><label for="c-passportNo">رقم الجواز *</label><input id="c-passportNo" /></div>
+          <div class="field"><label for="c-nationality">الجنسية *</label><input id="c-nationality" /></div>
+          <div class="field"><label for="c-phone">الهاتف</label><input id="c-phone" /></div>
+          <div class="field"><label for="c-email">البريد الإلكتروني</label><input id="c-email" type="email" /></div>
+        </div>
+        <button type="button" class="btn" id="customer-create-btn">إضافة عميل</button>
+      </div>
       <div class="card">
         <div class="stack" style="justify-content: space-between; margin-bottom: 14px">
           <h2 style="margin: 0">العملاء</h2>

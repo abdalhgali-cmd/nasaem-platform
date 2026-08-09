@@ -86,3 +86,19 @@ export async function changeUserStatus(id, status) {
     select: userListSelect,
   });
 }
+
+export async function resetUserPassword(id, password) {
+  const existing = await prisma.user.findUnique({ where: { id } });
+
+  if (!existing) {
+    return null;
+  }
+
+  const passwordHash = await hashPassword(password);
+
+  return prisma.user.update({
+    where: { id },
+    data: { passwordHash },
+    select: userListSelect,
+  });
+}

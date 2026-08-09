@@ -30,6 +30,8 @@ async function bootstrap() {
   renderHeader(currentUser, "dashboard");
   setupTabVisibility();
   setupTabSwitching();
+  el("customer-create-card").classList.toggle("hidden", !canCreateCustomer());
+  el("customer-create-btn").addEventListener("click", createCustomerAccount);
 
   loadActiveTabData();
 }
@@ -48,6 +50,12 @@ function canRecordPayment() {
 
 function canSeeManagement() {
   return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
+}
+
+// Mirrors POST /customers's requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE")
+// — ACCOUNTANT can view the customers list but not create new ones.
+function canCreateCustomer() {
+  return ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(currentUser.role);
 }
 
 function setupTabVisibility() {
@@ -360,6 +368,31 @@ async function loadCustomers() {
     });
   } catch (error) {
     showAlert(pageAlert, error.message);
+  }
+}
+
+async function createCustomerAccount() {
+  showAlert(pageAlert, "");
+  const fullName = el("c-fullName").value.trim();
+  const passportNo = el("c-passportNo").value.trim();
+  const nationality = el("c-nationality").value.trim();
+  const phone = el("c-phone").value.trim();
+  const email = el("c-email").value.trim();
+
+  if (!fullName || !passportNo || !nationality) {
+    return showAlert(pageAlert, "الاسم ورقم الجواز والجنسية مطلوبة.");
+  }
+
+  try {
+    await api.post("/customers", { fullName, passportNo, nationality, phone, email });
+    el("c-fullName").value = "";
+    el("c-passportNo").value = "";
+    el("c-nationality").value = "";
+    el("c-phone").value = "";
+    el("c-email").value = "";
+    loadCustomers();
+  } catch (error) {
+    showAlert(pageAlert, error.message + (error.errors ? " — " + formatErrors(error.errors) : ""));
   }
 }
 
