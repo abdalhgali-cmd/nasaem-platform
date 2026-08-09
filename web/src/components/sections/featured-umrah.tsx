@@ -125,7 +125,7 @@ export function FeaturedUmrah() {
                   size="lg"
                   className="mt-8 w-full"
                 >
-                  <Link href="/umrah">احجز هذه الباقة</Link>
+                  <Link href="/contact">احجز هذه الباقة</Link>
                 </Button>
               </div>
             </FadeIn>
