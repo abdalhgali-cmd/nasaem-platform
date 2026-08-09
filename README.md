@@ -1,7 +1,7 @@
 # Nasaem Platform
 
 Staff back-office for the Nasaem Al-Haramain travel platform: a Node.js/Express +
-Prisma + PostgreSQL API, and a plain HTML/CSS/JS staff frontend (`frontend/`)
+Prisma + PostgreSQL API, and a plain HTML/CSS/JS staff frontend (`backend/frontend/`)
 served by the same Express server (same-origin, cookie-based auth, no separate
 frontend build step or server needed).
 
@@ -47,9 +47,9 @@ frontend build step or server needed).
 
 ## Frontend
 
-`frontend/login.html`, `frontend/request.html` (create a customer + order,
+`backend/frontend/login.html`, `backend/frontend/request.html` (create a customer + order,
 matched against the seeded `Service` catalog, then upload documents) and
-`frontend/admin-dashboard.html` cover the day-to-day staff workflow: overview
+`backend/frontend/admin-dashboard.html` cover the day-to-day staff workflow: overview
 stats, orders with status/payment management, customers, payments, and a
 "Management" tab (SUPER_ADMIN/ADMIN only) for branches, suppliers, services,
 offers and user accounts. Settings management is currently API-only (no

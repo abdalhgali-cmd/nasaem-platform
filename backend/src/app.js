@@ -13,8 +13,13 @@ import notFoundMiddleware from "./middleware/notFound.middleware.js";
 import errorMiddleware from "./middleware/error.middleware.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// backend/src/app.js -> repo root/frontend
-const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
+// backend/src/app.js -> backend/frontend. Lives inside backend/ (not as a
+// repo-root sibling) specifically so it's included when only backend/ is
+// used as the deploy build context (e.g. Railway's "Root Directory" or
+// docker-compose's `context: ./backend`) — a sibling directory outside that
+// root is invisible to the build, which was silently 404ing every staff
+// page (login.html, admin-dashboard.html, ...) in production.
+const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
 
 const app = express();
 
