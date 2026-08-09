@@ -26,6 +26,56 @@ function getWorker() {
   return workerPromise;
 }
 
+let arabicWorkerPromise;
+function getArabicWorker() {
+  if (!arabicWorkerPromise) {
+    // No char whitelist here (unlike getWorker() above) — the printed name
+    // isn't confined to a fixed charset the way the MRZ strip is, so
+    // restricting it would just as easily cut off real Arabic letters.
+    arabicWorkerPromise = createWorker("ara", 1, {
+      langPath: LANG_DATA_PATH,
+      cachePath: LANG_DATA_PATH,
+      gzip: true,
+    });
+  }
+  return arabicWorkerPromise;
+}
+
+const ARABIC_CHAR = /[؀-ۿ]/;
+
+// There's no fixed passport layout to crop a "name field" out of, and no
+// check-digit equivalent to validate an Arabic OCR read against (unlike
+// parsePassportMrzText below). This is a best-effort heuristic — the line
+// most densely made of Arabic-script characters, preferring the one with
+// the most words (closer to a full name than a single word) — meant to be
+// offered as an editable suggestion the customer reviews, never as a
+// confirmed value the way the passport number is.
+export function pickArabicNameSuggestion(rawText) {
+  const candidates = rawText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (line.length < 4) return false;
+      const letters = [...line].filter((ch) => !/\s/.test(ch));
+      const arabicLetters = letters.filter((ch) => ARABIC_CHAR.test(ch));
+      return letters.length >= 4 && arabicLetters.length / letters.length > 0.6;
+    });
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length);
+  return candidates[0];
+}
+
+export async function extractArabicNameSuggestion(imageBuffer) {
+  const worker = await getArabicWorker();
+  const {
+    data: { text },
+  } = await worker.recognize(imageBuffer);
+
+  return pickArabicNameSuggestion(text);
+}
+
 // TD1 (id cards) uses 3 lines of 30 chars; TD3 (passports) uses 2 lines of
 // 44 chars. We only try line-group sizes relevant to passports (2 lines),
 // which is what this feature is scoped to.
@@ -124,8 +174,15 @@ export async function extractPassportData(imageBuffer) {
 }
 
 export async function terminateOcrWorker() {
-  if (!workerPromise) return;
-  const worker = await workerPromise;
-  await worker.terminate();
-  workerPromise = undefined;
+  if (workerPromise) {
+    const worker = await workerPromise;
+    await worker.terminate();
+    workerPromise = undefined;
+  }
+
+  if (arabicWorkerPromise) {
+    const worker = await arabicWorkerPromise;
+    await worker.terminate();
+    arabicWorkerPromise = undefined;
+  }
 }

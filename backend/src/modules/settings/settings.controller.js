@@ -1,5 +1,18 @@
 import { upsertSettingSchema } from "./settings.validators.js";
-import { listSettings, upsertSetting } from "./settings.service.js";
+import { getPublicPaymentSettings, listSettings, upsertSetting } from "./settings.service.js";
+
+export async function getPaymentSettings(req, res, next) {
+  try {
+    const data = await getPublicPaymentSettings();
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function getSettings(req, res, next) {
   try {

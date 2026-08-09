@@ -77,3 +77,32 @@ export const uploadSiteAsset = multer({
   fileFilter: imageFileFilter,
   limits: { fileSize: 5 * 1024 * 1024 },
 }).single("image");
+
+// Files a customer attaches to their own public contact-request submission
+// (passport photo, bank-transfer receipt) — unlike `uploadDocument` these
+// aren't created by an authenticated staff member, so they're kept in a
+// separate directory rather than mixed into uploads/documents.
+const CONTACT_REQUEST_FILES_DIR = path.resolve("uploads", "contact-request-files");
+fs.mkdirSync(CONTACT_REQUEST_FILES_DIR, { recursive: true });
+
+const contactRequestFileStorage = multer.diskStorage({
+  destination(req, file, cb) {
+    cb(null, CONTACT_REQUEST_FILES_DIR);
+  },
+  filename(req, file, cb) {
+    const uniqueName = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+
+export const uploadContactRequestPassportImage = multer({
+  storage: contactRequestFileStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 8 * 1024 * 1024 },
+}).single("image");
+
+export const uploadContactRequestPaymentReceipt = multer({
+  storage: contactRequestFileStorage,
+  fileFilter,
+  limits: { fileSize: 8 * 1024 * 1024 },
+}).single("image");

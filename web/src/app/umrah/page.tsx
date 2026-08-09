@@ -5,21 +5,10 @@ import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
 import { FeaturedUmrah } from "@/components/sections/featured-umrah";
-import { ServiceRequestForm } from "@/components/sections/service-request-form";
+import { UmrahRequestForm } from "@/components/sections/umrah-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
-
-const umrahRequestFields = [
-  {
-    name: "packageType",
-    label: "نوع الباقة",
-    type: "select" as const,
-    options: ["تأشيرة عمرة فقط", "عمرة مع الخدمات", "العمرة الجماعية (الأفواج)"],
-  },
-  { name: "travelDate", label: "تاريخ السفر المتوقع", type: "date" as const },
-  { name: "pilgrims", label: "عدد المعتمرين", type: "number" as const, min: 1, defaultValue: "1" },
-];
 
 export const metadata: Metadata = {
   title: "باقات العمرة",
@@ -104,10 +93,10 @@ export default function UmrahPage() {
           <SectionHeading
             eyebrow="اطلب باقتك"
             title="جاهز؟ اطلب باقة العمرة الآن"
-            description="عبّئ بياناتك وسيتواصل معك فريقنا لتأكيد التفاصيل والدفع."
+            description="عبّئ بياناتك، صورة جواز السفر، وبيانات الضامن — راجع طلبك ثم أكّده."
           />
           <FadeIn className="mt-10">
-            <ServiceRequestForm id="request" service="عمرة" fields={umrahRequestFields} />
+            <UmrahRequestForm id="request" />
           </FadeIn>
         </Container>
       </section>

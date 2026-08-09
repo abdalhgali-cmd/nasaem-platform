@@ -17,6 +17,10 @@ export const createContactRequestSchema = z
     // meaningful content entirely through `details` instead.
     message: z.string().trim().max(2000).optional().or(z.literal("")),
     details: detailsSchema,
+    // Only meaningful for services with a known server-side price (see
+    // UMRAH_PACKAGE_PRICES_SAR in the service layer) — anything else simply
+    // ignores this and leaves the request's payment fields at NOT_REQUIRED.
+    currency: z.enum(["SAR", "SDG"]).optional(),
     // Honeypot field: real users never fill a visually-hidden input, so any
     // non-empty value here almost certainly means a bot filled the form.
     // Silently accepted (never surfaced as a validation error) so bots can't
@@ -30,4 +34,8 @@ export const createContactRequestSchema = z
 
 export const updateContactRequestStatusSchema = z.object({
   status: z.enum(["NEW", "CONTACTED", "CLOSED"]),
+});
+
+export const updatePaymentStatusSchema = z.object({
+  status: z.enum(["AWAITING_TRANSFER", "UNDER_REVIEW", "CONFIRMED"]),
 });

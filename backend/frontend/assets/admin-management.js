@@ -22,6 +22,15 @@ const CONTACT_REQUEST_STATUS_LABELS_AR = {
   CLOSED: "مغلق",
 };
 
+const PAYMENT_STATUS_LABELS_AR = {
+  NOT_REQUIRED: "لا يوجد",
+  AWAITING_TRANSFER: "بانتظار التحويل",
+  UNDER_REVIEW: "قيد المراجعة",
+  CONFIRMED: "تم التأكيد",
+};
+
+const CURRENCY_LABELS_AR = { SAR: "ريال سعودي", SDG: "جنيه سوداني" };
+
 function mgmtCanWrite(entity) {
   // Mirrors the requireRole(...) checks on each backend POST route.
   const rules = {
@@ -74,6 +83,7 @@ function wireManagementTabs() {
   el("offer-create-btn").addEventListener("click", createOffer);
   el("user-create-btn").addEventListener("click", createUserAccount);
   el("setting-save-btn").addEventListener("click", saveSetting);
+  el("payment-settings-save-btn").addEventListener("click", savePaymentSettings);
 
   el("branches-body").addEventListener("click", handleBranchRowClick);
   el("suppliers-body").addEventListener("click", handleSupplierRowClick);
@@ -81,6 +91,7 @@ function wireManagementTabs() {
   el("offers-body").addEventListener("change", handleOfferStatusChange);
   el("users-body").addEventListener("click", handleUserRowClick);
   el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
+  el("contact-requests-body").addEventListener("change", handlePaymentStatusChange);
   el("contact-request-status-filter").addEventListener("change", (e) => {
     mgmtState.contactRequests.status = e.target.value;
     mgmtState.contactRequests.page = 1;
@@ -393,6 +404,12 @@ function handleUserRowClick(e) {
 
 // --- Settings ---
 
+const PAYMENT_SETTING_KEYS = {
+  "pay-rate": "sar_to_sdg_rate",
+  "pay-account-sar": "bank_account_sar",
+  "pay-account-sdg": "bank_account_sdg",
+};
+
 async function loadSettings() {
   try {
     const { data } = await api.get("/settings");
@@ -401,6 +418,24 @@ async function loadSettings() {
         (s) => `<tr><td>${s.key}</td><td>${s.value}</td><td>${formatDate(s.updatedAt)}</td></tr>`
       )
       .join("");
+
+    const byKey = Object.fromEntries(data.map((s) => [s.key, s.value]));
+    for (const [inputId, key] of Object.entries(PAYMENT_SETTING_KEYS)) {
+      el(inputId).value = byKey[key] || "";
+    }
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function savePaymentSettings() {
+  showAlert(mgmtAlert(), "");
+  try {
+    for (const [inputId, key] of Object.entries(PAYMENT_SETTING_KEYS)) {
+      const value = el(inputId).value.trim();
+      if (value) await api.post("/settings", { key, value });
+    }
+    loadSettings();
   } catch (error) {
     showAlert(mgmtAlert(), error.message);
   }
@@ -467,6 +502,7 @@ async function loadContactRequests() {
       .map(
         (req) => `
         <tr>
+          <td dir="ltr" style="white-space: nowrap">${escapeHtml(req.referenceNumber || "-")}</td>
           <td>${escapeHtml(req.name)}</td>
           <td dir="ltr">${escapeHtml(req.phone)}</td>
           <td>${escapeHtml(req.service || "-")}</td>
@@ -480,6 +516,34 @@ async function loadContactRequests() {
                       .join("")}
                   </ul>`
                 : ""
+            }
+            ${
+              req.passportImagePath
+                ? `<div><a href="${API_BASE}/contact-requests/${req.id}/passport-image" target="_blank" rel="noopener">عرض صورة الجواز</a></div>`
+                : ""
+            }
+          </td>
+          <td style="white-space: normal">
+            ${
+              req.paymentStatus === "NOT_REQUIRED"
+                ? "-"
+                : `
+                  <div>${req.currency ? CURRENCY_LABELS_AR[req.currency] || req.currency : ""} ${req.paymentAmount ?? ""}</div>
+                  <select data-payment-status="${req.id}">
+                    ${Object.entries(PAYMENT_STATUS_LABELS_AR)
+                      .filter(([value]) => value !== "NOT_REQUIRED")
+                      .map(
+                        ([value, label]) =>
+                          `<option value="${value}" ${value === req.paymentStatus ? "selected" : ""}>${label}</option>`
+                      )
+                      .join("")}
+                  </select>
+                  ${
+                    req.paymentReceiptPath
+                      ? `<div><a href="${API_BASE}/contact-requests/${req.id}/payment-receipt" target="_blank" rel="noopener">عرض إشعار التحويل</a></div>`
+                      : ""
+                  }
+                `
             }
           </td>
           <td>
@@ -511,6 +575,17 @@ function handleContactRequestStatusChange(e) {
   if (!select) return;
   api
     .patch(`/contact-requests/${select.dataset.contactRequestStatus}/status`, {
+      status: select.value,
+    })
+    .then(loadContactRequests)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+function handlePaymentStatusChange(e) {
+  const select = e.target.closest("[data-payment-status]");
+  if (!select) return;
+  api
+    .patch(`/contact-requests/${select.dataset.paymentStatus}/payment-status`, {
       status: select.value,
     })
     .then(loadContactRequests)

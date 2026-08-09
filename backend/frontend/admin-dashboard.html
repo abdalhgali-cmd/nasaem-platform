@@ -230,6 +230,29 @@
       <!-- Settings -->
       <div id="mgmt-settings" class="hidden">
         <div class="card">
+          <h2>إعدادات الدفع (طلبات العمرة)</h2>
+          <p class="muted">
+            سعر الصرف وأرقام الحسابات البنكية المعروضة للعميل عند اختيار طريقة الدفع في نموذج طلب
+            العمرة على الموقع.
+          </p>
+          <div class="grid cols-2">
+            <div class="field">
+              <label for="pay-rate">سعر الصرف (كم جنيه سوداني مقابل ١ ريال سعودي)</label>
+              <input id="pay-rate" type="number" step="0.01" min="0" placeholder="مثال: 135" />
+            </div>
+            <div class="field"></div>
+            <div class="field">
+              <label for="pay-account-sar">الحساب البنكي — الريال السعودي</label>
+              <input id="pay-account-sar" placeholder="اسم البنك - رقم الحساب" />
+            </div>
+            <div class="field">
+              <label for="pay-account-sdg">الحساب البنكي — الجنيه السوداني</label>
+              <input id="pay-account-sdg" placeholder="اسم البنك - رقم الحساب" />
+            </div>
+          </div>
+          <button type="button" class="btn" id="payment-settings-save-btn">حفظ إعدادات الدفع</button>
+        </div>
+        <div class="card">
           <h2>إعداد جديد / تعديل إعداد</h2>
           <p class="muted">إدخال مفتاح موجود بالفعل يُحدّث قيمته بدل إنشاء إعداد جديد.</p>
           <div class="grid cols-2">
@@ -272,7 +295,18 @@
             </select>
           </div>
           <table>
-            <thead><tr><th>الاسم</th><th>الهاتف</th><th>الخدمة</th><th>الرسالة</th><th>الحالة</th><th>التاريخ</th></tr></thead>
+            <thead>
+              <tr>
+                <th>المرجع</th>
+                <th>الاسم</th>
+                <th>الهاتف</th>
+                <th>الخدمة</th>
+                <th>الرسالة</th>
+                <th>الدفع</th>
+                <th>الحالة</th>
+                <th>التاريخ</th>
+              </tr>
+            </thead>
             <tbody id="contact-requests-body"></tbody>
           </table>
           <div class="pagination" id="contact-requests-pagination"></div>
