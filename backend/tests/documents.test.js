@@ -74,4 +74,43 @@ describe("documents", () => {
 
     assert.equal(res.status, 400);
   });
+
+  // Regression: there used to be no route to ever retrieve an uploaded
+  // document's actual bytes again — only its metadata.
+  test("downloads a previously uploaded document as an attachment", async () => {
+    const uploadRes = await agent
+      .post("/api/documents")
+      .field("orderId", orderId)
+      .field("customerId", customerId)
+      .field("type", "PASSPORT")
+      .attach("file", Buffer.from([0x89, 0x50, 0x4e, 0x47]), {
+        filename: "download-me.png",
+        contentType: "image/png",
+      });
+    assert.equal(uploadRes.status, 201);
+
+    const fileRes = await agent.get(`/api/documents/${uploadRes.body.data.id}/file`);
+    assert.equal(fileRes.status, 200);
+    assert.match(fileRes.headers["content-disposition"] || "", /attachment/);
+  });
+
+  test("rejects attaching a document when the order doesn't belong to the given customer", async () => {
+    const otherCustomerRes = await agent.post("/api/customers").send({
+      fullName: "Document Mismatch Customer",
+      passportNo: "DOCMISMATCH" + uniqueSuffix(),
+      nationality: "Test",
+    });
+
+    const res = await agent
+      .post("/api/documents")
+      .field("orderId", orderId)
+      .field("customerId", otherCustomerRes.body.data.id)
+      .field("type", "PASSPORT")
+      .attach("file", Buffer.from([0x89, 0x50, 0x4e, 0x47]), {
+        filename: "mismatch.png",
+        contentType: "image/png",
+      });
+
+    assert.equal(res.status, 400);
+  });
 });

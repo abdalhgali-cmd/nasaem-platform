@@ -83,6 +83,23 @@ describe("payments", () => {
     assert.equal(getRes.body.data.paymentStatus, "PARTIAL");
   });
 
+  test("excludes UNPAID-status payments from the paid total, same as REFUNDED", async () => {
+    const order = await createOrder(100);
+
+    await agent.post("/api/payments").send({
+      orderId: order.id,
+      amount: 100,
+      paymentMethod: "cash",
+      status: "UNPAID",
+    });
+
+    const getRes = await agent.get(`/api/orders/${order.id}`);
+    // Regression: a payment explicitly marked UNPAID (e.g. a bounced
+    // transfer) used to still count toward the paid total, exactly like a
+    // real payment would.
+    assert.equal(getRes.body.data.paymentStatus, "UNPAID");
+  });
+
   test("404s when recording a payment against a non-existent order", async () => {
     const res = await agent.post("/api/payments").send({
       orderId: "does-not-exist",

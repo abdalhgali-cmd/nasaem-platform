@@ -7,8 +7,11 @@ const router = Router();
 
 router.use(requireAuth);
 
-router.get("/", requireRole("SUPER_ADMIN", "ADMIN"), getBranches);
-router.get("/:id", requireRole("SUPER_ADMIN", "ADMIN"), getBranch);
+// EMPLOYEE gets read-only access — orders.routes.js already lets EMPLOYEE
+// create an order with a branchId, so they need a way to see valid
+// branches to pick from.
+router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), getBranches);
+router.get("/:id", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), getBranch);
 router.post("/", requireRole("SUPER_ADMIN"), storeBranch);
 router.patch("/:id", requireRole("SUPER_ADMIN"), patchBranch);
 

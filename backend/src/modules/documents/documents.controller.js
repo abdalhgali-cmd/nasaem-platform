@@ -1,7 +1,15 @@
 import path from "path";
 import { createDocumentSchema } from "./documents.validators.js";
-import { createDocument, deleteDocument, getDocumentById, listDocuments } from "./documents.service.js";
+import {
+  createDocument,
+  deleteDocument,
+  getDocumentById,
+  listDocuments,
+  orderBelongsToCustomer,
+} from "./documents.service.js";
 import { parsePagination } from "../../utils/pagination.js";
+
+const UPLOAD_ROOT = path.resolve("uploads");
 
 export async function getDocuments(req, res, next) {
   try {
@@ -57,6 +65,13 @@ export async function storeDocument(req, res, next) {
       });
     }
 
+    if (!(await orderBelongsToCustomer(parsed.data.orderId, parsed.data.customerId))) {
+      return res.status(400).json({
+        success: false,
+        message: "This order does not belong to the given customer",
+      });
+    }
+
     const document = await createDocument({
       ...parsed.data,
       uploadedById: req.user.id,
@@ -73,6 +88,31 @@ export async function storeDocument(req, res, next) {
       message: "Document created successfully",
       data: document,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Same res.download() treatment as contact-requests.controller.js's
+// staff file downloads — without it, staff had no way to ever open a
+// document again after uploading it (see the mechanics audit).
+export async function downloadDocument(req, res, next) {
+  try {
+    const document = await getDocumentById(req.params.id);
+
+    if (!document) {
+      return res.status(404).json({ success: false, message: "Document not found" });
+    }
+
+    return res.download(
+      path.join(UPLOAD_ROOT, document.storagePath),
+      `${document.type.toLowerCase()}-${document.fileName}`,
+      (error) => {
+        if (error && !res.headersSent) {
+          res.status(404).json({ success: false, message: "File missing on disk" });
+        }
+      }
+    );
   } catch (error) {
     next(error);
   }

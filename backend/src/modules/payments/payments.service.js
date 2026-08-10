@@ -18,8 +18,11 @@ async function recalculateOrderPaymentStatus(db, orderId) {
     select: { totalAmount: true },
   });
 
+  // A payment explicitly marked UNPAID represents money that hasn't
+  // actually landed (e.g. a bounced transfer) — same as REFUNDED, it must
+  // not count toward what's been collected.
   const payments = await db.payment.findMany({
-    where: { orderId, status: { not: "REFUNDED" } },
+    where: { orderId, status: { notIn: ["REFUNDED", "UNPAID"] } },
     select: { amount: true, status: true },
   });
 

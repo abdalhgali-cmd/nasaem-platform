@@ -19,6 +19,7 @@ const services = [
 export function ContactForm() {
   const [status, setStatus] = React.useState<Status>("idle");
   const [errorMessage, setErrorMessage] = React.useState("");
+  const [referenceNumber, setReferenceNumber] = React.useState("");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -50,6 +51,7 @@ export function ContactForm() {
         throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
       }
 
+      setReferenceNumber(payload?.data?.referenceNumber || "");
       setStatus("success");
       form.reset();
     } catch (error) {
@@ -71,6 +73,17 @@ export function ContactForm() {
           شكرًا لتواصلك معنا. سيقوم أحد أعضاء فريقنا بالتواصل معك في أقرب وقت
           ممكن.
         </p>
+        {referenceNumber ? (
+          <>
+            <p className="mt-4 text-xs text-muted-foreground">احتفظ برقمك المرجعي لمتابعة طلبك:</p>
+            <p
+              dir="ltr"
+              className="mt-1.5 rounded-xl bg-primary/10 px-5 py-2 text-lg font-extrabold text-primary dark:text-secondary"
+            >
+              {referenceNumber}
+            </p>
+          </>
+        ) : null}
         <Button
           type="button"
           variant="outline"

@@ -78,4 +78,39 @@ describe("orders", () => {
     const res = await agent.post("/api/orders").send(orderPayload({ currency: "XXX" }));
     assert.equal(res.status, 400);
   });
+
+  // Regression test: a discount larger than the item's own price used to
+  // drive totalAmount negative, which then let the very first payment
+  // (however small) satisfy totalPaid >= totalAmount and mark the order
+  // PAID despite no real money being collected.
+  test("rejects a discount larger than the item's own price", async () => {
+    const res = await agent.post("/api/orders").send(
+      orderPayload({ items: [{ serviceId, quantity: 1, unitPrice: 50, discount: 500 }] })
+    );
+    assert.equal(res.status, 400);
+  });
+
+  test("allows a discount exactly equal to the item's price (total of zero)", async () => {
+    const res = await agent.post("/api/orders").send(
+      orderPayload({ items: [{ serviceId, quantity: 1, unitPrice: 50, discount: 50 }] })
+    );
+    assert.equal(res.status, 201);
+    assert.equal(Number(res.body.data.totalAmount), 0);
+  });
+
+  test("assigns an order to a staff member and reflects it on the order", async () => {
+    const createRes = await agent.post("/api/orders").send(orderPayload());
+    const orderId = createRes.body.data.id;
+
+    const meRes = await agent.get("/api/auth/me");
+    const selfId = meRes.body.data.id;
+
+    const assignRes = await agent.patch(`/api/orders/${orderId}/assign`).send({ assignedUserId: selfId });
+    assert.equal(assignRes.status, 200);
+    assert.equal(assignRes.body.data.assignedUserId, selfId);
+
+    const unassignRes = await agent.patch(`/api/orders/${orderId}/assign`).send({ assignedUserId: null });
+    assert.equal(unassignRes.status, 200);
+    assert.equal(unassignRes.body.data.assignedUserId, null);
+  });
 });

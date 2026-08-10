@@ -1,5 +1,5 @@
-import { createOrderSchema, updateOrderStatusSchema } from "./orders.validators.js";
-import { createOrder, getOrderById, listOrders, updateOrderStatus } from "./orders.service.js";
+import { assignOrderSchema, createOrderSchema, updateOrderStatusSchema } from "./orders.validators.js";
+import { assignOrder, createOrder, getOrderById, listOrders, updateOrderStatus } from "./orders.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
@@ -77,6 +77,56 @@ export async function storeOrder(req, res, next) {
     return res.status(201).json({
       success: true,
       message: "Order created successfully",
+      data: order,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function patchOrderAssignment(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = assignOrderSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const order = await assignOrder(id, parsed.data.assignedUserId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    logActivity({
+      userId: req.user?.id,
+      action: "ORDER_ASSIGNED",
+      entity: "Order",
+      entityId: order.id,
+      req,
+    });
+
+    if (order.assignedUserId && order.assignedUserId !== req.user?.id) {
+      createNotification({
+        title: "طلب جديد مُسند إليك",
+        message: `تم إسناد الطلب ${order.orderNumber} إليك`,
+        type: "ORDER_ASSIGNED",
+        userId: order.assignedUserId,
+        orderId: order.id,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Order assignment updated successfully",
       data: order,
     });
   } catch (error) {

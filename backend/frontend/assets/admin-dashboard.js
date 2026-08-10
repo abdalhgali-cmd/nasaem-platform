@@ -23,6 +23,15 @@ const ORDER_STATUSES = [
   "CANCELLED",
 ];
 
+const DOCUMENT_TYPE_LABELS_AR = {
+  PASSPORT: "جواز سفر",
+  PHOTO: "صورة شخصية",
+  VISA: "تأشيرة",
+  TICKET: "تذكرة",
+  RECEIPT: "إيصال",
+  OTHER: "أخرى",
+};
+
 async function bootstrap() {
   currentUser = await requireSession();
   if (!currentUser) return;
@@ -46,6 +55,11 @@ function canSeePayments() {
 
 function canRecordPayment() {
   return ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"].includes(currentUser.role);
+}
+
+// Mirrors PATCH /orders/:id/assign's requireRole("SUPER_ADMIN", "ADMIN").
+function canAssignOrder() {
+  return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
 }
 
 function canSeeManagement() {
@@ -133,10 +147,22 @@ function loadActiveTabData() {
 async function loadOverview() {
   try {
     const { data } = await api.get("/dashboard/stats");
-    el("stat-tiles").innerHTML = [
+    const moneyTiles = [
+      ["totalRevenue", "الإيرادات المحصّلة"],
+      ["outstandingBalance", "المبالغ المتبقية"],
+    ]
+      .map(([key, label]) => `
+        <div class="stat-tile">
+          <div class="value">${formatMoney(data[key], "SAR")}</div>
+          <div class="label">${label}</div>
+        </div>
+      `)
+      .join("");
+
+    const countTiles = [
       ["orders", "الطلبات"],
       ["customers", "العملاء"],
-      ["payments", "الدفعات"],
+      ["payments", "عدد عمليات الدفع"],
       ["documents", "المستندات"],
       ["offers", "العروض"],
       ["users", "المستخدمون"],
@@ -148,6 +174,8 @@ async function loadOverview() {
         </div>
       `)
       .join("");
+
+    el("stat-tiles").innerHTML = moneyTiles + countTiles;
 
     el("latest-orders-body").innerHTML = data.latestOrders
       .map(
@@ -206,15 +234,26 @@ async function openOrderDetail(orderId) {
   card.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
   try {
-    const { data: order } = await api.get(`/orders/${orderId}`);
-    renderOrderDetail(order);
+    const [{ data: order }, staff] = await Promise.all([
+      api.get(`/orders/${orderId}`),
+      canAssignOrder() ? api.get("/users").then((res) => res.data) : Promise.resolve([]),
+    ]);
+    renderOrderDetail(order, staff);
   } catch (error) {
     card.innerHTML = `<div class="alert error">${error.message}</div>`;
   }
 }
 
-function renderOrderDetail(order) {
+function renderOrderDetail(order, staff = []) {
   const card = el("order-detail-card");
+
+  const assignmentOptions = [`<option value="">غير معيّن</option>`]
+    .concat(
+      staff.map(
+        (u) => `<option value="${u.id}" ${u.id === order.assignedUserId ? "selected" : ""}>${u.fullName}</option>`
+      )
+    )
+    .join("");
 
   const itemsRows = order.items
     .map(
@@ -238,6 +277,18 @@ function renderOrderDetail(order) {
     .map((h) => `<li>${formatDate(h.changedAt)} — ${statusBadge(h.oldStatus)} → ${statusBadge(h.newStatus)} ${h.notes ? "(" + h.notes + ")" : ""}</li>`)
     .join("");
 
+  const documentsRows = (order.documents || [])
+    .map(
+      (doc) => `
+      <tr>
+        <td>${DOCUMENT_TYPE_LABELS_AR[doc.type] || doc.type}</td>
+        <td>${doc.fileName}</td>
+        <td>${formatDate(doc.createdAt)}</td>
+        <td><a href="${API_BASE}/documents/${doc.id}/file" download>تحميل</a></td>
+      </tr>`
+    )
+    .join("");
+
   const statusOptions = ORDER_STATUSES.map(
     (status) => `<option value="${status}" ${status === order.status ? "selected" : ""}>${STATUS_LABELS_AR[status]}</option>`
   ).join("");
@@ -246,6 +297,20 @@ function renderOrderDetail(order) {
     <h2>الطلب ${order.orderNumber} <button type="button" class="btn secondary" id="close-detail-btn" style="float: left">إغلاق</button></h2>
     <p>العميل: <strong>${order.customer?.fullName || "-"}</strong> (${order.customer?.customerNo || "-"})</p>
     <p>الحالة الحالية: ${statusBadge(order.status)} — حالة الدفع: ${statusBadge(order.paymentStatus)} — الإجمالي: ${formatMoney(order.totalAmount, order.currency)}</p>
+    <p>الموظف المسؤول: <strong>${order.assignedUser?.fullName || "غير معيّن"}</strong></p>
+
+    ${
+      canAssignOrder()
+        ? `
+    <h3>إسناد الطلب</h3>
+    <div class="stack">
+      <select id="assign-user-select">${assignmentOptions}</select>
+      <button type="button" class="btn secondary" id="assign-order-btn">حفظ الإسناد</button>
+    </div>
+    <div id="assign-alert"></div>
+    `
+        : ""
+    }
 
     <h3>عناصر الطلب</h3>
     <table>
@@ -281,6 +346,12 @@ function renderOrderDetail(order) {
     <div id="payment-alert"></div>
     ` : ""}
 
+    <h3>المستندات</h3>
+    <table>
+      <thead><tr><th>النوع</th><th>اسم الملف</th><th>تاريخ الرفع</th><th></th></tr></thead>
+      <tbody>${documentsRows || '<tr><td colspan="4">لا توجد مستندات</td></tr>'}</tbody>
+    </table>
+
     <h3>سجل الحالات</h3>
     <ul class="doc-checklist">${historyItems || "<li>لا يوجد سجل</li>"}</ul>
   `;
@@ -294,6 +365,23 @@ function renderOrderDetail(order) {
 
   if (canRecordPayment()) {
     el("add-payment-btn").addEventListener("click", () => recordPayment(order.id));
+  }
+
+  if (canAssignOrder()) {
+    el("assign-order-btn").addEventListener("click", () => assignOrderToUser(order.id));
+  }
+}
+
+async function assignOrderToUser(orderId) {
+  const assignAlert = el("assign-alert");
+  showAlert(assignAlert, "");
+  const assignedUserId = el("assign-user-select").value || null;
+
+  try {
+    await api.patch(`/orders/${orderId}/assign`, { assignedUserId });
+    await openOrderDetail(orderId);
+  } catch (error) {
+    showAlert(assignAlert, error.message);
   }
 }
 

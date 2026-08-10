@@ -35,6 +35,15 @@ export async function getDocumentById(id) {
   });
 }
 
+// Order and Customer are submitted as two independent IDs (see
+// createDocumentSchema) — without this check, a stale/tampered form could
+// attach a document to a real order but the wrong customer (or vice
+// versa), and nothing else in the write path would catch it.
+export async function orderBelongsToCustomer(orderId, customerId) {
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { customerId: true } });
+  return order?.customerId === customerId;
+}
+
 export async function createDocument(data) {
   return prisma.document.create({
     data: {

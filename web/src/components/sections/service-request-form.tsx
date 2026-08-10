@@ -38,6 +38,7 @@ const fieldClass =
 export function ServiceRequestForm({ id, service, title, description, fields }: ServiceRequestFormProps) {
   const [status, setStatus] = React.useState<Status>("idle");
   const [errorMessage, setErrorMessage] = React.useState("");
+  const [referenceNumber, setReferenceNumber] = React.useState("");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -79,6 +80,7 @@ export function ServiceRequestForm({ id, service, title, description, fields }: 
         throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
       }
 
+      setReferenceNumber(payload?.data?.referenceNumber || "");
       setStatus("success");
       form.reset();
     } catch (error) {
@@ -98,6 +100,17 @@ export function ServiceRequestForm({ id, service, title, description, fields }: 
         <p className="mt-2 max-w-sm text-sm text-muted-foreground">
           شكرًا لتواصلك معنا. سيقوم أحد أعضاء فريقنا بمراجعة تفاصيل طلبك والتواصل معك في أقرب وقت ممكن.
         </p>
+        {referenceNumber ? (
+          <>
+            <p className="mt-4 text-xs text-muted-foreground">احتفظ برقمك المرجعي لمتابعة طلبك:</p>
+            <p
+              dir="ltr"
+              className="mt-1.5 rounded-xl bg-primary/10 px-5 py-2 text-lg font-extrabold text-primary dark:text-secondary"
+            >
+              {referenceNumber}
+            </p>
+          </>
+        ) : null}
         <Button type="button" variant="outline" className="mt-6" onClick={() => setStatus("idle")}>
           إرسال طلب آخر
         </Button>

@@ -22,8 +22,15 @@ async function bootstrap() {
   renderHeader(user, "request");
 
   try {
+    // GET /services returns newest-first (see services.service.js) and never
+    // filters out deactivated services — without both checks below, this
+    // silently picked the *oldest* service for a category (a plain
+    // forEach lets every later, older entry overwrite the map), and could
+    // pick a service an admin had deliberately deactivated.
     const { data: services } = await api.get("/services?limit=100");
     services.forEach((service) => {
+      if (!service.active) return;
+      if (serviceIdByCategory[service.category]) return;
       serviceIdByCategory[service.category] = service.id;
     });
   } catch (error) {

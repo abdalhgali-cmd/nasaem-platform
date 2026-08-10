@@ -108,4 +108,35 @@ describe("role-based access control", () => {
       .send({ password: "short" });
     assert.equal(res.status, 400);
   });
+
+  test("EMPLOYEE can list branches (read-only) but not create one", async () => {
+    const listRes = await employeeAgent.get("/api/branches");
+    assert.equal(listRes.status, 200);
+
+    const createRes = await employeeAgent.post("/api/branches").send({ code: "X" + uniqueSuffix(), name: "X" });
+    assert.equal(createRes.status, 403);
+  });
+
+  test("EMPLOYEE cannot assign an order to a staff member", async () => {
+    const customerRes = await superAdminAgent.post("/api/customers").send({
+      fullName: "RBAC Assign Test Customer",
+      passportNo: "RBACASSIGN" + uniqueSuffix(),
+      nationality: "Test",
+    });
+    const serviceRes = await superAdminAgent.post("/api/services").send({
+      code: "RBAC-ASSIGN-SVC-" + uniqueSuffix(),
+      name: "RBAC Assign Test Service",
+      category: "test",
+      basePrice: 100,
+    });
+    const orderRes = await superAdminAgent.post("/api/orders").send({
+      customerId: customerRes.body.data.id,
+      items: [{ serviceId: serviceRes.body.data.id, quantity: 1, unitPrice: 50 }],
+    });
+
+    const res = await employeeAgent
+      .patch(`/api/orders/${orderRes.body.data.id}/assign`)
+      .send({ assignedUserId: null });
+    assert.equal(res.status, 403);
+  });
 });

@@ -10,6 +10,7 @@ const ACTIVITY_ACTION_LABELS_AR = {
   LOGOUT: "تسجيل خروج",
   ORDER_CREATED: "إنشاء طلب",
   ORDER_STATUS_CHANGED: "تغيير حالة طلب",
+  ORDER_ASSIGNED: "إسناد طلب",
   PAYMENT_RECORDED: "تسجيل دفعة",
   USER_CREATED: "إنشاء مستخدم",
   USER_STATUS_CHANGED: "تغيير حالة مستخدم",

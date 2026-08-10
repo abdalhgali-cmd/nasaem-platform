@@ -137,6 +137,25 @@ export async function createOrder(data, actorUserId = null) {
   });
 }
 
+export async function assignOrder(orderId, assignedUserId) {
+  const existing = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true } });
+
+  if (!existing) {
+    return null;
+  }
+
+  return prisma.order.update({
+    where: { id: orderId },
+    data: { assignedUserId },
+    include: {
+      customer: true,
+      assignedUser: { select: safeUserSelect },
+      items: { include: { service: true } },
+      history: true,
+    },
+  });
+}
+
 export async function updateOrderStatus(orderId, status, changedByUserId, notes = null) {
   if (!changedByUserId) {
     throw new Error("A valid user is required to update order status");
