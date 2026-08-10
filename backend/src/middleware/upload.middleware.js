@@ -116,3 +116,13 @@ export const uploadContactRequestPaymentReceipt = multer({
   fileFilter,
   limits: { fileSize: 8 * 1024 * 1024 },
 }).single("image");
+
+// Free-form extra documents (visa invitations, certificates, etc.) — PDFs
+// allowed (unlike the passport/Iqama photo slots) since these are often
+// scanned paperwork, not phone photos. Capped at 5 rather than 7: this
+// isn't per-traveler, it's a handful of extra files for the whole request.
+export const uploadContactRequestAdditionalDocuments = multer({
+  storage: contactRequestFileStorage,
+  fileFilter,
+  limits: { fileSize: 8 * 1024 * 1024 },
+}).array("images", 5);

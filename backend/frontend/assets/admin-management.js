@@ -562,6 +562,16 @@ async function loadContactRequests() {
                     .join(" · ")}</div>`
                 : ""
             }
+            ${
+              req.additionalDocumentPaths && req.additionalDocumentPaths.length > 0
+                ? `<div>${req.additionalDocumentPaths
+                    .map(
+                      (_, index) =>
+                        `<a href="${API_BASE}/contact-requests/${req.id}/additional-document/${index}" download>تحميل مستند إضافي ${index + 1}</a>`
+                    )
+                    .join(" · ")}</div>`
+                : ""
+            }
           </td>
           <td style="white-space: normal">
             ${

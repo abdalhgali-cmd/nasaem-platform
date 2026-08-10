@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { CheckCircle2, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
@@ -24,21 +25,68 @@ export type ServiceRequestField = {
   defaultValue?: string;
 };
 
+// Drives an optional repeated "traveler name" list below the regular
+// fields, sized by whatever count field the page already collects
+// (passenger/guest/traveler count) — a real booking needs each traveler's
+// name exactly as it appears on their travel document, not just a count.
+type TravelerNamesConfig = {
+  countField: string;
+};
+
 type ServiceRequestFormProps = {
   id?: string;
   service: string;
   title?: string;
   description?: string;
   fields: ServiceRequestField[];
+  travelerNames?: TravelerNamesConfig;
+  // Maps a URL query-string key to one of `fields`' names — lets the
+  // booking-search-widget's "ابحث الآن" carry its from/to/dates/etc. down
+  // into this form's matching field as a starting value. Reading the URL
+  // requires useSearchParams(), which only resolves on the client, so this
+  // prop routes through a Suspense-wrapped variant below rather than the
+  // plain statically-prerendered form.
+  searchParamMap?: Record<string, string>;
 };
 
 const fieldClass =
   "h-12 rounded-xl border border-border bg-background px-4 text-sm outline-none transition focus:border-primary";
 
-export function ServiceRequestForm({ id, service, title, description, fields }: ServiceRequestFormProps) {
+export function ServiceRequestForm(props: ServiceRequestFormProps) {
+  if (!props.searchParamMap) {
+    return <ServiceRequestFormBase {...props} />;
+  }
+
+  return (
+    <React.Suspense fallback={<ServiceRequestFormBase {...props} />}>
+      <ServiceRequestFormWithPrefill {...props} />
+    </React.Suspense>
+  );
+}
+
+function ServiceRequestFormWithPrefill(props: ServiceRequestFormProps) {
+  const searchParams = useSearchParams();
+  const fieldNameByParam = props.searchParamMap!;
+
+  const fields = props.fields.map((field) => {
+    const paramName = Object.keys(fieldNameByParam).find((key) => fieldNameByParam[key] === field.name);
+    const value = paramName ? searchParams.get(paramName) : null;
+    return value ? { ...field, defaultValue: value } : field;
+  });
+
+  return <ServiceRequestFormBase {...props} fields={fields} />;
+}
+
+function ServiceRequestFormBase({ id, service, title, description, fields, travelerNames }: ServiceRequestFormProps) {
   const [status, setStatus] = React.useState<Status>("idle");
   const [errorMessage, setErrorMessage] = React.useState("");
   const [referenceNumber, setReferenceNumber] = React.useState("");
+
+  const countField = fields.find((field) => field.name === travelerNames?.countField);
+  const [travelerCount, setTravelerCount] = React.useState(() => {
+    const initial = Number(countField?.defaultValue ?? 1);
+    return Number.isInteger(initial) && initial > 0 ? initial : 1;
+  });
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -56,6 +104,15 @@ export function ServiceRequestForm({ id, service, title, description, fields }: 
       const value = formData.get(field.name);
       if (typeof value === "string" && value.trim()) {
         details[field.label] = value.trim();
+      }
+    }
+
+    if (travelerNames) {
+      for (let i = 0; i < travelerCount; i++) {
+        const value = formData.get(`travelerName_${i}`);
+        if (typeof value === "string" && value.trim()) {
+          details[`المسافر ${i + 1}`] = value.trim();
+        }
       }
     }
 
@@ -83,6 +140,10 @@ export function ServiceRequestForm({ id, service, title, description, fields }: 
       setReferenceNumber(payload?.data?.referenceNumber || "");
       setStatus("success");
       form.reset();
+      if (travelerNames) {
+        const resetCount = Number(countField?.defaultValue ?? 1);
+        setTravelerCount(Number.isInteger(resetCount) && resetCount > 0 ? resetCount : 1);
+      }
     } catch (error) {
       setStatus("error");
       setErrorMessage(error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى");
@@ -192,10 +253,31 @@ export function ServiceRequestForm({ id, service, title, description, fields }: 
                 defaultValue={field.defaultValue}
                 placeholder={field.placeholder}
                 className={fieldClass}
+                onChange={
+                  field.name === travelerNames?.countField
+                    ? (e) => setTravelerCount(Math.max(1, Number(e.target.value) || 1))
+                    : undefined
+                }
               />
             )}
           </div>
         ))}
+
+        {travelerNames
+          ? Array.from({ length: travelerCount }, (_, i) => (
+              <div key={i} className="flex flex-col gap-1.5">
+                <label htmlFor={`${id}-travelerName_${i}`} className="text-sm font-semibold text-foreground">
+                  اسم المسافر {i + 1} <span className="font-normal text-muted-foreground">(كما في جواز السفر)</span>
+                </label>
+                <input
+                  id={`${id}-travelerName_${i}`}
+                  name={`travelerName_${i}`}
+                  required
+                  className={fieldClass}
+                />
+              </div>
+            ))
+          : null}
 
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <label htmlFor={`${id}-email`} className="text-sm font-semibold text-foreground">

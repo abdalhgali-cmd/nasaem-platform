@@ -7,6 +7,7 @@ import { BookingSearchWidget } from "@/components/sections/booking-search-widget
 import { ServiceRequestForm } from "@/components/sections/service-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { getSiteAssetUrls } from "@/lib/site-assets";
+import { HOTEL_DESTINATIONS } from "@/lib/hotel-cities";
 
 export const metadata: Metadata = {
   title: "حجز الفنادق",
@@ -14,14 +15,7 @@ export const metadata: Metadata = {
     "احجز إقامتك في فنادق مختارة بعناية بالقرب من الحرمين الشريفين وفي كل الوجهات الرئيسية، بمستويات تناسب كل ميزانية.",
 };
 
-const cities = [
-  { city: "مكة المكرمة", note: "بجوار الحرم مباشرة", rating: "4.8", price: "480" },
-  { city: "المدينة المنورة", note: "على مقربة من المسجد النبوي", rating: "4.7", price: "350" },
-  { city: "جدة", note: "بالقرب من الواجهة البحرية", rating: "4.6", price: "290" },
-  { city: "القاهرة", note: "في قلب المدينة", rating: "4.5", price: "210" },
-  { city: "دبي", note: "بالقرب من وسط المدينة", rating: "4.7", price: "610" },
-  { city: "إسطنبول", note: "في المنطقة التاريخية", rating: "4.6", price: "340" },
-];
+const cities = HOTEL_DESTINATIONS;
 
 const amenities = [
   { icon: Wifi, label: "إنترنت لاسلكي مجاني" },
@@ -103,7 +97,13 @@ export default async function HotelsPage() {
             description="عبّئ بياناتك وسيتواصل معك فريقنا لتأكيد التوفر والأسعار."
           />
           <FadeIn className="mt-10">
-            <ServiceRequestForm id="request" service="فندق" fields={hotelRequestFields} />
+            <ServiceRequestForm
+              id="request"
+              service="فندق"
+              fields={hotelRequestFields}
+              travelerNames={{ countField: "guests" }}
+              searchParamMap={{ city: "city", checkin: "checkin", checkout: "checkout", guests: "guests" }}
+            />
           </FadeIn>
         </Container>
       </section>

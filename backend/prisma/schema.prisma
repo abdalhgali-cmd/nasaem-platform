@@ -481,6 +481,11 @@ model ContactRequest {
   // details["الشخص N+1 - ..."].
   passportImagePaths      String[]                    @default([])
   guarantorIdImagePaths   String[]                    @default([])
+  // Free-form extra documents (visa invitations, marriage/birth
+  // certificates, etc.) — real requirements vary too much per visa type/
+  // relationship to model as fixed fields, so this is a general catch-all
+  // slot instead.
+  additionalDocumentPaths String[]                    @default([])
   paymentReceiptPath      String?
 
   createdAt DateTime             @default(now())

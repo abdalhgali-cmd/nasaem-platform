@@ -224,6 +224,10 @@ export function attachGuarantorIdImages(id, files) {
   return attachTravelerImages(id, files, "guarantorIdImagePaths");
 }
 
+export function attachAdditionalDocuments(id, files) {
+  return attachTravelerImages(id, files, "additionalDocumentPaths");
+}
+
 // Uploading a receipt only makes sense once a request actually has a price
 // waiting on a transfer; a NOT_REQUIRED or already-CONFIRMED request has
 // nothing for this to move forward, so the caller gets a null (→ 400/404

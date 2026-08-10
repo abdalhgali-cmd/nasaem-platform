@@ -109,7 +109,20 @@ export default async function FlightsPage() {
             description="عبّئ بياناتك وسيتواصل معك فريقنا لتأكيد الأسعار والمواعيد."
           />
           <FadeIn className="mt-10">
-            <ServiceRequestForm id="request" service="طيران" fields={flightRequestFields} />
+            <ServiceRequestForm
+              id="request"
+              service="طيران"
+              fields={flightRequestFields}
+              travelerNames={{ countField: "passengers" }}
+              searchParamMap={{
+                from: "from",
+                to: "to",
+                date: "date",
+                returnDate: "returnDate",
+                cabinClass: "cabinClass",
+                guests: "passengers",
+              }}
+            />
           </FadeIn>
         </Container>
       </section>

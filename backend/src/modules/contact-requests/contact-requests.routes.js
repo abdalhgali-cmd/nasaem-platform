@@ -6,9 +6,11 @@ import {
   uploadPassportImage,
   uploadContactRequestPassportImages as uploadPassportImageFiles,
   uploadContactRequestGuarantorIdImages as uploadGuarantorIdImageFiles,
+  uploadContactRequestAdditionalDocuments as uploadAdditionalDocumentFiles,
   uploadContactRequestPaymentReceipt as uploadPaymentReceiptFile,
 } from "../../middleware/upload.middleware.js";
 import {
+  getContactRequestAdditionalDocument,
   getContactRequestGuarantorIdImage,
   getContactRequestPassportImage,
   getContactRequestPaymentReceipt,
@@ -17,6 +19,7 @@ import {
   patchContactRequestStatus,
   scanPassportForContactRequest,
   storeContactRequest,
+  uploadContactRequestAdditionalDocuments,
   uploadContactRequestGuarantorIdImages,
   uploadContactRequestPassportImages,
   uploadContactRequestPaymentReceipt,
@@ -74,6 +77,12 @@ router.post(
   uploadGuarantorIdImageFiles,
   uploadContactRequestGuarantorIdImages
 );
+router.post(
+  "/:id/additional-documents",
+  publicFileLimiter,
+  uploadAdditionalDocumentFiles,
+  uploadContactRequestAdditionalDocuments
+);
 router.post("/:id/payment-receipt", publicFileLimiter, uploadPaymentReceiptFile, uploadContactRequestPaymentReceipt);
 
 router.get(
@@ -105,6 +114,12 @@ router.get(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getContactRequestGuarantorIdImage
+);
+router.get(
+  "/:id/additional-document/:index",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  getContactRequestAdditionalDocument
 );
 router.get(
   "/:id/payment-receipt",

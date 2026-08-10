@@ -135,7 +135,12 @@ export default async function PackagesPage() {
             description="عبّئ بياناتك وسيتواصل معك فريقنا لتصميم رحلتك وتأكيد التفاصيل."
           />
           <FadeIn className="mt-10">
-            <ServiceRequestForm id="request" service="باقة سفر شاملة" fields={packageRequestFields} />
+            <ServiceRequestForm
+              id="request"
+              service="باقة سفر شاملة"
+              fields={packageRequestFields}
+              travelerNames={{ countField: "travelers" }}
+            />
           </FadeIn>
         </Container>
       </section>

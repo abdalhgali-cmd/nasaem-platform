@@ -135,6 +135,12 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
       .attach("images", NO_MRZ_FIXTURE);
     assert.equal(guarantorIdRes.status, 200);
 
+    const additionalDocumentsRes = await request(app)
+      .post(`/api/contact-requests/${id}/additional-documents`)
+      .attach("images", MRZ_FIXTURE)
+      .attach("images", NO_MRZ_FIXTURE);
+    assert.equal(additionalDocumentsRes.status, 200);
+
     const receiptRes = await request(app)
       .post(`/api/contact-requests/${id}/payment-receipt`)
       .attach("image", MRZ_FIXTURE);
@@ -146,6 +152,7 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
     assert.equal(found.paymentStatus, "UNDER_REVIEW");
     assert.equal(found.passportImagePaths.length, 2);
     assert.equal(found.guarantorIdImagePaths.length, 2);
+    assert.equal(found.additionalDocumentPaths.length, 2);
     assert.ok(found.paymentReceiptPath);
 
     const firstPassportFileRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/0`);
@@ -160,6 +167,12 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
 
     const firstGuarantorIdFileRes = await adminAgent.get(`/api/contact-requests/${id}/guarantor-id-image/0`);
     assert.equal(firstGuarantorIdFileRes.status, 200);
+
+    const firstAdditionalDocumentRes = await adminAgent.get(`/api/contact-requests/${id}/additional-document/0`);
+    assert.equal(firstAdditionalDocumentRes.status, 200);
+    assert.match(firstAdditionalDocumentRes.headers["content-disposition"] || "", /attachment/);
+    const outOfRangeAdditionalDocumentRes = await adminAgent.get(`/api/contact-requests/${id}/additional-document/2`);
+    assert.equal(outOfRangeAdditionalDocumentRes.status, 404);
 
     const unauthFileRes = await request(app).get(`/api/contact-requests/${id}/passport-image/0`);
     assert.equal(unauthFileRes.status, 401);

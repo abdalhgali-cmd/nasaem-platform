@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Briefcase, Globe2, Plane, Stamp, Users2 } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
-import { ServiceRequestForm } from "@/components/sections/service-request-form";
+import { VisaRequestForm } from "@/components/sections/visa-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
@@ -58,17 +59,10 @@ const visaCategories = [
   },
 ];
 
-const visaRequestFields = [
-  {
-    name: "visaType",
-    label: "نوع التأشيرة",
-    type: "select" as const,
-    options: visaCategories.map((visa) => visa.title),
-  },
-  { name: "nationality", label: "الجنسية", type: "text" as const, required: true },
-  { name: "travelDate", label: "تاريخ السفر المتوقع", type: "date" as const },
-  { name: "applicants", label: "عدد المتقدمين", type: "number" as const, min: 1, defaultValue: "1" },
-];
+// "تأشيرة العمرة" isn't offered here — it's the same product as the Umrah
+// page's "تأشيرة عمرة فقط" package, so its card below links into the one
+// real Umrah request form instead of duplicating a second, thinner one.
+const visaTypeOptions = visaCategories.map((visa) => visa.title).filter((title) => title !== "تأشيرة العمرة");
 
 export default async function VisasPage() {
   const assetUrls = await getSiteAssetUrls();
@@ -117,6 +111,11 @@ export default async function VisasPage() {
                       ))}
                     </ul>
                   </div>
+                  {visa.title === "تأشيرة العمرة" ? (
+                    <Button asChild variant="outline" size="sm" className="mt-5 w-full">
+                      <Link href="/umrah#request">اطلب هذه التأشيرة</Link>
+                    </Button>
+                  ) : null}
                 </div>
               </FadeIn>
             ))}
@@ -132,7 +131,7 @@ export default async function VisasPage() {
             description="عبّئ بياناتك وسيتواصل معك فريقنا لتأكيد المستندات المطلوبة لحالتك."
           />
           <FadeIn className="mt-10">
-            <ServiceRequestForm id="request" service="تأشيرة" fields={visaRequestFields} />
+            <VisaRequestForm id="request" visaTypes={visaTypeOptions} />
           </FadeIn>
         </Container>
       </section>

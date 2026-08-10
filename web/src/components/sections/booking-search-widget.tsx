@@ -13,6 +13,7 @@ import {
   defaultFarDepartureDate,
   defaultFarReturnDate,
 } from "@/lib/flight-routes";
+import { HOTEL_CITIES } from "@/lib/hotel-cities";
 
 type Tab = "umrah" | "flights" | "hotels";
 
@@ -53,7 +54,7 @@ export function BookingSearchWidget() {
   const [cabinClass, setCabinClass] = React.useState<(typeof CABIN_CLASSES)[number]["value"]>(
     "economy"
   );
-  const [city, setCity] = React.useState("مكة المكرمة");
+  const [city, setCity] = React.useState(HOTEL_CITIES[0]);
   // Round-trip by default: linking an origin to a destination always implies
   // a return leg, and defaulting both dates well into the future (rather
   // than "today") is what surfaces business/first-class fares — those fill
@@ -69,21 +70,23 @@ export function BookingSearchWidget() {
     if (tab === "umrah") {
       if (date) params.set("date", date);
       params.set("guests", String(guests));
-      router.push(`/umrah?${params.toString()}`);
+      router.push(`/umrah?${params.toString()}#request`);
     } else if (tab === "flights") {
       params.set("from", from);
       params.set("to", to);
       if (date) params.set("date", date);
       if (returnDate) params.set("returnDate", returnDate);
-      params.set("cabinClass", cabinClass);
+      // The request form's "الدرجة" select is keyed by CABIN_CLASSES' Arabic
+      // labels, not the "economy"/"business" value used internally here.
+      params.set("cabinClass", CABIN_CLASSES.find((c) => c.value === cabinClass)?.label ?? cabinClass);
       params.set("guests", String(guests));
-      router.push(`/flights?${params.toString()}`);
+      router.push(`/flights?${params.toString()}#request`);
     } else {
       params.set("city", city);
       if (date) params.set("checkin", date);
       if (returnDate) params.set("checkout", returnDate);
       params.set("guests", String(guests));
-      router.push(`/hotels?${params.toString()}`);
+      router.push(`/hotels?${params.toString()}#request`);
     }
   }
 
@@ -208,11 +211,13 @@ export function BookingSearchWidget() {
         {tab === "hotels" ? (
           <>
             <FieldShell label="المدينة" icon={MapPin}>
-              <input
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className={inputClass}
-              />
+              <select value={city} onChange={(e) => setCity(e.target.value)} className={inputClass}>
+                {HOTEL_CITIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
             </FieldShell>
             <FieldShell label="تاريخ الدخول" icon={Calendar}>
               <input

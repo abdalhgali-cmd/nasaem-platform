@@ -5,6 +5,7 @@ import {
   updatePaymentStatusSchema,
 } from "./contact-requests.validators.js";
 import {
+  attachAdditionalDocuments,
   attachGuarantorIdImages,
   attachPassportImages,
   attachPaymentReceipt,
@@ -186,6 +187,10 @@ export function uploadContactRequestGuarantorIdImages(req, res, next) {
   return uploadTravelerImages(req, res, next, attachGuarantorIdImages, "Guarantor ID");
 }
 
+export function uploadContactRequestAdditionalDocuments(req, res, next) {
+  return uploadTravelerImages(req, res, next, attachAdditionalDocuments, "Additional document");
+}
+
 export async function uploadContactRequestPaymentReceipt(req, res, next) {
   try {
     if (!req.file) {
@@ -279,6 +284,10 @@ export function getContactRequestPassportImage(req, res, next) {
 
 export function getContactRequestGuarantorIdImage(req, res, next) {
   return downloadIndexedTravelerImage(req, res, next, "guarantorIdImagePaths", "guarantor-id");
+}
+
+export function getContactRequestAdditionalDocument(req, res, next) {
+  return downloadIndexedTravelerImage(req, res, next, "additionalDocumentPaths", "document");
 }
 
 export async function getContactRequestPaymentReceipt(req, res, next) {
