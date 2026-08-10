@@ -24,6 +24,12 @@ async function generateReferenceNumber() {
   return `NH-${year}-${String(seq).padStart(5, "0")}`;
 }
 
+async function generateInvoiceNumber() {
+  const year = new Date().getFullYear();
+  const seq = await nextSequence(`invoice-${year}`);
+  return `INV-${year}-${String(seq).padStart(5, "0")}`;
+}
+
 const MAX_UMRAH_TRAVELERS = 7;
 
 // Package prices are per person (see the "ريال / للفرد" unit on
@@ -174,6 +180,7 @@ export async function listContactRequests({ page, limit, skip, status }) {
   const [data, total] = await Promise.all([
     prisma.contactRequest.findMany({
       where,
+      include: { invoice: true },
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
@@ -190,7 +197,10 @@ export async function listContactRequests({ page, limit, skip, status }) {
 // enough that this is fine; revisit with a normalized+indexed column if
 // this table grows large.
 export async function listContactRequestsForPhone(normalizedPhone) {
-  const all = await prisma.contactRequest.findMany({ orderBy: { createdAt: "desc" } });
+  const all = await prisma.contactRequest.findMany({
+    include: { invoice: true },
+    orderBy: { createdAt: "desc" },
+  });
   return all.filter((row) => normalizePhone(row.phone) === normalizedPhone);
 }
 
@@ -276,44 +286,54 @@ export async function updatePaymentStatus(id, status) {
   });
 }
 
-// Manually starts a bank-transfer flow for a request that had no catalog
-// price at submission (everything except a priced Umrah package, which
-// resolvePayment() already prices automatically). Staff reviews whatever
-// was submitted (e.g. a work visa's contract + authorized-office number),
-// decides the price, and this is what actually asks the customer to pay —
-// mirrors resolvePayment()'s AWAITING_TRANSFER outcome, just triggered
-// later and by a person instead of a price list.
+// Proposes a price for a request that had no catalog price at submission
+// (everything except a priced Umrah package, which resolvePayment() already
+// prices automatically) — e.g. a work visa's contract + authorized-office
+// number, reviewed and priced by staff. Unlike the old one-step version of
+// this action, this does NOT start the payment flow: it only creates (or
+// revises) the customer's quote. ContactRequest.paymentStatus stays
+// NOT_REQUIRED until the customer explicitly approves it — see
+// approveInvoice below.
 //
-// Only ever allowed once: a request that's already NOT_REQUIRED-only-by-
-// default moves forward from here, but one that's already mid-flow
-// (AWAITING_TRANSFER/UNDER_REVIEW/CONFIRMED) must go through the existing
-// payment-status transitions instead, not get re-priced out from under
-// itself — so this returns `undefined` (not the same as `null`s 404) for
-// the caller to turn into a 400.
-export async function approveContactRequestPayment(id, { currency, paymentAmount }, req) {
-  const existing = await prisma.contactRequest.findUnique({ where: { id } });
+// A quote can be freely revised (upsert) while still PENDING_APPROVAL —
+// staff correcting a wrong amount before the customer has acted is the
+// common case, not worth a separate "cancel and recreate" step. Once
+// APPROVED, the price is locked: the existing payment-status transitions
+// own the request from there, so this rejects (statusCode 400) rather than
+// silently re-pricing an already-agreed amount out from under the customer.
+export async function createOrUpdatePriceQuote(id, { currency, paymentAmount }, req) {
+  const existing = await prisma.contactRequest.findUnique({
+    where: { id },
+    include: { invoice: true },
+  });
 
   if (!existing) {
     return null;
   }
 
-  if (existing.paymentStatus !== "NOT_REQUIRED") {
-    return undefined;
+  if (existing.invoice?.status === "APPROVED") {
+    throw Object.assign(new Error("This request's quote has already been approved"), { statusCode: 400 });
   }
 
-  const paymentSettings = await getPublicPaymentSettings();
-  const bankAccount = paymentSettings.bankAccounts[currency];
-
-  const contactRequest = await prisma.contactRequest.update({
-    where: { id },
-    data: { currency, paymentAmount, paymentStatus: "AWAITING_TRANSFER" },
-  });
+  const invoice = existing.invoice
+    ? await prisma.invoice.update({
+        where: { contactRequestId: id },
+        data: { currency, amount: paymentAmount },
+      })
+    : await prisma.invoice.create({
+        data: {
+          contactRequestId: id,
+          invoiceNumber: await generateInvoiceNumber(),
+          currency,
+          amount: paymentAmount,
+        },
+      });
 
   logActivity({
     userId: req.user?.id,
-    action: "CONTACT_REQUEST_PAYMENT_APPROVED",
+    action: "CONTACT_REQUEST_QUOTE_CREATED",
     entity: "ContactRequest",
-    entityId: contactRequest.id,
+    entityId: existing.id,
     req,
   });
 
@@ -321,9 +341,66 @@ export async function approveContactRequestPayment(id, { currency, paymentAmount
   // a slow/unreachable WhatsApp API must not delay the staff member's
   // response. No-ops entirely when WHATSAPP_* env vars aren't set.
   sendWhatsAppMessage(
-    contactRequest.phone,
-    `تم اعتماد طلبك رقم ${contactRequest.referenceNumber}\nالمبلغ المستحق: ${paymentAmount} ${CURRENCY_LABELS_AR[currency]}\n${bankAccount ? `الحساب البنكي: ${bankAccount}` : "سيتم التواصل معك لتفاصيل الدفع"}`
+    existing.phone,
+    `طلبك رقم ${existing.referenceNumber} جاهز للتسعير\nالمبلغ المقترح: ${paymentAmount} ${CURRENCY_LABELS_AR[currency]}\nيرجى مراجعة والموافقة عليه من صفحة "تتبع طلبك" على موقعنا.`
   );
 
-  return { contactRequest, bankAccount };
+  return { contactRequest: existing, invoice };
+}
+
+// The customer's actual agreement to pay — this is what starts the
+// bank-transfer flow (previously done in one step by what's now
+// createOrUpdatePriceQuote). Ownership-checked by phone, unlike the
+// existing public upload endpoints which trust "knows the id" alone: this
+// is a financial action, not a document attachment.
+export async function approveInvoice(contactRequestId, customerPhone, req) {
+  const contactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    include: { invoice: true },
+  });
+
+  if (!contactRequest || !contactRequest.invoice) {
+    return null;
+  }
+
+  if (normalizePhone(contactRequest.phone) !== customerPhone) {
+    return "forbidden";
+  }
+
+  if (contactRequest.invoice.status !== "PENDING_APPROVAL") {
+    return undefined;
+  }
+
+  const { currency, amount } = contactRequest.invoice;
+
+  const [, updatedContactRequest] = await prisma.$transaction([
+    prisma.invoice.update({
+      where: { contactRequestId },
+      data: { status: "APPROVED", approvedAt: new Date() },
+    }),
+    prisma.contactRequest.update({
+      where: { id: contactRequestId },
+      data: { currency, paymentAmount: amount, paymentStatus: "AWAITING_TRANSFER" },
+    }),
+  ]);
+
+  const paymentSettings = await getPublicPaymentSettings();
+  const bankAccount = paymentSettings.bankAccounts[currency];
+
+  logActivity({
+    action: "CONTACT_REQUEST_QUOTE_APPROVED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+    req,
+  });
+
+  // Not awaited, same reasoning as every other WhatsApp send in this file.
+  // This is where the bank account details now belong — sending them
+  // before the customer had actually agreed to pay wasn't accurate.
+  sendWhatsAppMessage(
+    updatedContactRequest.phone,
+    `تم اعتماد السعر لطلبك رقم ${updatedContactRequest.referenceNumber}\nالمبلغ المستحق: ${amount} ${CURRENCY_LABELS_AR[currency]}\n${bankAccount ? `الحساب البنكي: ${bankAccount}` : "سيتم التواصل معك لتفاصيل الدفع"}`
+  );
+
+  return { contactRequest: updatedContactRequest, bankAccount };
 }

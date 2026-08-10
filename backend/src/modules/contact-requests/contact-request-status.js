@@ -12,9 +12,19 @@
 // ContactRequestStatus has no separate rejected/abandoned outcome today, so
 // a declined request would misleadingly read as completed — accepted for
 // now, to be revisited once a real terminal-outcome field exists.
+//
+// `hasPendingInvoice` (from the related Invoice row — see the Invoice model)
+// is passed in rather than fetched here, keeping this a pure function: the
+// caller already has the row via a Prisma `include`.
 export function deriveCustomerFacingStatus(contactRequest) {
-  const { status, paymentStatus, passportImagePaths, guarantorIdImagePaths, additionalDocumentPaths } =
-    contactRequest;
+  const {
+    status,
+    paymentStatus,
+    passportImagePaths,
+    guarantorIdImagePaths,
+    additionalDocumentPaths,
+    hasPendingInvoice = false,
+  } = contactRequest;
 
   const hasAnyDocuments =
     (passportImagePaths?.length ?? 0) > 0 ||
@@ -23,14 +33,16 @@ export function deriveCustomerFacingStatus(contactRequest) {
 
   const needsDocuments = !hasAnyDocuments && status !== "CLOSED";
   const needsPayment = paymentStatus === "AWAITING_TRANSFER" && status !== "CLOSED";
+  const needsInvoiceApproval = hasPendingInvoice && status !== "CLOSED";
 
   const label = (() => {
     if (status === "CLOSED") return "مكتمل";
     if (paymentStatus === "UNDER_REVIEW") return "قيد المراجعة";
     if (paymentStatus === "AWAITING_TRANSFER") return "بانتظار الدفع";
+    if (needsInvoiceApproval) return "بانتظار موافقتك على السعر";
     if (!hasAnyDocuments) return "بانتظار المستندات";
     return "قيد المراجعة";
   })();
 
-  return { label, needsDocuments, needsPayment };
+  return { label, needsDocuments, needsPayment, needsInvoiceApproval };
 }

@@ -6,12 +6,13 @@ import {
   updatePaymentStatusSchema,
 } from "./contact-requests.validators.js";
 import {
-  approveContactRequestPayment,
+  approveInvoice,
   attachAdditionalDocuments,
   attachGuarantorIdImages,
   attachPassportImages,
   attachPaymentReceipt,
   createContactRequest,
+  createOrUpdatePriceQuote,
   listContactRequests,
   listContactRequestsForPhone,
   updateContactRequestStatus,
@@ -89,20 +90,31 @@ export async function getMyContactRequests(req, res, next) {
   try {
     const rows = await listContactRequestsForPhone(req.customerPhone);
 
-    const data = rows.map((row) => ({
-      id: row.id,
-      referenceNumber: row.referenceNumber,
-      service: row.service,
-      createdAt: row.createdAt,
-      currency: row.currency,
-      paymentAmount: row.paymentAmount,
-      friendlyStatus: deriveCustomerFacingStatus(row),
-      documentCounts: {
-        passport: row.passportImagePaths.length,
-        guarantorId: row.guarantorIdImagePaths.length,
-        additional: row.additionalDocumentPaths.length,
-      },
-    }));
+    const data = rows.map((row) => {
+      const hasPendingInvoice = row.invoice?.status === "PENDING_APPROVAL";
+
+      return {
+        id: row.id,
+        referenceNumber: row.referenceNumber,
+        service: row.service,
+        createdAt: row.createdAt,
+        currency: row.currency,
+        paymentAmount: row.paymentAmount,
+        friendlyStatus: deriveCustomerFacingStatus({ ...row, hasPendingInvoice }),
+        pendingInvoice: hasPendingInvoice
+          ? {
+              invoiceNumber: row.invoice.invoiceNumber,
+              currency: row.invoice.currency,
+              amount: row.invoice.amount,
+            }
+          : null,
+        documentCounts: {
+          passport: row.passportImagePaths.length,
+          guarantorId: row.guarantorIdImagePaths.length,
+          additional: row.additionalDocumentPaths.length,
+        },
+      };
+    });
 
     return res.status(200).json({ success: true, data });
   } catch (error) {
@@ -276,6 +288,9 @@ export async function patchContactRequestPaymentStatus(req, res, next) {
   }
 }
 
+// Staff proposes (or revises) a price — does not itself start the payment
+// flow, see createOrUpdatePriceQuote. The customer approving it via
+// postApproveInvoice below is what actually does that.
 export async function patchContactRequestPayment(req, res, next) {
   try {
     const { id } = req.params;
@@ -289,17 +304,40 @@ export async function patchContactRequestPayment(req, res, next) {
       });
     }
 
-    const result = await approveContactRequestPayment(id, parsed.data, req);
+    const result = await createOrUpdatePriceQuote(id, parsed.data, req);
 
     if (result === null) {
       return res.status(404).json({ success: false, message: "Contact request not found" });
     }
 
+    return res.status(200).json({ success: true, data: result.contactRequest, invoice: result.invoice });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+}
+
+// Customer-facing: the actual agreement to pay. requireCustomerAuth already
+// verified who's calling (req.customerPhone); approveInvoice separately
+// checks that phone actually owns this specific request before letting the
+// approval through.
+export async function postApproveInvoice(req, res, next) {
+  try {
+    const { id } = req.params;
+    const result = await approveInvoice(id, req.customerPhone, req);
+
+    if (result === null) {
+      return res.status(404).json({ success: false, message: "Request or quote not found" });
+    }
+
+    if (result === "forbidden") {
+      return res.status(403).json({ success: false, message: "This request does not belong to you" });
+    }
+
     if (result === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "This request already has an active or completed payment flow",
-      });
+      return res.status(400).json({ success: false, message: "This quote is no longer awaiting approval" });
     }
 
     return res.status(200).json({ success: true, data: result.contactRequest, bankAccount: result.bankAccount });

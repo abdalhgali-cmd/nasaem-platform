@@ -20,6 +20,7 @@ import {
   patchContactRequestPayment,
   patchContactRequestPaymentStatus,
   patchContactRequestStatus,
+  postApproveInvoice,
   scanPassportForContactRequest,
   storeContactRequest,
   uploadContactRequestAdditionalDocuments,
@@ -95,6 +96,7 @@ router.get(
   getContactRequests
 );
 router.get("/mine", requireCustomerAuth, getMyContactRequests);
+router.post("/:id/invoice/approve", requireCustomerAuth, postApproveInvoice);
 router.patch(
   "/:id/status",
   requireAuth,

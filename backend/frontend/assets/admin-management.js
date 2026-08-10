@@ -578,13 +578,31 @@ async function loadContactRequests() {
             ${
               req.paymentStatus === "NOT_REQUIRED"
                 ? `
+                  ${
+                    req.invoice?.status === "PENDING_APPROVAL"
+                      ? `<div class="muted" style="font-size: 11px">بانتظار موافقة العميل على العرض</div>`
+                      : ""
+                  }
                   <select data-approve-payment-currency="${req.id}" style="width: auto">
                     ${Object.entries(CURRENCY_LABELS_AR)
-                      .map(([value, label]) => `<option value="${value}">${label}</option>`)
+                      .map(
+                        ([value, label]) =>
+                          `<option value="${value}" ${value === req.invoice?.currency ? "selected" : ""}>${label}</option>`
+                      )
                       .join("")}
                   </select>
-                  <input type="number" min="1" step="0.01" placeholder="المبلغ" data-approve-payment-amount="${req.id}" style="width: 90px" />
-                  <button type="button" data-approve-payment-submit="${req.id}">اعتماد وطلب الدفع</button>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    placeholder="المبلغ"
+                    value="${req.invoice?.amount ?? ""}"
+                    data-approve-payment-amount="${req.id}"
+                    style="width: 90px"
+                  />
+                  <button type="button" data-approve-payment-submit="${req.id}">
+                    ${req.invoice ? "تعديل العرض المرسل" : "إرسال عرض السعر للعميل"}
+                  </button>
                 `
                 : `
                   <div>${req.currency ? CURRENCY_LABELS_AR[req.currency] || req.currency : ""} ${req.paymentAmount ?? ""}</div>
@@ -651,10 +669,11 @@ function handlePaymentStatusChange(e) {
     .catch((error) => showAlert(mgmtAlert(), error.message));
 }
 
-// Prices a request that had no catalog price at submission (e.g. a work
-// visa, priced once staff has reviewed the contract) and starts its
-// bank-transfer flow — the counterpart to createContactRequest's automatic
-// pricing for a priced Umrah package.
+// Sends (or revises) a price quote for a request that had no catalog price
+// at submission (e.g. a work visa, priced once staff has reviewed the
+// contract) — the counterpart to createContactRequest's automatic pricing
+// for a priced Umrah package. Does not itself start the bank-transfer flow;
+// the customer approving it from /track does that (see approveInvoice).
 function handleApprovePaymentClick(e) {
   const button = e.target.closest("[data-approve-payment-submit]");
   if (!button) return;
@@ -665,7 +684,7 @@ function handleApprovePaymentClick(e) {
   const amount = row.querySelector(`[data-approve-payment-amount="${id}"]`).value;
 
   if (!amount || Number(amount) <= 0) {
-    showAlert(mgmtAlert(), "أدخل مبلغًا صحيحًا قبل الاعتماد");
+    showAlert(mgmtAlert(), "أدخل مبلغًا صحيحًا قبل الإرسال");
     return;
   }
 

@@ -14,7 +14,13 @@ type TrackedRequest = {
   createdAt: string;
   currency: string | null;
   paymentAmount: string | null;
-  friendlyStatus: { label: string; needsDocuments: boolean; needsPayment: boolean };
+  friendlyStatus: {
+    label: string;
+    needsDocuments: boolean;
+    needsPayment: boolean;
+    needsInvoiceApproval: boolean;
+  };
+  pendingInvoice: { invoiceNumber: string; currency: string; amount: string } | null;
   documentCounts: { passport: number; guarantorId: number; additional: number };
 };
 
@@ -214,7 +220,11 @@ function TrackedRequestCard({
   onUploaded: () => Promise<void>;
 }) {
   const [uploading, setUploading] = React.useState<string | null>(null);
-  const needsAction = request.friendlyStatus.needsDocuments || request.friendlyStatus.needsPayment;
+  const [approving, setApproving] = React.useState(false);
+  const needsAction =
+    request.friendlyStatus.needsDocuments ||
+    request.friendlyStatus.needsPayment ||
+    request.friendlyStatus.needsInvoiceApproval;
 
   async function upload(endpoint: string, fieldName: string, file: File | null) {
     if (!file) return;
@@ -226,6 +236,19 @@ function TrackedRequestCard({
       await onUploaded();
     } finally {
       setUploading(null);
+    }
+  }
+
+  async function approveInvoice() {
+    setApproving(true);
+    try {
+      await fetch(`${API_URL}/contact-requests/${request.id}/invoice/approve`, {
+        method: "POST",
+        credentials: "include",
+      });
+      await onUploaded();
+    } finally {
+      setApproving(false);
     }
   }
 
@@ -245,6 +268,29 @@ function TrackedRequestCard({
 
       {needsAction ? (
         <div className="mt-5 space-y-4 border-t border-border pt-4">
+          {request.friendlyStatus.needsInvoiceApproval && request.pendingInvoice ? (
+            <div className="rounded-xl border border-accent/40 bg-accent/5 px-4 py-3">
+              <p className="text-sm text-foreground">
+                السعر المقترح لطلبك:{" "}
+                <strong>
+                  {request.pendingInvoice.amount}{" "}
+                  {CURRENCY_LABELS[request.pendingInvoice.currency] || request.pendingInvoice.currency}
+                </strong>
+              </p>
+              <Button
+                type="button"
+                variant="gold"
+                size="sm"
+                className="mt-3"
+                disabled={approving}
+                onClick={approveInvoice}
+              >
+                {approving ? <Loader2 className="size-4 animate-spin" /> : null}
+                {approving ? "جارٍ الموافقة..." : "الموافقة على السعر"}
+              </Button>
+            </div>
+          ) : null}
+
           {request.friendlyStatus.needsDocuments ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <UploadField

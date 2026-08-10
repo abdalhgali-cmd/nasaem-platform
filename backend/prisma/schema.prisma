@@ -488,12 +488,43 @@ model ContactRequest {
   additionalDocumentPaths String[]                    @default([])
   paymentReceiptPath      String?
 
+  // A staff-proposed price the customer hasn't approved yet — see Invoice.
+  // paymentStatus stays NOT_REQUIRED until they do; only approval starts
+  // the AWAITING_TRANSFER bank-transfer flow above.
+  invoice Invoice?
+
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
   @@index([status])
   @@index([createdAt])
   @@index([paymentStatus])
+}
+
+enum InvoiceStatus {
+  PENDING_APPROVAL
+  APPROVED
+}
+
+// A staff-proposed price for a ContactRequest with no catalog price
+// (everything except a priced Umrah package, which prices itself
+// automatically — see resolvePayment()). One per request (no revision
+// history): staff editing the amount before the customer acts just updates
+// this same row. Approving it is what actually starts the ContactRequest's
+// AWAITING_TRANSFER bank-transfer flow — this table only ever gates that
+// one transition, so it needs no PAID/CANCELLED states of its own.
+model Invoice {
+  id               String        @id @default(cuid())
+  invoiceNumber    String        @unique
+  contactRequestId String        @unique
+  currency         String
+  amount           Decimal       @db.Decimal(12, 2)
+  status           InvoiceStatus @default(PENDING_APPROVAL)
+  approvedAt       DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
 }
 
 // One-time WhatsApp login codes for the customer-facing request-tracking

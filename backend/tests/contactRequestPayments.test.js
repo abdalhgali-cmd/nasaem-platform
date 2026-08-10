@@ -184,14 +184,21 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
     assert.equal(confirmRes.body.data.paymentStatus, "CONFIRMED");
   });
 
-  // Also covers staff pricing an unpriced request (e.g. a work visa) and
-  // starting its payment flow, reusing this test's single POST rather than
-  // spending another unit of the public endpoint's 5-per-window budget —
-  // PATCH /:id/payment carries no rate limit of its own.
-  test("rejects a payment receipt for a request with no pending payment, until staff prices and approves it", async () => {
+  // Also covers staff quoting an unpriced request (e.g. a work visa) and
+  // the customer approving it to start the payment flow — the two-step
+  // version of what used to be one PATCH — reusing this test's single POST
+  // rather than spending another unit of the public endpoint's 5-per-window
+  // budget. PATCH /:id/payment and the customer-auth endpoints below carry
+  // no rate limit shared with it.
+  test("rejects a payment receipt until staff quotes a price and the customer approves it", async () => {
+    // Must be a real-looking Sudanese number (unlike this file's other
+    // `098${suffix}...` phones, which only need to be unique for
+    // POST /contact-requests) — this test also logs in via customer-auth,
+    // whose normalizePhone() rejects anything else.
+    const phone = `09${suffix.slice(-6)}05`;
     const createRes = await request(app).post("/api/contact-requests").send({
       name: "No Payment Needed Test",
-      phone: `098${suffix}5`,
+      phone,
       message: "استفسار عام بدون خدمة مسعّرة",
     });
     assert.equal(createRes.status, 201);
@@ -203,19 +210,50 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
       .attach("image", MRZ_FIXTURE);
     assert.equal(receiptRes.status, 400);
 
-    const approveRes = await adminAgent
+    const quoteRes = await adminAgent
       .patch(`/api/contact-requests/${id}/payment`)
       .send({ currency: "SAR", paymentAmount: 350 });
-    assert.equal(approveRes.status, 200);
-    assert.equal(approveRes.body.data.paymentStatus, "AWAITING_TRANSFER");
-    assert.equal(approveRes.body.data.currency, "SAR");
-    assert.equal(approveRes.body.data.paymentAmount, "350");
+    assert.equal(quoteRes.status, 200);
+    // Quoting alone must not start the payment flow — the customer hasn't
+    // agreed to anything yet.
+    assert.equal(quoteRes.body.data.paymentStatus, "NOT_REQUIRED");
+    assert.equal(quoteRes.body.invoice.status, "PENDING_APPROVAL");
 
-    // Already mid-flow — must not silently re-price an active transfer.
-    const reapproveRes = await adminAgent
+    // Revising the quote before approval is allowed (upsert on the same
+    // invoice, not a rejection) — the common "staff typed the wrong amount"
+    // case.
+    const revisedQuoteRes = await adminAgent
       .patch(`/api/contact-requests/${id}/payment`)
       .send({ currency: "USD", paymentAmount: 100 });
-    assert.equal(reapproveRes.status, 400);
+    assert.equal(revisedQuoteRes.status, 200);
+
+    // Still no pending payment to attach a receipt to until the customer
+    // approves.
+    const receiptBeforeApprovalRes = await request(app)
+      .post(`/api/contact-requests/${id}/payment-receipt`)
+      .attach("image", MRZ_FIXTURE);
+    assert.equal(receiptBeforeApprovalRes.status, 400);
+
+    const codeRes = await request(app).post("/api/customer-auth/request-code").send({ phone });
+    assert.equal(codeRes.status, 200);
+    const customerAgent = request.agent(app);
+    const verifyRes = await customerAgent.post("/api/customer-auth/verify-code").send({
+      loginCodeId: codeRes.body.data.loginCodeId,
+      code: codeRes.body.data.debugCode,
+    });
+    assert.equal(verifyRes.status, 200);
+
+    const approveRes = await customerAgent.post(`/api/contact-requests/${id}/invoice/approve`);
+    assert.equal(approveRes.status, 200);
+    assert.equal(approveRes.body.data.paymentStatus, "AWAITING_TRANSFER");
+    assert.equal(approveRes.body.data.currency, "USD");
+    assert.equal(approveRes.body.data.paymentAmount, "100");
+
+    // Already approved — must not silently re-price an active transfer.
+    const requoteAfterApprovalRes = await adminAgent
+      .patch(`/api/contact-requests/${id}/payment`)
+      .send({ currency: "SAR", paymentAmount: 500 });
+    assert.equal(requoteAfterApprovalRes.status, 400);
 
     // A receipt is now accepted, since there's a pending payment to attach it to.
     const receiptAfterApprovalRes = await request(app)
