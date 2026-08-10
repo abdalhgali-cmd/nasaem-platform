@@ -32,6 +32,24 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
   const isWorkVisa = visaType === "تأشيرة العمل";
   const isEgyptClearance = visaType === "الموافقة الأمنية لمصر";
 
+  // Mirrors visaCategories.requirements on /visas — a Saudi guarantor's
+  // Iqama is only ever asked for on a family-visit invitation ("صورة إقامة
+  // مرسل الزيارة من أبشر"); the other types have no such person in the
+  // picture at all, so showing that upload for them was actively wrong,
+  // not just unnecessary. What each type *does* need beyond the passport
+  // varies (personal photo, work contract, invitation/booking) — collected
+  // through the one generic "مستندات إضافية" slot, since modeling every
+  // document as its own fixed upload field would balloon the backend for
+  // marginal gain (see the plan's original default on this).
+  const additionalDocumentsHint = isFamilyVisit
+    ? "الصورة الشخصية، مستند الدعوة (خطاب الزيارة)، وأي مستند إضافي حسب صلة القرابة"
+    : isWorkVisa
+      ? "الصورة الشخصية وعقد العمل"
+      : isInternational
+        ? "الصورة الشخصية، ودعوة أو حجز الطيران والفندق حسب الدولة المقصودة"
+        : "أي مستند إضافي يخص حالتك (اختياري)";
+  const additionalDocumentsRequired = isFamilyVisit || isWorkVisa || isInternational;
+
   async function uploadFiles(requestId: string, endpoint: string, files: FileList | null) {
     if (!files || files.length === 0) return;
     const body = new FormData();
@@ -89,7 +107,10 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
 
       await Promise.all([
         uploadFiles(requestId, "passport-image", passportFiles),
-        uploadFiles(requestId, "guarantor-id-image", guarantorFiles),
+        // Only ever relevant for a family-visit invitation — the input is
+        // unmounted for every other type, but a stale FileList from a type
+        // switch mid-fill could otherwise still linger in state.
+        isFamilyVisit ? uploadFiles(requestId, "guarantor-id-image", guarantorFiles) : null,
         uploadFiles(requestId, "additional-documents", additionalFiles),
       ]);
 
@@ -285,32 +306,32 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
             className="text-sm"
           />
         </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={`${id}-guarantor`} className="text-sm font-semibold text-foreground">
-            صورة إقامة الضامن / مُرسل الدعوة{" "}
-            <span className="font-normal text-muted-foreground">(إن وجدت)</span>
-          </label>
-          <input
-            id={`${id}-guarantor`}
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => setGuarantorFiles(e.target.files)}
-            className="text-sm"
-          />
-        </div>
+        {isFamilyVisit ? (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor={`${id}-guarantor`} className="text-sm font-semibold text-foreground">
+              صورة إقامة مُرسل الدعوة (من أبشر)
+            </label>
+            <input
+              id={`${id}-guarantor`}
+              type="file"
+              accept="image/*"
+              multiple
+              required
+              onChange={(e) => setGuarantorFiles(e.target.files)}
+              className="text-sm"
+            />
+          </div>
+        ) : null}
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <label htmlFor={`${id}-additional`} className="text-sm font-semibold text-foreground">
-            مستندات إضافية{" "}
-            <span className="font-normal text-muted-foreground">
-              (دعوة، حجز طيران/فندق، عقد عمل، أو أي مستند آخر يخص حالتك — اختياري)
-            </span>
+            مستندات إضافية <span className="font-normal text-muted-foreground">({additionalDocumentsHint})</span>
           </label>
           <input
             id={`${id}-additional`}
             type="file"
             accept="image/*,application/pdf"
             multiple
+            required={additionalDocumentsRequired}
             onChange={(e) => setAdditionalFiles(e.target.files)}
             className="text-sm"
           />
