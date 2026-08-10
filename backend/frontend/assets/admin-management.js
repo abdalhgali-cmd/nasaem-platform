@@ -31,7 +31,7 @@ const PAYMENT_STATUS_LABELS_AR = {
   CONFIRMED: "تم التأكيد",
 };
 
-const CURRENCY_LABELS_AR = { SAR: "ريال سعودي", SDG: "جنيه سوداني" };
+const CURRENCY_LABELS_AR = { SAR: "ريال سعودي", SDG: "جنيه سوداني", USD: "دولار أمريكي" };
 
 function mgmtCanWrite(entity) {
   // Mirrors the requireRole(...) checks on each backend POST route.
@@ -99,6 +99,7 @@ function wireManagementTabs() {
   el("users-body").addEventListener("click", handleUserRowClick);
   el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
   el("contact-requests-body").addEventListener("change", handlePaymentStatusChange);
+  el("contact-requests-body").addEventListener("click", handleApprovePaymentClick);
   el("contact-request-status-filter").addEventListener("change", (e) => {
     mgmtState.contactRequests.status = e.target.value;
     mgmtState.contactRequests.page = 1;
@@ -576,7 +577,15 @@ async function loadContactRequests() {
           <td style="white-space: normal">
             ${
               req.paymentStatus === "NOT_REQUIRED"
-                ? "-"
+                ? `
+                  <select data-approve-payment-currency="${req.id}" style="width: auto">
+                    ${Object.entries(CURRENCY_LABELS_AR)
+                      .map(([value, label]) => `<option value="${value}">${label}</option>`)
+                      .join("")}
+                  </select>
+                  <input type="number" min="1" step="0.01" placeholder="المبلغ" data-approve-payment-amount="${req.id}" style="width: 90px" />
+                  <button type="button" data-approve-payment-submit="${req.id}">اعتماد وطلب الدفع</button>
+                `
                 : `
                   <div>${req.currency ? CURRENCY_LABELS_AR[req.currency] || req.currency : ""} ${req.paymentAmount ?? ""}</div>
                   <select data-payment-status="${req.id}">
@@ -640,6 +649,34 @@ function handlePaymentStatusChange(e) {
     })
     .then(loadContactRequests)
     .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// Prices a request that had no catalog price at submission (e.g. a work
+// visa, priced once staff has reviewed the contract) and starts its
+// bank-transfer flow — the counterpart to createContactRequest's automatic
+// pricing for a priced Umrah package.
+function handleApprovePaymentClick(e) {
+  const button = e.target.closest("[data-approve-payment-submit]");
+  if (!button) return;
+
+  const id = button.dataset.approvePaymentSubmit;
+  const row = button.closest("tr");
+  const currency = row.querySelector(`[data-approve-payment-currency="${id}"]`).value;
+  const amount = row.querySelector(`[data-approve-payment-amount="${id}"]`).value;
+
+  if (!amount || Number(amount) <= 0) {
+    showAlert(mgmtAlert(), "أدخل مبلغًا صحيحًا قبل الاعتماد");
+    return;
+  }
+
+  button.disabled = true;
+  api
+    .patch(`/contact-requests/${id}/payment`, { currency, paymentAmount: Number(amount) })
+    .then(loadContactRequests)
+    .catch((error) => {
+      showAlert(mgmtAlert(), error.message);
+      button.disabled = false;
+    });
 }
 
 // --- Branding / icons (shown on the public marketing site) ---

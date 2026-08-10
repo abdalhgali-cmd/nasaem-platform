@@ -264,3 +264,55 @@ export async function updatePaymentStatus(id, status) {
     data: { paymentStatus: status },
   });
 }
+
+// Manually starts a bank-transfer flow for a request that had no catalog
+// price at submission (everything except a priced Umrah package, which
+// resolvePayment() already prices automatically). Staff reviews whatever
+// was submitted (e.g. a work visa's contract + authorized-office number),
+// decides the price, and this is what actually asks the customer to pay —
+// mirrors resolvePayment()'s AWAITING_TRANSFER outcome, just triggered
+// later and by a person instead of a price list.
+//
+// Only ever allowed once: a request that's already NOT_REQUIRED-only-by-
+// default moves forward from here, but one that's already mid-flow
+// (AWAITING_TRANSFER/UNDER_REVIEW/CONFIRMED) must go through the existing
+// payment-status transitions instead, not get re-priced out from under
+// itself — so this returns `undefined` (not the same as `null`s 404) for
+// the caller to turn into a 400.
+export async function approveContactRequestPayment(id, { currency, paymentAmount }, req) {
+  const existing = await prisma.contactRequest.findUnique({ where: { id } });
+
+  if (!existing) {
+    return null;
+  }
+
+  if (existing.paymentStatus !== "NOT_REQUIRED") {
+    return undefined;
+  }
+
+  const paymentSettings = await getPublicPaymentSettings();
+  const bankAccount = paymentSettings.bankAccounts[currency];
+
+  const contactRequest = await prisma.contactRequest.update({
+    where: { id },
+    data: { currency, paymentAmount, paymentStatus: "AWAITING_TRANSFER" },
+  });
+
+  logActivity({
+    userId: req.user?.id,
+    action: "CONTACT_REQUEST_PAYMENT_APPROVED",
+    entity: "ContactRequest",
+    entityId: contactRequest.id,
+    req,
+  });
+
+  // Not awaited, same reasoning as the WhatsApp send in createContactRequest:
+  // a slow/unreachable WhatsApp API must not delay the staff member's
+  // response. No-ops entirely when WHATSAPP_* env vars aren't set.
+  sendWhatsAppMessage(
+    contactRequest.phone,
+    `تم اعتماد طلبك رقم ${contactRequest.referenceNumber}\nالمبلغ المستحق: ${paymentAmount} ${CURRENCY_LABELS_AR[currency]}\n${bankAccount ? `الحساب البنكي: ${bankAccount}` : "سيتم التواصل معك لتفاصيل الدفع"}`
+  );
+
+  return { contactRequest, bankAccount };
+}

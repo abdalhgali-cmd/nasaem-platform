@@ -15,6 +15,7 @@ import {
   getContactRequestPassportImage,
   getContactRequestPaymentReceipt,
   getContactRequests,
+  patchContactRequestPayment,
   patchContactRequestPaymentStatus,
   patchContactRequestStatus,
   scanPassportForContactRequest,
@@ -102,6 +103,12 @@ router.patch(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   patchContactRequestPaymentStatus
+);
+router.patch(
+  "/:id/payment",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  patchContactRequestPayment
 );
 router.get(
   "/:id/passport-image/:index",

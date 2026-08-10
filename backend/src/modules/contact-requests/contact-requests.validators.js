@@ -39,3 +39,12 @@ export const updateContactRequestStatusSchema = z.object({
 export const updatePaymentStatusSchema = z.object({
   status: z.enum(["AWAITING_TRANSFER", "UNDER_REVIEW", "CONFIRMED"]),
 });
+
+// Staff-set price for a request with no catalog price (e.g. a work visa,
+// priced case-by-case once staff has reviewed the submitted contract) —
+// this is what actually starts the bank-transfer flow for anything other
+// than an Umrah package, which prices itself automatically at submission.
+export const approveContactRequestPaymentSchema = z.object({
+  currency: z.enum(["SAR", "SDG", "USD"]),
+  paymentAmount: z.coerce.number().positive(),
+});

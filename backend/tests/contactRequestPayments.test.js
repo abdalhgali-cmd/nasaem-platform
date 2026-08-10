@@ -184,7 +184,11 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
     assert.equal(confirmRes.body.data.paymentStatus, "CONFIRMED");
   });
 
-  test("rejects a payment receipt for a request with no pending payment", async () => {
+  // Also covers staff pricing an unpriced request (e.g. a work visa) and
+  // starting its payment flow, reusing this test's single POST rather than
+  // spending another unit of the public endpoint's 5-per-window budget —
+  // PATCH /:id/payment carries no rate limit of its own.
+  test("rejects a payment receipt for a request with no pending payment, until staff prices and approves it", async () => {
     const createRes = await request(app).post("/api/contact-requests").send({
       name: "No Payment Needed Test",
       phone: `098${suffix}5`,
@@ -192,11 +196,39 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
     });
     assert.equal(createRes.status, 201);
     assert.equal(createRes.body.data.paymentStatus, "NOT_REQUIRED");
+    const id = createRes.body.data.id;
 
     const receiptRes = await request(app)
-      .post(`/api/contact-requests/${createRes.body.data.id}/payment-receipt`)
+      .post(`/api/contact-requests/${id}/payment-receipt`)
       .attach("image", MRZ_FIXTURE);
     assert.equal(receiptRes.status, 400);
+
+    const approveRes = await adminAgent
+      .patch(`/api/contact-requests/${id}/payment`)
+      .send({ currency: "SAR", paymentAmount: 350 });
+    assert.equal(approveRes.status, 200);
+    assert.equal(approveRes.body.data.paymentStatus, "AWAITING_TRANSFER");
+    assert.equal(approveRes.body.data.currency, "SAR");
+    assert.equal(approveRes.body.data.paymentAmount, "350");
+
+    // Already mid-flow — must not silently re-price an active transfer.
+    const reapproveRes = await adminAgent
+      .patch(`/api/contact-requests/${id}/payment`)
+      .send({ currency: "USD", paymentAmount: 100 });
+    assert.equal(reapproveRes.status, 400);
+
+    // A receipt is now accepted, since there's a pending payment to attach it to.
+    const receiptAfterApprovalRes = await request(app)
+      .post(`/api/contact-requests/${id}/payment-receipt`)
+      .attach("image", MRZ_FIXTURE);
+    assert.equal(receiptAfterApprovalRes.status, 200);
+  });
+
+  test("rejects an invalid payment approval payload", async () => {
+    const res = await adminAgent
+      .patch("/api/contact-requests/does-not-exist/payment")
+      .send({ currency: "EUR", paymentAmount: -5 });
+    assert.equal(res.status, 400);
   });
 });
 

@@ -1,10 +1,12 @@
 import path from "path";
 import {
+  approveContactRequestPaymentSchema,
   createContactRequestSchema,
   updateContactRequestStatusSchema,
   updatePaymentStatusSchema,
 } from "./contact-requests.validators.js";
 import {
+  approveContactRequestPayment,
   attachAdditionalDocuments,
   attachGuarantorIdImages,
   attachPassportImages,
@@ -239,6 +241,38 @@ export async function patchContactRequestPaymentStatus(req, res, next) {
     }
 
     return res.status(200).json({ success: true, data: contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function patchContactRequestPayment(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = approveContactRequestPaymentSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const result = await approveContactRequestPayment(id, parsed.data, req);
+
+    if (result === null) {
+      return res.status(404).json({ success: false, message: "Contact request not found" });
+    }
+
+    if (result === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "This request already has an active or completed payment flow",
+      });
+    }
+
+    return res.status(200).json({ success: true, data: result.contactRequest, bankAccount: result.bankAccount });
   } catch (error) {
     next(error);
   }
