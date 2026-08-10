@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 import { terminateOcrWorker } from "../src/modules/passport-ocr/passport-ocr.service.js";
+import { resolvePayment } from "../src/modules/contact-requests/contact-requests.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MRZ_FIXTURE = path.join(__dirname, "fixtures", "passport-mrz-sample.png");
@@ -12,9 +13,10 @@ const NO_MRZ_FIXTURE = path.join(__dirname, "fixtures", "no-mrz-sample.png");
 
 // This file gets its own process (and so its own fresh in-memory rate
 // limiters) from node's test runner, independent of contactRequests.test.js
-// — see that file's budget comments for why that separation matters. Kept
-// to 4 of the 5 allowed POST /api/contact-requests calls and well under the
-// 10 allowed file-upload calls.
+// — see that file's budget comments for why that separation matters. At
+// exactly 5 of the 5 allowed POST /api/contact-requests calls — any new
+// currency/pricing scenario belongs in the resolvePayment() unit tests
+// below instead (pure function, no HTTP, no budget to track).
 describe("contact request payment flow (Umrah bank-transfer)", () => {
   let adminAgent;
   const suffix = uniqueSuffix();
@@ -182,5 +184,58 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
       .post(`/api/contact-requests/${createRes.body.data.id}/payment-receipt`)
       .attach("image", MRZ_FIXTURE);
     assert.equal(receiptRes.status, 400);
+  });
+});
+
+// resolvePayment() is a pure function (no DB, no HTTP) — exercising the
+// currency-conversion matrix directly here avoids consuming any of the
+// HTTP describe block's rate-limit budget above.
+describe("resolvePayment (SAR/SDG/USD pricing)", () => {
+  const details = { "نوع الباقة": "تأشيرة عمرة فقط" }; // 1200 SAR/person, 1 person by default
+  const rates = { sarToSdgRate: 135, usdToSdgRate: 600, bankAccounts: { SAR: null, SDG: null, USD: null } };
+
+  test("SAR needs no exchange rate at all", () => {
+    const result = resolvePayment("عمرة", details, "SAR", { sarToSdgRate: null, usdToSdgRate: null, bankAccounts: {} });
+    assert.deepEqual(result, { currency: "SAR", paymentAmount: 1200, paymentStatus: "AWAITING_TRANSFER" });
+  });
+
+  test("SDG converts via the SAR rate", () => {
+    const result = resolvePayment("عمرة", details, "SDG", rates);
+    assert.equal(result.paymentAmount, 1200 * 135);
+  });
+
+  test("USD converts via SDG as the pivot (SAR rate then USD rate), not a direct SAR-USD cross rate", () => {
+    const result = resolvePayment("عمرة", details, "USD", rates);
+    // 1200 SAR -> 162000 SDG -> 270 USD
+    assert.equal(result.paymentAmount, 270);
+  });
+
+  test("USD is unavailable when only the SAR rate is configured", () => {
+    const partialRates = { ...rates, usdToSdgRate: null };
+    assert.throws(
+      () => resolvePayment("عمرة", details, "USD", partialRates),
+      (err) => err.statusCode === 422
+    );
+  });
+
+  test("scales with traveler count for every currency", () => {
+    const group = { "نوع الباقة": "تأشيرة عمرة فقط", "عدد الأشخاص": "4" };
+    const sar = resolvePayment("عمرة", group, "SAR", rates);
+    const usd = resolvePayment("عمرة", group, "USD", rates);
+    assert.equal(sar.paymentAmount, 1200 * 4);
+    assert.equal(usd.paymentAmount, (1200 * 4 * 135) / 600);
+  });
+
+  test("non-Umrah services and missing currency stay NOT_REQUIRED", () => {
+    assert.deepEqual(resolvePayment("طيران", { "من": "الخرطوم" }, "SAR", rates), {
+      currency: null,
+      paymentAmount: null,
+      paymentStatus: "NOT_REQUIRED",
+    });
+    assert.deepEqual(resolvePayment("عمرة", details, undefined, rates), {
+      currency: null,
+      paymentAmount: null,
+      paymentStatus: "NOT_REQUIRED",
+    });
   });
 });

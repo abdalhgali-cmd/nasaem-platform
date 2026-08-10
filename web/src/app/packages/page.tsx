@@ -8,6 +8,7 @@ import { ServiceRequestForm } from "@/components/sections/service-request-form";
 import { Button } from "@/components/ui/button";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { cn } from "@/lib/utils";
+import { getSiteAssetUrls } from "@/lib/site-assets";
 
 export const metadata: Metadata = {
   title: "الباقات الشاملة",
@@ -58,7 +59,9 @@ const packageRequestFields = [
   { name: "travelers", label: "عدد المسافرين", type: "number" as const, min: 1, defaultValue: "1" },
 ];
 
-export default function PackagesPage() {
+export default async function PackagesPage() {
+  const assetUrls = await getSiteAssetUrls();
+
   return (
     <>
       <PageHero
@@ -66,6 +69,7 @@ export default function PackagesPage() {
         breadcrumb="الباقات"
         title="باقات سفر جاهزة تناسب كل مناسبة"
         description="اختر من بين باقاتنا المصممة خصيصًا للعائلات، الأزواج، ورحلات العمل — أو اطلب باقة مخصصة."
+        imageUrl={assetUrls["hero-background"]}
       />
 
       <section className="py-24">

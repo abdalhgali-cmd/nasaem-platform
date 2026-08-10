@@ -15,9 +15,28 @@ const stats = [
   { icon: ShieldCheck, value: "10+", label: "سنوات خبرة" },
 ];
 
-export function Hero() {
+export function Hero({ heroImageUrl }: { heroImageUrl?: string }) {
   return (
-    <section className="relative isolate overflow-hidden bg-gradient-to-b from-primary via-primary to-[#0a2f70] pb-28 pt-16 text-white sm:pt-24">
+    <section
+      className={
+        heroImageUrl
+          ? "relative isolate overflow-hidden pb-28 pt-16 text-white sm:pt-24"
+          : "relative isolate overflow-hidden bg-gradient-to-b from-primary via-primary to-[#0a2f70] pb-28 pt-16 text-white sm:pt-24"
+      }
+    >
+      {heroImageUrl ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={heroImageUrl} alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
+          {/* Darker than the plain gradient used when there's no photo —
+              needed to keep the white heading text legible over an
+              arbitrary admin-uploaded image. */}
+          <div
+            aria-hidden
+            className="absolute inset-0 bg-gradient-to-b from-primary/90 via-primary/80 to-[#0a2f70]/95"
+          />
+        </>
+      ) : null}
       <GradientBackdrop variant="dark" />
       <div
         aria-hidden

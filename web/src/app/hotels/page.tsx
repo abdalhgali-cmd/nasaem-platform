@@ -6,6 +6,7 @@ import { PageHero } from "@/components/sections/page-hero";
 import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
 import { ServiceRequestForm } from "@/components/sections/service-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
+import { getSiteAssetUrls } from "@/lib/site-assets";
 
 export const metadata: Metadata = {
   title: "حجز الفنادق",
@@ -37,7 +38,9 @@ const hotelRequestFields = [
   { name: "guests", label: "عدد النزلاء", type: "number" as const, min: 1, defaultValue: "1" },
 ];
 
-export default function HotelsPage() {
+export default async function HotelsPage() {
+  const assetUrls = await getSiteAssetUrls();
+
   return (
     <>
       <PageHero
@@ -45,6 +48,7 @@ export default function HotelsPage() {
         breadcrumb="الفنادق"
         title="إقامة مريحة أينما توجّهت"
         description="فنادق مختارة بعناية توفّر لك الراحة والقرب من الأماكن المهمة في كل وجهة."
+        imageUrl={assetUrls["hero-background"]}
       />
 
       <section className="relative -mt-12 pb-8">

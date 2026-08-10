@@ -251,7 +251,10 @@
               <label for="pay-rate">سعر الصرف (كم جنيه سوداني مقابل ١ ريال سعودي)</label>
               <input id="pay-rate" type="number" step="0.01" min="0" placeholder="مثال: 135" />
             </div>
-            <div class="field"></div>
+            <div class="field">
+              <label for="pay-rate-usd">سعر الصرف (كم جنيه سوداني مقابل ١ دولار أمريكي)</label>
+              <input id="pay-rate-usd" type="number" step="0.01" min="0" placeholder="مثال: 600" />
+            </div>
             <div class="field">
               <label for="pay-account-sar">الحساب البنكي — الريال السعودي</label>
               <input id="pay-account-sar" placeholder="اسم البنك - رقم الحساب" />
@@ -259,6 +262,10 @@
             <div class="field">
               <label for="pay-account-sdg">الحساب البنكي — الجنيه السوداني</label>
               <input id="pay-account-sdg" placeholder="اسم البنك - رقم الحساب" />
+            </div>
+            <div class="field">
+              <label for="pay-account-usd">الحساب البنكي — الدولار الأمريكي</label>
+              <input id="pay-account-usd" placeholder="اسم البنك - رقم الحساب" />
             </div>
           </div>
           <button type="button" class="btn" id="payment-settings-save-btn">حفظ إعدادات الدفع</button>

@@ -7,6 +7,7 @@ import { BookingSearchWidget } from "@/components/sections/booking-search-widget
 import { ServiceRequestForm } from "@/components/sections/service-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { FLIGHT_ROUTES, ORIGIN_CITIES, DESTINATION_CITIES, CABIN_CLASSES } from "@/lib/flight-routes";
+import { getSiteAssetUrls } from "@/lib/site-assets";
 
 const flightRequestFields = [
   { name: "from", label: "من", type: "select" as const, options: [...ORIGIN_CITIES] },
@@ -37,7 +38,9 @@ const features = [
   { icon: Clock3, title: "دعم قبل وبعد السفر", description: "مساعدة في تعديل أو إلغاء الحجز عند الحاجة." },
 ];
 
-export default function FlightsPage() {
+export default async function FlightsPage() {
+  const assetUrls = await getSiteAssetUrls();
+
   return (
     <>
       <PageHero
@@ -45,6 +48,7 @@ export default function FlightsPage() {
         breadcrumb="الطيران"
         title="طر إلى أي وجهة بأفضل سعر متاح"
         description="نقارن لك بين شركات الطيران المختلفة لتحصل على أنسب سعر وأفضل مواعيد الرحلات."
+        imageUrl={assetUrls["hero-background"]}
       />
 
       <section className="relative -mt-12 pb-8">

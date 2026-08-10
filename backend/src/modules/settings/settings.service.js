@@ -16,14 +16,18 @@ export async function getPublicPaymentSettings() {
   const rows = await prisma.setting.findMany({ where: { key: { in: keys } } });
   const byKey = Object.fromEntries(rows.map((row) => [row.key, row.value]));
 
-  const rawRate = byKey[PAYMENT_SETTING_KEYS.SAR_TO_SDG_RATE];
-  const rate = rawRate ? Number(rawRate) : null;
+  const parseRate = (raw) => {
+    const rate = raw ? Number(raw) : null;
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
+  };
 
   return {
-    sarToSdgRate: Number.isFinite(rate) && rate > 0 ? rate : null,
+    sarToSdgRate: parseRate(byKey[PAYMENT_SETTING_KEYS.SAR_TO_SDG_RATE]),
+    usdToSdgRate: parseRate(byKey[PAYMENT_SETTING_KEYS.USD_TO_SDG_RATE]),
     bankAccounts: {
       SAR: byKey[PAYMENT_SETTING_KEYS.BANK_ACCOUNT_SAR] || null,
       SDG: byKey[PAYMENT_SETTING_KEYS.BANK_ACCOUNT_SDG] || null,
+      USD: byKey[PAYMENT_SETTING_KEYS.BANK_ACCOUNT_USD] || null,
     },
   };
 }

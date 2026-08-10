@@ -8,11 +8,14 @@ import { Stats } from "@/components/sections/stats";
 import { Testimonials } from "@/components/sections/testimonials";
 import { Faq } from "@/components/sections/faq";
 import { ContactMap } from "@/components/sections/contact-map";
+import { getSiteAssetUrls } from "@/lib/site-assets";
 
-export default function Home() {
+export default async function Home() {
+  const assetUrls = await getSiteAssetUrls();
+
   return (
     <>
-      <Hero />
+      <Hero heroImageUrl={assetUrls["hero-background"]} />
       <Services />
       <FeaturedUmrah />
       <FlightBooking />

@@ -7,6 +7,7 @@ import { ServiceRequestForm } from "@/components/sections/service-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
+import { getSiteAssetUrls } from "@/lib/site-assets";
 
 export const metadata: Metadata = {
   title: "خدمات التأشيرات",
@@ -69,7 +70,9 @@ const visaRequestFields = [
   { name: "applicants", label: "عدد المتقدمين", type: "number" as const, min: 1, defaultValue: "1" },
 ];
 
-export default function VisasPage() {
+export default async function VisasPage() {
+  const assetUrls = await getSiteAssetUrls();
+
   return (
     <>
       <PageHero
@@ -77,6 +80,7 @@ export default function VisasPage() {
         breadcrumb="التأشيرات"
         title="إجراءات تأشيرتك، من الألف إلى الياء"
         description="مهما كان نوع التأشيرة، فريقنا يتابع طلبك خطوة بخطوة حتى الاستلام — بشفافية كاملة في المدة والمستندات."
+        imageUrl={assetUrls["hero-background"]}
       />
 
       <section className="py-24">

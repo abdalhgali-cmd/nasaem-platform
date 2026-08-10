@@ -6,6 +6,7 @@ import { PageHero } from "@/components/sections/page-hero";
 import { CountUp } from "@/components/motion/count-up";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { siteConfig } from "@/lib/site-config";
+import { getSiteAssetUrls } from "@/lib/site-assets";
 
 export const metadata: Metadata = {
   title: "من نحن",
@@ -27,7 +28,9 @@ const milestones = [
   { year: "اليوم", title: "استمرار الرحلة", description: "نواصل تطوير خدماتنا لنبقى الخيار الأول لعملائنا في كسلا وما حولها." },
 ];
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const assetUrls = await getSiteAssetUrls();
+
   return (
     <>
       <PageHero
@@ -35,6 +38,7 @@ export default function AboutPage() {
         breadcrumb="من نحن"
         title="أكثر من عقد من الثقة والخبرة"
         description={`${siteConfig.name} — شريكك الموثوق في كل رحلة، من العمرة إلى أي وجهة حول العالم.`}
+        imageUrl={assetUrls["hero-background"]}
       />
 
       <section className="py-24">

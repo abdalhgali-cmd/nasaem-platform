@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { PageHero } from "@/components/sections/page-hero";
 import { ContactMap } from "@/components/sections/contact-map";
+import { getSiteAssetUrls } from "@/lib/site-assets";
 
 export const metadata: Metadata = {
   title: "تواصل معنا",
@@ -8,7 +9,9 @@ export const metadata: Metadata = {
     "تواصل مع فريق نسائم الحرمين للسفر والسياحة عبر الهاتف، البريد الإلكتروني، الواتساب، أو زُرنا في أحد فروعنا.",
 };
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const assetUrls = await getSiteAssetUrls();
+
   return (
     <>
       <PageHero
@@ -16,6 +19,7 @@ export default function ContactPage() {
         breadcrumb="تواصل معنا"
         title="نحن هنا لمساعدتك في كل خطوة"
         description="فريقنا متاح للإجابة على استفساراتك وترتيب رحلتك بأفضل شكل ممكن."
+        imageUrl={assetUrls["hero-background"]}
       />
       <ContactMap />
     </>

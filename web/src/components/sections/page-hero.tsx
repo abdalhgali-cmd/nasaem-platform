@@ -9,14 +9,29 @@ export function PageHero({
   title,
   description,
   breadcrumb,
+  imageUrl,
 }: {
   eyebrow: string;
   title: string;
   description: string;
   breadcrumb: string;
+  imageUrl?: string;
 }) {
   return (
-    <section className="relative isolate overflow-hidden bg-gradient-to-b from-primary to-[#0a2f70] py-20 text-white sm:py-28">
+    <section
+      className={
+        imageUrl
+          ? "relative isolate overflow-hidden py-20 text-white sm:py-28"
+          : "relative isolate overflow-hidden bg-gradient-to-b from-primary to-[#0a2f70] py-20 text-white sm:py-28"
+      }
+    >
+      {imageUrl ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageUrl} alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
+          <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-primary/90 via-primary/80 to-[#0a2f70]/95" />
+        </>
+      ) : null}
       <GradientBackdrop variant="dark" />
       <Container className="relative text-center">
         <FadeIn>

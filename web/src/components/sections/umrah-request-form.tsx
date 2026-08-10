@@ -21,7 +21,8 @@ const PEOPLE_COUNT_OPTIONS = Array.from({ length: MAX_TRAVELERS }, (_, i) => i +
 
 type PaymentInfo = {
   sarToSdgRate: number | null;
-  bankAccounts: { SAR: string | null; SDG: string | null };
+  usdToSdgRate: number | null;
+  bankAccounts: { SAR: string | null; SDG: string | null; USD: string | null };
 };
 
 type Step = "fill" | "review" | "result";
@@ -29,7 +30,7 @@ type Step = "fill" | "review" | "result";
 type SubmitResult = {
   id: string;
   referenceNumber: string;
-  currency: "SAR" | "SDG" | null;
+  currency: "SAR" | "SDG" | "USD" | null;
   paymentAmount: number | null;
   paymentStatus: "NOT_REQUIRED" | "AWAITING_TRANSFER" | "UNDER_REVIEW" | "CONFIRMED";
   bankAccount: string | null;
@@ -77,7 +78,7 @@ export function UmrahRequestForm({ id }: { id?: string }) {
     email: "",
     packageType: PACKAGE_OPTIONS[0],
     travelDate: "",
-    currency: "SAR" as "SAR" | "SDG",
+    currency: "SAR" as "SAR" | "SDG" | "USD",
     message: "",
   });
 
@@ -239,14 +240,23 @@ export function UmrahRequestForm({ id }: { id?: string }) {
     }
   }
 
+  // Mirrors the backend's SDG-pivot conversion in resolvePayment(): SAR
+  // needs no rate, SDG/USD are both quoted against SDG so USD needs both
+  // rates set.
   const previewPriceSar = PACKAGE_PRICES_SAR[form.packageType] * people.length;
-  const previewPrice =
-    form.currency === "SAR"
-      ? previewPriceSar
-      : paymentInfo?.sarToSdgRate
-        ? Math.round(previewPriceSar * paymentInfo.sarToSdgRate * 100) / 100
+  const previewPriceSdg = paymentInfo?.sarToSdgRate ? previewPriceSar * paymentInfo.sarToSdgRate : null;
+  const previewPrice = (() => {
+    if (form.currency === "SAR") return previewPriceSar;
+    if (form.currency === "SDG") return previewPriceSdg != null ? Math.round(previewPriceSdg * 100) / 100 : null;
+    if (form.currency === "USD") {
+      return previewPriceSdg != null && paymentInfo?.usdToSdgRate
+        ? Math.round((previewPriceSdg / paymentInfo.usdToSdgRate) * 100) / 100
         : null;
+    }
+    return null;
+  })();
   const sdgAvailable = Boolean(paymentInfo?.sarToSdgRate);
+  const usdAvailable = Boolean(paymentInfo?.sarToSdgRate && paymentInfo?.usdToSdgRate);
 
   if (step === "result" && result) {
     return (
@@ -505,10 +515,17 @@ export function UmrahRequestForm({ id }: { id?: string }) {
         </Field>
 
         <Field label="طريقة الدفع">
-          <select value={form.currency} onChange={(e) => updateField("currency", e.target.value as "SAR" | "SDG")} className={fieldClass}>
+          <select
+            value={form.currency}
+            onChange={(e) => updateField("currency", e.target.value as "SAR" | "SDG" | "USD")}
+            className={fieldClass}
+          >
             <option value="SAR">ريال سعودي</option>
             <option value="SDG" disabled={!sdgAvailable}>
               جنيه سوداني{!sdgAvailable ? " (غير متاح حاليًا)" : ""}
+            </option>
+            <option value="USD" disabled={!usdAvailable}>
+              دولار أمريكي{!usdAvailable ? " (غير متاح حاليًا)" : ""}
             </option>
           </select>
         </Field>
@@ -539,7 +556,7 @@ export function UmrahRequestForm({ id }: { id?: string }) {
   );
 }
 
-const CURRENCY_LABELS: Record<string, string> = { SAR: "ريال سعودي", SDG: "جنيه سوداني" };
+const CURRENCY_LABELS: Record<string, string> = { SAR: "ريال سعودي", SDG: "جنيه سوداني", USD: "دولار أمريكي" };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

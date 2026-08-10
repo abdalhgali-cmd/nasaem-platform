@@ -34,13 +34,21 @@ function resolveTravelerCount(details) {
   return Math.min(raw, MAX_UMRAH_TRAVELERS);
 }
 
+const CURRENCY_LABELS_AR = { SAR: "الريال", SDG: "الجنيه", USD: "الدولار" };
+
 // Only a priced Umrah package with a chosen currency triggers the
 // bank-transfer flow — every other submission (any other service, or an
 // Umrah request with no matching package/currency) stays NOT_REQUIRED.
 // `paymentSettings` is the caller's single getPublicPaymentSettings() read,
 // passed in so a request that also needs the bank account number for its
 // response doesn't fetch Settings twice.
-function resolvePayment(service, details, currency, paymentSettings) {
+//
+// The Sudanese Pound (SDG) is the pivot for conversion, not a direct
+// SAR<->USD cross rate: both sar_to_sdg_rate and usd_to_sdg_rate are
+// quoted "how many SDG per unit of this currency", matching how the admin
+// actually looks up rates day-to-day. SAR needs no rate at all since
+// package prices are already defined in SAR.
+export function resolvePayment(service, details, currency, paymentSettings) {
   const packageName = details?.["نوع الباقة"];
   const pricePerPersonSar = service === "عمرة" && packageName ? UMRAH_PACKAGE_PRICES_SAR[packageName] : undefined;
 
@@ -54,16 +62,30 @@ function resolvePayment(service, details, currency, paymentSettings) {
     return { currency, paymentAmount: totalSar, paymentStatus: "AWAITING_TRANSFER" };
   }
 
-  if (!paymentSettings.sarToSdgRate) {
-    throw Object.assign(
-      new Error("الدفع بالجنيه غير متاح حاليًا، يرجى اختيار الريال أو التواصل معنا"),
+  const unavailable = () =>
+    Object.assign(
+      new Error(`الدفع بـ${CURRENCY_LABELS_AR[currency]} غير متاح حاليًا، يرجى اختيار عملة أخرى أو التواصل معنا`),
       { statusCode: 422 }
     );
+
+  if (!paymentSettings.sarToSdgRate) {
+    throw unavailable();
+  }
+
+  const totalSdg = totalSar * paymentSettings.sarToSdgRate;
+
+  if (currency === "SDG") {
+    return { currency, paymentAmount: Math.round(totalSdg * 100) / 100, paymentStatus: "AWAITING_TRANSFER" };
+  }
+
+  // currency === "USD"
+  if (!paymentSettings.usdToSdgRate) {
+    throw unavailable();
   }
 
   return {
     currency,
-    paymentAmount: Math.round(totalSar * paymentSettings.sarToSdgRate * 100) / 100,
+    paymentAmount: Math.round((totalSdg / paymentSettings.usdToSdgRate) * 100) / 100,
     paymentStatus: "AWAITING_TRANSFER",
   };
 }

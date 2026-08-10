@@ -428,8 +428,10 @@ function handleUserRowClick(e) {
 
 const PAYMENT_SETTING_KEYS = {
   "pay-rate": "sar_to_sdg_rate",
+  "pay-rate-usd": "usd_to_sdg_rate",
   "pay-account-sar": "bank_account_sar",
   "pay-account-sdg": "bank_account_sdg",
+  "pay-account-usd": "bank_account_usd",
 };
 
 async function loadSettings() {
@@ -640,6 +642,7 @@ const SITE_ASSET_LABELS_AR = {
   "icon-hotel": "أيقونة حجز الفنادق",
   "icon-international": "أيقونة التأشيرات الدولية",
   "icon-packages": "أيقونة باقات السفر الشاملة",
+  "hero-background": "صورة الخلفية الرئيسية (البانر)",
 };
 
 async function loadSiteAssets() {

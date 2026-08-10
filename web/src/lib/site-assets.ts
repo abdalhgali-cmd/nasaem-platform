@@ -9,7 +9,8 @@ export type SiteAssetKey =
   | "icon-flight"
   | "icon-hotel"
   | "icon-international"
-  | "icon-packages";
+  | "icon-packages"
+  | "hero-background";
 
 type SiteAssetRecord = { key: SiteAssetKey; updatedAt: string };
 

@@ -9,6 +9,7 @@ import { UmrahRequestForm } from "@/components/sections/umrah-request-form";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
+import { getSiteAssetUrls } from "@/lib/site-assets";
 
 export const metadata: Metadata = {
   title: "باقات العمرة",
@@ -30,7 +31,9 @@ const documents = [
   { icon: MessageSquareText, label: "رقم التواصل الفعّال" },
 ];
 
-export default function UmrahPage() {
+export default async function UmrahPage() {
+  const assetUrls = await getSiteAssetUrls();
+
   return (
     <>
       <PageHero
@@ -38,6 +41,7 @@ export default function UmrahPage() {
         breadcrumb="العمرة"
         title="رحلة عمرة بلا تعقيد، من الحجز حتى العودة"
         description="نتولى كل التفاصيل: التأشيرة، الطيران، الفنادق القريبة من الحرمين، والنقل — لتتفرغ أنت للعبادة فقط."
+        imageUrl={assetUrls["hero-background"]}
       />
 
       <FeaturedUmrah />
