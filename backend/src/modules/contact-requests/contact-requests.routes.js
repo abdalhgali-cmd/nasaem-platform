@@ -5,9 +5,11 @@ import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
 import {
   uploadPassportImage,
   uploadContactRequestPassportImages as uploadPassportImageFiles,
+  uploadContactRequestGuarantorIdImages as uploadGuarantorIdImageFiles,
   uploadContactRequestPaymentReceipt as uploadPaymentReceiptFile,
 } from "../../middleware/upload.middleware.js";
 import {
+  getContactRequestGuarantorIdImage,
   getContactRequestPassportImage,
   getContactRequestPaymentReceipt,
   getContactRequests,
@@ -15,6 +17,7 @@ import {
   patchContactRequestStatus,
   scanPassportForContactRequest,
   storeContactRequest,
+  uploadContactRequestGuarantorIdImages,
   uploadContactRequestPassportImages,
   uploadContactRequestPaymentReceipt,
 } from "./contact-requests.controller.js";
@@ -41,7 +44,8 @@ const publicContactLimiter = rateLimit({
 // uploads happen as follow-up requests against an *existing* contact
 // request rather than sharing the initial-submission budget. Sized for a
 // group of up to 7 travelers each scanning (and occasionally retrying) a
-// passport photo, plus one batched image upload and one receipt upload.
+// passport photo, plus batched passport/Iqama image uploads and one
+// receipt upload.
 const publicFileLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 30,
@@ -60,10 +64,16 @@ router.post("/", publicContactLimiter, storeContactRequest);
 router.post("/passport-scan", publicFileLimiter, uploadPassportImage, scanPassportForContactRequest);
 
 // Public: attaches files to a request the customer just created (its id is
-// only ever known to whoever received the POST "/" response). All
-// travelers' passport photos are sent together as one batch under the
-// "images" field.
+// only ever known to whoever received the POST "/" response). Each
+// traveler's passport photo / guarantor Iqama photo is sent as its own
+// batch under the "images" field, in person order.
 router.post("/:id/passport-image", publicFileLimiter, uploadPassportImageFiles, uploadContactRequestPassportImages);
+router.post(
+  "/:id/guarantor-id-image",
+  publicFileLimiter,
+  uploadGuarantorIdImageFiles,
+  uploadContactRequestGuarantorIdImages
+);
 router.post("/:id/payment-receipt", publicFileLimiter, uploadPaymentReceiptFile, uploadContactRequestPaymentReceipt);
 
 router.get(
@@ -89,6 +99,12 @@ router.get(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getContactRequestPassportImage
+);
+router.get(
+  "/:id/guarantor-id-image/:index",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  getContactRequestGuarantorIdImage
 );
 router.get(
   "/:id/payment-receipt",

@@ -103,6 +103,14 @@ export const uploadContactRequestPassportImages = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
 }).array("images", 7);
 
+// One guarantor Iqama (Saudi residency permit) photo per traveler —
+// same cap and pattern as the passport images above.
+export const uploadContactRequestGuarantorIdImages = multer({
+  storage: contactRequestFileStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 8 * 1024 * 1024 },
+}).array("images", 7);
+
 export const uploadContactRequestPaymentReceipt = multer({
   storage: contactRequestFileStorage,
   fileFilter,

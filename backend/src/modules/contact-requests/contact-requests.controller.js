@@ -5,6 +5,7 @@ import {
   updatePaymentStatusSchema,
 } from "./contact-requests.validators.js";
 import {
+  attachGuarantorIdImages,
   attachPassportImages,
   attachPaymentReceipt,
   createContactRequest,
@@ -156,22 +157,33 @@ export async function scanPassportForContactRequest(req, res, next) {
   }
 }
 
-export async function uploadContactRequestPassportImages(req, res, next) {
+// Shared by the passport-photo and guarantor-Iqama-photo batch uploads,
+// which are otherwise identical (both attach one file per traveler, in
+// the same order as the "person" blocks on the form).
+async function uploadTravelerImages(req, res, next, attach, notFoundLabel) {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ success: false, message: "No images uploaded" });
     }
 
-    const contactRequest = await attachPassportImages(req.params.id, req.files);
+    const contactRequest = await attach(req.params.id, req.files);
 
     if (!contactRequest) {
       return res.status(404).json({ success: false, message: "Contact request not found" });
     }
 
-    return res.status(200).json({ success: true, message: "Passport images uploaded" });
+    return res.status(200).json({ success: true, message: `${notFoundLabel} images uploaded` });
   } catch (error) {
     next(error);
   }
+}
+
+export function uploadContactRequestPassportImages(req, res, next) {
+  return uploadTravelerImages(req, res, next, attachPassportImages, "Passport");
+}
+
+export function uploadContactRequestGuarantorIdImages(req, res, next) {
+  return uploadTravelerImages(req, res, next, attachGuarantorIdImages, "Guarantor ID");
 }
 
 export async function uploadContactRequestPaymentReceipt(req, res, next) {
@@ -227,48 +239,53 @@ export async function patchContactRequestPaymentStatus(req, res, next) {
   }
 }
 
-// Staff-only file streaming for the two customer-uploaded images — kept
-// behind auth (unlike site-assets' file route) since passport photos and
-// bank receipts are sensitive, not public branding assets.
-async function streamContactRequestFile(req, res, next, field) {
-  try {
-    const contactRequest = await prisma.contactRequest.findUnique({ where: { id: req.params.id } });
-    const storagePath = contactRequest?.[field];
-
-    if (!storagePath) {
-      return res.status(404).json({ success: false, message: "File not found" });
-    }
-
-    return res.sendFile(path.join(UPLOAD_ROOT, storagePath), (error) => {
-      if (error && !res.headersSent) {
-        res.status(404).json({ success: false, message: "File missing on disk" });
-      }
-    });
-  } catch (error) {
-    next(error);
+// Staff-only file downloads for customer-uploaded images — kept behind
+// auth (unlike site-assets' file route) since passport/Iqama photos and
+// bank receipts are sensitive, not public branding assets. Uses
+// res.download() (Content-Disposition: attachment) rather than
+// res.sendFile() so opening the link actually saves the file to disk
+// instead of just displaying it in the browser tab.
+function downloadFile(req, res, next, storagePath, downloadName) {
+  if (!storagePath) {
+    return res.status(404).json({ success: false, message: "File not found" });
   }
+
+  return res.download(path.join(UPLOAD_ROOT, storagePath), `${downloadName}${path.extname(storagePath)}`, (error) => {
+    if (error && !res.headersSent) {
+      res.status(404).json({ success: false, message: "File missing on disk" });
+    }
+  });
 }
 
-export async function getContactRequestPassportImage(req, res, next) {
+async function downloadIndexedTravelerImage(req, res, next, field, downloadLabel) {
   try {
     const index = Number(req.params.index);
     const contactRequest = await prisma.contactRequest.findUnique({ where: { id: req.params.id } });
-    const storagePath = contactRequest?.passportImagePaths?.[index];
+    const storagePath = contactRequest?.[field]?.[index];
 
-    if (!Number.isInteger(index) || !storagePath) {
+    if (!Number.isInteger(index)) {
       return res.status(404).json({ success: false, message: "File not found" });
     }
 
-    return res.sendFile(path.join(UPLOAD_ROOT, storagePath), (error) => {
-      if (error && !res.headersSent) {
-        res.status(404).json({ success: false, message: "File missing on disk" });
-      }
-    });
+    return downloadFile(req, res, next, storagePath, `${downloadLabel}-${index + 1}`);
   } catch (error) {
     next(error);
   }
 }
 
-export function getContactRequestPaymentReceipt(req, res, next) {
-  return streamContactRequestFile(req, res, next, "paymentReceiptPath");
+export function getContactRequestPassportImage(req, res, next) {
+  return downloadIndexedTravelerImage(req, res, next, "passportImagePaths", "passport");
+}
+
+export function getContactRequestGuarantorIdImage(req, res, next) {
+  return downloadIndexedTravelerImage(req, res, next, "guarantorIdImagePaths", "guarantor-id");
+}
+
+export async function getContactRequestPaymentReceipt(req, res, next) {
+  try {
+    const contactRequest = await prisma.contactRequest.findUnique({ where: { id: req.params.id } });
+    return downloadFile(req, res, next, contactRequest?.paymentReceiptPath, "payment-receipt");
+  } catch (error) {
+    next(error);
+  }
 }

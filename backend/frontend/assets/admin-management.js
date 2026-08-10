@@ -544,7 +544,17 @@ async function loadContactRequests() {
                 ? `<div>${req.passportImagePaths
                     .map(
                       (_, index) =>
-                        `<a href="${API_BASE}/contact-requests/${req.id}/passport-image/${index}" target="_blank" rel="noopener">جواز ${index + 1}</a>`
+                        `<a href="${API_BASE}/contact-requests/${req.id}/passport-image/${index}" download>تحميل جواز ${index + 1}</a>`
+                    )
+                    .join(" · ")}</div>`
+                : ""
+            }
+            ${
+              req.guarantorIdImagePaths && req.guarantorIdImagePaths.length > 0
+                ? `<div>${req.guarantorIdImagePaths
+                    .map(
+                      (_, index) =>
+                        `<a href="${API_BASE}/contact-requests/${req.id}/guarantor-id-image/${index}" download>تحميل إقامة الضامن ${index + 1}</a>`
                     )
                     .join(" · ")}</div>`
                 : ""
@@ -567,7 +577,7 @@ async function loadContactRequests() {
                   </select>
                   ${
                     req.paymentReceiptPath
-                      ? `<div><a href="${API_BASE}/contact-requests/${req.id}/payment-receipt" target="_blank" rel="noopener">عرض إشعار التحويل</a></div>`
+                      ? `<div><a href="${API_BASE}/contact-requests/${req.id}/payment-receipt" download>تحميل إشعار التحويل</a></div>`
                       : ""
                   }
                 `

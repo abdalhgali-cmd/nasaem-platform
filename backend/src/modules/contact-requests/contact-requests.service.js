@@ -177,7 +177,9 @@ export async function updateContactRequestStatus(id, status) {
 // `files` is the full set for the request (one per traveler), uploaded
 // together right after creation — this replaces whatever was there rather
 // than appending, since the form only ever submits them once as a batch.
-export async function attachPassportImages(id, files) {
+// Shared by both the passport-photo and guarantor-Iqama-photo uploads,
+// which are otherwise identical.
+async function attachTravelerImages(id, files, field) {
   const existing = await prisma.contactRequest.findUnique({ where: { id } });
 
   if (!existing) {
@@ -187,9 +189,17 @@ export async function attachPassportImages(id, files) {
   return prisma.contactRequest.update({
     where: { id },
     data: {
-      passportImagePaths: files.map((file) => path.join("contact-request-files", file.filename)),
+      [field]: files.map((file) => path.join("contact-request-files", file.filename)),
     },
   });
+}
+
+export function attachPassportImages(id, files) {
+  return attachTravelerImages(id, files, "passportImagePaths");
+}
+
+export function attachGuarantorIdImages(id, files) {
+  return attachTravelerImages(id, files, "guarantorIdImagePaths");
 }
 
 // Uploading a receipt only makes sense once a request actually has a price

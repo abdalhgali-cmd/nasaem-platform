@@ -43,6 +43,7 @@ type PersonEntry = {
   guarantorName: string;
   guarantorId: string;
   guarantorPhone: string;
+  guarantorIdFile: File | null;
 };
 
 function emptyPerson(): PersonEntry {
@@ -54,6 +55,7 @@ function emptyPerson(): PersonEntry {
     guarantorName: "",
     guarantorId: "",
     guarantorPhone: "",
+    guarantorIdFile: null,
   };
 }
 
@@ -201,6 +203,16 @@ export function UmrahRequestForm({ id }: { id?: string }) {
         }).catch(() => null);
       }
 
+      const guarantorIdFiles = people.map((p) => p.guarantorIdFile).filter((f): f is File => Boolean(f));
+      if (guarantorIdFiles.length > 0) {
+        const body = new FormData();
+        guarantorIdFiles.forEach((file) => body.append("images", file));
+        await fetch(`${API_URL}/contact-requests/${submitResult.id}/guarantor-id-image`, {
+          method: "POST",
+          body,
+        }).catch(() => null);
+      }
+
       setResult(submitResult);
       setStep("result");
     } catch (err) {
@@ -315,8 +327,9 @@ export function UmrahRequestForm({ id }: { id?: string }) {
             <div key={i} className="rounded-xl bg-background px-4 py-3">
               <dt className="text-xs text-muted-foreground">الشخص {i + 1}</dt>
               <dd className="mt-1 text-sm font-semibold text-foreground">
-                {person.fullNameArabic} — جواز: {person.passportFile ? person.passportFile.name : "لم يُرفع"} — الضامن:{" "}
-                {person.guarantorName} ({person.guarantorId})
+                {person.fullNameArabic} — جواز: {person.passportFile ? "تم الرفع" : "لم يُرفع"} — الضامن:{" "}
+                {person.guarantorName} ({person.guarantorId}) — إقامة الضامن:{" "}
+                {person.guarantorIdFile ? "تم الرفع" : "لم يُرفع"}
               </dd>
             </div>
           ))}
@@ -430,7 +443,7 @@ export function UmrahRequestForm({ id }: { id?: string }) {
                   dir="ltr"
                 />
               </div>
-              <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-semibold text-foreground">رقم هاتف الضامن</label>
                 <input
                   required
@@ -439,6 +452,16 @@ export function UmrahRequestForm({ id }: { id?: string }) {
                   value={person.guarantorPhone}
                   onChange={(e) => updatePerson(i, { guarantorPhone: e.target.value })}
                   className={`${fieldClass} text-end`}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
+                <label className="text-sm font-semibold text-foreground">صورة إقامة الضامن</label>
+                <input
+                  required
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => updatePerson(i, { guarantorIdFile: e.target.files?.[0] ?? null })}
+                  className="text-sm"
                 />
               </div>
             </div>

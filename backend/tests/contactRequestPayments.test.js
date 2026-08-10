@@ -127,6 +127,12 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
       .attach("images", NO_MRZ_FIXTURE);
     assert.equal(passportRes.status, 200);
 
+    const guarantorIdRes = await request(app)
+      .post(`/api/contact-requests/${id}/guarantor-id-image`)
+      .attach("images", MRZ_FIXTURE)
+      .attach("images", NO_MRZ_FIXTURE);
+    assert.equal(guarantorIdRes.status, 200);
+
     const receiptRes = await request(app)
       .post(`/api/contact-requests/${id}/payment-receipt`)
       .attach("image", MRZ_FIXTURE);
@@ -137,14 +143,21 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
     assert.ok(found);
     assert.equal(found.paymentStatus, "UNDER_REVIEW");
     assert.equal(found.passportImagePaths.length, 2);
+    assert.equal(found.guarantorIdImagePaths.length, 2);
     assert.ok(found.paymentReceiptPath);
 
     const firstPassportFileRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/0`);
     assert.equal(firstPassportFileRes.status, 200);
+    // res.download() is what makes the dashboard's links actually save the
+    // file instead of just opening it in the browser tab.
+    assert.match(firstPassportFileRes.headers["content-disposition"] || "", /attachment/);
     const secondPassportFileRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/1`);
     assert.equal(secondPassportFileRes.status, 200);
     const outOfRangeRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/2`);
     assert.equal(outOfRangeRes.status, 404);
+
+    const firstGuarantorIdFileRes = await adminAgent.get(`/api/contact-requests/${id}/guarantor-id-image/0`);
+    assert.equal(firstGuarantorIdFileRes.status, 200);
 
     const unauthFileRes = await request(app).get(`/api/contact-requests/${id}/passport-image/0`);
     assert.equal(unauthFileRes.status, 401);
