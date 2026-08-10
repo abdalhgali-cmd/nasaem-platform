@@ -17,12 +17,32 @@ const fieldClass =
 
 const RELATIONSHIP_OPTIONS = ["الأم", "الأب", "الزوجة", "الزوج", "الابن/الابنة", "الأخ/الأخت", "أخرى"];
 
+// The exact extra document per relationship — confirmed there's a real
+// fixed list here (not left open-ended for staff to figure out case by
+// case), so the customer is told up front instead of finding out later.
+const RELATIONSHIP_DOCUMENT_HINTS: Record<string, string> = {
+  الأم: "شهادة ميلاد مقدم الطلب تثبت الصلة بالأم",
+  الأب: "شهادة ميلاد مقدم الطلب تثبت الصلة بالأب",
+  الزوجة: "عقد الزواج",
+  الزوج: "عقد الزواج",
+  "الابن/الابنة": "شهادة ميلاد الابن/الابنة",
+  "الأخ/الأخت": "شهادة ميلاد تثبت صلة الأخوة",
+  أخرى: "مستند يثبت صلة القرابة حسب الحالة",
+};
+
+// Scoped to what the site's own copy promises ("الصين، بالي، ودول
+// أفريقيا") — a free-text country field made staff guess which
+// invitation/booking rules applied; a fixed list tells them immediately.
+const INTERNATIONAL_COUNTRY_OPTIONS = ["الصين", "بالي (إندونيسيا)", "دولة أفريقية أخرى"];
+
 export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
   const [status, setStatus] = React.useState<Status>("idle");
   const [errorMessage, setErrorMessage] = React.useState("");
   const [referenceNumber, setReferenceNumber] = React.useState("");
 
   const [visaType, setVisaType] = React.useState(visaTypes[0] ?? "");
+  const [relationship, setRelationship] = React.useState(RELATIONSHIP_OPTIONS[0]);
+  const [destinationCountry, setDestinationCountry] = React.useState(INTERNATIONAL_COUNTRY_OPTIONS[0]);
   const [passportFiles, setPassportFiles] = React.useState<FileList | null>(null);
   const [guarantorFiles, setGuarantorFiles] = React.useState<FileList | null>(null);
   const [additionalFiles, setAdditionalFiles] = React.useState<FileList | null>(null);
@@ -31,6 +51,7 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
   const isInternational = visaType === "التأشيرات الدولية";
   const isWorkVisa = visaType === "تأشيرة العمل";
   const isEgyptClearance = visaType === "الموافقة الأمنية لمصر";
+  const isOtherAfricanCountry = isInternational && destinationCountry === "دولة أفريقية أخرى";
 
   // Mirrors visaCategories.requirements on /visas — a Saudi guarantor's
   // Iqama is only ever asked for on a family-visit invitation ("صورة إقامة
@@ -42,9 +63,9 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
   // document as its own fixed upload field would balloon the backend for
   // marginal gain (see the plan's original default on this).
   const additionalDocumentsHint = isFamilyVisit
-    ? "الصورة الشخصية، مستند الدعوة (خطاب الزيارة)، وأي مستند إضافي حسب صلة القرابة"
+    ? `الصورة الشخصية، مستند الزيارة العائلية، و${RELATIONSHIP_DOCUMENT_HINTS[relationship]}`
     : isWorkVisa
-      ? "الصورة الشخصية وعقد العمل"
+      ? "الصورة الشخصية وعقد العمل جاهزًا من صاحب العمل"
       : isInternational
         ? "الصورة الشخصية، ودعوة أو حجز الطيران والفندق حسب الدولة المقصودة"
         : "أي مستند إضافي يخص حالتك (اختياري)";
@@ -78,7 +99,13 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
     addDetail("travelDate", "تاريخ السفر المتوقع");
     addDetail("applicants", "عدد المتقدمين");
     if (isFamilyVisit) addDetail("relationship", "صلة القرابة بالمُرسل");
-    if (isInternational) addDetail("destinationCountry", "الدولة المقصودة");
+    if (isInternational) {
+      if (isOtherAfricanCountry) {
+        addDetail("africanCountryName", "الدولة المقصودة");
+      } else {
+        details["الدولة المقصودة"] = destinationCountry;
+      }
+    }
     if (isWorkVisa) addDetail("officeNumber", "رقم المكتب المفوَّض");
     if (isEgyptClearance) addDetail("ticketOrCrossing", "تذكرة الطيران أو اسم المعبر البري");
 
@@ -248,7 +275,14 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
             <label htmlFor={`${id}-relationship`} className="text-sm font-semibold text-foreground">
               صلة القرابة بمُرسل الدعوة
             </label>
-            <select id={`${id}-relationship`} name="relationship" required className={fieldClass}>
+            <select
+              id={`${id}-relationship`}
+              name="relationship"
+              required
+              value={relationship}
+              onChange={(e) => setRelationship(e.target.value)}
+              className={fieldClass}
+            >
               {RELATIONSHIP_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {option}
@@ -263,7 +297,28 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
             <label htmlFor={`${id}-destinationCountry`} className="text-sm font-semibold text-foreground">
               الدولة المقصودة
             </label>
-            <input id={`${id}-destinationCountry`} name="destinationCountry" required className={fieldClass} />
+            <select
+              id={`${id}-destinationCountry`}
+              name="destinationCountry"
+              required
+              value={destinationCountry}
+              onChange={(e) => setDestinationCountry(e.target.value)}
+              className={fieldClass}
+            >
+              {INTERNATIONAL_COUNTRY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+        {isOtherAfricanCountry ? (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor={`${id}-africanCountryName`} className="text-sm font-semibold text-foreground">
+              حدد اسم الدولة الأفريقية
+            </label>
+            <input id={`${id}-africanCountryName`} name="africanCountryName" required className={fieldClass} />
           </div>
         ) : null}
 
