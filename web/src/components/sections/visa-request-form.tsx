@@ -35,6 +35,8 @@ const RELATIONSHIP_DOCUMENT_HINTS: Record<string, string> = {
 // invitation/booking rules applied; a fixed list tells them immediately.
 const INTERNATIONAL_COUNTRY_OPTIONS = ["الصين", "بالي (إندونيسيا)", "دولة أفريقية أخرى"];
 
+const ENTRY_METHOD_OPTIONS = ["طيران", "معبر بري"];
+
 export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
   const [status, setStatus] = React.useState<Status>("idle");
   const [errorMessage, setErrorMessage] = React.useState("");
@@ -43,6 +45,7 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
   const [visaType, setVisaType] = React.useState(visaTypes[0] ?? "");
   const [relationship, setRelationship] = React.useState(RELATIONSHIP_OPTIONS[0]);
   const [destinationCountry, setDestinationCountry] = React.useState(INTERNATIONAL_COUNTRY_OPTIONS[0]);
+  const [entryMethod, setEntryMethod] = React.useState(ENTRY_METHOD_OPTIONS[0]);
   const [passportFiles, setPassportFiles] = React.useState<FileList | null>(null);
   const [guarantorFiles, setGuarantorFiles] = React.useState<FileList | null>(null);
   const [additionalFiles, setAdditionalFiles] = React.useState<FileList | null>(null);
@@ -107,7 +110,10 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
       }
     }
     if (isWorkVisa) addDetail("officeNumber", "رقم المكتب المفوَّض");
-    if (isEgyptClearance) addDetail("ticketOrCrossing", "تذكرة الطيران أو اسم المعبر البري");
+    if (isEgyptClearance) {
+      details["طريقة الدخول"] = entryMethod;
+      addDetail("arrivalOrigin", "جهة القدوم");
+    }
 
     try {
       const response = await fetch(`${API_URL}/contact-requests`, {
@@ -332,12 +338,39 @@ export function VisaRequestForm({ id, visaTypes }: VisaRequestFormProps) {
         ) : null}
 
         {isEgyptClearance ? (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor={`${id}-ticketOrCrossing`} className="text-sm font-semibold text-foreground">
-              رقم تذكرة الطيران أو اسم المعبر البري
-            </label>
-            <input id={`${id}-ticketOrCrossing`} name="ticketOrCrossing" required className={fieldClass} />
-          </div>
+          <>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor={`${id}-entryMethod`} className="text-sm font-semibold text-foreground">
+                طريقة الدخول
+              </label>
+              <select
+                id={`${id}-entryMethod`}
+                name="entryMethod"
+                required
+                value={entryMethod}
+                onChange={(e) => setEntryMethod(e.target.value)}
+                className={fieldClass}
+              >
+                {ENTRY_METHOD_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor={`${id}-arrivalOrigin`} className="text-sm font-semibold text-foreground">
+                جهة القدوم
+              </label>
+              <input
+                id={`${id}-arrivalOrigin`}
+                name="arrivalOrigin"
+                required
+                className={fieldClass}
+                placeholder="مثال: السعودية - جدة"
+              />
+            </div>
+          </>
         ) : null}
 
         <div className="flex flex-col gap-1.5 sm:col-span-2">
