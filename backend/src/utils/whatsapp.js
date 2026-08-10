@@ -15,12 +15,15 @@ function isConfigured() {
 // template already approved in Meta Business Manager; this sends that
 // template with `body` as its single parameter instead of a free-form text
 // message. See https://developers.facebook.com/docs/whatsapp/cloud-api.
-export async function sendWhatsAppMessage(to, body) {
+// `templateName` defaults to WHATSAPP_TEMPLATE_NAME (today's staff-alert
+// template) so every existing call site behaves identically. A caller like
+// the customer-login OTP flow passes its own template explicitly — a login
+// code must never ride the same template as internal staff notifications.
+export async function sendWhatsAppMessage(to, body, { templateName = process.env.WHATSAPP_TEMPLATE_NAME } = {}) {
   if (!isConfigured() || !to) return;
 
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = process.env.WHATSAPP_API_TOKEN;
-  const templateName = process.env.WHATSAPP_TEMPLATE_NAME;
 
   const payload = templateName
     ? {

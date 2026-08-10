@@ -34,4 +34,5 @@ export const mainNav: NavItem[] = [
   { label: "الباقات", href: "/packages" },
   { label: "من نحن", href: "/about" },
   { label: "تواصل معنا", href: "/contact" },
+  { label: "تتبع طلبك", href: "/track" },
 ];

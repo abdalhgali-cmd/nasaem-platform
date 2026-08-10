@@ -5,6 +5,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { nextSequence } from "../../utils/sequence.js";
+import { normalizePhone } from "../../utils/phone.js";
 import { getPublicPaymentSettings } from "../settings/settings.service.js";
 
 // Mirrors the package names/prices in web/src/app/umrah/page.tsx's
@@ -181,6 +182,16 @@ export async function listContactRequests({ page, limit, skip, status }) {
   ]);
 
   return { data, meta: buildPaginationMeta(page, limit, total) };
+}
+
+// Legacy rows were never stored with a normalized phone, so matching
+// happens in application code (via normalizePhone) rather than a SQL
+// WHERE clause — the volume here (one customer's own submissions) is small
+// enough that this is fine; revisit with a normalized+indexed column if
+// this table grows large.
+export async function listContactRequestsForPhone(normalizedPhone) {
+  const all = await prisma.contactRequest.findMany({ orderBy: { createdAt: "desc" } });
+  return all.filter((row) => normalizePhone(row.phone) === normalizedPhone);
 }
 
 export async function updateContactRequestStatus(id, status) {

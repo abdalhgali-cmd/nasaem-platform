@@ -1,0 +1,310 @@
+"use client";
+
+import * as React from "react";
+import { Loader2, MessageCircle, Send, Upload } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { API_URL } from "@/lib/api-url";
+
+type Step = "phone" | "code" | "list";
+
+type TrackedRequest = {
+  id: string;
+  referenceNumber: string | null;
+  service: string | null;
+  createdAt: string;
+  currency: string | null;
+  paymentAmount: string | null;
+  friendlyStatus: { label: string; needsDocuments: boolean; needsPayment: boolean };
+  documentCounts: { passport: number; guarantorId: number; additional: number };
+};
+
+const fieldClass =
+  "h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none transition focus:border-primary";
+
+const CURRENCY_LABELS: Record<string, string> = { SAR: "ريال سعودي", SDG: "جنيه سوداني", USD: "دولار أمريكي" };
+
+export function TrackRequestForm() {
+  const [step, setStep] = React.useState<Step>("phone");
+  const [phone, setPhone] = React.useState("");
+  const [code, setCode] = React.useState("");
+  const [loginCodeId, setLoginCodeId] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const [resendCooldown, setResendCooldown] = React.useState(0);
+  const [requests, setRequests] = React.useState<TrackedRequest[] | null>(null);
+
+  React.useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  async function fetchMyRequests() {
+    const res = await fetch(`${API_URL}/contact-requests/mine`, { credentials: "include" });
+    const payload = await res.json().catch(() => null);
+    if (res.ok) setRequests(payload?.data ?? []);
+  }
+
+  async function requestCode() {
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const res = await fetch(`${API_URL}/customer-auth/request-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ phone }),
+      });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(payload?.message || "تعذّر إرسال الرمز، حاول مرة أخرى");
+      }
+
+      setLoginCodeId(payload.data.loginCodeId);
+      setResendCooldown(60);
+      setStep("code");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذّر إرسال الرمز، حاول مرة أخرى");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleRequestCodeSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    requestCode();
+  }
+
+  async function handleVerifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const res = await fetch(`${API_URL}/customer-auth/verify-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ loginCodeId, code }),
+      });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(payload?.message || "رمز غير صحيح أو منتهي الصلاحية");
+      }
+
+      await fetchMyRequests();
+      setStep("list");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "رمز غير صحيح أو منتهي الصلاحية");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (step === "phone") {
+    return (
+      <form onSubmit={handleRequestCodeSubmit} className="rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-8">
+        <h3 className="text-lg font-bold text-foreground">أدخل رقم هاتفك</h3>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          سنرسل لك رمز دخول عبر واتساب على نفس الرقم الذي استخدمته عند تقديم طلبك.
+        </p>
+
+        {error ? (
+          <div className="mt-5 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="mt-6 flex flex-col gap-1.5">
+          <label htmlFor="track-phone" className="text-sm font-semibold text-foreground">
+            رقم الهاتف
+          </label>
+          <input
+            id="track-phone"
+            type="tel"
+            required
+            dir="ltr"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className={`${fieldClass} text-end`}
+            placeholder="+249 9XX XXX XXX"
+          />
+        </div>
+
+        <Button type="submit" variant="gold" size="lg" className="mt-6 w-full" disabled={submitting}>
+          {submitting ? <Loader2 className="size-4 animate-spin" /> : <MessageCircle className="size-4" />}
+          {submitting ? "جارٍ الإرسال..." : "إرسال رمز الدخول"}
+        </Button>
+      </form>
+    );
+  }
+
+  if (step === "code") {
+    return (
+      <form onSubmit={handleVerifyCode} className="rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-8">
+        <h3 className="text-lg font-bold text-foreground">أدخل رمز الدخول</h3>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          إذا كان هذا الرقم مسجّلًا لدينا، وصلتك رسالة واتساب فيها رمز مكوّن من 6 أرقام.
+        </p>
+
+        {error ? (
+          <div className="mt-5 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="mt-6 flex flex-col gap-1.5">
+          <label htmlFor="track-code" className="text-sm font-semibold text-foreground">
+            رمز الدخول
+          </label>
+          <input
+            id="track-code"
+            type="text"
+            inputMode="numeric"
+            required
+            dir="ltr"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            className={`${fieldClass} text-center tracking-[0.5em]`}
+            placeholder="000000"
+          />
+        </div>
+
+        <button
+          type="button"
+          disabled={resendCooldown > 0}
+          onClick={() => requestCode()}
+          className="mt-3 text-xs font-semibold text-primary underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline dark:text-secondary"
+        >
+          {resendCooldown > 0 ? `إعادة الإرسال بعد ${resendCooldown} ثانية` : "إعادة إرسال الرمز"}
+        </button>
+
+        <Button type="submit" variant="gold" size="lg" className="mt-6 w-full" disabled={submitting}>
+          {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+          {submitting ? "جارٍ التحقق..." : "تأكيد الدخول"}
+        </Button>
+      </form>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {requests && requests.length === 0 ? (
+        <div className="rounded-3xl border border-border bg-card p-8 text-center shadow-sm">
+          <p className="text-sm text-muted-foreground">لا توجد طلبات مسجّلة بهذا الرقم بعد.</p>
+        </div>
+      ) : null}
+
+      {requests?.map((req) => (
+        <TrackedRequestCard key={req.id} request={req} onUploaded={fetchMyRequests} />
+      ))}
+    </div>
+  );
+}
+
+function TrackedRequestCard({
+  request,
+  onUploaded,
+}: {
+  request: TrackedRequest;
+  onUploaded: () => Promise<void>;
+}) {
+  const [uploading, setUploading] = React.useState<string | null>(null);
+  const needsAction = request.friendlyStatus.needsDocuments || request.friendlyStatus.needsPayment;
+
+  async function upload(endpoint: string, fieldName: string, file: File | null) {
+    if (!file) return;
+    setUploading(endpoint);
+    try {
+      const body = new FormData();
+      body.append(fieldName, file);
+      await fetch(`${API_URL}/contact-requests/${request.id}/${endpoint}`, { method: "POST", body });
+      await onUploaded();
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  return (
+    <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p dir="ltr" className="text-sm font-extrabold text-primary dark:text-secondary">
+            {request.referenceNumber || "-"}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-foreground">{request.service || "طلب عام"}</p>
+        </div>
+        <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary dark:text-secondary">
+          {request.friendlyStatus.label}
+        </span>
+      </div>
+
+      {needsAction ? (
+        <div className="mt-5 space-y-4 border-t border-border pt-4">
+          {request.friendlyStatus.needsDocuments ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <UploadField
+                label="صورة جواز السفر"
+                busy={uploading === "passport-image"}
+                onFile={(file) => upload("passport-image", "images", file)}
+              />
+              <UploadField
+                label="مستندات إضافية"
+                busy={uploading === "additional-documents"}
+                onFile={(file) => upload("additional-documents", "images", file)}
+              />
+            </div>
+          ) : null}
+
+          {request.friendlyStatus.needsPayment ? (
+            <div className="rounded-xl bg-background px-4 py-3">
+              <p className="text-sm text-foreground">
+                المبلغ المستحق:{" "}
+                <strong>
+                  {request.paymentAmount} {CURRENCY_LABELS[request.currency ?? ""] || request.currency}
+                </strong>
+              </p>
+              <div className="mt-2">
+                <UploadField
+                  label="إشعار التحويل البنكي"
+                  busy={uploading === "payment-receipt"}
+                  onFile={(file) => upload("payment-receipt", "image", file)}
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function UploadField({
+  label,
+  busy,
+  onFile,
+}: {
+  label: string;
+  busy: boolean;
+  onFile: (file: File | null) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer flex-col gap-1.5">
+      <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground/80">
+        <Upload className="size-3.5" />
+        {busy ? "جارٍ الرفع..." : label}
+      </span>
+      <input
+        type="file"
+        accept="image/*,application/pdf"
+        disabled={busy}
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+        className="text-xs"
+      />
+    </label>
+  );
+}

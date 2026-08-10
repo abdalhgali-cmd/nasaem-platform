@@ -27,6 +27,18 @@ export async function requireAuth(req, res, next) {
     }
 
     const payload = verifyAccessToken(token);
+
+    // Defense-in-depth: a customer token (see customerAuth.middleware.js)
+    // already has no `sub`/`id` and would fail the check below anyway, but
+    // reject its shape explicitly rather than relying on that as the only
+    // boundary.
+    if (payload.type === "customer") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token payload",
+      });
+    }
+
     const userId = payload.sub || payload.id;
 
     if (!userId) {

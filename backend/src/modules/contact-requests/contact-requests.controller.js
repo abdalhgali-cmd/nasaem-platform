@@ -13,9 +13,11 @@ import {
   attachPaymentReceipt,
   createContactRequest,
   listContactRequests,
+  listContactRequestsForPhone,
   updateContactRequestStatus,
   updatePaymentStatus,
 } from "./contact-requests.service.js";
+import { deriveCustomerFacingStatus } from "./contact-request-status.js";
 import { extractArabicNameSuggestion, extractPassportData } from "../passport-ocr/passport-ocr.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 import prisma from "../../config/database.js";
@@ -75,6 +77,34 @@ export async function getContactRequests(req, res, next) {
       data,
       meta,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Customer-facing: the internal status/paymentStatus enums are staff triage
+// vocabulary, so each row is mapped through deriveCustomerFacingStatus
+// instead of returning them verbatim.
+export async function getMyContactRequests(req, res, next) {
+  try {
+    const rows = await listContactRequestsForPhone(req.customerPhone);
+
+    const data = rows.map((row) => ({
+      id: row.id,
+      referenceNumber: row.referenceNumber,
+      service: row.service,
+      createdAt: row.createdAt,
+      currency: row.currency,
+      paymentAmount: row.paymentAmount,
+      friendlyStatus: deriveCustomerFacingStatus(row),
+      documentCounts: {
+        passport: row.passportImagePaths.length,
+        guarantorId: row.guarantorIdImagePaths.length,
+        additional: row.additionalDocumentPaths.length,
+      },
+    }));
+
+    return res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }

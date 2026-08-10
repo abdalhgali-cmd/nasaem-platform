@@ -495,3 +495,21 @@ model ContactRequest {
   @@index([createdAt])
   @@index([paymentStatus])
 }
+
+// One-time WhatsApp login codes for the customer-facing request-tracking
+// portal (see customer-auth module). Deliberately has no relation to User
+// or Customer — its identity IS the phone number, which is what keeps a
+// customer session token structurally distinct from a staff one (no `sub`
+// to satisfy requireAuth's staff-shaped payload check).
+model CustomerLoginCode {
+  id         String    @id @default(cuid())
+  phone      String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone])
+  @@index([expiresAt])
+}

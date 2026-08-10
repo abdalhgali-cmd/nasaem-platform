@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
+import { requireCustomerAuth } from "../../middleware/customerAuth.middleware.js";
 import {
   uploadPassportImage,
   uploadContactRequestPassportImages as uploadPassportImageFiles,
@@ -15,6 +16,7 @@ import {
   getContactRequestPassportImage,
   getContactRequestPaymentReceipt,
   getContactRequests,
+  getMyContactRequests,
   patchContactRequestPayment,
   patchContactRequestPaymentStatus,
   patchContactRequestStatus,
@@ -92,6 +94,7 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getContactRequests
 );
+router.get("/mine", requireCustomerAuth, getMyContactRequests);
 router.patch(
   "/:id/status",
   requireAuth,
