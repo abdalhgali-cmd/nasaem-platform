@@ -475,7 +475,10 @@ model ContactRequest {
   currency           String?
   paymentAmount      Decimal?                     @db.Decimal(12, 2)
   paymentStatus      ContactRequestPaymentStatus  @default(NOT_REQUIRED)
-  passportImagePath  String?
+  // One passport photo per traveler on the Umrah request (up to 7) —
+  // ordered the same as the "person" blocks on the form, index N here
+  // corresponds to details["الشخص N+1 - ..."].
+  passportImagePaths String[]                     @default([])
   paymentReceiptPath String?
 
   createdAt DateTime             @default(now())

@@ -23,6 +23,17 @@ async function generateReferenceNumber() {
   return `NH-${year}-${String(seq).padStart(5, "0")}`;
 }
 
+const MAX_UMRAH_TRAVELERS = 7;
+
+// Package prices are per person (see the "ريال / للفرد" unit on
+// featured-umrah.tsx's cards) — the total owed scales with how many
+// travelers are on the request.
+function resolveTravelerCount(details) {
+  const raw = Number(details?.["عدد الأشخاص"]);
+  if (!Number.isInteger(raw) || raw < 1) return 1;
+  return Math.min(raw, MAX_UMRAH_TRAVELERS);
+}
+
 // Only a priced Umrah package with a chosen currency triggers the
 // bank-transfer flow — every other submission (any other service, or an
 // Umrah request with no matching package/currency) stays NOT_REQUIRED.
@@ -31,14 +42,16 @@ async function generateReferenceNumber() {
 // response doesn't fetch Settings twice.
 function resolvePayment(service, details, currency, paymentSettings) {
   const packageName = details?.["نوع الباقة"];
-  const priceSar = service === "عمرة" && packageName ? UMRAH_PACKAGE_PRICES_SAR[packageName] : undefined;
+  const pricePerPersonSar = service === "عمرة" && packageName ? UMRAH_PACKAGE_PRICES_SAR[packageName] : undefined;
 
-  if (!priceSar || !currency) {
+  if (!pricePerPersonSar || !currency) {
     return { currency: null, paymentAmount: null, paymentStatus: "NOT_REQUIRED" };
   }
 
+  const totalSar = pricePerPersonSar * resolveTravelerCount(details);
+
   if (currency === "SAR") {
-    return { currency, paymentAmount: priceSar, paymentStatus: "AWAITING_TRANSFER" };
+    return { currency, paymentAmount: totalSar, paymentStatus: "AWAITING_TRANSFER" };
   }
 
   if (!paymentSettings.sarToSdgRate) {
@@ -50,7 +63,7 @@ function resolvePayment(service, details, currency, paymentSettings) {
 
   return {
     currency,
-    paymentAmount: Math.round(priceSar * paymentSettings.sarToSdgRate * 100) / 100,
+    paymentAmount: Math.round(totalSar * paymentSettings.sarToSdgRate * 100) / 100,
     paymentStatus: "AWAITING_TRANSFER",
   };
 }
@@ -161,7 +174,10 @@ export async function updateContactRequestStatus(id, status) {
   });
 }
 
-export async function attachPassportImage(id, file) {
+// `files` is the full set for the request (one per traveler), uploaded
+// together right after creation — this replaces whatever was there rather
+// than appending, since the form only ever submits them once as a batch.
+export async function attachPassportImages(id, files) {
   const existing = await prisma.contactRequest.findUnique({ where: { id } });
 
   if (!existing) {
@@ -170,7 +186,9 @@ export async function attachPassportImage(id, file) {
 
   return prisma.contactRequest.update({
     where: { id },
-    data: { passportImagePath: path.join("contact-request-files", file.filename) },
+    data: {
+      passportImagePaths: files.map((file) => path.join("contact-request-files", file.filename)),
+    },
   });
 }
 

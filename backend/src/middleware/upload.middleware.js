@@ -95,11 +95,13 @@ const contactRequestFileStorage = multer.diskStorage({
   },
 });
 
-export const uploadContactRequestPassportImage = multer({
+// One passport photo per traveler on an Umrah request — capped at 7 to
+// match the form's maximum group size.
+export const uploadContactRequestPassportImages = multer({
   storage: contactRequestFileStorage,
   fileFilter: imageFileFilter,
   limits: { fileSize: 8 * 1024 * 1024 },
-}).single("image");
+}).array("images", 7);
 
 export const uploadContactRequestPaymentReceipt = multer({
   storage: contactRequestFileStorage,

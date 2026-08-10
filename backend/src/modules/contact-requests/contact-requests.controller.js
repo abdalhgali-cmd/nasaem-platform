@@ -5,7 +5,7 @@ import {
   updatePaymentStatusSchema,
 } from "./contact-requests.validators.js";
 import {
-  attachPassportImage,
+  attachPassportImages,
   attachPaymentReceipt,
   createContactRequest,
   listContactRequests,
@@ -156,19 +156,19 @@ export async function scanPassportForContactRequest(req, res, next) {
   }
 }
 
-export async function uploadContactRequestPassportImage(req, res, next) {
+export async function uploadContactRequestPassportImages(req, res, next) {
   try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: "No image uploaded" });
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ success: false, message: "No images uploaded" });
     }
 
-    const contactRequest = await attachPassportImage(req.params.id, req.file);
+    const contactRequest = await attachPassportImages(req.params.id, req.files);
 
     if (!contactRequest) {
       return res.status(404).json({ success: false, message: "Contact request not found" });
     }
 
-    return res.status(200).json({ success: true, message: "Passport image uploaded" });
+    return res.status(200).json({ success: true, message: "Passport images uploaded" });
   } catch (error) {
     next(error);
   }
@@ -249,8 +249,24 @@ async function streamContactRequestFile(req, res, next, field) {
   }
 }
 
-export function getContactRequestPassportImage(req, res, next) {
-  return streamContactRequestFile(req, res, next, "passportImagePath");
+export async function getContactRequestPassportImage(req, res, next) {
+  try {
+    const index = Number(req.params.index);
+    const contactRequest = await prisma.contactRequest.findUnique({ where: { id: req.params.id } });
+    const storagePath = contactRequest?.passportImagePaths?.[index];
+
+    if (!Number.isInteger(index) || !storagePath) {
+      return res.status(404).json({ success: false, message: "File not found" });
+    }
+
+    return res.sendFile(path.join(UPLOAD_ROOT, storagePath), (error) => {
+      if (error && !res.headersSent) {
+        res.status(404).json({ success: false, message: "File missing on disk" });
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 }
 
 export function getContactRequestPaymentReceipt(req, res, next) {

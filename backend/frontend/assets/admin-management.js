@@ -540,8 +540,13 @@ async function loadContactRequests() {
                 : ""
             }
             ${
-              req.passportImagePath
-                ? `<div><a href="${API_BASE}/contact-requests/${req.id}/passport-image" target="_blank" rel="noopener">عرض صورة الجواز</a></div>`
+              req.passportImagePaths && req.passportImagePaths.length > 0
+                ? `<div>${req.passportImagePaths
+                    .map(
+                      (_, index) =>
+                        `<a href="${API_BASE}/contact-requests/${req.id}/passport-image/${index}" target="_blank" rel="noopener">جواز ${index + 1}</a>`
+                    )
+                    .join(" · ")}</div>`
                 : ""
             }
           </td>

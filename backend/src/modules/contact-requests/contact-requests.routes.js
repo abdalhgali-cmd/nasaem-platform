@@ -4,7 +4,7 @@ import rateLimit from "express-rate-limit";
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
 import {
   uploadPassportImage,
-  uploadContactRequestPassportImage as uploadPassportImageFile,
+  uploadContactRequestPassportImages as uploadPassportImageFiles,
   uploadContactRequestPaymentReceipt as uploadPaymentReceiptFile,
 } from "../../middleware/upload.middleware.js";
 import {
@@ -15,7 +15,7 @@ import {
   patchContactRequestStatus,
   scanPassportForContactRequest,
   storeContactRequest,
-  uploadContactRequestPassportImage,
+  uploadContactRequestPassportImages,
   uploadContactRequestPaymentReceipt,
 } from "./contact-requests.controller.js";
 
@@ -39,10 +39,12 @@ const publicContactLimiter = rateLimit({
 // Separate (and separately budgeted) from publicContactLimiter: passport
 // OCR is CPU-heavy (Tesseract), so this needs its own tight cap, and file
 // uploads happen as follow-up requests against an *existing* contact
-// request rather than sharing the initial-submission budget.
+// request rather than sharing the initial-submission budget. Sized for a
+// group of up to 7 travelers each scanning (and occasionally retrying) a
+// passport photo, plus one batched image upload and one receipt upload.
 const publicFileLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -58,8 +60,10 @@ router.post("/", publicContactLimiter, storeContactRequest);
 router.post("/passport-scan", publicFileLimiter, uploadPassportImage, scanPassportForContactRequest);
 
 // Public: attaches files to a request the customer just created (its id is
-// only ever known to whoever received the POST "/" response).
-router.post("/:id/passport-image", publicFileLimiter, uploadPassportImageFile, uploadContactRequestPassportImage);
+// only ever known to whoever received the POST "/" response). All
+// travelers' passport photos are sent together as one batch under the
+// "images" field.
+router.post("/:id/passport-image", publicFileLimiter, uploadPassportImageFiles, uploadContactRequestPassportImages);
 router.post("/:id/payment-receipt", publicFileLimiter, uploadPaymentReceiptFile, uploadContactRequestPaymentReceipt);
 
 router.get(
@@ -81,7 +85,7 @@ router.patch(
   patchContactRequestPaymentStatus
 );
 router.get(
-  "/:id/passport-image",
+  "/:id/passport-image/:index",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getContactRequestPassportImage

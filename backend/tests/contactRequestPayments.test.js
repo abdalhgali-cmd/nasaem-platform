@@ -71,17 +71,22 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
     assert.equal(res.body.data.bankAccount, "Test Bank SAR - 111");
   });
 
-  test("converts to SDG using the configured exchange rate", async () => {
+  // Also covers the per-person price scaling with traveler count (package
+  // is 1200 SAR/person × 3 travelers = 3600 SAR × rate 135 = 486000 SDG) —
+  // combined with the currency conversion in one request rather than a
+  // separate POST, to stay within this file's 5-per-window budget (see the
+  // comment atop this describe block).
+  test("converts to SDG using the configured exchange rate, scaled by traveler count", async () => {
     const res = await request(app).post("/api/contact-requests").send({
       name: "Umrah SDG Test",
       phone: `098${suffix}3`,
       service: "عمرة",
       currency: "SDG",
-      details: { "نوع الباقة": "تأشيرة عمرة فقط" },
+      details: { "نوع الباقة": "تأشيرة عمرة فقط", "عدد الأشخاص": "3" },
     });
 
     assert.equal(res.status, 201);
-    assert.equal(res.body.data.paymentAmount, "162000");
+    assert.equal(res.body.data.paymentAmount, "486000");
     assert.equal(res.body.data.bankAccount, "Test Bank SDG - 222");
   });
 
@@ -98,27 +103,28 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
     assert.equal(badRes.status, 422);
   });
 
-  test("uploading a passport image to an unknown request returns 404", async () => {
+  test("uploading passport images to an unknown request returns 404", async () => {
     const res = await request(app)
       .post("/api/contact-requests/does-not-exist/passport-image")
-      .attach("image", MRZ_FIXTURE);
+      .attach("images", MRZ_FIXTURE);
     assert.equal(res.status, 404);
   });
 
-  test("full bank-transfer lifecycle: attach passport, upload receipt, staff confirms payment", async () => {
+  test("full bank-transfer lifecycle: attach one passport photo per traveler, upload receipt, staff confirms payment", async () => {
     const createRes = await request(app).post("/api/contact-requests").send({
       name: "Umrah Lifecycle Test",
       phone: `098${suffix}4`,
       service: "عمرة",
       currency: "SAR",
-      details: { "نوع الباقة": "العمرة الجماعية (الأفواج)" },
+      details: { "نوع الباقة": "العمرة الجماعية (الأفواج)", "عدد الأشخاص": "2" },
     });
     assert.equal(createRes.status, 201);
     const id = createRes.body.data.id;
 
     const passportRes = await request(app)
       .post(`/api/contact-requests/${id}/passport-image`)
-      .attach("image", MRZ_FIXTURE);
+      .attach("images", MRZ_FIXTURE)
+      .attach("images", NO_MRZ_FIXTURE);
     assert.equal(passportRes.status, 200);
 
     const receiptRes = await request(app)
@@ -130,13 +136,17 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
     const found = staffListRes.body.data.find((item) => item.id === id);
     assert.ok(found);
     assert.equal(found.paymentStatus, "UNDER_REVIEW");
-    assert.ok(found.passportImagePath);
+    assert.equal(found.passportImagePaths.length, 2);
     assert.ok(found.paymentReceiptPath);
 
-    const passportFileRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image`);
-    assert.equal(passportFileRes.status, 200);
+    const firstPassportFileRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/0`);
+    assert.equal(firstPassportFileRes.status, 200);
+    const secondPassportFileRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/1`);
+    assert.equal(secondPassportFileRes.status, 200);
+    const outOfRangeRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/2`);
+    assert.equal(outOfRangeRes.status, 404);
 
-    const unauthFileRes = await request(app).get(`/api/contact-requests/${id}/passport-image`);
+    const unauthFileRes = await request(app).get(`/api/contact-requests/${id}/passport-image/0`);
     assert.equal(unauthFileRes.status, 401);
 
     const confirmRes = await adminAgent
