@@ -485,6 +485,8 @@ async function createCarrier() {
   const name = el("c-name").value.trim();
   if (!name) return showAlert(mgmtAlert(), "الاسم مطلوب.");
 
+  const button = el("carrier-create-btn");
+  button.disabled = true;
   try {
     await api.post("/carriers", { name, mode: el("c-mode").value, code: el("c-code").value.trim() || undefined });
     el("c-name").value = "";
@@ -492,6 +494,8 @@ async function createCarrier() {
     loadCarriers();
   } catch (error) {
     showAlert(mgmtAlert(), error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -568,6 +572,8 @@ async function createUserAccount() {
   const password = el("u-password").value;
   if (!fullName || !email || !password) return showAlert(mgmtAlert(), "الاسم والبريد وكلمة المرور مطلوبة.");
 
+  const button = el("user-create-btn");
+  button.disabled = true;
   try {
     await api.post("/users", {
       fullName,
@@ -583,6 +589,8 @@ async function createUserAccount() {
     loadUsers();
   } catch (error) {
     showAlert(mgmtAlert(), error.message + (error.errors ? " — " + formatErrors(error.errors) : ""));
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -713,6 +721,12 @@ async function loadContactRequests() {
     if (department) params.set("department", department);
 
     const { data, meta } = await api.get(`/contact-requests?${params.toString()}`);
+
+    // Any open offer-draft form is about to be torn down and rebuilt from
+    // scratch below — stale entries here would desync from the fresh DOM
+    // (renderOfferLegRows/handleSubmitOfferClick key off requestId) and
+    // crash the next submit attempt on that row.
+    Object.keys(offerDraftLegs).forEach((key) => delete offerDraftLegs[key]);
 
     // name/phone/service/message all come from an unauthenticated public
     // endpoint — escapeHtml() is required here, not optional, since this is

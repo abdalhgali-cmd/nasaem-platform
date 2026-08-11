@@ -36,6 +36,25 @@ import {
 
 const router = Router();
 
+// A MulterError (oversized file, wrong MIME type, too many files) has no
+// statusCode, so passing it straight to next() falls through to the global
+// error middleware's 500 default — misleading for what's really a client
+// input error. Wrap every upload middleware below the same way
+// documents.routes.js/site-assets.routes.js/passport-ocr.routes.js already do.
+function handleUpload(middleware) {
+  return (req, res, next) => {
+    middleware(req, res, (error) => {
+      if (error) {
+        return res.status(400).json({
+          success: false,
+          message: error.message || "File upload failed",
+        });
+      }
+      next();
+    });
+  };
+}
+
 // This is the only public (unauthenticated) write endpoint in the API — the
 // marketing site's contact form posts here directly from the browser.
 // Tighter than the general API limiter (app.js) since it's an open target
@@ -73,26 +92,36 @@ router.post("/", publicContactLimiter, storeContactRequest);
 
 // Public: prefills the passport number on the Umrah request form. Never
 // stores the image — see scanPassportForContactRequest.
-router.post("/passport-scan", publicFileLimiter, uploadPassportImage, scanPassportForContactRequest);
+router.post("/passport-scan", publicFileLimiter, handleUpload(uploadPassportImage), scanPassportForContactRequest);
 
 // Public: attaches files to a request the customer just created (its id is
 // only ever known to whoever received the POST "/" response). Each
 // traveler's passport photo / guarantor Iqama photo is sent as its own
 // batch under the "images" field, in person order.
-router.post("/:id/passport-image", publicFileLimiter, uploadPassportImageFiles, uploadContactRequestPassportImages);
+router.post(
+  "/:id/passport-image",
+  publicFileLimiter,
+  handleUpload(uploadPassportImageFiles),
+  uploadContactRequestPassportImages
+);
 router.post(
   "/:id/guarantor-id-image",
   publicFileLimiter,
-  uploadGuarantorIdImageFiles,
+  handleUpload(uploadGuarantorIdImageFiles),
   uploadContactRequestGuarantorIdImages
 );
 router.post(
   "/:id/additional-documents",
   publicFileLimiter,
-  uploadAdditionalDocumentFiles,
+  handleUpload(uploadAdditionalDocumentFiles),
   uploadContactRequestAdditionalDocuments
 );
-router.post("/:id/payment-receipt", publicFileLimiter, uploadPaymentReceiptFile, uploadContactRequestPaymentReceipt);
+router.post(
+  "/:id/payment-receipt",
+  publicFileLimiter,
+  handleUpload(uploadPaymentReceiptFile),
+  uploadContactRequestPaymentReceipt
+);
 
 router.get(
   "/",

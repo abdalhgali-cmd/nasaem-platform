@@ -30,6 +30,13 @@ export async function login(req, res, next) {
 
     const result = await loginUser(parsed.data);
 
+    if (result === "inactive") {
+      return res.status(401).json({
+        success: false,
+        message: "Account is not active",
+      });
+    }
+
     if (!result) {
       return res.status(401).json({
         success: false,

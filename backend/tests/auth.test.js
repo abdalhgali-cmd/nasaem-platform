@@ -1,7 +1,7 @@
 import "./env.js";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { app, request, loginAsSuperAdmin } from "./helpers/api.js";
+import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 
 describe("auth", () => {
   test("rejects invalid credentials", async () => {
@@ -25,6 +25,29 @@ describe("auth", () => {
   test("protected routes reject unauthenticated requests", async () => {
     const res = await request(app).get("/api/orders");
     assert.equal(res.status, 401);
+  });
+
+  test("a suspended account is rejected at login, not just on later requests", async () => {
+    const adminAgent = await loginAsSuperAdmin();
+    const email = `suspended-${uniqueSuffix()}@nasaem-platform.local`;
+    const password = "TestPass@12345";
+
+    const createRes = await adminAgent.post("/api/users").send({
+      fullName: "Suspended Login Test",
+      email,
+      password,
+      role: "EMPLOYEE",
+    });
+    assert.equal(createRes.status, 201);
+
+    const suspendRes = await adminAgent.patch(`/api/users/${createRes.body.data.id}/status`).send({
+      status: "SUSPENDED",
+    });
+    assert.equal(suspendRes.status, 200);
+
+    const loginRes = await request(app).post("/api/auth/login").send({ email, password });
+    assert.equal(loginRes.status, 401);
+    assert.equal(loginRes.body.message, "Account is not active");
   });
 
   test("logout clears the session", async () => {

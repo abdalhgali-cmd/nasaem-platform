@@ -62,6 +62,12 @@ function canAssignOrder() {
   return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
 }
 
+// Mirrors PATCH /orders/:id/status's requireRole — ACCOUNTANT is not
+// included there, so the control must stay hidden for that role too.
+function canChangeOrderStatus() {
+  return ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(currentUser.role);
+}
+
 function canSeeManagement() {
   return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
 }
@@ -197,7 +203,7 @@ async function loadOverview() {
         (order) => `
         <tr>
           <td>${order.orderNumber}</td>
-          <td>${order.customer?.fullName || "-"}</td>
+          <td>${escapeHtml(order.customer?.fullName || "-")}</td>
           <td>${statusBadge(order.status)}</td>
           <td>${formatMoney(order.totalAmount, order.currency)}</td>
           <td>${formatDate(order.createdAt)}</td>
@@ -224,7 +230,7 @@ async function loadOrders() {
         (order) => `
         <tr>
           <td>${order.orderNumber}</td>
-          <td>${order.customer?.fullName || "-"}</td>
+          <td>${escapeHtml(order.customer?.fullName || "-")}</td>
           <td>${statusBadge(order.status)}</td>
           <td>${statusBadge(order.paymentStatus)}</td>
           <td>${formatMoney(order.totalAmount, order.currency)}</td>
@@ -265,7 +271,7 @@ function renderOrderDetail(order, staff = []) {
   const assignmentOptions = [`<option value="">غير معيّن</option>`]
     .concat(
       staff.map(
-        (u) => `<option value="${u.id}" ${u.id === order.assignedUserId ? "selected" : ""}>${u.fullName}</option>`
+        (u) => `<option value="${u.id}" ${u.id === order.assignedUserId ? "selected" : ""}>${escapeHtml(u.fullName)}</option>`
       )
     )
     .join("");
@@ -284,12 +290,12 @@ function renderOrderDetail(order, staff = []) {
 
   const paymentsRows = order.payments
     .map(
-      (p) => `<tr><td>${formatMoney(p.amount, p.currency)}</td><td>${p.paymentMethod}</td><td>${statusBadge(p.status)}</td><td>${formatDate(p.createdAt)}</td></tr>`
+      (p) => `<tr><td>${formatMoney(p.amount, p.currency)}</td><td>${escapeHtml(p.paymentMethod)}</td><td>${statusBadge(p.status)}</td><td>${formatDate(p.createdAt)}</td></tr>`
     )
     .join("");
 
   const historyItems = order.history
-    .map((h) => `<li>${formatDate(h.changedAt)} — ${statusBadge(h.oldStatus)} → ${statusBadge(h.newStatus)} ${h.notes ? "(" + h.notes + ")" : ""}</li>`)
+    .map((h) => `<li>${formatDate(h.changedAt)} — ${statusBadge(h.oldStatus)} → ${statusBadge(h.newStatus)} ${h.notes ? "(" + escapeHtml(h.notes) + ")" : ""}</li>`)
     .join("");
 
   const documentsRows = (order.documents || [])
@@ -297,7 +303,7 @@ function renderOrderDetail(order, staff = []) {
       (doc) => `
       <tr>
         <td>${DOCUMENT_TYPE_LABELS_AR[doc.type] || doc.type}</td>
-        <td>${doc.fileName}</td>
+        <td>${escapeHtml(doc.fileName)}</td>
         <td>${formatDate(doc.createdAt)}</td>
         <td><a href="${API_BASE}/documents/${doc.id}/file" download>تحميل</a></td>
       </tr>`
@@ -310,9 +316,9 @@ function renderOrderDetail(order, staff = []) {
 
   card.innerHTML = `
     <h2>الطلب ${order.orderNumber} <button type="button" class="btn secondary" id="close-detail-btn" style="float: left">إغلاق</button></h2>
-    <p>العميل: <strong>${order.customer?.fullName || "-"}</strong> (${order.customer?.customerNo || "-"})</p>
+    <p>العميل: <strong>${escapeHtml(order.customer?.fullName || "-")}</strong> (${escapeHtml(order.customer?.customerNo || "-")})</p>
     <p>الحالة الحالية: ${statusBadge(order.status)} — حالة الدفع: ${statusBadge(order.paymentStatus)} — الإجمالي: ${formatMoney(order.totalAmount, order.currency)}</p>
-    <p>الموظف المسؤول: <strong>${order.assignedUser?.fullName || "غير معيّن"}</strong></p>
+    <p>الموظف المسؤول: <strong>${escapeHtml(order.assignedUser?.fullName || "غير معيّن")}</strong></p>
 
     ${
       canAssignOrder()
@@ -333,6 +339,9 @@ function renderOrderDetail(order, staff = []) {
       <tbody>${itemsRows || '<tr><td colspan="4">لا توجد عناصر</td></tr>'}</tbody>
     </table>
 
+    ${
+      canChangeOrderStatus()
+        ? `
     <h3>تغيير الحالة</h3>
     <div class="stack">
       <select id="new-status-select">${statusOptions}</select>
@@ -340,6 +349,9 @@ function renderOrderDetail(order, staff = []) {
       <button type="button" class="btn" id="change-status-btn">تحديث الحالة</button>
     </div>
     <div id="status-alert"></div>
+    `
+        : ""
+    }
 
     <h3>الدفعات</h3>
     <table>
@@ -376,7 +388,9 @@ function renderOrderDetail(order, staff = []) {
     card.innerHTML = "";
   });
 
-  el("change-status-btn").addEventListener("click", () => changeOrderStatus(order.id));
+  if (canChangeOrderStatus()) {
+    el("change-status-btn").addEventListener("click", () => changeOrderStatus(order.id));
+  }
 
   if (canRecordPayment()) {
     el("add-payment-btn").addEventListener("click", () => recordPayment(order.id));
@@ -456,11 +470,11 @@ async function loadCustomers() {
       .map(
         (c) => `
         <tr>
-          <td>${c.customerNo}</td>
-          <td>${c.fullName}</td>
-          <td>${c.passportNo}</td>
-          <td>${c.nationality}</td>
-          <td>${c.phone || "-"}</td>
+          <td>${escapeHtml(c.customerNo)}</td>
+          <td>${escapeHtml(c.fullName)}</td>
+          <td>${escapeHtml(c.passportNo)}</td>
+          <td>${escapeHtml(c.nationality)}</td>
+          <td>${escapeHtml(c.phone || "-")}</td>
         </tr>`
       )
       .join("");
@@ -486,6 +500,8 @@ async function createCustomerAccount() {
     return showAlert(pageAlert, "الاسم ورقم الجواز والجنسية مطلوبة.");
   }
 
+  const button = el("customer-create-btn");
+  button.disabled = true;
   try {
     await api.post("/customers", { fullName, passportNo, nationality, phone, email });
     el("c-fullName").value = "";
@@ -496,6 +512,8 @@ async function createCustomerAccount() {
     loadCustomers();
   } catch (error) {
     showAlert(pageAlert, error.message + (error.errors ? " — " + formatErrors(error.errors) : ""));
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -512,10 +530,10 @@ async function loadPayments() {
       .map(
         (p) => `
         <tr>
-          <td>${p.order?.orderNumber || "-"}</td>
-          <td>${p.order?.customer?.fullName || "-"}</td>
+          <td>${escapeHtml(p.order?.orderNumber || "-")}</td>
+          <td>${escapeHtml(p.order?.customer?.fullName || "-")}</td>
           <td>${formatMoney(p.amount, p.currency)}</td>
-          <td>${p.paymentMethod}</td>
+          <td>${escapeHtml(p.paymentMethod)}</td>
           <td>${statusBadge(p.status)}</td>
           <td>${formatDate(p.createdAt)}</td>
         </tr>`

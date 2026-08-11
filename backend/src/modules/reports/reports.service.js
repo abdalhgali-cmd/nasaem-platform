@@ -21,7 +21,10 @@ function parseDateRange({ from, to }) {
   if (to) {
     const parsed = new Date(to);
     if (!Number.isNaN(parsed.getTime())) {
-      parsed.setHours(23, 59, 59, 999);
+      // `parsed` was parsed as UTC midnight (ISO date-only parsing) — set
+      // the end-of-day boundary in UTC too, so it doesn't drift with the
+      // server process's local time zone.
+      parsed.setUTCHours(23, 59, 59, 999);
       range.lte = parsed;
     }
   }

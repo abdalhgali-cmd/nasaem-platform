@@ -24,6 +24,12 @@ export async function loginUser({ email, password }) {
     return null;
   }
 
+  // Same status requireAuth enforces on every later request — reject here
+  // too instead of issuing a token for an account that could never use it.
+  if (user.status !== "ACTIVE") {
+    return "inactive";
+  }
+
   const token = signAccessToken({
     sub: user.id,
     role: user.role,

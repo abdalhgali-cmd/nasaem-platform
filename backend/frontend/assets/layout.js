@@ -67,8 +67,8 @@ async function wireNotificationBell() {
         .map(
           (n) => `
           <div class="notif-item ${n.readAt ? "" : "unread"}" data-notif-id="${n.id}">
-            <strong>${n.title}</strong>
-            <p>${n.message}</p>
+            <strong>${escapeHtml(n.title)}</strong>
+            <p>${escapeHtml(n.message)}</p>
             <span class="muted">${formatDate(n.createdAt)}</span>
           </div>`
         )

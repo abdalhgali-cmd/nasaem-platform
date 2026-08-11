@@ -32,9 +32,25 @@ const app = express();
 // validation recommends over the permissive (and vulnerable) `true`.
 app.set("trust proxy", 1);
 
+// A missing CORS_ORIGIN must not silently fall open in production: reflecting
+// any Origin with credentials:true would let any site ride an authenticated
+// session. Development keeps the permissive default for convenience — every
+// real .env* file in this repo already sets CORS_ORIGIN, so this only bites
+// a future deployment that forgets to.
+function resolveCorsOrigin() {
+  if (process.env.CORS_ORIGIN) {
+    return process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
+  }
+  if (process.env.NODE_ENV === "production") {
+    console.warn("CORS_ORIGIN is not set — blocking all cross-origin requests.");
+    return false;
+  }
+  return true;
+}
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN?.split(",").map((origin) => origin.trim()) ?? true,
+    origin: resolveCorsOrigin(),
     credentials: true,
   })
 );

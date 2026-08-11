@@ -468,7 +468,7 @@ export async function createOrUpdatePriceQuote(id, { currency, paymentAmount }, 
 export async function approveInvoice(contactRequestId, customerPhone, req) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
-    include: { invoice: true },
+    include: { invoice: true, offers: { where: { status: "APPROVED" } } },
   });
 
   if (!contactRequest || !contactRequest.invoice) {
@@ -481,6 +481,16 @@ export async function approveInvoice(contactRequestId, customerPhone, req) {
 
   if (contactRequest.invoice.status !== "PENDING_APPROVAL") {
     return undefined;
+  }
+
+  // A request should only ever be priced one way. If an offer already got
+  // approved (and possibly already paid/confirmed) since this invoice was
+  // created, approving the stale invoice too would silently overwrite
+  // paymentAmount/currency and reset paymentStatus out from under it.
+  if (contactRequest.offers.length > 0 || contactRequest.paymentStatus === "CONFIRMED") {
+    throw Object.assign(new Error("This request has already been priced through a different offer"), {
+      statusCode: 400,
+    });
   }
 
   const { currency, amount } = contactRequest.invoice;
@@ -701,7 +711,10 @@ export async function withdrawContactRequestOffer(contactRequestId, offerId, req
 // on the same request, which approveInvoice has no equivalent of (Invoice
 // is already 1:1).
 export async function approveContactRequestOffer(contactRequestId, offerId, customerPhone, req) {
-  const contactRequest = await prisma.contactRequest.findUnique({ where: { id: contactRequestId } });
+  const contactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    include: { invoice: true },
+  });
 
   if (!contactRequest) {
     return null;
@@ -721,17 +734,48 @@ export async function approveContactRequestOffer(contactRequestId, offerId, cust
     return undefined;
   }
 
-  const [, , updatedContactRequest] = await prisma.$transaction([
-    prisma.contactRequestOffer.update({ where: { id: offerId }, data: { status: "APPROVED", approvedAt: new Date() } }),
-    prisma.contactRequestOffer.updateMany({
-      where: { contactRequestId, status: "PENDING_APPROVAL", id: { not: offerId } },
-      data: { status: "DECLINED" },
-    }),
-    prisma.contactRequest.update({
+  // Symmetric to approveInvoice's own guard: a request should only ever be
+  // priced one way. Reject rather than silently overwrite an already-locked
+  // invoice or an already-confirmed payment.
+  if (contactRequest.invoice?.status === "APPROVED" || contactRequest.paymentStatus === "CONFIRMED") {
+    throw Object.assign(new Error("This request has already been priced through its invoice"), {
+      statusCode: 400,
+    });
+  }
+
+  // Interactive transaction (not a plain array of promises) so the approve
+  // + decline-siblings step can be conditioned on the offer still being
+  // PENDING_APPROVAL *inside* the transaction and abort if not. This is a
+  // single raw UPDATE (not two separate Prisma updateMany calls) on
+  // purpose: two concurrent approvals of two different pending offers (A
+  // and B) on the same request, each first locking their own target row
+  // then reaching for the other's row to decline it, is a textbook
+  // lock-order deadlock (confirmed by a concurrency test that reproduced
+  // exactly this with two sequential updateMany calls). A single statement
+  // per transaction that touches the whole affected row set at once
+  // acquires locks in one consistent scan order, so the loser just blocks
+  // and retries instead of deadlocking.
+  const updatedContactRequest = await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw`
+      UPDATE "ContactRequestOffer"
+      SET
+        status = CASE WHEN id = ${offerId} THEN 'APPROVED'::"ContactRequestOfferStatus" ELSE 'DECLINED'::"ContactRequestOfferStatus" END,
+        "approvedAt" = CASE WHEN id = ${offerId} THEN NOW() ELSE "approvedAt" END,
+        "updatedAt" = NOW()
+      WHERE "contactRequestId" = ${contactRequestId} AND status = 'PENDING_APPROVAL'::"ContactRequestOfferStatus"
+      RETURNING id, status
+    `;
+
+    const approvedRow = rows.find((row) => row.id === offerId && row.status === "APPROVED");
+    if (!approvedRow) {
+      throw Object.assign(new Error("This offer is no longer awaiting approval"), { statusCode: 400 });
+    }
+
+    return tx.contactRequest.update({
       where: { id: contactRequestId },
       data: { currency: offer.currency, paymentAmount: offer.amount, paymentStatus: "AWAITING_TRANSFER" },
-    }),
-  ]);
+    });
+  });
 
   const paymentSettings = await getPublicPaymentSettings();
   const bankAccount = paymentSettings.bankAccounts[offer.currency];
