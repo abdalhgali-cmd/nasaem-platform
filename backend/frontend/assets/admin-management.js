@@ -16,6 +16,9 @@ const ACTIVITY_ACTION_LABELS_AR = {
   USER_STATUS_CHANGED: "تغيير حالة مستخدم",
   USER_PASSWORD_RESET: "إعادة تعيين كلمة مرور",
   CONTACT_REQUEST_RECEIVED: "استلام طلب تواصل",
+  CONTACT_REQUEST_QUOTE_CREATED: "إرسال عرض سعر لطلب تواصل",
+  CONTACT_REQUEST_QUOTE_APPROVED: "موافقة العميل على عرض السعر",
+  CONTACT_REQUEST_DOCUMENT_REVIEWED: "مراجعة مستند طلب تواصل",
 };
 
 const CONTACT_REQUEST_STATUS_LABELS_AR = {
@@ -29,6 +32,18 @@ const PAYMENT_STATUS_LABELS_AR = {
   AWAITING_TRANSFER: "بانتظار التحويل",
   UNDER_REVIEW: "قيد المراجعة",
   CONFIRMED: "تم التأكيد",
+};
+
+const CONTACT_REQUEST_DOCUMENT_TYPE_LABELS_AR = {
+  PASSPORT: "صورة جواز السفر",
+  GUARANTOR_ID: "صورة إقامة الضامن",
+  ADDITIONAL: "المستند الإضافي",
+};
+
+const CONTACT_REQUEST_DOCUMENT_STATUS_LABELS_AR = {
+  PENDING: "قيد المراجعة",
+  ACCEPTED: "مقبول",
+  REJECTED: "مرفوض",
 };
 
 const CURRENCY_LABELS_AR = { SAR: "ريال سعودي", SDG: "جنيه سوداني", USD: "دولار أمريكي" };
@@ -100,6 +115,7 @@ function wireManagementTabs() {
   el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
   el("contact-requests-body").addEventListener("change", handlePaymentStatusChange);
   el("contact-requests-body").addEventListener("click", handleApprovePaymentClick);
+  el("contact-requests-body").addEventListener("click", handleDocumentReviewClick);
   el("contact-request-status-filter").addEventListener("change", (e) => {
     mgmtState.contactRequests.status = e.target.value;
     mgmtState.contactRequests.page = 1;
@@ -544,33 +560,28 @@ async function loadContactRequests() {
                 : ""
             }
             ${
-              req.passportImagePaths && req.passportImagePaths.length > 0
-                ? `<div>${req.passportImagePaths
-                    .map(
-                      (_, index) =>
-                        `<a href="${API_BASE}/contact-requests/${req.id}/passport-image/${index}" download>تحميل جواز ${index + 1}</a>`
-                    )
-                    .join(" · ")}</div>`
-                : ""
-            }
-            ${
-              req.guarantorIdImagePaths && req.guarantorIdImagePaths.length > 0
-                ? `<div>${req.guarantorIdImagePaths
-                    .map(
-                      (_, index) =>
-                        `<a href="${API_BASE}/contact-requests/${req.id}/guarantor-id-image/${index}" download>تحميل إقامة الضامن ${index + 1}</a>`
-                    )
-                    .join(" · ")}</div>`
-                : ""
-            }
-            ${
-              req.additionalDocumentPaths && req.additionalDocumentPaths.length > 0
-                ? `<div>${req.additionalDocumentPaths
-                    .map(
-                      (_, index) =>
-                        `<a href="${API_BASE}/contact-requests/${req.id}/additional-document/${index}" download>تحميل مستند إضافي ${index + 1}</a>`
-                    )
-                    .join(" · ")}</div>`
+              req.documents && req.documents.length > 0
+                ? `<div style="margin-top: 6px; display: flex; flex-direction: column; gap: 4px">
+                    ${req.documents
+                      .map(
+                        (doc) => `
+                          <div style="font-size: 12px">
+                            <a href="${API_BASE}/contact-requests/${req.id}/documents/${doc.id}/file" download>${CONTACT_REQUEST_DOCUMENT_TYPE_LABELS_AR[doc.type] || doc.type}</a>
+                            <span class="muted">— ${CONTACT_REQUEST_DOCUMENT_STATUS_LABELS_AR[doc.status] || doc.status}</span>
+                            ${
+                              doc.status === "PENDING"
+                                ? `
+                                  <button type="button" data-document-review="${doc.id}" data-document-review-request="${req.id}" data-document-review-status="ACCEPTED">قبول</button>
+                                  <button type="button" data-document-review="${doc.id}" data-document-review-request="${req.id}" data-document-review-status="REJECTED">رفض</button>
+                                `
+                                : doc.status === "REJECTED" && doc.rejectionReason
+                                  ? `<span class="muted">السبب: ${escapeHtml(doc.rejectionReason)}</span>`
+                                  : ""
+                            }
+                          </div>`
+                      )
+                      .join("")}
+                  </div>`
                 : ""
             }
           </td>
@@ -691,6 +702,36 @@ function handleApprovePaymentClick(e) {
   button.disabled = true;
   api
     .patch(`/contact-requests/${id}/payment`, { currency, paymentAmount: Number(amount) })
+    .then(loadContactRequests)
+    .catch((error) => {
+      showAlert(mgmtAlert(), error.message);
+      button.disabled = false;
+    });
+}
+
+// Rejecting prompts for a reason via window.prompt() (matching this file's
+// existing lack of a modal/dialog library) and refuses to submit an empty
+// reason client-side too, mirroring the backend's required-reason validation.
+function handleDocumentReviewClick(e) {
+  const button = e.target.closest("[data-document-review]");
+  if (!button) return;
+
+  const documentId = button.dataset.documentReview;
+  const requestId = button.dataset.documentReviewRequest;
+  const status = button.dataset.documentReviewStatus;
+
+  let rejectionReason;
+  if (status === "REJECTED") {
+    rejectionReason = (window.prompt("سبب الرفض؟") || "").trim();
+    if (!rejectionReason) return;
+  }
+
+  button.disabled = true;
+  api
+    .patch(`/contact-requests/${requestId}/documents/${documentId}/status`, {
+      status,
+      ...(status === "REJECTED" ? { rejectionReason } : {}),
+    })
     .then(loadContactRequests)
     .catch((error) => {
       showAlert(mgmtAlert(), error.message);

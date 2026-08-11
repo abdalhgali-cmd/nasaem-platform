@@ -180,7 +180,7 @@ export async function listContactRequests({ page, limit, skip, status }) {
   const [data, total] = await Promise.all([
     prisma.contactRequest.findMany({
       where,
-      include: { invoice: true },
+      include: { invoice: true, documents: true },
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
@@ -198,7 +198,7 @@ export async function listContactRequests({ page, limit, skip, status }) {
 // this table grows large.
 export async function listContactRequestsForPhone(normalizedPhone) {
   const all = await prisma.contactRequest.findMany({
-    include: { invoice: true },
+    include: { invoice: true, documents: true },
     orderBy: { createdAt: "desc" },
   });
   return all.filter((row) => normalizePhone(row.phone) === normalizedPhone);
@@ -217,36 +217,93 @@ export async function updateContactRequestStatus(id, status) {
   });
 }
 
-// `files` is the full set for the request (one per traveler), uploaded
-// together right after creation — this replaces whatever was there rather
-// than appending, since the form only ever submits them once as a batch.
-// Shared by both the passport-photo and guarantor-Iqama-photo uploads,
-// which are otherwise identical.
-async function attachTravelerImages(id, files, field) {
+// `files` is one upload batch (e.g. one per traveler) — appended as new
+// ContactRequestDocument rows rather than replacing anything, so a
+// re-upload after a rejection adds a new row (the rejected one stays for
+// audit) instead of silently wiping unrelated documents. Shared by the
+// passport/guarantor-Iqama/additional-document uploads, which are
+// otherwise identical. Returns the existing ContactRequest row (truthy) on
+// success, matching the null-on-missing-request convention every caller in
+// this file relies on for 404 handling — createMany's count-only return
+// can't distinguish that on its own.
+async function createContactRequestDocuments(id, files, type) {
   const existing = await prisma.contactRequest.findUnique({ where: { id } });
 
   if (!existing) {
     return null;
   }
 
-  return prisma.contactRequest.update({
-    where: { id },
-    data: {
-      [field]: files.map((file) => path.join("contact-request-files", file.filename)),
-    },
+  await prisma.contactRequestDocument.createMany({
+    data: files.map((file) => ({
+      contactRequestId: id,
+      type,
+      storagePath: path.join("contact-request-files", file.filename),
+    })),
   });
+
+  return existing;
 }
 
 export function attachPassportImages(id, files) {
-  return attachTravelerImages(id, files, "passportImagePaths");
+  return createContactRequestDocuments(id, files, "PASSPORT");
 }
 
 export function attachGuarantorIdImages(id, files) {
-  return attachTravelerImages(id, files, "guarantorIdImagePaths");
+  return createContactRequestDocuments(id, files, "GUARANTOR_ID");
 }
 
 export function attachAdditionalDocuments(id, files) {
-  return attachTravelerImages(id, files, "additionalDocumentPaths");
+  return createContactRequestDocuments(id, files, "ADDITIONAL");
+}
+
+export function listContactRequestDocuments(contactRequestId) {
+  return prisma.contactRequestDocument.findMany({
+    where: { contactRequestId },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+const DOCUMENT_TYPE_LABELS_AR = {
+  PASSPORT: "صورة جواز السفر",
+  GUARANTOR_ID: "صورة إقامة الضامن",
+  ADDITIONAL: "المستند الإضافي",
+};
+
+// Ownership/scoping is enforced by requiring the document's own
+// contactRequestId to match the URL's :id, not just a bare findUnique by
+// documentId — otherwise a valid documentId for a *different* request
+// would be reviewable through the wrong request's URL.
+export async function updateContactRequestDocumentStatus(contactRequestId, documentId, { status, rejectionReason }, req) {
+  const document = await prisma.contactRequestDocument.findUnique({ where: { id: documentId } });
+
+  if (!document || document.contactRequestId !== contactRequestId) {
+    return null;
+  }
+
+  const contactRequest = await prisma.contactRequest.findUnique({ where: { id: contactRequestId } });
+
+  const updated = await prisma.contactRequestDocument.update({
+    where: { id: documentId },
+    data: { status, rejectionReason: status === "REJECTED" ? rejectionReason : null },
+  });
+
+  logActivity({
+    userId: req.user?.id,
+    action: "CONTACT_REQUEST_DOCUMENT_REVIEWED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+    req,
+  });
+
+  if (status === "REJECTED") {
+    // Not awaited, same reasoning as every other WhatsApp send in this file.
+    sendWhatsAppMessage(
+      contactRequest.phone,
+      `تم رفض ${DOCUMENT_TYPE_LABELS_AR[document.type]} الذي أرفقته لطلبك رقم ${contactRequest.referenceNumber}\nالسبب: ${rejectionReason}\nيرجى رفع نسخة جديدة عبر صفحة "تتبع طلبك" على موقعنا.`
+    );
+  }
+
+  return updated;
 }
 
 // Uploading a receipt only makes sense once a request actually has a price
@@ -280,10 +337,20 @@ export async function updatePaymentStatus(id, status) {
     return null;
   }
 
-  return prisma.contactRequest.update({
+  const updated = await prisma.contactRequest.update({
     where: { id },
     data: { paymentStatus: status },
   });
+
+  if (existing.paymentStatus !== "CONFIRMED" && status === "CONFIRMED") {
+    // Not awaited, same reasoning as every other WhatsApp send in this file.
+    sendWhatsAppMessage(
+      updated.phone,
+      `تم تأكيد استلام دفعتك لطلبك رقم ${updated.referenceNumber}\nالمبلغ: ${updated.paymentAmount} ${CURRENCY_LABELS_AR[updated.currency]}\nشكرًا لك، سيتم متابعة طلبك.`
+    );
+  }
+
+  return updated;
 }
 
 // Proposes a price for a request that had no catalog price at submission

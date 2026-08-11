@@ -48,3 +48,13 @@ export const approveContactRequestPaymentSchema = z.object({
   currency: z.enum(["SAR", "SDG", "USD"]),
   paymentAmount: z.coerce.number().positive(),
 });
+
+export const updateDocumentStatusSchema = z
+  .object({
+    status: z.enum(["ACCEPTED", "REJECTED"]),
+    rejectionReason: z.string().trim().min(1).max(500).optional(),
+  })
+  .refine((data) => data.status !== "REJECTED" || !!data.rejectionReason, {
+    message: "سبب الرفض مطلوب",
+    path: ["rejectionReason"],
+  });

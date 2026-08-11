@@ -475,16 +475,14 @@ model ContactRequest {
   currency           String?
   paymentAmount      Decimal?                     @db.Decimal(12, 2)
   paymentStatus      ContactRequestPaymentStatus  @default(NOT_REQUIRED)
-  // One passport photo, and one guarantor Iqama (Saudi residency permit)
-  // photo, per traveler on the Umrah request (up to 7) — both ordered the
-  // same as the "person" blocks on the form, index N here corresponds to
-  // details["الشخص N+1 - ..."].
+  // DEPRECATED — superseded by the `documents` relation below, which
+  // carries a per-file review status these flat arrays can't. Kept
+  // (unused by any application code as of this migration) as a frozen
+  // safety-net snapshot for one deploy cycle; a follow-up migration drops
+  // these three columns once the backfill into ContactRequestDocument is
+  // verified in production. Do not read or write these anymore.
   passportImagePaths      String[]                    @default([])
   guarantorIdImagePaths   String[]                    @default([])
-  // Free-form extra documents (visa invitations, marriage/birth
-  // certificates, etc.) — real requirements vary too much per visa type/
-  // relationship to model as fixed fields, so this is a general catch-all
-  // slot instead.
   additionalDocumentPaths String[]                    @default([])
   paymentReceiptPath      String?
 
@@ -493,12 +491,51 @@ model ContactRequest {
   // the AWAITING_TRANSFER bank-transfer flow above.
   invoice Invoice?
 
+  // One row per uploaded file (passport photo, guarantor Iqama photo, or
+  // free-form additional document), each with its own review status —
+  // replaces the three deprecated array columns above, which couldn't
+  // carry per-file state (e.g. "this one needs to be re-uploaded").
+  documents ContactRequestDocument[]
+
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
   @@index([status])
   @@index([createdAt])
   @@index([paymentStatus])
+}
+
+enum ContactRequestDocumentType {
+  PASSPORT
+  GUARANTOR_ID
+  ADDITIONAL
+}
+
+enum ContactRequestDocumentStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+// A single customer-uploaded file for a ContactRequest, with its own
+// staff-reviewable status. Uploading never replaces an existing row —
+// a re-upload after a rejection adds a new row (the rejected one stays,
+// for an audit trail) rather than silently discarding sibling documents.
+model ContactRequestDocument {
+  id               String                        @id @default(cuid())
+  contactRequestId String
+  type             ContactRequestDocumentType
+  storagePath      String
+  status           ContactRequestDocumentStatus  @default(PENDING)
+  rejectionReason  String?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  @@index([contactRequestId])
+  @@index([contactRequestId, type])
+  @@index([status])
 }
 
 enum InvoiceStatus {

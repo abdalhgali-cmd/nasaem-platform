@@ -19,15 +19,43 @@ type TrackedRequest = {
     needsDocuments: boolean;
     needsPayment: boolean;
     needsInvoiceApproval: boolean;
+    needsReupload: boolean;
   };
   pendingInvoice: { invoiceNumber: string; currency: string; amount: string } | null;
-  documentCounts: { passport: number; guarantorId: number; additional: number };
+  documents: { id: string; type: string; status: string; rejectionReason: string | null; createdAt: string }[];
 };
 
 const fieldClass =
   "h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none transition focus:border-primary";
 
 const CURRENCY_LABELS: Record<string, string> = { SAR: "ريال سعودي", SDG: "جنيه سوداني", USD: "دولار أمريكي" };
+
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  PASSPORT: "صورة جواز السفر",
+  GUARANTOR_ID: "صورة إقامة الضامن",
+  ADDITIONAL: "المستند الإضافي",
+};
+
+// Endpoint each document type re-uploads through — same upload routes the
+// initial submission uses (see visa-request-form.tsx's uploadFiles pattern).
+const DOCUMENT_UPLOAD_ENDPOINTS: Record<string, string> = {
+  PASSPORT: "passport-image",
+  GUARANTOR_ID: "guarantor-id-image",
+  ADDITIONAL: "additional-documents",
+};
+
+// Mirrors the backend's per-row "needs re-upload" check (see
+// deriveCustomerFacingStatus): a REJECTED document still needs action
+// unless a later document of the same type exists. Approximated with
+// createdAt only (the customer-facing /mine response doesn't expose
+// updatedAt) — close enough for deciding which rejected items to still list.
+function getDocumentsNeedingReupload(documents: TrackedRequest["documents"]) {
+  return documents.filter(
+    (d) =>
+      d.status === "REJECTED" &&
+      !documents.some((other) => other.type === d.type && new Date(other.createdAt) > new Date(d.createdAt))
+  );
+}
 
 export function TrackRequestForm() {
   const [step, setStep] = React.useState<Step>("phone");
@@ -224,7 +252,9 @@ function TrackedRequestCard({
   const needsAction =
     request.friendlyStatus.needsDocuments ||
     request.friendlyStatus.needsPayment ||
-    request.friendlyStatus.needsInvoiceApproval;
+    request.friendlyStatus.needsInvoiceApproval ||
+    request.friendlyStatus.needsReupload;
+  const reuploadDocuments = getDocumentsNeedingReupload(request.documents);
 
   async function upload(endpoint: string, fieldName: string, file: File | null) {
     if (!file) return;
@@ -268,6 +298,28 @@ function TrackedRequestCard({
 
       {needsAction ? (
         <div className="mt-5 space-y-4 border-t border-border pt-4">
+          {request.friendlyStatus.needsReupload && reuploadDocuments.length > 0 ? (
+            <div className="space-y-3 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3">
+              {reuploadDocuments.map((doc) => (
+                <div key={doc.id}>
+                  <p className="text-sm text-foreground">
+                    <strong>{DOCUMENT_TYPE_LABELS[doc.type] || doc.type}</strong> مرفوض
+                  </p>
+                  {doc.rejectionReason ? (
+                    <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">السبب: {doc.rejectionReason}</p>
+                  ) : null}
+                  <div className="mt-2 max-w-xs">
+                    <UploadField
+                      label="رفع نسخة جديدة"
+                      busy={uploading === DOCUMENT_UPLOAD_ENDPOINTS[doc.type]}
+                      onFile={(file) => upload(DOCUMENT_UPLOAD_ENDPOINTS[doc.type], "images", file)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           {request.friendlyStatus.needsInvoiceApproval && request.pendingInvoice ? (
             <div className="rounded-xl border border-accent/40 bg-accent/5 px-4 py-3">
               <p className="text-sm text-foreground">
@@ -297,6 +349,11 @@ function TrackedRequestCard({
                 label="صورة جواز السفر"
                 busy={uploading === "passport-image"}
                 onFile={(file) => upload("passport-image", "images", file)}
+              />
+              <UploadField
+                label="صورة إقامة الضامن"
+                busy={uploading === "guarantor-id-image"}
+                onFile={(file) => upload("guarantor-id-image", "images", file)}
               />
               <UploadField
                 label="مستندات إضافية"

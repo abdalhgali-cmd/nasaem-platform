@@ -15,21 +15,25 @@
 //
 // `hasPendingInvoice` (from the related Invoice row — see the Invoice model)
 // is passed in rather than fetched here, keeping this a pure function: the
-// caller already has the row via a Prisma `include`.
+// caller already has the row via a Prisma `include`. `documents` is the
+// request's ContactRequestDocument rows ({ type, status, createdAt,
+// updatedAt }[]) — replaces the old flat path arrays now that each upload
+// has its own reviewable status.
 export function deriveCustomerFacingStatus(contactRequest) {
-  const {
-    status,
-    paymentStatus,
-    passportImagePaths,
-    guarantorIdImagePaths,
-    additionalDocumentPaths,
-    hasPendingInvoice = false,
-  } = contactRequest;
+  const { status, paymentStatus, documents = [], hasPendingInvoice = false } = contactRequest;
 
-  const hasAnyDocuments =
-    (passportImagePaths?.length ?? 0) > 0 ||
-    (guarantorIdImagePaths?.length ?? 0) > 0 ||
-    (additionalDocumentPaths?.length ?? 0) > 0;
+  const hasAnyDocuments = documents.length > 0;
+
+  // A REJECTED row still needs action unless a *later* document of the same
+  // type exists — checked per row, not "latest per type", since this app's
+  // real uploads don't always supersede each other 1:1 (Umrah's per-traveler
+  // batch creates several PASSPORT rows for different people; a visa's
+  // ADDITIONAL bucket bundles several distinct documents in one batch).
+  const needsReupload =
+    status !== "CLOSED" &&
+    documents.some(
+      (d) => d.status === "REJECTED" && !documents.some((other) => other.type === d.type && other.createdAt > d.updatedAt)
+    );
 
   const needsDocuments = !hasAnyDocuments && status !== "CLOSED";
   const needsPayment = paymentStatus === "AWAITING_TRANSFER" && status !== "CLOSED";
@@ -37,6 +41,7 @@ export function deriveCustomerFacingStatus(contactRequest) {
 
   const label = (() => {
     if (status === "CLOSED") return "مكتمل";
+    if (needsReupload) return "يوجد مستند يحتاج إعادة رفع";
     if (paymentStatus === "UNDER_REVIEW") return "قيد المراجعة";
     if (paymentStatus === "AWAITING_TRANSFER") return "بانتظار الدفع";
     if (needsInvoiceApproval) return "بانتظار موافقتك على السعر";
@@ -44,5 +49,5 @@ export function deriveCustomerFacingStatus(contactRequest) {
     return "قيد المراجعة";
   })();
 
-  return { label, needsDocuments, needsPayment, needsInvoiceApproval };
+  return { label, needsDocuments, needsPayment, needsInvoiceApproval, needsReupload };
 }

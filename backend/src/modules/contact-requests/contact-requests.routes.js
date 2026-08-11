@@ -11,12 +11,12 @@ import {
   uploadContactRequestPaymentReceipt as uploadPaymentReceiptFile,
 } from "../../middleware/upload.middleware.js";
 import {
-  getContactRequestAdditionalDocument,
-  getContactRequestGuarantorIdImage,
-  getContactRequestPassportImage,
+  downloadContactRequestDocument,
+  getContactRequestDocuments,
   getContactRequestPaymentReceipt,
   getContactRequests,
   getMyContactRequests,
+  patchContactRequestDocumentStatus,
   patchContactRequestPayment,
   patchContactRequestPaymentStatus,
   patchContactRequestStatus,
@@ -116,22 +116,22 @@ router.patch(
   patchContactRequestPayment
 );
 router.get(
-  "/:id/passport-image/:index",
+  "/:id/documents",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
-  getContactRequestPassportImage
+  getContactRequestDocuments
 );
 router.get(
-  "/:id/guarantor-id-image/:index",
+  "/:id/documents/:documentId/file",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
-  getContactRequestGuarantorIdImage
+  downloadContactRequestDocument
 );
-router.get(
-  "/:id/additional-document/:index",
+router.patch(
+  "/:id/documents/:documentId/status",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
-  getContactRequestAdditionalDocument
+  patchContactRequestDocumentStatus
 );
 router.get(
   "/:id/payment-receipt",

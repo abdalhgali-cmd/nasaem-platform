@@ -7,9 +7,21 @@ function baseRequest(overrides = {}) {
   return {
     status: "NEW",
     paymentStatus: "NOT_REQUIRED",
-    passportImagePaths: [],
-    guarantorIdImagePaths: [],
-    additionalDocumentPaths: [],
+    documents: [],
+    ...overrides,
+  };
+}
+
+let docCounter = 0;
+function doc(type, status, overrides = {}) {
+  docCounter += 1;
+  const createdAt = overrides.createdAt ?? new Date(2026, 0, docCounter);
+  return {
+    id: `doc-${docCounter}`,
+    type,
+    status,
+    createdAt,
+    updatedAt: createdAt,
     ...overrides,
   };
 }
@@ -22,12 +34,13 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: false,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsReupload: false,
     });
   });
 
   test("payment under review takes priority over document state", () => {
     const result = deriveCustomerFacingStatus(
-      baseRequest({ paymentStatus: "UNDER_REVIEW", passportImagePaths: ["a"] })
+      baseRequest({ paymentStatus: "UNDER_REVIEW", documents: [doc("PASSPORT", "ACCEPTED")] })
     );
     assert.equal(result.label, "قيد المراجعة");
   });
@@ -46,28 +59,31 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: true,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsReupload: false,
     });
   });
 
   test("documents present, no active payment flow: under review", () => {
-    const result = deriveCustomerFacingStatus(baseRequest({ additionalDocumentPaths: ["a"] }));
+    const result = deriveCustomerFacingStatus(baseRequest({ documents: [doc("ADDITIONAL", "PENDING")] }));
     assert.deepEqual(result, {
       label: "قيد المراجعة",
       needsDocuments: false,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsReupload: false,
     });
   });
 
   test("confirmed payment with documents already uploaded: under review, no outstanding needs", () => {
     const result = deriveCustomerFacingStatus(
-      baseRequest({ paymentStatus: "CONFIRMED", guarantorIdImagePaths: ["a"] })
+      baseRequest({ paymentStatus: "CONFIRMED", documents: [doc("GUARANTOR_ID", "ACCEPTED")] })
     );
     assert.deepEqual(result, {
       label: "قيد المراجعة",
       needsDocuments: false,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsReupload: false,
     });
   });
 
@@ -78,6 +94,7 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: true,
       needsPayment: false,
       needsInvoiceApproval: true,
+      needsReupload: false,
     });
   });
 
@@ -95,6 +112,44 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: false,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsReupload: false,
     });
+  });
+
+  test("a rejected document with no later re-upload of the same type needs re-upload", () => {
+    const result = deriveCustomerFacingStatus(
+      baseRequest({ documents: [doc("PASSPORT", "REJECTED", { rejectionReason: "صورة غير واضحة" })] })
+    );
+    assert.equal(result.needsReupload, true);
+    assert.equal(result.label, "يوجد مستند يحتاج إعادة رفع");
+  });
+
+  test("a rejected document superseded by a later same-type upload no longer needs re-upload", () => {
+    const rejected = doc("PASSPORT", "REJECTED", { createdAt: new Date(2026, 0, 1), updatedAt: new Date(2026, 0, 1) });
+    const reupload = doc("PASSPORT", "PENDING", { createdAt: new Date(2026, 0, 2) });
+    const result = deriveCustomerFacingStatus(baseRequest({ documents: [rejected, reupload] }));
+    assert.equal(result.needsReupload, false);
+    assert.equal(result.label, "قيد المراجعة");
+  });
+
+  test("one accepted and one rejected document of the same type, no later upload: still needs re-upload", () => {
+    const accepted = doc("ADDITIONAL", "ACCEPTED", { createdAt: new Date(2026, 0, 1), updatedAt: new Date(2026, 0, 1) });
+    const rejected = doc("ADDITIONAL", "REJECTED", { createdAt: new Date(2026, 0, 2), updatedAt: new Date(2026, 0, 2) });
+    const result = deriveCustomerFacingStatus(baseRequest({ documents: [accepted, rejected] }));
+    assert.equal(result.needsReupload, true);
+  });
+
+  test("needsReupload outranks an awaiting-payment or pending-invoice state", () => {
+    const rejected = doc("GUARANTOR_ID", "REJECTED");
+    const result = deriveCustomerFacingStatus(
+      baseRequest({ documents: [rejected], paymentStatus: "AWAITING_TRANSFER", hasPendingInvoice: true })
+    );
+    assert.equal(result.label, "يوجد مستند يحتاج إعادة رفع");
+  });
+
+  test("a rejected document on a CLOSED request does not need re-upload", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ status: "CLOSED", documents: [doc("PASSPORT", "REJECTED")] }));
+    assert.equal(result.needsReupload, false);
+    assert.equal(result.label, "مكتمل");
   });
 });

@@ -3,6 +3,7 @@ import {
   approveContactRequestPaymentSchema,
   createContactRequestSchema,
   updateContactRequestStatusSchema,
+  updateDocumentStatusSchema,
   updatePaymentStatusSchema,
 } from "./contact-requests.validators.js";
 import {
@@ -13,8 +14,10 @@ import {
   attachPaymentReceipt,
   createContactRequest,
   createOrUpdatePriceQuote,
+  listContactRequestDocuments,
   listContactRequests,
   listContactRequestsForPhone,
+  updateContactRequestDocumentStatus,
   updateContactRequestStatus,
   updatePaymentStatus,
 } from "./contact-requests.service.js";
@@ -108,11 +111,13 @@ export async function getMyContactRequests(req, res, next) {
               amount: row.invoice.amount,
             }
           : null,
-        documentCounts: {
-          passport: row.passportImagePaths.length,
-          guarantorId: row.guarantorIdImagePaths.length,
-          additional: row.additionalDocumentPaths.length,
-        },
+        documents: row.documents.map((d) => ({
+          id: d.id,
+          type: d.type,
+          status: d.status,
+          rejectionReason: d.rejectionReason,
+          createdAt: d.createdAt,
+        })),
       };
     });
 
@@ -364,32 +369,57 @@ function downloadFile(req, res, next, storagePath, downloadName) {
   });
 }
 
-async function downloadIndexedTravelerImage(req, res, next, field, downloadLabel) {
+export async function getContactRequestDocuments(req, res, next) {
   try {
-    const index = Number(req.params.index);
-    const contactRequest = await prisma.contactRequest.findUnique({ where: { id: req.params.id } });
-    const storagePath = contactRequest?.[field]?.[index];
-
-    if (!Number.isInteger(index)) {
-      return res.status(404).json({ success: false, message: "File not found" });
-    }
-
-    return downloadFile(req, res, next, storagePath, `${downloadLabel}-${index + 1}`);
+    const documents = await listContactRequestDocuments(req.params.id);
+    return res.status(200).json({ success: true, data: documents });
   } catch (error) {
     next(error);
   }
 }
 
-export function getContactRequestPassportImage(req, res, next) {
-  return downloadIndexedTravelerImage(req, res, next, "passportImagePaths", "passport");
+const DOCUMENT_DOWNLOAD_LABELS = {
+  PASSPORT: "passport",
+  GUARANTOR_ID: "guarantor-id",
+  ADDITIONAL: "document",
+};
+
+export async function downloadContactRequestDocument(req, res, next) {
+  try {
+    const document = await prisma.contactRequestDocument.findUnique({ where: { id: req.params.documentId } });
+
+    if (!document || document.contactRequestId !== req.params.id) {
+      return res.status(404).json({ success: false, message: "File not found" });
+    }
+
+    return downloadFile(req, res, next, document.storagePath, DOCUMENT_DOWNLOAD_LABELS[document.type]);
+  } catch (error) {
+    next(error);
+  }
 }
 
-export function getContactRequestGuarantorIdImage(req, res, next) {
-  return downloadIndexedTravelerImage(req, res, next, "guarantorIdImagePaths", "guarantor-id");
-}
+export async function patchContactRequestDocumentStatus(req, res, next) {
+  try {
+    const parsed = updateDocumentStatusSchema.safeParse(req.body);
 
-export function getContactRequestAdditionalDocument(req, res, next) {
-  return downloadIndexedTravelerImage(req, res, next, "additionalDocumentPaths", "document");
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const document = await updateContactRequestDocumentStatus(req.params.id, req.params.documentId, parsed.data, req);
+
+    if (!document) {
+      return res.status(404).json({ success: false, message: "File not found" });
+    }
+
+    return res.status(200).json({ success: true, data: document });
+  } catch (error) {
+    next(error);
+  }
 }
 
 export async function getContactRequestPaymentReceipt(req, res, next) {

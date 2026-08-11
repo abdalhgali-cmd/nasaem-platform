@@ -150,31 +150,26 @@ describe("contact request payment flow (Umrah bank-transfer)", () => {
     const found = staffListRes.body.data.find((item) => item.id === id);
     assert.ok(found);
     assert.equal(found.paymentStatus, "UNDER_REVIEW");
-    assert.equal(found.passportImagePaths.length, 2);
-    assert.equal(found.guarantorIdImagePaths.length, 2);
-    assert.equal(found.additionalDocumentPaths.length, 2);
+    assert.equal(found.documents.filter((d) => d.type === "PASSPORT").length, 2);
+    assert.equal(found.documents.filter((d) => d.type === "GUARANTOR_ID").length, 2);
+    assert.equal(found.documents.filter((d) => d.type === "ADDITIONAL").length, 2);
     assert.ok(found.paymentReceiptPath);
 
-    const firstPassportFileRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/0`);
-    assert.equal(firstPassportFileRes.status, 200);
+    const documentsListRes = await adminAgent.get(`/api/contact-requests/${id}/documents`);
+    assert.equal(documentsListRes.status, 200);
+    assert.equal(documentsListRes.body.data.length, 6);
+
+    const passportDocumentId = documentsListRes.body.data.find((d) => d.type === "PASSPORT").id;
+    const passportFileRes = await adminAgent.get(`/api/contact-requests/${id}/documents/${passportDocumentId}/file`);
+    assert.equal(passportFileRes.status, 200);
     // res.download() is what makes the dashboard's links actually save the
     // file instead of just opening it in the browser tab.
-    assert.match(firstPassportFileRes.headers["content-disposition"] || "", /attachment/);
-    const secondPassportFileRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/1`);
-    assert.equal(secondPassportFileRes.status, 200);
-    const outOfRangeRes = await adminAgent.get(`/api/contact-requests/${id}/passport-image/2`);
-    assert.equal(outOfRangeRes.status, 404);
+    assert.match(passportFileRes.headers["content-disposition"] || "", /attachment/);
 
-    const firstGuarantorIdFileRes = await adminAgent.get(`/api/contact-requests/${id}/guarantor-id-image/0`);
-    assert.equal(firstGuarantorIdFileRes.status, 200);
+    const unknownDocumentRes = await adminAgent.get(`/api/contact-requests/${id}/documents/does-not-exist/file`);
+    assert.equal(unknownDocumentRes.status, 404);
 
-    const firstAdditionalDocumentRes = await adminAgent.get(`/api/contact-requests/${id}/additional-document/0`);
-    assert.equal(firstAdditionalDocumentRes.status, 200);
-    assert.match(firstAdditionalDocumentRes.headers["content-disposition"] || "", /attachment/);
-    const outOfRangeAdditionalDocumentRes = await adminAgent.get(`/api/contact-requests/${id}/additional-document/2`);
-    assert.equal(outOfRangeAdditionalDocumentRes.status, 404);
-
-    const unauthFileRes = await request(app).get(`/api/contact-requests/${id}/passport-image/0`);
+    const unauthFileRes = await request(app).get(`/api/contact-requests/${id}/documents/${passportDocumentId}/file`);
     assert.equal(unauthFileRes.status, 401);
 
     const confirmRes = await adminAgent
