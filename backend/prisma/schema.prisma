@@ -135,6 +135,12 @@ model User {
   role            UserRole   @default(EMPLOYEE)
   status          UserStatus @default(ACTIVE)
   branchId        String?
+  // NULL means "no department assigned" — an EMPLOYEE with no department
+  // sees every ContactRequest (the safe default, matching pre-Phase-E
+  // behavior for every existing employee). Ignored entirely for
+  // SUPER_ADMIN/ADMIN/ACCOUNTANT — department scoping applies to EMPLOYEE
+  // only. See assertContactRequestAccess in contact-requests.service.js.
+  department      ContactRequestDepartment?
   lastLogin       DateTime?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
@@ -150,6 +156,7 @@ model User {
   @@index([role])
   @@index([status])
   @@index([branchId])
+  @@index([department])
 }
 
 model Customer {
@@ -464,6 +471,16 @@ model ContactRequest {
   details   Json?
   status    ContactRequestStatus @default(NEW)
 
+  // Derived from `service` at creation time by
+  // deriveContactRequestDepartment() (contact-request-department.js) — see
+  // that file for the exact string->department table. NULL means the
+  // free-text `service` string couldn't be mapped (e.g. "استفسار آخر", or
+  // no service at all) — an unmapped request stays visible to every
+  // EMPLOYEE regardless of their own department (see
+  // assertContactRequestAccess in contact-requests.service.js), rather
+  // than silently vanishing from everyone's queue.
+  department ContactRequestDepartment?
+
   // Human-friendly tracking code (e.g. "NH-2026-00042") handed to the
   // customer immediately on submission so they can follow up by phone/
   // WhatsApp without knowing their internal cuid `id`.
@@ -510,6 +527,19 @@ model ContactRequest {
   @@index([status])
   @@index([createdAt])
   @@index([paymentStatus])
+  @@index([department])
+}
+
+// The 5 staff departments a ContactRequest/User can be scoped to (see
+// auth.middleware.js's requireAuth and contact-requests.service.js's
+// assertContactRequestAccess). Deliberately shared by both models rather
+// than two separate enums, since they're the same concept from two sides.
+enum ContactRequestDepartment {
+  VISAS
+  FLIGHTS
+  UMRAH
+  HOTELS_PACKAGES
+  FERRY
 }
 
 enum ContactRequestDocumentType {

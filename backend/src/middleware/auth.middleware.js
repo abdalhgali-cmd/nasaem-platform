@@ -59,6 +59,7 @@ export async function requireAuth(req, res, next) {
         role: true,
         status: true,
         branchId: true,
+        department: true,
         createdAt: true,
         updatedAt: true,
       },

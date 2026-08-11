@@ -16,6 +16,7 @@ const userListSelect = {
   role: true,
   status: true,
   branchId: true,
+  department: true,
   createdAt: true,
   updatedAt: true,
   branch: true,
@@ -30,6 +31,7 @@ const userDetailSelect = {
   role: true,
   status: true,
   branchId: true,
+  department: true,
   lastLogin: true,
   createdAt: true,
   updatedAt: true,
@@ -74,6 +76,7 @@ export async function createUser(data) {
       role: data.role,
       status: data.status,
       branchId: data.branchId || null,
+      department: data.department || null,
     },
     select: userListSelect,
   });
@@ -83,6 +86,20 @@ export async function changeUserStatus(id, status) {
   return prisma.user.update({
     where: { id },
     data: { status },
+    select: userListSelect,
+  });
+}
+
+export async function updateUserDepartment(id, department) {
+  const existing = await prisma.user.findUnique({ where: { id } });
+
+  if (!existing) {
+    return null;
+  }
+
+  return prisma.user.update({
+    where: { id },
+    data: { department },
     select: userListSelect,
   });
 }

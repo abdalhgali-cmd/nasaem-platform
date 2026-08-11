@@ -53,6 +53,7 @@ export async function getCurrentUser(userId) {
       role: true,
       status: true,
       branchId: true,
+      department: true,
       lastLogin: true,
       createdAt: true,
       updatedAt: true,

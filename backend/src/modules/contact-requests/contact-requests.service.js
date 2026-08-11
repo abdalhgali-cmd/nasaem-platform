@@ -7,6 +7,7 @@ import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { getPublicPaymentSettings } from "../settings/settings.service.js";
+import { deriveContactRequestDepartment } from "./contact-request-department.js";
 
 // Mirrors the package names/prices in web/src/app/umrah/page.tsx's
 // umrahRequestFields "نوع الباقة" select. Priced server-side (not trusted
@@ -47,6 +48,24 @@ const CURRENCY_LABELS_AR = { SAR: "الريال", SDG: "الجنيه", USD: "ا�
 // requests" listings) and every ContactRequestOffer read below — a leg is
 // meaningless to render without its carrier's name attached.
 const OFFER_INCLUDE = { legs: { include: { carrier: true }, orderBy: { createdAt: "asc" } } };
+
+// Department-scoped EMPLOYEEs must not be able to read or act on a
+// ContactRequest outside their assigned department, even via a direct
+// :id route once they know/guess it — not just via the filtered list view
+// (see listContactRequests' own department WHERE clause for that half).
+// Every other role is exempt entirely. A null on either side (unmapped
+// request, or an employee with no department) always falls through to
+// "allowed" — see the department fields' schema.prisma comments.
+export function assertContactRequestAccess(user, contactRequest) {
+  if (
+    user?.role === "EMPLOYEE" &&
+    user.department &&
+    contactRequest?.department &&
+    user.department !== contactRequest.department
+  ) {
+    throw Object.assign(new Error("You do not have access to this contact request"), { statusCode: 403 });
+  }
+}
 
 // Only a priced Umrah package with a chosen currency triggers the
 // bank-transfer flow — every other submission (any other service, or an
@@ -131,6 +150,7 @@ export async function createContactRequest(data, req) {
       phone: data.phone,
       email: data.email || null,
       service: data.service || null,
+      department: deriveContactRequestDepartment(data.service),
       message,
       details: data.details && Object.keys(data.details).length > 0 ? data.details : undefined,
       referenceNumber,
@@ -179,8 +199,18 @@ export async function createContactRequest(data, req) {
   };
 }
 
-export async function listContactRequests({ page, limit, skip, status }) {
-  const where = status ? { status } : undefined;
+const VALID_DEPARTMENTS = ["VISAS", "FLIGHTS", "UMRAH", "HOTELS_PACKAGES", "FERRY"];
+
+export async function listContactRequests({ page, limit, skip, status, department, user }) {
+  const conditions = [];
+  if (status) conditions.push({ status });
+  if (department && VALID_DEPARTMENTS.includes(department)) conditions.push({ department });
+  if (user?.role === "EMPLOYEE" && user.department) {
+    // Unmapped (department: null) requests stay visible to every scoped
+    // employee — see ContactRequest.department's schema.prisma comment.
+    conditions.push({ OR: [{ department: user.department }, { department: null }] });
+  }
+  const where = conditions.length > 0 ? { AND: conditions } : undefined;
 
   const [data, total] = await Promise.all([
     prisma.contactRequest.findMany({
@@ -209,12 +239,13 @@ export async function listContactRequestsForPhone(normalizedPhone) {
   return all.filter((row) => normalizePhone(row.phone) === normalizedPhone);
 }
 
-export async function updateContactRequestStatus(id, status) {
+export async function updateContactRequestStatus(id, status, req) {
   const existing = await prisma.contactRequest.findUnique({ where: { id } });
 
   if (!existing) {
     return null;
   }
+  assertContactRequestAccess(req.user, existing);
 
   return prisma.contactRequest.update({
     where: { id },
@@ -261,7 +292,13 @@ export function attachAdditionalDocuments(id, files) {
   return createContactRequestDocuments(id, files, "ADDITIONAL");
 }
 
-export function listContactRequestDocuments(contactRequestId) {
+export async function listContactRequestDocuments(contactRequestId, req) {
+  const contactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    select: { department: true },
+  });
+  if (contactRequest) assertContactRequestAccess(req.user, contactRequest);
+
   return prisma.contactRequestDocument.findMany({
     where: { contactRequestId },
     orderBy: { createdAt: "asc" },
@@ -286,6 +323,7 @@ export async function updateContactRequestDocumentStatus(contactRequestId, docum
   }
 
   const contactRequest = await prisma.contactRequest.findUnique({ where: { id: contactRequestId } });
+  assertContactRequestAccess(req.user, contactRequest);
 
   const updated = await prisma.contactRequestDocument.update({
     where: { id: documentId },
@@ -335,12 +373,13 @@ export async function attachPaymentReceipt(id, file) {
   });
 }
 
-export async function updatePaymentStatus(id, status) {
+export async function updatePaymentStatus(id, status, req) {
   const existing = await prisma.contactRequest.findUnique({ where: { id } });
 
   if (!existing) {
     return null;
   }
+  assertContactRequestAccess(req.user, existing);
 
   const updated = await prisma.contactRequest.update({
     where: { id },
@@ -382,6 +421,7 @@ export async function createOrUpdatePriceQuote(id, { currency, paymentAmount }, 
   if (!existing) {
     return null;
   }
+  assertContactRequestAccess(req.user, existing);
 
   if (existing.invoice?.status === "APPROVED") {
     throw Object.assign(new Error("This request's quote has already been approved"), { statusCode: 400 });
@@ -520,6 +560,7 @@ export async function createContactRequestOffer(contactRequestId, { currency, am
   if (!existing) {
     return null;
   }
+  assertContactRequestAccess(req.user, existing);
 
   if (existing.invoice?.status === "APPROVED") {
     throw Object.assign(new Error("This request already has an approved invoice"), { statusCode: 400 });
@@ -561,7 +602,13 @@ export async function createContactRequestOffer(contactRequestId, { currency, am
   return offer;
 }
 
-export function listContactRequestOffers(contactRequestId) {
+export async function listContactRequestOffers(contactRequestId, req) {
+  const contactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    select: { department: true },
+  });
+  if (contactRequest) assertContactRequestAccess(req.user, contactRequest);
+
   return prisma.contactRequestOffer.findMany({
     where: { contactRequestId },
     include: OFFER_INCLUDE,
@@ -579,6 +626,12 @@ export async function updateContactRequestOffer(contactRequestId, offerId, { cur
   if (!offer || offer.contactRequestId !== contactRequestId) {
     return null;
   }
+
+  const parentContactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    select: { department: true },
+  });
+  assertContactRequestAccess(req.user, parentContactRequest);
 
   if (offer.status !== "PENDING_APPROVAL") {
     throw Object.assign(new Error("Only a pending offer can be edited"), { statusCode: 400 });
@@ -618,6 +671,12 @@ export async function withdrawContactRequestOffer(contactRequestId, offerId, req
   if (!offer || offer.contactRequestId !== contactRequestId) {
     return null;
   }
+
+  const parentContactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    select: { department: true },
+  });
+  assertContactRequestAccess(req.user, parentContactRequest);
 
   if (offer.status !== "PENDING_APPROVAL") {
     throw Object.assign(new Error("Only a pending offer can be withdrawn"), { statusCode: 400 });

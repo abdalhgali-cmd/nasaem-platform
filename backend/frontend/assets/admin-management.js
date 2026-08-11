@@ -2,7 +2,7 @@ const mgmtState = {
   wired: false,
   services: { page: 1, limit: 10 },
   activity: { page: 1, limit: 15 },
-  contactRequests: { page: 1, limit: 10, status: "" },
+  contactRequests: { page: 1, limit: 10, status: "", department: "" },
 };
 
 const ACTIVITY_ACTION_LABELS_AR = {
@@ -15,10 +15,15 @@ const ACTIVITY_ACTION_LABELS_AR = {
   USER_CREATED: "إنشاء مستخدم",
   USER_STATUS_CHANGED: "تغيير حالة مستخدم",
   USER_PASSWORD_RESET: "إعادة تعيين كلمة مرور",
+  USER_DEPARTMENT_CHANGED: "تغيير قسم مستخدم",
   CONTACT_REQUEST_RECEIVED: "استلام طلب تواصل",
   CONTACT_REQUEST_QUOTE_CREATED: "إرسال عرض سعر لطلب تواصل",
   CONTACT_REQUEST_QUOTE_APPROVED: "موافقة العميل على عرض السعر",
   CONTACT_REQUEST_DOCUMENT_REVIEWED: "مراجعة مستند طلب تواصل",
+  CONTACT_REQUEST_OFFER_CREATED: "إضافة عرض سعر لطلب تواصل",
+  CONTACT_REQUEST_OFFER_UPDATED: "تعديل عرض سعر لطلب تواصل",
+  CONTACT_REQUEST_OFFER_WITHDRAWN: "سحب عرض سعر لطلب تواصل",
+  CONTACT_REQUEST_OFFER_APPROVED: "موافقة العميل على عرض متعدد",
 };
 
 const CONTACT_REQUEST_STATUS_LABELS_AR = {
@@ -47,6 +52,14 @@ const CONTACT_REQUEST_DOCUMENT_STATUS_LABELS_AR = {
 };
 
 const CARRIER_MODE_LABELS_AR = { AIR: "طيران", SEA: "بحري" };
+
+const DEPARTMENT_LABELS_AR = {
+  VISAS: "تأشيرات",
+  FLIGHTS: "طيران",
+  UMRAH: "عمرة",
+  HOTELS_PACKAGES: "فنادق وباقات",
+  FERRY: "عبّارات",
+};
 
 const TRIP_LEG_DIRECTION_LABELS_AR = { OUTBOUND: "ذهاب", RETURN: "عودة" };
 
@@ -96,6 +109,14 @@ function canResetUserPassword() {
   return currentUser.role === "SUPER_ADMIN";
 }
 
+// Mirrors PATCH /users/:id/department's requireRole("SUPER_ADMIN", "ADMIN")
+// — same rule as canToggleUserStatus today, kept as its own function since
+// the two are conceptually distinct actions that just happen to share a
+// role set.
+function canEditUserDepartment() {
+  return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
+}
+
 function initManagementTab() {
   if (!mgmtState.wired) {
     wireManagementTabs();
@@ -114,6 +135,28 @@ function initManagementTab() {
     const card = el(`${prefix}-create-card`);
     if (card) card.classList.toggle("hidden", !mgmtCanWrite(entity));
   });
+
+  // EMPLOYEE only gets "طلبات التواصل" — every other sub-tab is
+  // SUPER_ADMIN/ADMIN-only at the API level too (branches/suppliers/users/
+  // settings/activity/site-assets), so hide them from the tab bar entirely
+  // rather than let EMPLOYEE click into a tab that just 403s on load.
+  if (currentUser.role === "EMPLOYEE") {
+    document.querySelectorAll("#mgmt-tabs button").forEach((btn) => {
+      if (btn.dataset.mgmt !== "contact-requests") btn.classList.add("hidden");
+    });
+    // Picking any department other than their own would silently return
+    // zero rows (the backend ANDs an explicit department filter with the
+    // automatic EMPLOYEE scoping) — lock the filter instead of leaving
+    // that confusing dead end reachable.
+    if (currentUser.department) {
+      const filter = el("contact-request-department-filter");
+      filter.value = currentUser.department;
+      filter.disabled = true;
+      mgmtState.contactRequests.department = currentUser.department;
+    }
+    activateMgmtSubTab("contact-requests");
+    return;
+  }
 
   loadActiveMgmtSubTab();
 }
@@ -138,6 +181,7 @@ function wireManagementTabs() {
   el("offers-body").addEventListener("change", handleOfferStatusChange);
   el("carriers-body").addEventListener("change", handleCarrierStatusChange);
   el("users-body").addEventListener("click", handleUserRowClick);
+  el("users-body").addEventListener("change", handleUserDepartmentChange);
   el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
   el("contact-requests-body").addEventListener("change", handlePaymentStatusChange);
   el("contact-requests-body").addEventListener("click", handleApprovePaymentClick);
@@ -149,6 +193,11 @@ function wireManagementTabs() {
   el("contact-requests-body").addEventListener("click", handleWithdrawOfferClick);
   el("contact-request-status-filter").addEventListener("change", (e) => {
     mgmtState.contactRequests.status = e.target.value;
+    mgmtState.contactRequests.page = 1;
+    loadContactRequests();
+  });
+  el("contact-request-department-filter").addEventListener("change", (e) => {
+    mgmtState.contactRequests.department = e.target.value;
     mgmtState.contactRequests.page = 1;
     loadContactRequests();
   });
@@ -487,6 +536,18 @@ async function loadUsers() {
           <td>${u.fullName}</td>
           <td>${u.email}</td>
           <td>${ROLE_LABELS_AR[u.role] || u.role}</td>
+          <td>
+            ${
+              canEditUserDepartment()
+                ? `<select data-user-department="${u.id}">
+                    <option value="">بدون قسم محدد</option>
+                    ${Object.entries(DEPARTMENT_LABELS_AR)
+                      .map(([value, label]) => `<option value="${value}" ${value === u.department ? "selected" : ""}>${label}</option>`)
+                      .join("")}
+                  </select>`
+                : DEPARTMENT_LABELS_AR[u.department] || "بدون قسم محدد"
+            }
+          </td>
           <td>${statusBadge(u.status)}</td>
           <td>
             ${canToggleUserStatus() && u.id !== currentUser.id ? `<button type="button" class="btn secondary" data-toggle-user="${u.id}" data-status="${u.status}">${u.status === "ACTIVE" ? "تعطيل" : "تفعيل"}</button>` : ""}
@@ -508,14 +569,30 @@ async function createUserAccount() {
   if (!fullName || !email || !password) return showAlert(mgmtAlert(), "الاسم والبريد وكلمة المرور مطلوبة.");
 
   try {
-    await api.post("/users", { fullName, email, password, role: el("u-role").value });
+    await api.post("/users", {
+      fullName,
+      email,
+      password,
+      role: el("u-role").value,
+      department: el("u-department").value || null,
+    });
     el("u-fullName").value = "";
     el("u-email").value = "";
     el("u-password").value = "";
+    el("u-department").value = "";
     loadUsers();
   } catch (error) {
     showAlert(mgmtAlert(), error.message + (error.errors ? " — " + formatErrors(error.errors) : ""));
   }
+}
+
+function handleUserDepartmentChange(e) {
+  const select = e.target.closest("[data-user-department]");
+  if (!select) return;
+  api
+    .patch(`/users/${select.dataset.userDepartment}/department`, { department: select.value || null })
+    .then(() => showAlert(mgmtAlert(), "تم تحديث القسم.", "success"))
+    .catch((error) => showAlert(mgmtAlert(), error.message));
 }
 
 function handleUserRowClick(e) {
@@ -630,9 +707,10 @@ async function loadActivityLogs() {
 
 async function loadContactRequests() {
   try {
-    const { page, limit, status } = mgmtState.contactRequests;
+    const { page, limit, status, department } = mgmtState.contactRequests;
     const params = new URLSearchParams({ page, limit });
     if (status) params.set("status", status);
+    if (department) params.set("department", department);
 
     const { data, meta } = await api.get(`/contact-requests?${params.toString()}`);
 
@@ -647,6 +725,7 @@ async function loadContactRequests() {
           <td>${escapeHtml(req.name)}</td>
           <td dir="ltr">${escapeHtml(req.phone)}</td>
           <td>${escapeHtml(req.service || "-")}</td>
+          <td>${DEPARTMENT_LABELS_AR[req.department] || "غير محدد"}</td>
           <td style="max-width: 280px; white-space: normal">
             ${escapeHtml(req.message)}
             ${

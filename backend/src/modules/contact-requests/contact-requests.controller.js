@@ -11,6 +11,7 @@ import {
 import {
   approveContactRequestOffer,
   approveInvoice,
+  assertContactRequestAccess,
   attachAdditionalDocuments,
   attachGuarantorIdImages,
   attachPassportImages,
@@ -81,6 +82,8 @@ export async function getContactRequests(req, res, next) {
     const { data, meta } = await listContactRequests({
       ...parsePagination(req.query),
       status: req.query.status,
+      department: req.query.department,
+      user: req.user,
     });
 
     return res.status(200).json({
@@ -168,7 +171,7 @@ export async function patchContactRequestStatus(req, res, next) {
       });
     }
 
-    const contactRequest = await updateContactRequestStatus(id, parsed.data.status);
+    const contactRequest = await updateContactRequestStatus(id, parsed.data.status, req);
 
     if (!contactRequest) {
       return res.status(404).json({
@@ -309,7 +312,7 @@ export async function patchContactRequestPaymentStatus(req, res, next) {
       });
     }
 
-    const contactRequest = await updatePaymentStatus(id, parsed.data.status);
+    const contactRequest = await updatePaymentStatus(id, parsed.data.status, req);
 
     if (!contactRequest) {
       return res.status(404).json({ success: false, message: "Contact request not found" });
@@ -399,7 +402,7 @@ function downloadFile(req, res, next, storagePath, downloadName) {
 
 export async function getContactRequestDocuments(req, res, next) {
   try {
-    const documents = await listContactRequestDocuments(req.params.id);
+    const documents = await listContactRequestDocuments(req.params.id, req);
     return res.status(200).json({ success: true, data: documents });
   } catch (error) {
     next(error);
@@ -419,6 +422,12 @@ export async function downloadContactRequestDocument(req, res, next) {
     if (!document || document.contactRequestId !== req.params.id) {
       return res.status(404).json({ success: false, message: "File not found" });
     }
+
+    const contactRequest = await prisma.contactRequest.findUnique({
+      where: { id: req.params.id },
+      select: { department: true },
+    });
+    assertContactRequestAccess(req.user, contactRequest);
 
     return downloadFile(req, res, next, document.storagePath, DOCUMENT_DOWNLOAD_LABELS[document.type]);
   } catch (error) {
@@ -453,6 +462,7 @@ export async function patchContactRequestDocumentStatus(req, res, next) {
 export async function getContactRequestPaymentReceipt(req, res, next) {
   try {
     const contactRequest = await prisma.contactRequest.findUnique({ where: { id: req.params.id } });
+    if (contactRequest) assertContactRequestAccess(req.user, contactRequest);
     return downloadFile(req, res, next, contactRequest?.paymentReceiptPath, "payment-receipt");
   } catch (error) {
     next(error);
@@ -487,7 +497,7 @@ export async function postCreateContactRequestOffer(req, res, next) {
 
 export async function getContactRequestOffers(req, res, next) {
   try {
-    const offers = await listContactRequestOffers(req.params.id);
+    const offers = await listContactRequestOffers(req.params.id, req);
     return res.status(200).json({ success: true, data: offers });
   } catch (error) {
     next(error);

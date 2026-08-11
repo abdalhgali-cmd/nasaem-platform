@@ -1,5 +1,17 @@
-import { createUserSchema, resetUserPasswordSchema, updateUserStatusSchema } from "./users.validators.js";
-import { changeUserStatus, createUser, getUserById, listUsers, resetUserPassword } from "./users.service.js";
+import {
+  createUserSchema,
+  resetUserPasswordSchema,
+  updateUserDepartmentSchema,
+  updateUserStatusSchema,
+} from "./users.validators.js";
+import {
+  changeUserStatus,
+  createUser,
+  getUserById,
+  listUsers,
+  resetUserPassword,
+  updateUserDepartment,
+} from "./users.service.js";
 import { logActivity } from "../../utils/activityLog.js";
 
 export async function getUsers(req, res, next) {
@@ -134,6 +146,46 @@ export async function updateStatus(req, res, next) {
     return res.status(200).json({
       success: true,
       message: "User status updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateDepartment(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = updateUserDepartmentSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const user = await updateUserDepartment(id, parsed.data.department);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    logActivity({
+      userId: req.user?.id,
+      action: "USER_DEPARTMENT_CHANGED",
+      entity: "User",
+      entityId: id,
+      req,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User department updated successfully",
       data: user,
     });
   } catch (error) {

@@ -18,6 +18,7 @@
       <button type="button" data-tab="customers">العملاء</button>
       <button type="button" data-tab="payments">الدفعات</button>
       <button type="button" data-tab="management">الإدارة</button>
+      <button type="button" data-tab="reports">التقارير</button>
     </div>
 
     <section id="tab-overview">
@@ -253,13 +254,24 @@
                 <option value="SUPER_ADMIN">مدير عام</option>
               </select>
             </div>
+            <div class="field">
+              <label for="u-department">القسم</label>
+              <select id="u-department">
+                <option value="">بدون قسم محدد</option>
+                <option value="VISAS">تأشيرات</option>
+                <option value="FLIGHTS">طيران</option>
+                <option value="UMRAH">عمرة</option>
+                <option value="HOTELS_PACKAGES">فنادق وباقات</option>
+                <option value="FERRY">عبّارات</option>
+              </select>
+            </div>
           </div>
           <button type="button" class="btn" id="user-create-btn">إضافة موظف</button>
         </div>
         <div class="card">
           <h2>المستخدمون</h2>
           <table>
-            <thead><tr><th>الرقم الوظيفي</th><th>الاسم</th><th>البريد</th><th>الدور</th><th>الحالة</th><th></th></tr></thead>
+            <thead><tr><th>الرقم الوظيفي</th><th>الاسم</th><th>البريد</th><th>الدور</th><th>القسم</th><th>الحالة</th><th></th></tr></thead>
             <tbody id="users-body"></tbody>
           </table>
         </div>
@@ -338,6 +350,14 @@
               <option value="CONTACTED">تم التواصل</option>
               <option value="CLOSED">مغلق</option>
             </select>
+            <select id="contact-request-department-filter">
+              <option value="">كل الأقسام</option>
+              <option value="VISAS">تأشيرات</option>
+              <option value="FLIGHTS">طيران</option>
+              <option value="UMRAH">عمرة</option>
+              <option value="HOTELS_PACKAGES">فنادق وباقات</option>
+              <option value="FERRY">عبّارات</option>
+            </select>
           </div>
           <table>
             <thead>
@@ -346,6 +366,7 @@
                 <th>الاسم</th>
                 <th>الهاتف</th>
                 <th>الخدمة</th>
+                <th>القسم</th>
                 <th>الرسالة</th>
                 <th>الدفع</th>
                 <th>العروض</th>
@@ -372,11 +393,44 @@
         </div>
       </div>
     </section>
+
+    <section id="tab-reports" class="hidden">
+      <div class="card">
+        <div class="stack" style="justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px">
+          <h2 style="margin: 0">التقارير</h2>
+          <div class="stack">
+            <input type="date" id="reports-from" />
+            <input type="date" id="reports-to" />
+            <select id="reports-department-filter">
+              <option value="">كل الأقسام</option>
+              <option value="VISAS">تأشيرات</option>
+              <option value="FLIGHTS">طيران</option>
+              <option value="UMRAH">عمرة</option>
+              <option value="HOTELS_PACKAGES">فنادق وباقات</option>
+              <option value="FERRY">عبّارات</option>
+            </select>
+            <button type="button" class="btn" id="reports-apply-btn">تطبيق</button>
+          </div>
+        </div>
+        <p class="muted">
+          الإيرادات المعروضة تعكس الطلبات المُنشأة خلال الفترة المحددة وتم تأكيد استلام دفعتها، وليس بالضرورة
+          الطلبات التي تم تحصيل دفعتها خلال هذه الفترة تحديدًا.
+        </p>
+        <div class="stat-tiles" id="reports-stat-tiles"></div>
+        <table>
+          <thead>
+            <tr><th>القسم</th><th>عدد الطلبات</th><th>الإيرادات</th></tr>
+          </thead>
+          <tbody id="reports-department-body"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script src="/assets/api.js"></script>
   <script src="/assets/layout.js"></script>
   <script src="/assets/admin-dashboard.js"></script>
   <script src="/assets/admin-management.js"></script>
+  <script src="/assets/admin-reports.js"></script>
 </body>
 </html>

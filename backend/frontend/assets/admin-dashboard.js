@@ -66,6 +66,15 @@ function canSeeManagement() {
   return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
 }
 
+// EMPLOYEE doesn't get the rest of "الإدارة" (branches/suppliers/users/
+// settings/etc. stay SUPER_ADMIN+ADMIN, matching each one's own API
+// requireRole gate), but needs a way to actually work contact-requests —
+// the one management sub-tab EMPLOYEE already has full API access to
+// (contact-requests.routes.js) but had no UI entry point for before this.
+function canSeeContactRequestsOnly() {
+  return currentUser.role === "EMPLOYEE";
+}
+
 // Mirrors POST /customers's requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE")
 // — ACCOUNTANT can view the customers list but not create new ones.
 function canCreateCustomer() {
@@ -81,8 +90,11 @@ function setupTabVisibility() {
   if (!canSeePayments()) {
     document.querySelector('[data-tab="payments"]').classList.add("hidden");
   }
-  if (!canSeeManagement()) {
+  if (!canSeeManagement() && !canSeeContactRequestsOnly()) {
     document.querySelector('[data-tab="management"]').classList.add("hidden");
+  }
+  if (!canSeeReports()) {
+    document.querySelector('[data-tab="reports"]').classList.add("hidden");
   }
 
   const firstVisible = Array.from(tabButtons).find((btn) => !btn.classList.contains("hidden"));
@@ -101,6 +113,8 @@ function setupTabSwitching() {
     state.orders.page = 1;
     loadOrders();
   });
+
+  el("reports-apply-btn").addEventListener("click", loadReports);
 
   let searchTimer = null;
   el("customer-search").addEventListener("input", (e) => {
@@ -122,7 +136,7 @@ function activateTab(tabKey) {
   document.querySelectorAll("#tabs button").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.tab === tabKey);
   });
-  ["overview", "orders", "customers", "payments", "management"].forEach((key) => {
+  ["overview", "orders", "customers", "payments", "management", "reports"].forEach((key) => {
     el(`tab-${key}`).classList.toggle("hidden", key !== tabKey);
   });
   loadActiveTabData();
@@ -139,7 +153,8 @@ function loadActiveTabData() {
   if (tab === "orders") loadOrders();
   if (tab === "customers") loadCustomers();
   if (tab === "payments" && canSeePayments()) loadPayments();
-  if (tab === "management" && canSeeManagement()) initManagementTab();
+  if (tab === "management" && (canSeeManagement() || canSeeContactRequestsOnly())) initManagementTab();
+  if (tab === "reports" && canSeeReports()) loadReports();
 }
 
 // --- Overview ---
