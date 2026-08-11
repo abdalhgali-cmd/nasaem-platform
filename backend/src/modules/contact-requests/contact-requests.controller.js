@@ -1,25 +1,32 @@
 import path from "path";
 import {
   approveContactRequestPaymentSchema,
+  createContactRequestOfferSchema,
   createContactRequestSchema,
+  updateContactRequestOfferSchema,
   updateContactRequestStatusSchema,
   updateDocumentStatusSchema,
   updatePaymentStatusSchema,
 } from "./contact-requests.validators.js";
 import {
+  approveContactRequestOffer,
   approveInvoice,
   attachAdditionalDocuments,
   attachGuarantorIdImages,
   attachPassportImages,
   attachPaymentReceipt,
   createContactRequest,
+  createContactRequestOffer,
   createOrUpdatePriceQuote,
   listContactRequestDocuments,
+  listContactRequestOffers,
   listContactRequests,
   listContactRequestsForPhone,
   updateContactRequestDocumentStatus,
+  updateContactRequestOffer,
   updateContactRequestStatus,
   updatePaymentStatus,
+  withdrawContactRequestOffer,
 } from "./contact-requests.service.js";
 import { deriveCustomerFacingStatus } from "./contact-request-status.js";
 import { extractArabicNameSuggestion, extractPassportData } from "../passport-ocr/passport-ocr.service.js";
@@ -95,6 +102,7 @@ export async function getMyContactRequests(req, res, next) {
 
     const data = rows.map((row) => {
       const hasPendingInvoice = row.invoice?.status === "PENDING_APPROVAL";
+      const pendingOffers = (row.offers || []).filter((o) => o.status === "PENDING_APPROVAL");
 
       return {
         id: row.id,
@@ -103,7 +111,11 @@ export async function getMyContactRequests(req, res, next) {
         createdAt: row.createdAt,
         currency: row.currency,
         paymentAmount: row.paymentAmount,
-        friendlyStatus: deriveCustomerFacingStatus({ ...row, hasPendingInvoice }),
+        friendlyStatus: deriveCustomerFacingStatus({
+          ...row,
+          hasPendingInvoice,
+          hasPendingOffers: pendingOffers.length > 0,
+        }),
         pendingInvoice: hasPendingInvoice
           ? {
               invoiceNumber: row.invoice.invoiceNumber,
@@ -111,6 +123,22 @@ export async function getMyContactRequests(req, res, next) {
               amount: row.invoice.amount,
             }
           : null,
+        pendingOffers: pendingOffers.map((o) => ({
+          id: o.id,
+          currency: o.currency,
+          amount: o.amount,
+          notes: o.notes,
+          legs: o.legs.map((l) => ({
+            id: l.id,
+            direction: l.direction,
+            tripNumber: l.tripNumber,
+            departureAt: l.departureAt,
+            arrivalAt: l.arrivalAt,
+            fromLocation: l.fromLocation,
+            toLocation: l.toLocation,
+            carrier: { name: l.carrier.name, mode: l.carrier.mode },
+          })),
+        })),
         documents: row.documents.map((d) => ({
           id: d.id,
           type: d.type,
@@ -426,6 +454,109 @@ export async function getContactRequestPaymentReceipt(req, res, next) {
   try {
     const contactRequest = await prisma.contactRequest.findUnique({ where: { id: req.params.id } });
     return downloadFile(req, res, next, contactRequest?.paymentReceiptPath, "payment-receipt");
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Staff proposes one of possibly several priced alternatives (e.g. two
+// airlines at two prices) for a request — the counterpart to
+// patchContactRequestPayment, but many-per-request instead of 1:1.
+export async function postCreateContactRequestOffer(req, res, next) {
+  try {
+    const parsed = createContactRequestOfferSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+
+    const offer = await createContactRequestOffer(req.params.id, parsed.data, req);
+
+    if (!offer) {
+      return res.status(404).json({ success: false, message: "Contact request not found" });
+    }
+
+    return res.status(201).json({ success: true, data: offer });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+}
+
+export async function getContactRequestOffers(req, res, next) {
+  try {
+    const offers = await listContactRequestOffers(req.params.id);
+    return res.status(200).json({ success: true, data: offers });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function patchContactRequestOffer(req, res, next) {
+  try {
+    const parsed = updateContactRequestOfferSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+
+    const offer = await updateContactRequestOffer(req.params.id, req.params.offerId, parsed.data, req);
+
+    if (!offer) {
+      return res.status(404).json({ success: false, message: "Offer not found" });
+    }
+
+    return res.status(200).json({ success: true, data: offer });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+}
+
+export async function postWithdrawContactRequestOffer(req, res, next) {
+  try {
+    const offer = await withdrawContactRequestOffer(req.params.id, req.params.offerId, req);
+
+    if (!offer) {
+      return res.status(404).json({ success: false, message: "Offer not found" });
+    }
+
+    return res.status(200).json({ success: true, data: offer });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+}
+
+// Customer-facing: picks exactly one of the pending offers on their own
+// request. requireCustomerAuth already verified who's calling
+// (req.customerPhone); approveContactRequestOffer separately checks that
+// phone actually owns this specific request before letting it through.
+export async function postApproveContactRequestOffer(req, res, next) {
+  try {
+    const result = await approveContactRequestOffer(req.params.id, req.params.offerId, req.customerPhone, req);
+
+    if (result === null) {
+      return res.status(404).json({ success: false, message: "Request or offer not found" });
+    }
+
+    if (result === "forbidden") {
+      return res.status(403).json({ success: false, message: "This request does not belong to you" });
+    }
+
+    if (result === undefined) {
+      return res.status(400).json({ success: false, message: "This offer is no longer awaiting approval" });
+    }
+
+    return res
+      .status(200)
+      .json({ success: true, data: result.contactRequest, offer: result.offer, bankAccount: result.bankAccount });
   } catch (error) {
     next(error);
   }

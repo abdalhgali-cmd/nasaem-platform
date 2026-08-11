@@ -111,6 +111,7 @@
         <button type="button" data-mgmt="suppliers">الموردون</button>
         <button type="button" data-mgmt="services">الخدمات</button>
         <button type="button" data-mgmt="offers">العروض</button>
+        <button type="button" data-mgmt="carriers">الناقلون</button>
         <button type="button" data-mgmt="users">المستخدمون</button>
         <button type="button" data-mgmt="settings">الإعدادات</button>
         <button type="button" data-mgmt="activity">سجل النشاط</button>
@@ -205,6 +206,32 @@
           <table>
             <thead><tr><th>العنوان</th><th>السعر</th><th>الحالة</th><th></th></tr></thead>
             <tbody id="offers-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Carriers -->
+      <div id="mgmt-carriers" class="hidden">
+        <div class="card hidden" id="carrier-create-card">
+          <h2>ناقل جديد</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="c-name">الاسم *</label><input id="c-name" /></div>
+            <div class="field">
+              <label for="c-mode">النوع *</label>
+              <select id="c-mode">
+                <option value="AIR">طيران</option>
+                <option value="SEA">بحري</option>
+              </select>
+            </div>
+            <div class="field"><label for="c-code">الرمز</label><input id="c-code" /></div>
+          </div>
+          <button type="button" class="btn" id="carrier-create-btn">إضافة ناقل</button>
+        </div>
+        <div class="card">
+          <h2>الناقلون</h2>
+          <table>
+            <thead><tr><th>الاسم</th><th>النوع</th><th>الرمز</th><th>الحالة</th></tr></thead>
+            <tbody id="carriers-body"></tbody>
           </table>
         </div>
       </div>
@@ -321,6 +348,7 @@
                 <th>الخدمة</th>
                 <th>الرسالة</th>
                 <th>الدفع</th>
+                <th>العروض</th>
                 <th>الحالة</th>
                 <th>التاريخ</th>
               </tr>

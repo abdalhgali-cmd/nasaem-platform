@@ -58,3 +58,30 @@ export const updateDocumentStatusSchema = z
     message: "سبب الرفض مطلوب",
     path: ["rejectionReason"],
   });
+
+// One flight/ferry segment of a staff-proposed offer — carrier is
+// required (the entire point of this feature is pricing that varies by
+// carrier), from/to are free text (not FK'd to any route catalog).
+const tripLegSchema = z.object({
+  carrierId: z.string().min(1, "اختر الناقل"),
+  direction: z.enum(["OUTBOUND", "RETURN"]).default("OUTBOUND"),
+  tripNumber: z.string().trim().max(30).optional().or(z.literal("")),
+  departureAt: z.string().datetime().optional().or(z.literal("")),
+  arrivalAt: z.string().datetime().optional().or(z.literal("")),
+  fromLocation: z.string().trim().min(1, "نقطة الانطلاق مطلوبة").max(120),
+  toLocation: z.string().trim().min(1, "الوجهة مطلوبة").max(120),
+});
+
+// Same currency set as approveContactRequestPaymentSchema above — not the
+// unrelated 7-currency SUPPORTED_CURRENCIES from utils/enums.js, which
+// backs the internal Order/promotional-Offer system.
+export const createContactRequestOfferSchema = z.object({
+  currency: z.enum(["SAR", "SDG", "USD"]),
+  amount: z.coerce.number().positive(),
+  notes: z.string().trim().max(500).optional().or(z.literal("")),
+  legs: z.array(tripLegSchema).min(1, "أضف رحلة واحدة على الأقل"),
+});
+
+// Editing always resends the full leg list (see updateContactRequestOffer
+// in the service layer, which replaces all legs rather than diffing them).
+export const updateContactRequestOfferSchema = createContactRequestOfferSchema;

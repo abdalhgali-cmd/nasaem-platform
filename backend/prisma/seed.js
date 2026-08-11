@@ -72,11 +72,33 @@ async function seedServiceCategories() {
   console.log(`Seeded ${SERVICE_CATEGORIES.length} service categories.`);
 }
 
+// Starting airline carriers for the flight multi-offer flow — staff can add
+// more via the "الناقلون" admin tab. Keyed on the @@unique([name, mode])
+// constraint so this upsert stays idempotent across every `npm start`
+// (prisma db seed runs unconditionally on every deploy).
+const AIRLINE_CARRIERS = [
+  { name: "شركة تاركو للطيران", mode: "AIR", code: "TARCO" },
+  { name: "شركة بدر للطيران", mode: "AIR", code: "BADR" },
+];
+
+async function seedCarriers() {
+  for (const carrier of AIRLINE_CARRIERS) {
+    await prisma.carrier.upsert({
+      where: { name_mode: { name: carrier.name, mode: carrier.mode } },
+      update: {},
+      create: carrier,
+    });
+  }
+
+  console.log(`Seeded ${AIRLINE_CARRIERS.length} carriers.`);
+}
+
 async function main() {
   // Runs on every seed invocation (idempotent via upsert), independent of
   // whether the super admin already exists.
   await seedSuperAdmin();
   await seedServiceCategories();
+  await seedCarriers();
 }
 
 main()

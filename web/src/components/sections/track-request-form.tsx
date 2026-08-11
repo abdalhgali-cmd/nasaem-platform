@@ -19,11 +19,30 @@ type TrackedRequest = {
     needsDocuments: boolean;
     needsPayment: boolean;
     needsInvoiceApproval: boolean;
+    needsOfferApproval: boolean;
     needsReupload: boolean;
   };
   pendingInvoice: { invoiceNumber: string; currency: string; amount: string } | null;
+  pendingOffers: {
+    id: string;
+    currency: string;
+    amount: string;
+    notes: string | null;
+    legs: {
+      id: string;
+      direction: "OUTBOUND" | "RETURN";
+      tripNumber: string | null;
+      departureAt: string | null;
+      arrivalAt: string | null;
+      fromLocation: string;
+      toLocation: string;
+      carrier: { name: string; mode: "AIR" | "SEA" };
+    }[];
+  }[];
   documents: { id: string; type: string; status: string; rejectionReason: string | null; createdAt: string }[];
 };
+
+const TRIP_LEG_DIRECTION_LABELS: Record<string, string> = { OUTBOUND: "ذهاب", RETURN: "عودة" };
 
 const fieldClass =
   "h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none transition focus:border-primary";
@@ -249,10 +268,12 @@ function TrackedRequestCard({
 }) {
   const [uploading, setUploading] = React.useState<string | null>(null);
   const [approving, setApproving] = React.useState(false);
+  const [approvingOfferId, setApprovingOfferId] = React.useState<string | null>(null);
   const needsAction =
     request.friendlyStatus.needsDocuments ||
     request.friendlyStatus.needsPayment ||
     request.friendlyStatus.needsInvoiceApproval ||
+    request.friendlyStatus.needsOfferApproval ||
     request.friendlyStatus.needsReupload;
   const reuploadDocuments = getDocumentsNeedingReupload(request.documents);
 
@@ -280,6 +301,32 @@ function TrackedRequestCard({
     } finally {
       setApproving(false);
     }
+  }
+
+  async function approveOffer(offerId: string) {
+    setApprovingOfferId(offerId);
+    try {
+      await fetch(`${API_URL}/contact-requests/${request.id}/offers/${offerId}/approve`, {
+        method: "POST",
+        credentials: "include",
+      });
+      await onUploaded();
+    } finally {
+      setApprovingOfferId(null);
+    }
+  }
+
+  function formatLegDateTime(value: string | null) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleString("ar-SA-u-ca-gregory-nu-latn", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   return (
@@ -315,6 +362,41 @@ function TrackedRequestCard({
                       onFile={(file) => upload(DOCUMENT_UPLOAD_ENDPOINTS[doc.type], "images", file)}
                     />
                   </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {request.friendlyStatus.needsOfferApproval && request.pendingOffers.length > 0 ? (
+            <div className="space-y-3">
+              {request.pendingOffers.map((offer) => (
+                <div key={offer.id} className="rounded-xl border border-accent/40 bg-accent/5 px-4 py-3">
+                  <div className="space-y-1">
+                    {offer.legs.map((leg) => (
+                      <p key={leg.id} className="text-xs text-muted-foreground">
+                        <strong className="text-foreground">{TRIP_LEG_DIRECTION_LABELS[leg.direction]}</strong>
+                        {" — "}
+                        {leg.carrier.name}
+                        {leg.tripNumber ? ` (${leg.tripNumber})` : ""} — {leg.fromLocation} ← {leg.toLocation}
+                        {formatLegDateTime(leg.departureAt) ? ` — ${formatLegDateTime(leg.departureAt)}` : ""}
+                      </p>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-sm text-foreground">
+                    السعر: <strong>{offer.amount} {CURRENCY_LABELS[offer.currency] || offer.currency}</strong>
+                  </p>
+                  {offer.notes ? <p className="mt-1 text-xs text-muted-foreground">{offer.notes}</p> : null}
+                  <Button
+                    type="button"
+                    variant="gold"
+                    size="sm"
+                    className="mt-3"
+                    disabled={approvingOfferId !== null}
+                    onClick={() => approveOffer(offer.id)}
+                  >
+                    {approvingOfferId === offer.id ? <Loader2 className="size-4 animate-spin" /> : null}
+                    {approvingOfferId === offer.id ? "جارٍ الموافقة..." : "اختر هذا العرض"}
+                  </Button>
                 </div>
               ))}
             </div>

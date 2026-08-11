@@ -43,6 +43,11 @@ function resolveTravelerCount(details) {
 
 const CURRENCY_LABELS_AR = { SAR: "الريال", SDG: "الجنيه", USD: "الدولار" };
 
+// Shared by listContactRequests/listContactRequestsForPhone (staff + "my
+// requests" listings) and every ContactRequestOffer read below — a leg is
+// meaningless to render without its carrier's name attached.
+const OFFER_INCLUDE = { legs: { include: { carrier: true }, orderBy: { createdAt: "asc" } } };
+
 // Only a priced Umrah package with a chosen currency triggers the
 // bank-transfer flow — every other submission (any other service, or an
 // Umrah request with no matching package/currency) stays NOT_REQUIRED.
@@ -180,7 +185,7 @@ export async function listContactRequests({ page, limit, skip, status }) {
   const [data, total] = await Promise.all([
     prisma.contactRequest.findMany({
       where,
-      include: { invoice: true, documents: true },
+      include: { invoice: true, documents: true, offers: { include: OFFER_INCLUDE, orderBy: { createdAt: "asc" } } },
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
@@ -198,7 +203,7 @@ export async function listContactRequests({ page, limit, skip, status }) {
 // this table grows large.
 export async function listContactRequestsForPhone(normalizedPhone) {
   const all = await prisma.contactRequest.findMany({
-    include: { invoice: true, documents: true },
+    include: { invoice: true, documents: true, offers: { include: OFFER_INCLUDE, orderBy: { createdAt: "asc" } } },
     orderBy: { createdAt: "desc" },
   });
   return all.filter((row) => normalizePhone(row.phone) === normalizedPhone);
@@ -470,4 +475,220 @@ export async function approveInvoice(contactRequestId, customerPhone, req) {
   );
 
   return { contactRequest: updatedContactRequest, bankAccount };
+}
+
+const TRIP_LEG_DIRECTION_LABELS_AR = { OUTBOUND: "ذهاب", RETURN: "عودة" };
+
+function toDateOrNull(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function summarizeLegsForWhatsApp(legs) {
+  return legs
+    .map(
+      (leg) =>
+        `${TRIP_LEG_DIRECTION_LABELS_AR[leg.direction]}: ${leg.carrier.name}${leg.tripNumber ? ` (${leg.tripNumber})` : ""} — ${leg.fromLocation} → ${leg.toLocation}`
+    )
+    .join("\n");
+}
+
+function buildLegCreateInput(legs) {
+  return legs.map((leg) => ({
+    carrierId: leg.carrierId,
+    direction: leg.direction,
+    tripNumber: leg.tripNumber || null,
+    departureAt: toDateOrNull(leg.departureAt),
+    arrivalAt: toDateOrNull(leg.arrivalAt),
+    fromLocation: leg.fromLocation,
+    toLocation: leg.toLocation,
+  }));
+}
+
+// Proposes one of possibly several priced alternatives for a request (e.g.
+// two airlines at two prices) — generalizes createOrUpdatePriceQuote to
+// many-per-request. Refuses (400) if the request already has an APPROVED
+// Invoice — a request should use one pricing mechanism or the other, not
+// both; Invoice's own code path is otherwise entirely untouched.
+export async function createContactRequestOffer(contactRequestId, { currency, amount, notes, legs }, req) {
+  const existing = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    include: { invoice: true },
+  });
+
+  if (!existing) {
+    return null;
+  }
+
+  if (existing.invoice?.status === "APPROVED") {
+    throw Object.assign(new Error("This request already has an approved invoice"), { statusCode: 400 });
+  }
+
+  let offer;
+  try {
+    offer = await prisma.contactRequestOffer.create({
+      data: {
+        contactRequestId,
+        currency,
+        amount,
+        notes: notes || null,
+        legs: { create: buildLegCreateInput(legs) },
+      },
+      include: OFFER_INCLUDE,
+    });
+  } catch (error) {
+    if (error.code === "P2003") {
+      throw Object.assign(new Error("أحد الناقلين المحددين غير موجود"), { statusCode: 400 });
+    }
+    throw error;
+  }
+
+  logActivity({
+    userId: req.user?.id,
+    action: "CONTACT_REQUEST_OFFER_CREATED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+    req,
+  });
+
+  // Not awaited, same reasoning as every other WhatsApp send in this file.
+  sendWhatsAppMessage(
+    existing.phone,
+    `طلبك رقم ${existing.referenceNumber} — عرض سعر جديد\nالمبلغ: ${amount} ${CURRENCY_LABELS_AR[currency]}\n${summarizeLegsForWhatsApp(offer.legs)}\nيمكنك مراجعة كل العروض المتاحة والموافقة على واحد منها من صفحة "تتبع طلبك" على موقعنا.`
+  );
+
+  return offer;
+}
+
+export function listContactRequestOffers(contactRequestId) {
+  return prisma.contactRequestOffer.findMany({
+    where: { contactRequestId },
+    include: OFFER_INCLUDE,
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+// Edits always replace the full leg list (delete-then-recreate in one
+// transaction) rather than diffing individual legs — legs carry no
+// independent identity/history requirement, same "revise in place"
+// simplicity as createOrUpdatePriceQuote.
+export async function updateContactRequestOffer(contactRequestId, offerId, { currency, amount, notes, legs }, req) {
+  const offer = await prisma.contactRequestOffer.findUnique({ where: { id: offerId } });
+
+  if (!offer || offer.contactRequestId !== contactRequestId) {
+    return null;
+  }
+
+  if (offer.status !== "PENDING_APPROVAL") {
+    throw Object.assign(new Error("Only a pending offer can be edited"), { statusCode: 400 });
+  }
+
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      await tx.tripLeg.deleteMany({ where: { offerId } });
+      return tx.contactRequestOffer.update({
+        where: { id: offerId },
+        data: { currency, amount, notes: notes || null, legs: { create: buildLegCreateInput(legs) } },
+        include: OFFER_INCLUDE,
+      });
+    });
+  } catch (error) {
+    if (error.code === "P2003") {
+      throw Object.assign(new Error("أحد الناقلين المحددين غير موجود"), { statusCode: 400 });
+    }
+    throw error;
+  }
+
+  logActivity({
+    userId: req.user?.id,
+    action: "CONTACT_REQUEST_OFFER_UPDATED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+    req,
+  });
+
+  return updated;
+}
+
+export async function withdrawContactRequestOffer(contactRequestId, offerId, req) {
+  const offer = await prisma.contactRequestOffer.findUnique({ where: { id: offerId } });
+
+  if (!offer || offer.contactRequestId !== contactRequestId) {
+    return null;
+  }
+
+  if (offer.status !== "PENDING_APPROVAL") {
+    throw Object.assign(new Error("Only a pending offer can be withdrawn"), { statusCode: 400 });
+  }
+
+  const updated = await prisma.contactRequestOffer.update({ where: { id: offerId }, data: { status: "WITHDRAWN" } });
+
+  logActivity({
+    userId: req.user?.id,
+    action: "CONTACT_REQUEST_OFFER_WITHDRAWN",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+    req,
+  });
+
+  return updated;
+}
+
+// Customer-facing counterpart to approveInvoice — same
+// null/"forbidden"/undefined/result return-value convention and the same
+// ownership check. Auto-DECLINEs every other still-pending sibling offer
+// on the same request, which approveInvoice has no equivalent of (Invoice
+// is already 1:1).
+export async function approveContactRequestOffer(contactRequestId, offerId, customerPhone, req) {
+  const contactRequest = await prisma.contactRequest.findUnique({ where: { id: contactRequestId } });
+
+  if (!contactRequest) {
+    return null;
+  }
+
+  const offer = await prisma.contactRequestOffer.findUnique({ where: { id: offerId }, include: OFFER_INCLUDE });
+
+  if (!offer || offer.contactRequestId !== contactRequestId) {
+    return null;
+  }
+
+  if (normalizePhone(contactRequest.phone) !== customerPhone) {
+    return "forbidden";
+  }
+
+  if (offer.status !== "PENDING_APPROVAL") {
+    return undefined;
+  }
+
+  const [, , updatedContactRequest] = await prisma.$transaction([
+    prisma.contactRequestOffer.update({ where: { id: offerId }, data: { status: "APPROVED", approvedAt: new Date() } }),
+    prisma.contactRequestOffer.updateMany({
+      where: { contactRequestId, status: "PENDING_APPROVAL", id: { not: offerId } },
+      data: { status: "DECLINED" },
+    }),
+    prisma.contactRequest.update({
+      where: { id: contactRequestId },
+      data: { currency: offer.currency, paymentAmount: offer.amount, paymentStatus: "AWAITING_TRANSFER" },
+    }),
+  ]);
+
+  const paymentSettings = await getPublicPaymentSettings();
+  const bankAccount = paymentSettings.bankAccounts[offer.currency];
+
+  logActivity({
+    action: "CONTACT_REQUEST_OFFER_APPROVED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+    req,
+  });
+
+  // Not awaited, same reasoning as every other WhatsApp send in this file.
+  sendWhatsAppMessage(
+    updatedContactRequest.phone,
+    `تم اعتماد العرض لطلبك رقم ${updatedContactRequest.referenceNumber}\n${summarizeLegsForWhatsApp(offer.legs)}\nالمبلغ المستحق: ${offer.amount} ${CURRENCY_LABELS_AR[offer.currency]}\n${bankAccount ? `الحساب البنكي: ${bankAccount}` : "سيتم التواصل معك لتفاصيل الدفع"}`
+  );
+
+  return { contactRequest: updatedContactRequest, offer, bankAccount };
 }

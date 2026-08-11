@@ -46,7 +46,29 @@ const CONTACT_REQUEST_DOCUMENT_STATUS_LABELS_AR = {
   REJECTED: "مرفوض",
 };
 
+const CARRIER_MODE_LABELS_AR = { AIR: "طيران", SEA: "بحري" };
+
+const TRIP_LEG_DIRECTION_LABELS_AR = { OUTBOUND: "ذهاب", RETURN: "عودة" };
+
+const CONTACT_REQUEST_OFFER_STATUS_LABELS_AR = {
+  PENDING_APPROVAL: "بانتظار اختيار العميل",
+  APPROVED: "تمت الموافقة",
+  DECLINED: "مرفوض",
+  WITHDRAWN: "مسحوب",
+};
+
 const CURRENCY_LABELS_AR = { SAR: "ريال سعودي", SDG: "جنيه سوداني", USD: "دولار أمريكي" };
+
+// Populated lazily by ensureCarriersLoaded()/loadCarriers() — the full
+// carrier list used to build the carrier <select> in the per-request offer
+// form below.
+let carriersCache = null;
+
+// requestId -> array of blank-leg placeholders for that request's
+// still-open "add offer" form; only the *count* is tracked here, real leg
+// field values are read straight from the DOM at submit time (see
+// handleSubmitOfferClick) to avoid a state/DOM desync.
+const offerDraftLegs = {};
 
 function mgmtCanWrite(entity) {
   // Mirrors the requireRole(...) checks on each backend POST route.
@@ -55,6 +77,7 @@ function mgmtCanWrite(entity) {
     suppliers: ["SUPER_ADMIN"],
     services: ["SUPER_ADMIN", "ADMIN"],
     offers: ["SUPER_ADMIN", "ADMIN"],
+    carriers: ["SUPER_ADMIN", "ADMIN"],
     users: ["SUPER_ADMIN"],
     "site-assets": ["SUPER_ADMIN", "ADMIN"],
   };
@@ -84,6 +107,7 @@ function initManagementTab() {
     supplier: "suppliers",
     service: "services",
     offer: "offers",
+    carrier: "carriers",
     user: "users",
   };
   Object.entries(createCardEntities).forEach(([prefix, entity]) => {
@@ -103,6 +127,7 @@ function wireManagementTabs() {
   el("supplier-create-btn").addEventListener("click", createSupplier);
   el("service-create-btn").addEventListener("click", createService);
   el("offer-create-btn").addEventListener("click", createOffer);
+  el("carrier-create-btn").addEventListener("click", createCarrier);
   el("user-create-btn").addEventListener("click", createUserAccount);
   el("setting-save-btn").addEventListener("click", saveSetting);
   el("payment-settings-save-btn").addEventListener("click", savePaymentSettings);
@@ -111,11 +136,17 @@ function wireManagementTabs() {
   el("suppliers-body").addEventListener("click", handleSupplierRowClick);
   el("services-body").addEventListener("click", handleServiceRowClick);
   el("offers-body").addEventListener("change", handleOfferStatusChange);
+  el("carriers-body").addEventListener("change", handleCarrierStatusChange);
   el("users-body").addEventListener("click", handleUserRowClick);
   el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
   el("contact-requests-body").addEventListener("change", handlePaymentStatusChange);
   el("contact-requests-body").addEventListener("click", handleApprovePaymentClick);
   el("contact-requests-body").addEventListener("click", handleDocumentReviewClick);
+  el("contact-requests-body").addEventListener("click", handleToggleOfferForm);
+  el("contact-requests-body").addEventListener("click", handleAddLegClick);
+  el("contact-requests-body").addEventListener("click", handleRemoveLegClick);
+  el("contact-requests-body").addEventListener("click", handleSubmitOfferClick);
+  el("contact-requests-body").addEventListener("click", handleWithdrawOfferClick);
   el("contact-request-status-filter").addEventListener("change", (e) => {
     mgmtState.contactRequests.status = e.target.value;
     mgmtState.contactRequests.page = 1;
@@ -128,7 +159,7 @@ function activateMgmtSubTab(key) {
   document.querySelectorAll("#mgmt-tabs button").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.mgmt === key);
   });
-  ["branches", "suppliers", "services", "offers", "users", "settings", "activity", "contact-requests", "site-assets"].forEach((k) => {
+  ["branches", "suppliers", "services", "offers", "carriers", "users", "settings", "activity", "contact-requests", "site-assets"].forEach((k) => {
     el(`mgmt-${k}`).classList.toggle("hidden", k !== key);
   });
   loadActiveMgmtSubTab();
@@ -145,6 +176,7 @@ function loadActiveMgmtSubTab() {
   if (tab === "suppliers") loadSuppliers();
   if (tab === "services") loadServices();
   if (tab === "offers") loadOffers();
+  if (tab === "carriers") loadCarriers();
   if (tab === "users") loadUsers();
   if (tab === "settings") loadSettings();
   if (tab === "activity") loadActivityLogs();
@@ -368,6 +400,73 @@ function handleOfferStatusChange(e) {
     .catch((error) => showAlert(mgmtAlert(), error.message));
 }
 
+// --- Carriers (airlines/ferry operators used to price ContactRequestOffer
+// legs — see the "العروض" column in the contact-requests tab below) ---
+
+async function loadCarriers() {
+  try {
+    const { data } = await api.get("/carriers");
+    carriersCache = data;
+    el("carriers-body").innerHTML = data
+      .map(
+        (c) => `
+        <tr>
+          <td>${escapeHtml(c.name)}</td>
+          <td>${CARRIER_MODE_LABELS_AR[c.mode] || c.mode}</td>
+          <td>${escapeHtml(c.code || "-")}</td>
+          <td>${
+            mgmtCanWrite("carriers")
+              ? `
+            <select data-carrier-status="${c.id}">
+              <option value="true" ${c.active ? "selected" : ""}>نشط</option>
+              <option value="false" ${!c.active ? "selected" : ""}>معطّل</option>
+            </select>`
+              : statusBadge(c.active ? "ACTIVE" : "INACTIVE")
+          }</td>
+        </tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function createCarrier() {
+  showAlert(mgmtAlert(), "");
+  const name = el("c-name").value.trim();
+  if (!name) return showAlert(mgmtAlert(), "الاسم مطلوب.");
+
+  try {
+    await api.post("/carriers", { name, mode: el("c-mode").value, code: el("c-code").value.trim() || undefined });
+    el("c-name").value = "";
+    el("c-code").value = "";
+    loadCarriers();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleCarrierStatusChange(e) {
+  const select = e.target.closest("[data-carrier-status]");
+  if (!select) return;
+  api
+    .patch(`/carriers/${select.dataset.carrierStatus}`, { active: select.value === "true" })
+    .then(loadCarriers)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// Contact-request offer forms need the full carrier list to populate their
+// carrier <select>s — loaded once, on first use, and cached (loadCarriers()
+// above always refreshes this same cache when the "الناقلون" tab itself is
+// opened, so the two stay in sync without a second fetch mechanism).
+async function ensureCarriersLoaded() {
+  if (!carriersCache) {
+    const { data } = await api.get("/carriers?active=true");
+    carriersCache = data;
+  }
+  return carriersCache;
+}
+
 // --- Users ---
 
 const ROLE_LABELS_AR = {
@@ -585,6 +684,7 @@ async function loadContactRequests() {
                 : ""
             }
           </td>
+          <td style="white-space: normal">${renderOfferCell(req)}</td>
           <td style="white-space: normal">
             ${
               req.paymentStatus === "NOT_REQUIRED"
@@ -656,6 +756,189 @@ async function loadContactRequests() {
   } catch (error) {
     showAlert(mgmtAlert(), error.message);
   }
+}
+
+// Renders the existing offers for a request (compact per-leg summary +
+// price + status, with a "سحب" button while still pending) plus the
+// toggle for the inline "add an offer" form. Multiple competing offers
+// (e.g. two airlines at two prices) are the entire point of this feature —
+// see ContactRequestOffer's own doc comment in schema.prisma.
+function renderOfferCell(req) {
+  const existing = (req.offers || [])
+    .map(
+      (o) => `
+        <div style="font-size: 12px; margin-bottom: 4px">
+          ${o.legs
+            .map(
+              (l) =>
+                `${TRIP_LEG_DIRECTION_LABELS_AR[l.direction]}: ${escapeHtml(l.carrier.name)}${
+                  l.tripNumber ? ` (${escapeHtml(l.tripNumber)})` : ""
+                } — ${escapeHtml(l.fromLocation)}→${escapeHtml(l.toLocation)}`
+            )
+            .join("<br/>")}
+          — ${formatMoney(o.amount, o.currency)} —
+          ${CONTACT_REQUEST_OFFER_STATUS_LABELS_AR[o.status] || o.status}
+          ${
+            o.status === "PENDING_APPROVAL"
+              ? `<button type="button" data-withdraw-offer="${o.id}" data-withdraw-offer-request="${req.id}">سحب</button>`
+              : ""
+          }
+        </div>`
+    )
+    .join("");
+
+  return `
+    ${existing}
+    <button type="button" data-toggle-offer-form="${req.id}">+ إضافة عرض سعر</button>
+    <div class="hidden" data-offer-form="${req.id}">
+      <select data-offer-currency="${req.id}">
+        ${Object.entries(CURRENCY_LABELS_AR)
+          .map(([value, label]) => `<option value="${value}">${label}</option>`)
+          .join("")}
+      </select>
+      <input type="number" min="1" step="0.01" placeholder="المبلغ" data-offer-amount="${req.id}" style="width: 90px" />
+      <input type="text" placeholder="ملاحظات (اختياري)" data-offer-notes="${req.id}" />
+      <div data-offer-legs="${req.id}"></div>
+      <button type="button" data-add-leg="${req.id}">+ إضافة رحلة</button>
+      <button type="button" data-submit-offer="${req.id}">إرسال العرض</button>
+    </div>`;
+}
+
+// Rebuilds a request's leg-row inputs from offerDraftLegs[requestId]'s
+// current length — each field is keyed "requestId:index:fieldName" so
+// handleSubmitOfferClick can scan and group them back up at submit time
+// without needing to also track field values in JS state.
+function renderOfferLegRows(requestId) {
+  const legs = offerDraftLegs[requestId] || [];
+  const carrierOptions = (carriersCache || [])
+    .map((c) => `<option value="${c.id}">${CARRIER_MODE_LABELS_AR[c.mode]} — ${escapeHtml(c.name)}</option>`)
+    .join("");
+
+  const container = document.querySelector(`[data-offer-legs="${requestId}"]`);
+  if (!container) return;
+
+  container.innerHTML = legs
+    .map(
+      (_, index) => `
+        <div style="display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0; align-items: center">
+          <select data-leg-field="${requestId}:${index}:carrierId">${carrierOptions}</select>
+          <select data-leg-field="${requestId}:${index}:direction">
+            <option value="OUTBOUND">ذهاب</option>
+            <option value="RETURN">عودة</option>
+          </select>
+          <input type="text" placeholder="رقم الرحلة" data-leg-field="${requestId}:${index}:tripNumber" style="width: 90px" />
+          <input type="text" placeholder="من" data-leg-field="${requestId}:${index}:fromLocation" style="width: 90px" />
+          <input type="text" placeholder="إلى" data-leg-field="${requestId}:${index}:toLocation" style="width: 90px" />
+          <input type="datetime-local" data-leg-field="${requestId}:${index}:departureAt" />
+          <input type="datetime-local" data-leg-field="${requestId}:${index}:arrivalAt" />
+          ${legs.length > 1 ? `<button type="button" data-remove-leg="${requestId}:${index}">حذف</button>` : ""}
+        </div>`
+    )
+    .join("");
+}
+
+async function handleToggleOfferForm(e) {
+  const button = e.target.closest("[data-toggle-offer-form]");
+  if (!button) return;
+
+  const requestId = button.dataset.toggleOfferForm;
+  const form = document.querySelector(`[data-offer-form="${requestId}"]`);
+  if (!form) return;
+
+  await ensureCarriersLoaded();
+
+  if (form.classList.contains("hidden") && !offerDraftLegs[requestId]) {
+    offerDraftLegs[requestId] = [{}];
+    renderOfferLegRows(requestId);
+  }
+
+  form.classList.toggle("hidden");
+}
+
+function handleAddLegClick(e) {
+  const button = e.target.closest("[data-add-leg]");
+  if (!button) return;
+  const requestId = button.dataset.addLeg;
+  offerDraftLegs[requestId] = [...(offerDraftLegs[requestId] || []), {}];
+  renderOfferLegRows(requestId);
+}
+
+function handleRemoveLegClick(e) {
+  const button = e.target.closest("[data-remove-leg]");
+  if (!button) return;
+  const [requestId, indexStr] = button.dataset.removeLeg.split(":");
+  const index = Number(indexStr);
+  offerDraftLegs[requestId] = (offerDraftLegs[requestId] || []).filter((_, i) => i !== index);
+  renderOfferLegRows(requestId);
+}
+
+// datetime-local inputs give "YYYY-MM-DDTHH:mm" (no timezone/seconds) —
+// the backend's z.string().datetime() needs a full ISO string, so this
+// converts via the browser's local-timezone Date parsing before sending.
+function datetimeLocalToIso(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function handleSubmitOfferClick(e) {
+  const button = e.target.closest("[data-submit-offer]");
+  if (!button) return;
+
+  const requestId = button.dataset.submitOffer;
+  const currency = document.querySelector(`[data-offer-currency="${requestId}"]`).value;
+  const amount = document.querySelector(`[data-offer-amount="${requestId}"]`).value;
+  const notes = document.querySelector(`[data-offer-notes="${requestId}"]`).value.trim();
+
+  if (!amount || Number(amount) <= 0) {
+    showAlert(mgmtAlert(), "أدخل مبلغًا صحيحًا قبل الإرسال");
+    return;
+  }
+
+  const legCount = (offerDraftLegs[requestId] || []).length;
+  const legs = [];
+  for (let index = 0; index < legCount; index++) {
+    legs.push({
+      carrierId: document.querySelector(`[data-leg-field="${requestId}:${index}:carrierId"]`).value,
+      direction: document.querySelector(`[data-leg-field="${requestId}:${index}:direction"]`).value,
+      tripNumber: document.querySelector(`[data-leg-field="${requestId}:${index}:tripNumber"]`).value.trim() || undefined,
+      fromLocation: document.querySelector(`[data-leg-field="${requestId}:${index}:fromLocation"]`).value.trim(),
+      toLocation: document.querySelector(`[data-leg-field="${requestId}:${index}:toLocation"]`).value.trim(),
+      departureAt: datetimeLocalToIso(document.querySelector(`[data-leg-field="${requestId}:${index}:departureAt"]`).value) || undefined,
+      arrivalAt: datetimeLocalToIso(document.querySelector(`[data-leg-field="${requestId}:${index}:arrivalAt"]`).value) || undefined,
+    });
+  }
+
+  if (legs.some((leg) => !leg.carrierId || !leg.fromLocation || !leg.toLocation)) {
+    showAlert(mgmtAlert(), "أكمل بيانات كل رحلة (الناقل، من، إلى) قبل الإرسال");
+    return;
+  }
+
+  button.disabled = true;
+  api
+    .post(`/contact-requests/${requestId}/offers`, { currency, amount: Number(amount), notes: notes || undefined, legs })
+    .then(() => {
+      delete offerDraftLegs[requestId];
+      loadContactRequests();
+    })
+    .catch((error) => {
+      showAlert(mgmtAlert(), error.message);
+      button.disabled = false;
+    });
+}
+
+function handleWithdrawOfferClick(e) {
+  const button = e.target.closest("[data-withdraw-offer]");
+  if (!button) return;
+  if (!window.confirm("سحب هذا العرض؟")) return;
+
+  const requestId = button.dataset.withdrawOfferRequest;
+  const offerId = button.dataset.withdrawOffer;
+
+  api
+    .post(`/contact-requests/${requestId}/offers/${offerId}/withdraw`)
+    .then(loadContactRequests)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
 }
 
 function handleContactRequestStatusChange(e) {

@@ -34,6 +34,7 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: false,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsOfferApproval: false,
       needsReupload: false,
     });
   });
@@ -59,6 +60,7 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: true,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsOfferApproval: false,
       needsReupload: false,
     });
   });
@@ -70,6 +72,7 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: false,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsOfferApproval: false,
       needsReupload: false,
     });
   });
@@ -83,6 +86,7 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: false,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsOfferApproval: false,
       needsReupload: false,
     });
   });
@@ -94,6 +98,7 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: true,
       needsPayment: false,
       needsInvoiceApproval: true,
+      needsOfferApproval: false,
       needsReupload: false,
     });
   });
@@ -112,6 +117,7 @@ describe("deriveCustomerFacingStatus", () => {
       needsDocuments: false,
       needsPayment: false,
       needsInvoiceApproval: false,
+      needsOfferApproval: false,
       needsReupload: false,
     });
   });
@@ -151,5 +157,34 @@ describe("deriveCustomerFacingStatus", () => {
     const result = deriveCustomerFacingStatus(baseRequest({ status: "CLOSED", documents: [doc("PASSPORT", "REJECTED")] }));
     assert.equal(result.needsReupload, false);
     assert.equal(result.label, "مكتمل");
+  });
+
+  test("pending offers take priority over missing documents", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ hasPendingOffers: true }));
+    assert.deepEqual(result, {
+      label: "بانتظار موافقتك على السعر",
+      needsDocuments: true,
+      needsPayment: false,
+      needsInvoiceApproval: false,
+      needsOfferApproval: true,
+      needsReupload: false,
+    });
+  });
+
+  test("pending offers lose to an already-active payment flow", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ hasPendingOffers: true, paymentStatus: "AWAITING_TRANSFER" }));
+    assert.equal(result.label, "بانتظار الدفع");
+  });
+
+  test("pending offers are moot once the request is CLOSED", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ hasPendingOffers: true, status: "CLOSED" }));
+    assert.deepEqual(result, {
+      label: "مكتمل",
+      needsDocuments: false,
+      needsPayment: false,
+      needsInvoiceApproval: false,
+      needsOfferApproval: false,
+      needsReupload: false,
+    });
   });
 });

@@ -13,14 +13,19 @@ import {
 import {
   downloadContactRequestDocument,
   getContactRequestDocuments,
+  getContactRequestOffers,
   getContactRequestPaymentReceipt,
   getContactRequests,
   getMyContactRequests,
   patchContactRequestDocumentStatus,
+  patchContactRequestOffer,
   patchContactRequestPayment,
   patchContactRequestPaymentStatus,
   patchContactRequestStatus,
+  postApproveContactRequestOffer,
   postApproveInvoice,
+  postCreateContactRequestOffer,
+  postWithdrawContactRequestOffer,
   scanPassportForContactRequest,
   storeContactRequest,
   uploadContactRequestAdditionalDocuments,
@@ -139,5 +144,30 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getContactRequestPaymentReceipt
 );
+router.post(
+  "/:id/offers",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  postCreateContactRequestOffer
+);
+router.get(
+  "/:id/offers",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  getContactRequestOffers
+);
+router.patch(
+  "/:id/offers/:offerId",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  patchContactRequestOffer
+);
+router.post(
+  "/:id/offers/:offerId/withdraw",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  postWithdrawContactRequestOffer
+);
+router.post("/:id/offers/:offerId/approve", requireCustomerAuth, postApproveContactRequestOffer);
 
 export default router;

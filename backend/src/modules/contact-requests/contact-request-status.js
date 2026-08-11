@@ -20,7 +20,13 @@
 // updatedAt }[]) — replaces the old flat path arrays now that each upload
 // has its own reviewable status.
 export function deriveCustomerFacingStatus(contactRequest) {
-  const { status, paymentStatus, documents = [], hasPendingInvoice = false } = contactRequest;
+  const {
+    status,
+    paymentStatus,
+    documents = [],
+    hasPendingInvoice = false,
+    hasPendingOffers = false,
+  } = contactRequest;
 
   const hasAnyDocuments = documents.length > 0;
 
@@ -38,16 +44,17 @@ export function deriveCustomerFacingStatus(contactRequest) {
   const needsDocuments = !hasAnyDocuments && status !== "CLOSED";
   const needsPayment = paymentStatus === "AWAITING_TRANSFER" && status !== "CLOSED";
   const needsInvoiceApproval = hasPendingInvoice && status !== "CLOSED";
+  const needsOfferApproval = hasPendingOffers && status !== "CLOSED";
 
   const label = (() => {
     if (status === "CLOSED") return "مكتمل";
     if (needsReupload) return "يوجد مستند يحتاج إعادة رفع";
     if (paymentStatus === "UNDER_REVIEW") return "قيد المراجعة";
     if (paymentStatus === "AWAITING_TRANSFER") return "بانتظار الدفع";
-    if (needsInvoiceApproval) return "بانتظار موافقتك على السعر";
+    if (needsInvoiceApproval || needsOfferApproval) return "بانتظار موافقتك على السعر";
     if (!hasAnyDocuments) return "بانتظار المستندات";
     return "قيد المراجعة";
   })();
 
-  return { label, needsDocuments, needsPayment, needsInvoiceApproval, needsReupload };
+  return { label, needsDocuments, needsPayment, needsInvoiceApproval, needsOfferApproval, needsReupload };
 }

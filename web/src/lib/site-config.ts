@@ -31,6 +31,7 @@ export const mainNav: NavItem[] = [
   { label: "التأشيرات", href: "/visas" },
   { label: "الطيران", href: "/flights" },
   { label: "الفنادق", href: "/hotels" },
+  { label: "العبّارات", href: "/ferry" },
   { label: "الباقات", href: "/packages" },
   { label: "من نحن", href: "/about" },
   { label: "تواصل معنا", href: "/contact" },

@@ -491,6 +491,13 @@ model ContactRequest {
   // the AWAITING_TRANSFER bank-transfer flow above.
   invoice Invoice?
 
+  // Multiple staff-proposed priced alternatives (e.g. different airlines at
+  // different prices) for services where more than one legitimate option
+  // exists — see ContactRequestOffer. A request realistically uses either
+  // `invoice` or `offers`, never both, but that isn't enforced at the DB
+  // level.
+  offers ContactRequestOffer[]
+
   // One row per uploaded file (passport photo, guarantor Iqama photo, or
   // free-form additional document), each with its own review status —
   // replaces the three deprecated array columns above, which couldn't
@@ -562,6 +569,108 @@ model Invoice {
   updatedAt        DateTime      @updatedAt
 
   contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+}
+
+enum CarrierMode {
+  AIR
+  SEA
+}
+
+// Admin-managed catalog of airlines/ferry operators staff price a
+// ContactRequestOffer's TripLeg against. Never hard-deleted (see `active`),
+// so historical TripLeg rows always keep a valid reference.
+model Carrier {
+  id        String      @id @default(cuid())
+  name      String
+  mode      CarrierMode
+  code      String?
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  legs TripLeg[]
+
+  @@unique([name, mode])
+  @@index([mode])
+  @@index([active])
+}
+
+enum ContactRequestOfferStatus {
+  PENDING_APPROVAL
+  APPROVED
+  DECLINED
+  WITHDRAWN
+}
+
+// A staff-proposed priced alternative for a ContactRequest — generalizes
+// Invoice to services where more than one priced option can legitimately
+// exist for the same request, e.g. two airlines quoted for the same
+// flight. Unlike Invoice, contactRequestId is NOT unique: many rows are
+// expected per request. The customer picks exactly one (see
+// approveContactRequestOffer in contact-requests.service.js); every other
+// still-PENDING_APPROVAL sibling is auto-DECLINEd at that point.
+model ContactRequestOffer {
+  id               String                    @id @default(cuid())
+  contactRequestId String
+  currency         String
+  amount           Decimal                   @db.Decimal(12, 2)
+  status           ContactRequestOfferStatus @default(PENDING_APPROVAL)
+  notes            String?
+  approvedAt       DateTime?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  legs           TripLeg[]
+
+  @@index([contactRequestId])
+  @@index([status])
+}
+
+enum TripLegDirection {
+  OUTBOUND
+  RETURN
+}
+
+// PROPOSED until staff has actually booked with the carrier (a manual,
+// out-of-band action today), then BOOKED once reserved and TICKETED once
+// the ticket/PNR is issued. Not driven by the parent offer's own status —
+// an APPROVED offer's legs don't jump straight to BOOKED, since staff
+// still has to actually go make the booking with the carrier.
+enum TripLegTicketStatus {
+  PROPOSED
+  BOOKED
+  TICKETED
+  CANCELLED
+}
+
+// One flight/ferry segment within a ContactRequestOffer — a round-trip
+// flight offer has two rows (OUTBOUND + RETURN), a one-way flight or a
+// single ferry crossing has one. fromLocation/toLocation are free text,
+// entered manually by staff for now. Kept structured (rather than folding
+// leg details into ContactRequestOffer.notes) so a later automated
+// booking-site fetch can populate these same fields without a schema
+// change.
+model TripLeg {
+  id              String              @id @default(cuid())
+  offerId         String
+  carrierId       String
+  direction       TripLegDirection    @default(OUTBOUND)
+  tripNumber      String?
+  departureAt     DateTime?
+  arrivalAt       DateTime?
+  fromLocation    String
+  toLocation      String
+  ticketStatus    TripLegTicketStatus @default(PROPOSED)
+  ticketReference String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  offer   ContactRequestOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  carrier Carrier             @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+
+  @@index([offerId])
+  @@index([carrierId])
 }
 
 // One-time WhatsApp login codes for the customer-facing request-tracking
