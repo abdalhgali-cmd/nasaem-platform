@@ -66,11 +66,16 @@ enum OfferStatus {
 // CONFIRMED once staff verify the transfer actually landed. Requests that
 // never carry a price (every service except a priced Umrah package) stay
 // NOT_REQUIRED forever.
+// NOT_REQUIRED -> AWAITING_TRANSFER -> UNDER_REVIEW -> CONFIRMED is the
+// normal path. REFUNDED is a terminal branch reachable only from CONFIRMED
+// (see updatePaymentStatus's refund precondition) — once REFUNDED, no
+// further paymentStatus transition is allowed.
 enum ContactRequestPaymentStatus {
   NOT_REQUIRED
   AWAITING_TRANSFER
   UNDER_REVIEW
   CONFIRMED
+  REFUNDED
 }
 
 model Branch {
@@ -493,6 +498,16 @@ model ContactRequest {
   currency           String?
   paymentAmount      Decimal?                     @db.Decimal(12, 2)
   paymentStatus      ContactRequestPaymentStatus  @default(NOT_REQUIRED)
+  // When paymentStatus first became CONFIRMED — the only accurate anchor
+  // for "money collected in this window" reporting (createdAt answers a
+  // different question: "requests opened in this window"). Written once,
+  // by updatePaymentStatus's first-confirmation branch; a redundant
+  // re-PATCH of the same CONFIRMED value does not move it.
+  paymentConfirmedAt DateTime?
+  // When a CONFIRMED payment was reversed. Kept alongside (not instead of)
+  // paymentConfirmedAt so a refunded request retains when it was
+  // originally collected.
+  refundedAt         DateTime?
   // DEPRECATED — superseded by the `documents` relation below, which
   // carries a per-file review status these flat arrays can't. Kept
   // (unused by any application code as of this migration) as a frozen
@@ -538,6 +553,7 @@ model ContactRequest {
   @@index([paymentStatus])
   @@index([department])
   @@index([executionStage])
+  @@index([paymentConfirmedAt])
 }
 
 // The 5 staff departments a ContactRequest/User can be scoped to (see

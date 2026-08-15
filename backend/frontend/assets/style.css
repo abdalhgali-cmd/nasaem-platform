@@ -298,6 +298,11 @@ tbody tr:hover {
   color: #991b1b;
 }
 
+.badge.status-REFUNDED {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .badge.status-PARTIAL {
   background: #fef3c7;
   color: #92400e;

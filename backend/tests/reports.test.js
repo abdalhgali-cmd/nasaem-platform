@@ -105,6 +105,12 @@ describe("reports summary", () => {
     );
     // The unconfirmed UMRAH request contributes no revenue.
     assert.equal(after.byDepartment.UMRAH.revenue.SAR || 0, before.byDepartment.UMRAH.revenue.SAR || 0);
+
+    // Confirmed just now, so a range covering today must include it in
+    // revenue too — this is the paymentConfirmedAt axis, not createdAt.
+    const today = new Date().toISOString().slice(0, 10);
+    const todayOnly = (await adminAgent.get(`/api/reports/summary?from=${today}`)).body.data;
+    assert.ok((todayOnly.byDepartment.FLIGHTS.revenue.SAR || 0) >= 400);
   });
 
   test("?department= filters the summary to just that department", async () => {

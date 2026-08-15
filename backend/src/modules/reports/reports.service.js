@@ -5,13 +5,10 @@ const DEPARTMENTS = ["VISAS", "FLIGHTS", "UMRAH", "HOTELS_PACKAGES", "FERRY"];
 
 // `from`/`to` are inclusive on both ends — `to` is pushed to the end of
 // that calendar day so a same-day range actually covers the whole day, not
-// just its first millisecond. Anchored to ContactRequest.createdAt — the
-// only timestamp this table has. NOTE: paymentStatus has no timestamp of
-// its own (unlike Invoice.approvedAt), so "revenue" below really means
-// "confirmed revenue on requests *created* in this window," not "money
-// collected in this window" — an older request paid today still counts
-// toward the window it was created in, not today. Flagged in the admin UI
-// copy (see the reports tab) rather than silently misrepresented.
+// just its first millisecond. Used against two different date axes below:
+// ContactRequest.createdAt for total/byStatus/byDepartment counts, and
+// ContactRequest.paymentConfirmedAt for revenue specifically — see
+// getReportsSummary's revenueWhere.
 function parseDateRange({ from, to }) {
   const range = {};
   if (from) {
@@ -32,8 +29,20 @@ function parseDateRange({ from, to }) {
 }
 
 export async function getReportsSummary({ from, to, department }) {
-  const createdAt = parseDateRange({ from, to });
-  const baseWhere = { ...(createdAt ? { createdAt } : {}), ...(department ? { department } : {}) };
+  const range = parseDateRange({ from, to });
+  const baseWhere = { ...(range ? { createdAt: range } : {}), ...(department ? { department } : {}) };
+  // Revenue answers a different question from the three counts above:
+  // "money confirmed collected in this window," not "requests opened in
+  // this window." When no range is given, paymentConfirmedAt is left
+  // unfiltered so legacy rows with a NULL timestamp still count toward
+  // all-time revenue. A REFUNDED request is excluded here (paymentStatus
+  // is no longer CONFIRMED) while still counting toward `total` above.
+  const revenueWhere = {
+    ...(range ? { paymentConfirmedAt: range } : {}),
+    ...(department ? { department } : {}),
+    paymentStatus: "CONFIRMED",
+    currency: { not: null },
+  };
 
   const [total, byStatusRaw, byDepartmentCountRaw, byDepartmentRevenueRaw] = await Promise.all([
     prisma.contactRequest.count({ where: baseWhere }),
@@ -41,7 +50,7 @@ export async function getReportsSummary({ from, to, department }) {
     prisma.contactRequest.groupBy({ by: ["department"], where: baseWhere, _count: { _all: true } }),
     prisma.contactRequest.groupBy({
       by: ["department", "currency"],
-      where: { ...baseWhere, paymentStatus: "CONFIRMED", currency: { not: null } },
+      where: revenueWhere,
       _sum: { paymentAmount: true },
     }),
   ]);

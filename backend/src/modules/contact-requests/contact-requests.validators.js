@@ -37,7 +37,7 @@ export const updateContactRequestStatusSchema = z.object({
 });
 
 export const updatePaymentStatusSchema = z.object({
-  status: z.enum(["AWAITING_TRANSFER", "UNDER_REVIEW", "CONFIRMED"]),
+  status: z.enum(["AWAITING_TRANSFER", "UNDER_REVIEW", "CONFIRMED", "REFUNDED"]),
 });
 
 // Staff-set price for a request with no catalog price (e.g. a work visa,

@@ -474,16 +474,73 @@ export async function updatePaymentStatus(id, status, req) {
   }
   assertContactRequestAccess(req.user, existing);
 
+  // REFUNDED is terminal — no further paymentStatus transition, including
+  // another REFUNDED, is allowed once reached.
+  if (existing.paymentStatus === "REFUNDED") {
+    throw Object.assign(new Error("لا يمكن تعديل حالة دفع مسترجعة"), { statusCode: 400 });
+  }
+
+  const isFirstConfirmation = existing.paymentStatus !== "CONFIRMED" && status === "CONFIRMED";
+  const isRefund = status === "REFUNDED";
+
+  if (isRefund && existing.paymentStatus !== "CONFIRMED") {
+    throw Object.assign(new Error("لا يمكن استرجاع دفعة لم يتم تأكيدها"), { statusCode: 400 });
+  }
+
+  // A refund that catches the request mid-execution auto-cancels it (with
+  // its own auditable history row, same as a manual transition) — but a
+  // refund after DELIVERED_TO_CUSTOMER/CANCELLED/VISA_REJECTED leaves the
+  // stage untouched: a goodwill refund after delivery is a real business
+  // case, and rewriting a delivered request's stage would falsify the
+  // audit trail. The refund itself lives on paymentStatus/refundedAt,
+  // which is the honest place for it.
+  const shouldAutoCancelExecution =
+    isRefund && existing.executionStage != null && !isTerminalExecutionStage(existing.executionStage);
+
   const updated = await prisma.contactRequest.update({
     where: { id },
-    data: { paymentStatus: status },
+    data: {
+      paymentStatus: status,
+      ...(isFirstConfirmation ? { paymentConfirmedAt: new Date() } : {}),
+      ...(isRefund ? { refundedAt: new Date() } : {}),
+      ...(shouldAutoCancelExecution
+        ? {
+            executionStage: "CANCELLED",
+            executionHistory: {
+              create: {
+                oldStage: existing.executionStage,
+                newStage: "CANCELLED",
+                changedByUserId: req.user.id,
+                notes: "إلغاء تلقائي بسبب استرجاع الدفعة",
+              },
+            },
+          }
+        : {}),
+    },
   });
 
-  if (existing.paymentStatus !== "CONFIRMED" && status === "CONFIRMED") {
+  if (isRefund) {
+    logActivity({
+      userId: req.user?.id,
+      action: "CONTACT_REQUEST_PAYMENT_REFUNDED",
+      entity: "ContactRequest",
+      entityId: id,
+      req,
+    });
+  }
+
+  if (isFirstConfirmation) {
     // Not awaited, same reasoning as every other WhatsApp send in this file.
     sendWhatsAppMessage(
       updated.phone,
       `تم تأكيد استلام دفعتك لطلبك رقم ${updated.referenceNumber}\nالمبلغ: ${updated.paymentAmount} ${CURRENCY_LABELS_AR[updated.currency]}\nشكرًا لك، سيتم متابعة طلبك.`
+    );
+  }
+
+  if (isRefund) {
+    sendWhatsAppMessage(
+      updated.phone,
+      `تم استرجاع دفعتك لطلبك رقم ${updated.referenceNumber}\nالمبلغ: ${updated.paymentAmount} ${CURRENCY_LABELS_AR[updated.currency]}`
     );
   }
 

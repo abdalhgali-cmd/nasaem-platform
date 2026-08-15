@@ -26,6 +26,7 @@ const ACTIVITY_ACTION_LABELS_AR = {
   CONTACT_REQUEST_OFFER_APPROVED: "موافقة العميل على عرض متعدد",
   CONTACT_REQUEST_EXECUTION_STAGE_CHANGED: "تغيير مرحلة تنفيذ طلب تواصل",
   CONTACT_REQUEST_FINAL_DOCUMENT_UPLOADED: "رفع مستندات نهائية",
+  CONTACT_REQUEST_PAYMENT_REFUNDED: "استرجاع دفعة طلب تواصل",
 };
 
 const CONTACT_REQUEST_STATUS_LABELS_AR = {
@@ -39,6 +40,7 @@ const PAYMENT_STATUS_LABELS_AR = {
   AWAITING_TRANSFER: "بانتظار التحويل",
   UNDER_REVIEW: "قيد المراجعة",
   CONFIRMED: "تم التأكيد",
+  REFUNDED: "مسترجع",
 };
 
 const CONTACT_REQUEST_DOCUMENT_TYPE_LABELS_AR = {
@@ -855,9 +857,16 @@ async function loadContactRequests() {
                 `
                 : `
                   <div>${req.currency ? CURRENCY_LABELS_AR[req.currency] || req.currency : ""} ${req.paymentAmount ?? ""}</div>
-                  <select data-payment-status="${req.id}">
+                  <select data-payment-status="${req.id}" ${req.paymentStatus === "REFUNDED" ? "disabled" : ""}>
                     ${Object.entries(PAYMENT_STATUS_LABELS_AR)
-                      .filter(([value]) => value !== "NOT_REQUIRED")
+                      // REFUNDED is a valid *target* only once a payment is
+                      // CONFIRMED (the backend's own precondition) — hiding
+                      // it otherwise avoids a control that would always 400.
+                      .filter(
+                        ([value]) =>
+                          value !== "NOT_REQUIRED" &&
+                          (value !== "REFUNDED" || req.paymentStatus === "CONFIRMED" || req.paymentStatus === "REFUNDED")
+                      )
                       .map(
                         ([value, label]) =>
                           `<option value="${value}" ${value === req.paymentStatus ? "selected" : ""}>${label}</option>`
@@ -1144,12 +1153,21 @@ function handleContactRequestStatusChange(e) {
 function handlePaymentStatusChange(e) {
   const select = e.target.closest("[data-payment-status]");
   if (!select) return;
+
+  if (select.value === "REFUNDED" && !window.confirm("تأكيد استرجاع الدفعة؟ لا يمكن التراجع عن هذه العملية.")) {
+    loadContactRequests();
+    return;
+  }
+
   api
     .patch(`/contact-requests/${select.dataset.paymentStatus}/payment-status`, {
       status: select.value,
     })
     .then(loadContactRequests)
-    .catch((error) => showAlert(mgmtAlert(), error.message));
+    .catch((error) => {
+      showAlert(mgmtAlert(), error.message);
+      loadContactRequests();
+    });
 }
 
 function handleExecutionStageChange(e) {
