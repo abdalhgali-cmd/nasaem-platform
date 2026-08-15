@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, MessageCircle, Send, Upload } from "lucide-react";
+import { Download, Loader2, MessageCircle, Send, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 
@@ -44,6 +44,7 @@ type TrackedRequest = {
     }[];
   }[];
   documents: { id: string; type: string; status: string; rejectionReason: string | null; createdAt: string }[];
+  finalDocuments: { id: string; fileName: string | null; createdAt: string }[];
 };
 
 const TRIP_LEG_DIRECTION_LABELS: Record<string, string> = { OUTBOUND: "ذهاب", RETURN: "عودة" };
@@ -362,6 +363,30 @@ function TrackedRequestCard({
       {request.friendlyStatus.inExecution || request.friendlyStatus.outcome ? (
         <div className="mt-4 border-t border-border pt-4 text-sm text-foreground">
           حالة التنفيذ: <strong>{request.friendlyStatus.executionStageLabel}</strong>
+        </div>
+      ) : null}
+
+      {/* Rendered outside the needsAction gate too — a request whose final
+          documents are ready almost always has every `needsX` flag false,
+          which is exactly the case this block exists for. A plain top-level
+          anchor navigation (not fetch + credentials:"include") so the
+          customerAccessToken cookie is sent under both this app's cookie
+          topologies (lax in dev, none+secure in production) with no CORS
+          preflight, and res.download()'s Content-Disposition does the
+          filename work. */}
+      {request.finalDocuments.length > 0 ? (
+        <div className="mt-4 space-y-2 border-t border-border pt-4">
+          <p className="text-sm font-semibold text-foreground">المستندات النهائية</p>
+          {request.finalDocuments.map((doc) => (
+            <a
+              key={doc.id}
+              href={`${API_URL}/contact-requests/${request.id}/final-documents/${doc.id}/file`}
+              className="flex items-center gap-1.5 text-sm text-primary underline-offset-2 hover:underline dark:text-secondary"
+            >
+              <Download className="size-3.5" />
+              {doc.fileName || "مستند نهائي"}
+            </a>
+          ))}
         </div>
       ) : null}
 

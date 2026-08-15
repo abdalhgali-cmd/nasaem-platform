@@ -28,7 +28,11 @@ export function deriveCustomerFacingStatus(contactRequest) {
     executionStage = null,
   } = contactRequest;
 
-  const hasAnyDocuments = documents.length > 0;
+  // FINAL documents are staff-authored deliverables, not something the
+  // customer uploaded — they must never count toward "the customer has
+  // uploaded something" or be candidates for "needs re-upload".
+  const customerDocuments = documents.filter((d) => d.type !== "FINAL");
+  const hasAnyDocuments = customerDocuments.length > 0;
 
   // A REJECTED row still needs action unless a *later* document of the same
   // type exists — checked per row, not "latest per type", since this app's
@@ -37,8 +41,10 @@ export function deriveCustomerFacingStatus(contactRequest) {
   // ADDITIONAL bucket bundles several distinct documents in one batch).
   const needsReupload =
     status !== "CLOSED" &&
-    documents.some(
-      (d) => d.status === "REJECTED" && !documents.some((other) => other.type === d.type && other.createdAt > d.updatedAt)
+    customerDocuments.some(
+      (d) =>
+        d.status === "REJECTED" &&
+        !customerDocuments.some((other) => other.type === d.type && other.createdAt > d.updatedAt)
     );
 
   const needsDocuments = !hasAnyDocuments && status !== "CLOSED";

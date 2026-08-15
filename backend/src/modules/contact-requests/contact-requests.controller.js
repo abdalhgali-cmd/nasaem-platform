@@ -19,7 +19,9 @@ import {
   attachPaymentReceipt,
   createContactRequest,
   createContactRequestOffer,
+  createFinalDocuments,
   createOrUpdatePriceQuote,
+  getFinalDocumentForCustomer,
   listContactRequestDocuments,
   listContactRequestOffers,
   listContactRequests,
@@ -146,13 +148,21 @@ export async function getMyContactRequests(req, res, next) {
             carrier: { name: l.carrier.name, mode: l.carrier.mode },
           })),
         })),
-        documents: row.documents.map((d) => ({
-          id: d.id,
-          type: d.type,
-          status: d.status,
-          rejectionReason: d.rejectionReason,
-          createdAt: d.createdAt,
-        })),
+        documents: row.documents
+          .filter((d) => d.type !== "FINAL")
+          .map((d) => ({
+            id: d.id,
+            type: d.type,
+            status: d.status,
+            rejectionReason: d.rejectionReason,
+            createdAt: d.createdAt,
+          })),
+        // Staff-authored deliverables — never mixed into `documents` above,
+        // and storagePath is never returned (only an id, resolved through
+        // the dedicated download route below).
+        finalDocuments: row.documents
+          .filter((d) => d.type === "FINAL")
+          .map((d) => ({ id: d.id, fileName: d.fileName, createdAt: d.createdAt })),
       };
     });
 
@@ -445,6 +455,7 @@ const DOCUMENT_DOWNLOAD_LABELS = {
   PASSPORT: "passport",
   GUARANTOR_ID: "guarantor-id",
   ADDITIONAL: "document",
+  FINAL: "final-document",
 };
 
 export async function downloadContactRequestDocument(req, res, next) {
@@ -461,7 +472,55 @@ export async function downloadContactRequestDocument(req, res, next) {
     });
     assertContactRequestAccess(req.user, contactRequest);
 
-    return downloadFile(req, res, next, document.storagePath, DOCUMENT_DOWNLOAD_LABELS[document.type]);
+    // Prefer the real original filename when one was recorded (FINAL
+    // documents only) — path.parse(...).name because downloadFile()
+    // re-appends storagePath's own extension.
+    const downloadName = document.fileName ? path.parse(document.fileName).name : DOCUMENT_DOWNLOAD_LABELS[document.type];
+    return downloadFile(req, res, next, document.storagePath, downloadName);
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Staff upload — the counterpart to the customer-upload endpoints above,
+// but authored by staff and delivered to the customer instead.
+export async function uploadContactRequestFinalDocuments(req, res, next) {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ success: false, message: "No files uploaded" });
+    }
+
+    const contactRequest = await createFinalDocuments(req.params.id, req.files, req);
+
+    if (!contactRequest) {
+      return res.status(404).json({ success: false, message: "Contact request not found" });
+    }
+
+    return res.status(201).json({ success: true, message: "Final documents uploaded" });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Customer-facing: requireCustomerAuth already verified who's calling
+// (req.customerPhone); getFinalDocumentForCustomer separately checks that
+// phone actually owns this specific request, and that the document is
+// really a FINAL one (never PASSPORT/GUARANTOR_ID/ADDITIONAL) before
+// serving it.
+export async function downloadFinalDocumentForCustomer(req, res, next) {
+  try {
+    const document = await getFinalDocumentForCustomer(req.params.id, req.params.documentId, req.customerPhone);
+
+    if (document === null) {
+      return res.status(404).json({ success: false, message: "File not found" });
+    }
+
+    if (document === "forbidden") {
+      return res.status(403).json({ success: false, message: "This request does not belong to you" });
+    }
+
+    const downloadName = document.fileName ? path.parse(document.fileName).name : "final-document";
+    return downloadFile(req, res, next, document.storagePath, downloadName);
   } catch (error) {
     next(error);
   }

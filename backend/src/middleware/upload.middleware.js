@@ -78,10 +78,11 @@ export const uploadSiteAsset = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 }).single("image");
 
-// Files a customer attaches to their own public contact-request submission
-// (passport photo, bank-transfer receipt) — unlike `uploadDocument` these
-// aren't created by an authenticated staff member, so they're kept in a
-// separate directory rather than mixed into uploads/documents.
+// Files attached to a public contact-request submission — customer-uploaded
+// (passport photo, bank-transfer receipt) or, since Phase G/H, staff-
+// uploaded final deliverables. Unlike `uploadDocument` these aren't all
+// created by an authenticated staff member, so they're kept in a separate
+// directory rather than mixed into uploads/documents.
 const CONTACT_REQUEST_FILES_DIR = path.resolve("uploads", "contact-request-files");
 fs.mkdirSync(CONTACT_REQUEST_FILES_DIR, { recursive: true });
 
@@ -126,3 +127,16 @@ export const uploadContactRequestAdditionalDocuments = multer({
   fileFilter,
   limits: { fileSize: 8 * 1024 * 1024 },
 }).array("images", 5);
+
+// Staff-authored final deliverables (issued visa PDF, e-ticket, hotel
+// voucher) attached to a request and downloadable by the customer. Uses the
+// permissive `fileFilter` (PDF + images) like the additional-documents
+// slot — these are almost always PDFs. Larger cap than the customer-facing
+// slots (10 MB, matching uploadDocument) since a multi-page scanned voucher
+// is bigger than a phone photo; capped at 5 files, per-request rather than
+// per-traveler.
+export const uploadContactRequestFinalDocuments = multer({
+  storage: contactRequestFileStorage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+}).array("files", 5);

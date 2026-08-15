@@ -9,9 +9,11 @@ import {
   uploadContactRequestGuarantorIdImages as uploadGuarantorIdImageFiles,
   uploadContactRequestAdditionalDocuments as uploadAdditionalDocumentFiles,
   uploadContactRequestPaymentReceipt as uploadPaymentReceiptFile,
+  uploadContactRequestFinalDocuments as uploadFinalDocumentFiles,
 } from "../../middleware/upload.middleware.js";
 import {
   downloadContactRequestDocument,
+  downloadFinalDocumentForCustomer,
   getContactRequestDocuments,
   getContactRequestOffers,
   getContactRequestPaymentReceipt,
@@ -30,6 +32,7 @@ import {
   scanPassportForContactRequest,
   storeContactRequest,
   uploadContactRequestAdditionalDocuments,
+  uploadContactRequestFinalDocuments,
   uploadContactRequestGuarantorIdImages,
   uploadContactRequestPassportImages,
   uploadContactRequestPaymentReceipt,
@@ -174,6 +177,13 @@ router.patch(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   patchContactRequestDocumentStatus
 );
+router.post(
+  "/:id/final-documents",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  handleUpload(uploadFinalDocumentFiles),
+  uploadContactRequestFinalDocuments
+);
 router.get(
   "/:id/payment-receipt",
   requireAuth,
@@ -205,5 +215,6 @@ router.post(
   postWithdrawContactRequestOffer
 );
 router.post("/:id/offers/:offerId/approve", requireCustomerAuth, postApproveContactRequestOffer);
+router.get("/:id/final-documents/:documentId/file", requireCustomerAuth, downloadFinalDocumentForCustomer);
 
 export default router;

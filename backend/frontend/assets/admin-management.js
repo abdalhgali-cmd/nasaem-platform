@@ -25,6 +25,7 @@ const ACTIVITY_ACTION_LABELS_AR = {
   CONTACT_REQUEST_OFFER_WITHDRAWN: "سحب عرض سعر لطلب تواصل",
   CONTACT_REQUEST_OFFER_APPROVED: "موافقة العميل على عرض متعدد",
   CONTACT_REQUEST_EXECUTION_STAGE_CHANGED: "تغيير مرحلة تنفيذ طلب تواصل",
+  CONTACT_REQUEST_FINAL_DOCUMENT_UPLOADED: "رفع مستندات نهائية",
 };
 
 const CONTACT_REQUEST_STATUS_LABELS_AR = {
@@ -44,6 +45,7 @@ const CONTACT_REQUEST_DOCUMENT_TYPE_LABELS_AR = {
   PASSPORT: "صورة جواز السفر",
   GUARANTOR_ID: "صورة إقامة الضامن",
   ADDITIONAL: "المستند الإضافي",
+  FINAL: "المستند النهائي",
 };
 
 const CONTACT_REQUEST_DOCUMENT_STATUS_LABELS_AR = {
@@ -224,6 +226,7 @@ function wireManagementTabs() {
   el("contact-requests-body").addEventListener("change", handleExecutionStageChange);
   el("contact-requests-body").addEventListener("click", handleApprovePaymentClick);
   el("contact-requests-body").addEventListener("click", handleDocumentReviewClick);
+  el("contact-requests-body").addEventListener("click", handleFinalDocumentUpload);
   el("contact-requests-body").addEventListener("click", handleToggleOfferForm);
   el("contact-requests-body").addEventListener("click", handleAddLegClick);
   el("contact-requests-body").addEventListener("click", handleRemoveLegClick);
@@ -796,7 +799,7 @@ async function loadContactRequests() {
                       .map(
                         (doc) => `
                           <div style="font-size: 12px">
-                            <a href="${API_BASE}/contact-requests/${req.id}/documents/${doc.id}/file" download>${CONTACT_REQUEST_DOCUMENT_TYPE_LABELS_AR[doc.type] || doc.type}</a>
+                            <a href="${API_BASE}/contact-requests/${req.id}/documents/${doc.id}/file" download>${doc.fileName ? escapeHtml(doc.fileName) : CONTACT_REQUEST_DOCUMENT_TYPE_LABELS_AR[doc.type] || doc.type}</a>
                             <span class="muted">— ${CONTACT_REQUEST_DOCUMENT_STATUS_LABELS_AR[doc.status] || doc.status}</span>
                             ${
                               doc.status === "PENDING"
@@ -814,6 +817,10 @@ async function loadContactRequests() {
                   </div>`
                 : ""
             }
+            <div style="margin-top: 6px">
+              <input type="file" multiple data-final-upload="${req.id}" style="font-size: 11px" />
+              <button type="button" data-final-upload-submit="${req.id}">رفع المستندات النهائية</button>
+            </div>
           </td>
           <td style="white-space: normal">${renderOfferCell(req)}</td>
           <td style="white-space: normal">
@@ -1200,6 +1207,30 @@ function handleApprovePaymentClick(e) {
 // Rejecting prompts for a reason via window.prompt() (matching this file's
 // existing lack of a modal/dialog library) and refuses to submit an empty
 // reason client-side too, mirroring the backend's required-reason validation.
+function handleFinalDocumentUpload(e) {
+  const button = e.target.closest("[data-final-upload-submit]");
+  if (!button) return;
+
+  const requestId = button.dataset.finalUploadSubmit;
+  const input = document.querySelector(`[data-final-upload="${requestId}"]`);
+  if (!input || !input.files || input.files.length === 0) {
+    showAlert(mgmtAlert(), "اختر ملفًا واحدًا على الأقل.");
+    return;
+  }
+
+  const formData = new FormData();
+  Array.from(input.files).forEach((file) => formData.append("files", file));
+
+  button.disabled = true;
+  api
+    .upload(`/contact-requests/${requestId}/final-documents`, formData)
+    .then(loadContactRequests)
+    .catch((error) => {
+      showAlert(mgmtAlert(), error.message);
+      button.disabled = false;
+    });
+}
+
 function handleDocumentReviewClick(e) {
   const button = e.target.closest("[data-document-review]");
   if (!button) return;

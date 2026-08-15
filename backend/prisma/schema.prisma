@@ -556,6 +556,11 @@ enum ContactRequestDocumentType {
   PASSPORT
   GUARANTOR_ID
   ADDITIONAL
+  // Staff-authored deliverable (issued visa PDF, e-ticket, hotel voucher)
+  // attached to the request and downloadable by the customer — unlike the
+  // other three types, never customer-uploaded. See createFinalDocuments in
+  // contact-requests.service.js.
+  FINAL
 }
 
 enum ContactRequestDocumentStatus {
@@ -575,6 +580,11 @@ model ContactRequestDocument {
   storagePath      String
   status           ContactRequestDocumentStatus  @default(PENDING)
   rejectionReason  String?
+  // Original upload filename. Only ever set for staff-uploaded FINAL
+  // documents (the customer-upload paths don't collect it) — a customer
+  // downloading their visa should get "visa-approval.pdf", not a generic
+  // name built from storagePath's random suffix.
+  fileName         String?
   createdAt        DateTime                      @default(now())
   updatedAt        DateTime                      @updatedAt
 

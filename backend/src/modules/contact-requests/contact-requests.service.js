@@ -327,6 +327,7 @@ const DOCUMENT_TYPE_LABELS_AR = {
   PASSPORT: "صورة جواز السفر",
   GUARANTOR_ID: "صورة إقامة الضامن",
   ADDITIONAL: "المستند الإضافي",
+  FINAL: "المستند النهائي",
 };
 
 // Ownership/scoping is enforced by requiring the document's own
@@ -342,6 +343,13 @@ export async function updateContactRequestDocumentStatus(contactRequestId, docum
 
   const contactRequest = await prisma.contactRequest.findUnique({ where: { id: contactRequestId } });
   assertContactRequestAccess(req.user, contactRequest);
+
+  // A FINAL document is staff-authored — reviewing (accepting/rejecting)
+  // staff's own deliverable is meaningless, and the "REJECTED" WhatsApp
+  // message below assumes a document the customer can re-upload.
+  if (document.type === "FINAL") {
+    throw Object.assign(new Error("لا يمكن مراجعة مستند نهائي"), { statusCode: 400 });
+  }
 
   const updated = await prisma.contactRequestDocument.update({
     where: { id: documentId },
@@ -365,6 +373,73 @@ export async function updateContactRequestDocumentStatus(contactRequestId, docum
   }
 
   return updated;
+}
+
+// Staff-authored deliverables (issued visa, e-ticket, hotel voucher) —
+// unlike the customer-upload documents above, these default straight to
+// ACCEPTED (no review cycle: staff is the author) and always carry the
+// original filename so the customer's download isn't a generic name.
+export async function createFinalDocuments(contactRequestId, files, req) {
+  const existing = await prisma.contactRequest.findUnique({ where: { id: contactRequestId } });
+
+  if (!existing) {
+    return null;
+  }
+  assertContactRequestAccess(req.user, existing);
+
+  await prisma.contactRequestDocument.createMany({
+    data: files.map((file) => ({
+      contactRequestId,
+      type: "FINAL",
+      status: "ACCEPTED",
+      fileName: file.originalname,
+      storagePath: path.join("contact-request-files", file.filename),
+    })),
+  });
+
+  logActivity({
+    userId: req.user?.id,
+    action: "CONTACT_REQUEST_FINAL_DOCUMENT_UPLOADED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+    req,
+  });
+
+  // Not awaited, same reasoning as every other WhatsApp send in this file.
+  sendWhatsAppMessage(
+    existing.phone,
+    `مستنداتك النهائية لطلبك رقم ${existing.referenceNumber} جاهزة\nيمكنك تحميلها من صفحة "تتبع طلبك" على موقعنا.`
+  );
+
+  return existing;
+}
+
+// Customer-facing counterpart — same null/"forbidden" sentinel convention
+// as approveInvoice, with the ownership check copied verbatim. The three
+// existence/ownership/type conditions below are deliberately ORed into one
+// branch (all -> null/404) rather than split apart: by the time the type
+// check runs, ownership is already proven, so a 403 there would only tell
+// the customer "a non-FINAL document with this id exists under your
+// request" — an existence oracle for their own passport-scan ids that a
+// 404 avoids entirely.
+export async function getFinalDocumentForCustomer(contactRequestId, documentId, customerPhone) {
+  const contactRequest = await prisma.contactRequest.findUnique({ where: { id: contactRequestId } });
+
+  if (!contactRequest) {
+    return null;
+  }
+
+  if (normalizePhone(contactRequest.phone) !== customerPhone) {
+    return "forbidden";
+  }
+
+  const document = await prisma.contactRequestDocument.findUnique({ where: { id: documentId } });
+
+  if (!document || document.contactRequestId !== contactRequestId || document.type !== "FINAL") {
+    return null;
+  }
+
+  return document;
 }
 
 // Uploading a receipt only makes sense once a request actually has a price

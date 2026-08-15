@@ -254,4 +254,18 @@ describe("deriveCustomerFacingStatus", () => {
     assert.equal(result.inExecution, false);
     assert.equal(result.label, "مكتمل");
   });
+
+  test("a FINAL document does not count toward hasAnyDocuments — the customer still owes their own upload", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ documents: [doc("FINAL", "ACCEPTED")] }));
+    assert.equal(result.needsDocuments, true);
+    assert.equal(result.label, "بانتظار المستندات");
+  });
+
+  test("a FINAL document does not supersede a rejected customer document of the same type", () => {
+    const rejected = doc("PASSPORT", "REJECTED", { createdAt: new Date(2026, 0, 1), updatedAt: new Date(2026, 0, 1) });
+    const finalDoc = doc("FINAL", "ACCEPTED", { createdAt: new Date(2026, 0, 2) });
+    const result = deriveCustomerFacingStatus(baseRequest({ documents: [rejected, finalDoc] }));
+    assert.equal(result.needsReupload, true);
+    assert.equal(result.label, "يوجد مستند يحتاج إعادة رفع");
+  });
 });
