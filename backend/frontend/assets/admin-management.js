@@ -1287,6 +1287,7 @@ const SITE_ASSET_LABELS_AR = {
   "icon-hotel": "أيقونة حجز الفنادق",
   "icon-international": "أيقونة التأشيرات الدولية",
   "icon-packages": "أيقونة باقات السفر الشاملة",
+  "icon-ferry": "أيقونة العبّارات",
   "hero-background": "صورة الخلفية الرئيسية (البانر)",
 };
 

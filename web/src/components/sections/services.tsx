@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Ship } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
@@ -8,7 +8,9 @@ import { getSiteAssetUrls, type SiteAssetKey } from "@/lib/site-assets";
 
 const services: {
   key: SiteAssetKey;
-  fallbackIcon: string;
+  // Not every service has a bundled fallback image (see icon-ferry below) —
+  // absent means fall through to a lucide icon instead.
+  fallbackIcon?: string;
   title: string;
   description: string;
   href: string;
@@ -40,6 +42,12 @@ const services: {
     title: "حجز الفنادق",
     description: "فنادق قريبة من الحرمين الشريفين وفي كل الوجهات، بمستويات مختلفة تناسب كل ميزانية.",
     href: "/hotels",
+  },
+  {
+    key: "icon-ferry",
+    title: "حجز العبّارات",
+    description: "رحلات العبّارات بين موانئ السودان والسعودية — بورتسودان وسواكن إلى جدة وينبع، بحجز مؤكد ومتابعة كاملة.",
+    href: "/ferry",
   },
   {
     key: "icon-international",
@@ -80,7 +88,7 @@ export async function Services() {
                   {assetUrls[service.key] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={assetUrls[service.key]} alt="" className="size-11 object-contain" />
-                  ) : (
+                  ) : service.fallbackIcon ? (
                     <Image
                       src={service.fallbackIcon}
                       alt=""
@@ -88,6 +96,8 @@ export async function Services() {
                       height={96}
                       className="size-11 object-contain"
                     />
+                  ) : (
+                    <Ship className="size-11 text-primary" />
                   )}
                 </span>
                 <h3 className="mt-5 text-lg font-bold text-foreground">

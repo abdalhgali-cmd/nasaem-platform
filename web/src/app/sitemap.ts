@@ -7,9 +7,11 @@ const routes = [
   "/visas",
   "/flights",
   "/hotels",
+  "/ferry",
   "/packages",
   "/about",
   "/contact",
+  "/track",
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

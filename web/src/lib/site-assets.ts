@@ -10,6 +10,7 @@ export type SiteAssetKey =
   | "icon-hotel"
   | "icon-international"
   | "icon-packages"
+  | "icon-ferry"
   | "hero-background";
 
 type SiteAssetRecord = { key: SiteAssetKey; updatedAt: string };
