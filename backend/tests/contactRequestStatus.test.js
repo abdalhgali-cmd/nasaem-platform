@@ -36,6 +36,9 @@ describe("deriveCustomerFacingStatus", () => {
       needsInvoiceApproval: false,
       needsOfferApproval: false,
       needsReupload: false,
+      inExecution: false,
+      executionStageLabel: null,
+      outcome: null,
     });
   });
 
@@ -62,6 +65,9 @@ describe("deriveCustomerFacingStatus", () => {
       needsInvoiceApproval: false,
       needsOfferApproval: false,
       needsReupload: false,
+      inExecution: false,
+      executionStageLabel: null,
+      outcome: null,
     });
   });
 
@@ -74,6 +80,9 @@ describe("deriveCustomerFacingStatus", () => {
       needsInvoiceApproval: false,
       needsOfferApproval: false,
       needsReupload: false,
+      inExecution: false,
+      executionStageLabel: null,
+      outcome: null,
     });
   });
 
@@ -88,6 +97,9 @@ describe("deriveCustomerFacingStatus", () => {
       needsInvoiceApproval: false,
       needsOfferApproval: false,
       needsReupload: false,
+      inExecution: false,
+      executionStageLabel: null,
+      outcome: null,
     });
   });
 
@@ -100,6 +112,9 @@ describe("deriveCustomerFacingStatus", () => {
       needsInvoiceApproval: true,
       needsOfferApproval: false,
       needsReupload: false,
+      inExecution: false,
+      executionStageLabel: null,
+      outcome: null,
     });
   });
 
@@ -119,6 +134,9 @@ describe("deriveCustomerFacingStatus", () => {
       needsInvoiceApproval: false,
       needsOfferApproval: false,
       needsReupload: false,
+      inExecution: false,
+      executionStageLabel: null,
+      outcome: null,
     });
   });
 
@@ -168,6 +186,9 @@ describe("deriveCustomerFacingStatus", () => {
       needsInvoiceApproval: false,
       needsOfferApproval: true,
       needsReupload: false,
+      inExecution: false,
+      executionStageLabel: null,
+      outcome: null,
     });
   });
 
@@ -185,6 +206,52 @@ describe("deriveCustomerFacingStatus", () => {
       needsInvoiceApproval: false,
       needsOfferApproval: false,
       needsReupload: false,
+      inExecution: false,
+      executionStageLabel: null,
+      outcome: null,
     });
+  });
+
+  test("CLOSED with executionStage DELIVERED_TO_CUSTOMER reads as a successful outcome", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ status: "CLOSED", executionStage: "DELIVERED_TO_CUSTOMER" }));
+    assert.equal(result.label, "مكتمل بنجاح");
+    assert.equal(result.outcome, "SUCCESS");
+  });
+
+  test("CLOSED with executionStage CANCELLED reads as cancelled, not completed", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ status: "CLOSED", executionStage: "CANCELLED" }));
+    assert.equal(result.label, "تم الإلغاء");
+    assert.equal(result.outcome, "CANCELLED");
+  });
+
+  test("CLOSED with executionStage VISA_REJECTED reads as a rejected visa, not completed", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ status: "CLOSED", executionStage: "VISA_REJECTED" }));
+    assert.equal(result.label, "تم رفض التأشيرة");
+    assert.equal(result.outcome, "CANCELLED");
+  });
+
+  test("CLOSED with no execution tracking (null stage) still reads as the plain generic label — no regression", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ status: "CLOSED", executionStage: null }));
+    assert.equal(result.label, "مكتمل");
+    assert.equal(result.outcome, null);
+  });
+
+  test("a CANCELLED execution stage outranks an awaiting-payment state (not CLOSED yet)", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ executionStage: "CANCELLED", paymentStatus: "AWAITING_TRANSFER" }));
+    assert.equal(result.label, "تم الإلغاء");
+    assert.equal(result.needsPayment, true); // independently computed, unaffected by the label
+  });
+
+  test("an active (non-terminal) execution stage outranks 'awaiting documents' even with zero documents uploaded", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ executionStage: "IN_PROGRESS", documents: [] }));
+    assert.equal(result.label, "قيد التنفيذ");
+    assert.equal(result.inExecution, true);
+    assert.equal(result.needsDocuments, true); // independently computed, unaffected by the label
+  });
+
+  test("inExecution is false once the request is CLOSED, even with a non-terminal stage on record", () => {
+    const result = deriveCustomerFacingStatus(baseRequest({ status: "CLOSED", executionStage: "IN_PROGRESS" }));
+    assert.equal(result.inExecution, false);
+    assert.equal(result.label, "مكتمل");
   });
 });

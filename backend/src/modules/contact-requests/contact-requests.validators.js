@@ -85,3 +85,25 @@ export const createContactRequestOfferSchema = z.object({
 // Editing always resends the full leg list (see updateContactRequestOffer
 // in the service layer, which replaces all legs rather than diffing them).
 export const updateContactRequestOfferSchema = createContactRequestOfferSchema;
+
+// Membership against a request's own department is checked in the service
+// layer (isValidExecutionStageForDepartment) — this only validates that
+// `stage` is a real ContactRequestExecutionStage value at all.
+export const updateExecutionStageSchema = z.object({
+  stage: z.enum([
+    "AWAITING_EXECUTION",
+    "IN_PROGRESS",
+    "SUBMITTED_TO_AUTHORITY",
+    "VISA_ISSUED",
+    "VISA_REJECTED",
+    "TICKETS_BOOKED",
+    "TICKETS_ISSUED",
+    "UMRAH_DOCUMENTS_PREPARED",
+    "UMRAH_PACKAGE_READY",
+    "BOOKING_CONFIRMED_WITH_SUPPLIER",
+    "VOUCHER_ISSUED",
+    "DELIVERED_TO_CUSTOMER",
+    "CANCELLED",
+  ]),
+  notes: z.string().trim().max(500).optional().or(z.literal("")),
+});

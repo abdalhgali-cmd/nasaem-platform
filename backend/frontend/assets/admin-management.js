@@ -24,6 +24,7 @@ const ACTIVITY_ACTION_LABELS_AR = {
   CONTACT_REQUEST_OFFER_UPDATED: "تعديل عرض سعر لطلب تواصل",
   CONTACT_REQUEST_OFFER_WITHDRAWN: "سحب عرض سعر لطلب تواصل",
   CONTACT_REQUEST_OFFER_APPROVED: "موافقة العميل على عرض متعدد",
+  CONTACT_REQUEST_EXECUTION_STAGE_CHANGED: "تغيير مرحلة تنفيذ طلب تواصل",
 };
 
 const CONTACT_REQUEST_STATUS_LABELS_AR = {
@@ -71,6 +72,42 @@ const CONTACT_REQUEST_OFFER_STATUS_LABELS_AR = {
 };
 
 const CURRENCY_LABELS_AR = { SAR: "ريال سعودي", SDG: "جنيه سوداني", USD: "دولار أمريكي" };
+
+// Mirrors backend/src/modules/contact-requests/contact-request-execution.js
+// exactly — no dedicated endpoint for this, same convention as
+// DEPARTMENT_LABELS_AR/CONTACT_REQUEST_STATUS_LABELS_AR above. Keep both in
+// sync.
+const SHARED_EXECUTION_STAGES_CLIENT = ["AWAITING_EXECUTION", "IN_PROGRESS"];
+const TERMINAL_EXECUTION_STAGES_CLIENT = ["DELIVERED_TO_CUSTOMER", "CANCELLED", "VISA_REJECTED"];
+
+const EXECUTION_STAGES_BY_DEPARTMENT_AR = {
+  VISAS: [...SHARED_EXECUTION_STAGES_CLIENT, "SUBMITTED_TO_AUTHORITY", "VISA_ISSUED", "VISA_REJECTED", "DELIVERED_TO_CUSTOMER", "CANCELLED"],
+  FLIGHTS: [...SHARED_EXECUTION_STAGES_CLIENT, "TICKETS_BOOKED", "TICKETS_ISSUED", "DELIVERED_TO_CUSTOMER", "CANCELLED"],
+  FERRY: [...SHARED_EXECUTION_STAGES_CLIENT, "TICKETS_BOOKED", "TICKETS_ISSUED", "DELIVERED_TO_CUSTOMER", "CANCELLED"],
+  UMRAH: [...SHARED_EXECUTION_STAGES_CLIENT, "UMRAH_DOCUMENTS_PREPARED", "UMRAH_PACKAGE_READY", "DELIVERED_TO_CUSTOMER", "CANCELLED"],
+  HOTELS_PACKAGES: [...SHARED_EXECUTION_STAGES_CLIENT, "BOOKING_CONFIRMED_WITH_SUPPLIER", "VOUCHER_ISSUED", "DELIVERED_TO_CUSTOMER", "CANCELLED"],
+};
+const UNMAPPED_DEPARTMENT_EXECUTION_STAGES = [...SHARED_EXECUTION_STAGES_CLIENT, "DELIVERED_TO_CUSTOMER", "CANCELLED"];
+
+function getAllowedExecutionStagesClient(department) {
+  return department ? EXECUTION_STAGES_BY_DEPARTMENT_AR[department] || [] : UNMAPPED_DEPARTMENT_EXECUTION_STAGES;
+}
+
+const EXECUTION_STAGE_LABELS_AR = {
+  AWAITING_EXECUTION: "بانتظار بدء التنفيذ",
+  IN_PROGRESS: "قيد التنفيذ",
+  SUBMITTED_TO_AUTHORITY: "تم التقديم للجهة المختصة",
+  VISA_ISSUED: "تم إصدار التأشيرة",
+  VISA_REJECTED: "تم رفض التأشيرة",
+  TICKETS_BOOKED: "تم حجز التذاكر",
+  TICKETS_ISSUED: "تم إصدار التذاكر",
+  UMRAH_DOCUMENTS_PREPARED: "تم تجهيز مستندات العمرة",
+  UMRAH_PACKAGE_READY: "الباقة جاهزة",
+  BOOKING_CONFIRMED_WITH_SUPPLIER: "تم تأكيد الحجز مع المورد",
+  VOUCHER_ISSUED: "تم إصدار الفاوتشر",
+  DELIVERED_TO_CUSTOMER: "تم التسليم للعميل",
+  CANCELLED: "تم الإلغاء",
+};
 
 // Populated lazily by ensureCarriersLoaded()/loadCarriers() — the full
 // carrier list used to build the carrier <select> in the per-request offer
@@ -184,6 +221,7 @@ function wireManagementTabs() {
   el("users-body").addEventListener("change", handleUserDepartmentChange);
   el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
   el("contact-requests-body").addEventListener("change", handlePaymentStatusChange);
+  el("contact-requests-body").addEventListener("change", handleExecutionStageChange);
   el("contact-requests-body").addEventListener("click", handleApprovePaymentClick);
   el("contact-requests-body").addEventListener("click", handleDocumentReviewClick);
   el("contact-requests-body").addEventListener("click", handleToggleOfferForm);
@@ -827,6 +865,7 @@ async function loadContactRequests() {
                 `
             }
           </td>
+          <td style="white-space: normal">${renderExecutionCell(req)}</td>
           <td>
             <select data-contact-request-status="${req.id}">
               ${Object.entries(CONTACT_REQUEST_STATUS_LABELS_AR)
@@ -895,6 +934,56 @@ function renderOfferCell(req) {
       <button type="button" data-add-leg="${req.id}">+ إضافة رحلة</button>
       <button type="button" data-submit-offer="${req.id}">إرسال العرض</button>
     </div>`;
+}
+
+// Renders the execution-stage dropdown (locked to whatever
+// getAllowedExecutionStagesClient(req.department) allows), a "started but
+// waiting on something" hint, an optional notes input, and the transition
+// history — mirrors renderOrderDetail's historyItems in admin-dashboard.js,
+// but with no statusBadge() (that map is keyed by bare enum value across
+// every enum in the app and has no ContactRequestExecutionStage entries).
+function renderExecutionCell(req) {
+  const allowedStages = getAllowedExecutionStagesClient(req.department);
+  const isTerminal = req.executionStage && TERMINAL_EXECUTION_STAGES_CLIENT.includes(req.executionStage);
+
+  // Mirrors the backend's "nothing outstanding" start-of-execution gate —
+  // don't render a control that would always 400 server-side (Phase F
+  // finding #7's rule).
+  const hasOutstandingPricing =
+    req.paymentStatus === "AWAITING_TRANSFER" ||
+    req.paymentStatus === "UNDER_REVIEW" ||
+    req.invoice?.status === "PENDING_APPROVAL" ||
+    (req.offers || []).some((o) => o.status === "PENDING_APPROVAL");
+  const blockedFromStarting = req.executionStage == null && hasOutstandingPricing;
+
+  const options = [`<option value="" disabled selected>— لم يبدأ التنفيذ —</option>`]
+    .concat(
+      allowedStages.map(
+        (stage) =>
+          `<option value="${stage}" ${stage === req.executionStage ? "selected" : ""}>${EXECUTION_STAGE_LABELS_AR[stage]}</option>`
+      )
+    )
+    .join("");
+
+  const history = (req.executionHistory || [])
+    .map(
+      (h) => `
+        <li>${formatDate(h.changedAt)} — ${h.oldStage ? EXECUTION_STAGE_LABELS_AR[h.oldStage] : "—"} → ${EXECUTION_STAGE_LABELS_AR[h.newStage]}
+          ${h.notes ? "(" + escapeHtml(h.notes) + ")" : ""} — ${escapeHtml(h.changedByUser?.fullName || "-")}</li>`
+    )
+    .join("");
+
+  return `
+    <select data-execution-stage="${req.id}" ${isTerminal || blockedFromStarting ? "disabled" : ""}>
+      ${options}
+    </select>
+    ${blockedFromStarting ? `<div class="muted" style="font-size: 11px">بانتظار تأكيد الدفع أو موافقة العميل</div>` : ""}
+    ${
+      !isTerminal
+        ? `<input type="text" placeholder="ملاحظة (اختياري)" data-execution-notes="${req.id}" style="width: 100%; margin-top: 4px" />`
+        : ""
+    }
+    ${history ? `<ul class="doc-checklist" style="margin-top: 6px; font-size: 11px">${history}</ul>` : ""}`;
 }
 
 // Rebuilds a request's leg-row inputs from offerDraftLegs[requestId]'s
@@ -1054,6 +1143,29 @@ function handlePaymentStatusChange(e) {
     })
     .then(loadContactRequests)
     .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+function handleExecutionStageChange(e) {
+  const select = e.target.closest("[data-execution-stage]");
+  if (!select) return;
+
+  const requestId = select.dataset.executionStage;
+  if (select.value === "CANCELLED" && !window.confirm("إلغاء تنفيذ هذا الطلب؟")) {
+    loadContactRequests();
+    return;
+  }
+
+  const notesInput = document.querySelector(`[data-execution-notes="${requestId}"]`);
+  api
+    .patch(`/contact-requests/${requestId}/execution-stage`, {
+      stage: select.value,
+      notes: notesInput ? notesInput.value.trim() || undefined : undefined,
+    })
+    .then(loadContactRequests)
+    .catch((error) => {
+      showAlert(mgmtAlert(), error.message);
+      loadContactRequests();
+    });
 }
 
 // Sends (or revises) a price quote for a request that had no catalog price

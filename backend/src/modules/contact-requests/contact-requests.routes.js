@@ -18,6 +18,7 @@ import {
   getContactRequests,
   getMyContactRequests,
   patchContactRequestDocumentStatus,
+  patchContactRequestExecutionStage,
   patchContactRequestOffer,
   patchContactRequestPayment,
   patchContactRequestPaymentStatus,
@@ -148,6 +149,12 @@ router.patch(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   patchContactRequestPayment
+);
+router.patch(
+  "/:id/execution-stage",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  patchContactRequestExecutionStage
 );
 router.get(
   "/:id/documents",

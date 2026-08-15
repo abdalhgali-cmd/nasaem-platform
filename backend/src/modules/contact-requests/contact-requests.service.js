@@ -8,6 +8,12 @@ import { nextSequence } from "../../utils/sequence.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { getPublicPaymentSettings } from "../settings/settings.service.js";
 import { deriveContactRequestDepartment } from "./contact-request-department.js";
+import {
+  CUSTOMER_NOTIFIABLE_EXECUTION_STAGES,
+  EXECUTION_STAGE_LABELS_AR,
+  isTerminalExecutionStage,
+  isValidExecutionStageForDepartment,
+} from "./contact-request-execution.js";
 
 // Mirrors the package names/prices in web/src/app/umrah/page.tsx's
 // umrahRequestFields "نوع الباقة" select. Priced server-side (not trusted
@@ -215,7 +221,19 @@ export async function listContactRequests({ page, limit, skip, status, departmen
   const [data, total] = await Promise.all([
     prisma.contactRequest.findMany({
       where,
-      include: { invoice: true, documents: true, offers: { include: OFFER_INCLUDE, orderBy: { createdAt: "asc" } } },
+      include: {
+        invoice: true,
+        documents: true,
+        offers: { include: OFFER_INCLUDE, orderBy: { createdAt: "asc" } },
+        // Minimal user select on purpose — safeUserSelect would drag every
+        // staff member's email/phone into every row of this table for no
+        // reason.
+        executionHistory: {
+          take: 10,
+          orderBy: { changedAt: "desc" },
+          include: { changedByUser: { select: { id: true, fullName: true } } },
+        },
+      },
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
@@ -391,6 +409,82 @@ export async function updatePaymentStatus(id, status, req) {
     sendWhatsAppMessage(
       updated.phone,
       `تم تأكيد استلام دفعتك لطلبك رقم ${updated.referenceNumber}\nالمبلغ: ${updated.paymentAmount} ${CURRENCY_LABELS_AR[updated.currency]}\nشكرًا لك، سيتم متابعة طلبك.`
+    );
+  }
+
+  return updated;
+}
+
+// What staff do with a request after the money is settled — orthogonal to
+// `status` (triage) and `paymentStatus` (money). See
+// contact-request-execution.js for the full department-scoped stage list
+// and the reasoning behind the "nothing outstanding" gate below (a blanket
+// paymentStatus === "CONFIRMED" check would permanently block execution on
+// a NOT_REQUIRED request that was always meant to be free).
+export async function updateContactRequestExecutionStage(id, { stage, notes }, req) {
+  const existing = await prisma.contactRequest.findUnique({
+    where: { id },
+    include: { invoice: true, offers: { where: { status: "PENDING_APPROVAL" } } },
+  });
+
+  if (!existing) {
+    return null;
+  }
+  assertContactRequestAccess(req.user, existing);
+
+  if (!isValidExecutionStageForDepartment(existing.department, stage)) {
+    throw Object.assign(new Error("هذه المرحلة غير متاحة لقسم هذا الطلب"), { statusCode: 400 });
+  }
+
+  if (existing.executionStage === stage) {
+    throw Object.assign(new Error("الطلب في هذه المرحلة بالفعل"), { statusCode: 400 });
+  }
+
+  if (existing.executionStage && isTerminalExecutionStage(existing.executionStage)) {
+    throw Object.assign(new Error("لا يمكن تغيير مرحلة طلب مكتمل أو ملغى"), { statusCode: 400 });
+  }
+
+  // Starting execution (first transition out of NULL) requires nothing
+  // outstanding on the pricing/payment side — everything else (correcting a
+  // later stage, or cancelling at any point) is unrestricted.
+  if (existing.executionStage === null && stage !== "CANCELLED") {
+    if (existing.paymentStatus === "AWAITING_TRANSFER" || existing.paymentStatus === "UNDER_REVIEW") {
+      throw Object.assign(new Error("لا يمكن بدء التنفيذ قبل تأكيد استلام الدفعة"), { statusCode: 400 });
+    }
+    if (existing.invoice?.status === "PENDING_APPROVAL" || existing.offers.length > 0) {
+      throw Object.assign(new Error("العميل لم يوافق على عرض السعر بعد"), { statusCode: 400 });
+    }
+  }
+
+  const updated = await prisma.contactRequest.update({
+    where: { id },
+    data: {
+      executionStage: stage,
+      executionHistory: {
+        create: {
+          oldStage: existing.executionStage,
+          newStage: stage,
+          changedByUserId: req.user.id,
+          notes: notes || null,
+        },
+      },
+    },
+  });
+
+  logActivity({
+    userId: req.user?.id,
+    action: "CONTACT_REQUEST_EXECUTION_STAGE_CHANGED",
+    entity: "ContactRequest",
+    entityId: id,
+    req,
+  });
+
+  if (CUSTOMER_NOTIFIABLE_EXECUTION_STAGES.has(stage)) {
+    // Not awaited, same reasoning as every other WhatsApp send in this
+    // file. Never includes `notes` — those are internal staff notes.
+    sendWhatsAppMessage(
+      updated.phone,
+      `تحديث على طلبك رقم ${updated.referenceNumber}\n${EXECUTION_STAGE_LABELS_AR[stage]}\nيمكنك متابعة التفاصيل من صفحة "تتبع طلبك" على موقعنا.`
     );
   }
 

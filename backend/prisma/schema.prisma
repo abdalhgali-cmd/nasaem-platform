@@ -152,6 +152,7 @@ model User {
   activityLogs        ActivityLog[]
   notifications       Notification[]         @relation("UserNotifications")
   statusChangedLogs   OrderStatusHistory[]   @relation("StatusChangedBy")
+  executionStageLogs  ContactRequestExecutionHistory[] @relation("ExecutionStageChangedBy")
 
   @@index([role])
   @@index([status])
@@ -521,6 +522,14 @@ model ContactRequest {
   // carry per-file state (e.g. "this one needs to be re-uploaded").
   documents ContactRequestDocument[]
 
+  // What staff are actually *doing* with a request once it's paid for —
+  // orthogonal to `status` (staff triage: NEW/CONTACTED/CLOSED) and to
+  // `paymentStatus` (money). NULL until staff explicitly starts execution.
+  // See ContactRequestExecutionStage and contact-request-execution.js for
+  // which values are legal for a given department.
+  executionStage   ContactRequestExecutionStage?
+  executionHistory ContactRequestExecutionHistory[]
+
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
@@ -528,6 +537,7 @@ model ContactRequest {
   @@index([createdAt])
   @@index([paymentStatus])
   @@index([department])
+  @@index([executionStage])
 }
 
 // The 5 staff departments a ContactRequest/User can be scoped to (see
@@ -719,4 +729,66 @@ model CustomerLoginCode {
 
   @@index([phone])
   @@index([expiresAt])
+}
+
+// What staff are actually *doing* with a ContactRequest once it's paid for —
+// orthogonal to ContactRequestStatus (staff triage) and
+// ContactRequestPaymentStatus (money). Values are a single shared enum, but
+// which subset is legal for a given request is decided per-department at the
+// application layer — see EXECUTION_STAGES_BY_DEPARTMENT in
+// contact-request-execution.js. (A per-department enum would mean five
+// nullable columns and five sets of query logic for one concept; Postgres
+// enum values are scoped to their own type, so nothing here collides with
+// e.g. OrderStatus.CANCELLED.)
+enum ContactRequestExecutionStage {
+  // Shared — legal for every department, including an unmapped (NULL)
+  // department request.
+  AWAITING_EXECUTION
+  IN_PROGRESS
+
+  // VISAS
+  SUBMITTED_TO_AUTHORITY
+  VISA_ISSUED
+  VISA_REJECTED
+
+  // FLIGHTS + FERRY. Deliberately plural: this is the roll-up for the whole
+  // approved offer. TripLeg.ticketStatus (PROPOSED/BOOKED/TICKETED/
+  // CANCELLED) stays the per-segment detail — currently written by nothing,
+  // and this does not change that.
+  TICKETS_BOOKED
+  TICKETS_ISSUED
+
+  // UMRAH
+  UMRAH_DOCUMENTS_PREPARED
+  UMRAH_PACKAGE_READY
+
+  // HOTELS_PACKAGES
+  BOOKING_CONFIRMED_WITH_SUPPLIER
+  VOUCHER_ISSUED
+
+  // Shared terminal — no transitions out of these (VISA_REJECTED above is
+  // terminal too, but department-specific).
+  DELIVERED_TO_CUSTOMER
+  CANCELLED
+}
+
+// Audit trail for every ContactRequest.executionStage transition — mirrors
+// OrderStatusHistory's shape, with one deliberate difference: oldStage is
+// nullable because executionStage starts NULL (OrderStatusHistory.oldStatus
+// is never null because Order.status is never null and createOrder seeds a
+// NEW -> NEW row).
+model ContactRequestExecutionHistory {
+  id               String                        @id @default(cuid())
+  contactRequestId String
+  oldStage         ContactRequestExecutionStage?
+  newStage         ContactRequestExecutionStage
+  changedByUserId  String
+  notes            String?
+  changedAt        DateTime                      @default(now())
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  changedByUser  User           @relation("ExecutionStageChangedBy", fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([contactRequestId])
+  @@index([changedByUserId])
 }

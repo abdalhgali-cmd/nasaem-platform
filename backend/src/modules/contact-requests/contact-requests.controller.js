@@ -6,6 +6,7 @@ import {
   updateContactRequestOfferSchema,
   updateContactRequestStatusSchema,
   updateDocumentStatusSchema,
+  updateExecutionStageSchema,
   updatePaymentStatusSchema,
 } from "./contact-requests.validators.js";
 import {
@@ -24,6 +25,7 @@ import {
   listContactRequests,
   listContactRequestsForPhone,
   updateContactRequestDocumentStatus,
+  updateContactRequestExecutionStage,
   updateContactRequestOffer,
   updateContactRequestStatus,
   updatePaymentStatus,
@@ -114,10 +116,12 @@ export async function getMyContactRequests(req, res, next) {
         createdAt: row.createdAt,
         currency: row.currency,
         paymentAmount: row.paymentAmount,
+        executionStage: row.executionStage,
         friendlyStatus: deriveCustomerFacingStatus({
           ...row,
           hasPendingInvoice,
           hasPendingOffers: pendingOffers.length > 0,
+          executionStage: row.executionStage,
         }),
         pendingInvoice: hasPendingInvoice
           ? {
@@ -320,6 +324,34 @@ export async function patchContactRequestPaymentStatus(req, res, next) {
 
     return res.status(200).json({ success: true, data: contactRequest });
   } catch (error) {
+    next(error);
+  }
+}
+
+export async function patchContactRequestExecutionStage(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = updateExecutionStageSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const contactRequest = await updateContactRequestExecutionStage(id, parsed.data, req);
+
+    if (!contactRequest) {
+      return res.status(404).json({ success: false, message: "Contact request not found" });
+    }
+
+    return res.status(200).json({ success: true, data: contactRequest });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     next(error);
   }
 }

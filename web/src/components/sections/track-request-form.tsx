@@ -14,6 +14,7 @@ type TrackedRequest = {
   createdAt: string;
   currency: string | null;
   paymentAmount: string | null;
+  executionStage: string | null;
   friendlyStatus: {
     label: string;
     needsDocuments: boolean;
@@ -21,6 +22,9 @@ type TrackedRequest = {
     needsInvoiceApproval: boolean;
     needsOfferApproval: boolean;
     needsReupload: boolean;
+    inExecution: boolean;
+    executionStageLabel: string | null;
+    outcome: "SUCCESS" | "CANCELLED" | null;
   };
   pendingInvoice: { invoiceNumber: string; currency: string; amount: string } | null;
   pendingOffers: {
@@ -338,10 +342,28 @@ function TrackedRequestCard({
           </p>
           <p className="mt-1 text-sm font-semibold text-foreground">{request.service || "طلب عام"}</p>
         </div>
-        <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary dark:text-secondary">
+        <span
+          className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+            request.friendlyStatus.outcome === "SUCCESS"
+              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : request.friendlyStatus.outcome === "CANCELLED"
+                ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                : "bg-primary/10 text-primary dark:text-secondary"
+          }`}
+        >
           {request.friendlyStatus.label}
         </span>
       </div>
+
+      {/* Rendered outside the needsAction gate on purpose: a request in
+          execution (or already delivered/cancelled) has no pending customer
+          action, so a block inside {needsAction ? ...} would never render
+          in exactly the case it exists for. */}
+      {request.friendlyStatus.inExecution || request.friendlyStatus.outcome ? (
+        <div className="mt-4 border-t border-border pt-4 text-sm text-foreground">
+          حالة التنفيذ: <strong>{request.friendlyStatus.executionStageLabel}</strong>
+        </div>
+      ) : null}
 
       {needsAction ? (
         <div className="mt-5 space-y-4 border-t border-border pt-4">
