@@ -42,6 +42,19 @@ function canToggleUserStatus() {
   return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
 }
 
+// Mirrors contact-requests.routes.js: POST /:id/invoice is SUPER_ADMIN,
+// ADMIN, or EMPLOYEE (same roles that can already work a contact request).
+function canManageInvoice() {
+  return ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(currentUser.role);
+}
+
+// Mirrors contact-requests.routes.js: POST /:id/confirm-payment is
+// SUPER_ADMIN, ADMIN, or ACCOUNTANT — same split as payments.routes.js for
+// financial actions specifically (narrower than general request handling).
+function canConfirmPayment() {
+  return ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"].includes(currentUser.role);
+}
+
 function initManagementTab() {
   if (!mgmtState.wired) {
     wireManagementTabs();
@@ -81,6 +94,7 @@ function wireManagementTabs() {
   el("offers-body").addEventListener("change", handleOfferStatusChange);
   el("users-body").addEventListener("click", handleUserRowClick);
   el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
+  el("contact-requests-body").addEventListener("click", handleContactRequestActionClick);
   el("contact-request-status-filter").addEventListener("change", (e) => {
     mgmtState.contactRequests.status = e.target.value;
     mgmtState.contactRequests.page = 1;
@@ -452,6 +466,40 @@ async function loadActivityLogs() {
 
 // --- Contact requests (public marketing-site form submissions) ---
 
+// Invoices are quoted in SAR only for now, matching every other price field
+// in this frontend (services/offers forms have no currency picker either —
+// the backend's per-model `currency` default is always "SAR").
+function invoiceCellHtml(req) {
+  const info = req.invoice
+    ? `<div>${formatMoney(req.invoice.amount, req.invoice.currency)}</div><div>${statusBadge(req.invoice.status)}</div>`
+    : `<div class="muted">لم يُحدد بعد</div>`;
+
+  const canSet = canManageInvoice() && req.invoice?.status !== "APPROVED";
+  if (!canSet) return info;
+
+  return `
+    ${info}
+    <div class="stack" style="margin-top: 6px; gap: 6px">
+      <input
+        type="number" min="0" step="0.01" placeholder="المبلغ (ر.س)" style="width: 100px"
+        data-invoice-amount-input="${req.id}"
+        value="${req.invoice ? req.invoice.amount : ""}"
+      />
+      <button type="button" class="btn secondary" data-set-invoice="${req.id}">
+        ${req.invoice ? "تحديث السعر" : "تحديد السعر"}
+      </button>
+    </div>`;
+}
+
+function paymentCellHtml(req) {
+  const badge = statusBadge(req.paymentStatus);
+  if (req.paymentStatus !== "UNDER_REVIEW" || !canConfirmPayment()) {
+    return badge;
+  }
+
+  return `${badge}<div style="margin-top: 6px"><button type="button" class="btn secondary" data-confirm-payment="${req.id}">تأكيد الدفع</button></div>`;
+}
+
 async function loadContactRequests() {
   try {
     const { page, limit, status } = mgmtState.contactRequests;
@@ -481,6 +529,8 @@ async function loadContactRequests() {
                 .join("")}
             </select>
           </td>
+          <td>${invoiceCellHtml(req)}</td>
+          <td>${paymentCellHtml(req)}</td>
           <td>${formatDate(req.createdAt)}</td>
         </tr>`
       )
@@ -504,6 +554,34 @@ function handleContactRequestStatusChange(e) {
     })
     .then(loadContactRequests)
     .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+function handleContactRequestActionClick(e) {
+  const setInvoiceBtn = e.target.closest("[data-set-invoice]");
+  if (setInvoiceBtn) {
+    const id = setInvoiceBtn.dataset.setInvoice;
+    const input = document.querySelector(`[data-invoice-amount-input="${id}"]`);
+    const amount = Number(input?.value);
+
+    if (!amount || amount <= 0) {
+      showAlert(mgmtAlert(), "أدخل مبلغًا صحيحًا أكبر من صفر");
+      return;
+    }
+
+    api
+      .post(`/contact-requests/${id}/invoice`, { amount, currency: "SAR" })
+      .then(loadContactRequests)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+
+  const confirmPaymentBtn = e.target.closest("[data-confirm-payment]");
+  if (confirmPaymentBtn) {
+    api
+      .post(`/contact-requests/${confirmPaymentBtn.dataset.confirmPayment}/confirm-payment`, {})
+      .then(loadContactRequests)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+  }
 }
 
 // --- Branding / icons (shown on the public marketing site) ---

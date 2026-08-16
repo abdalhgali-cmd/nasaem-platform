@@ -84,10 +84,85 @@ export async function listContactRequestsForPhone(phoneNormalized) {
   const requests = await prisma.contactRequest.findMany({
     where: { phoneNormalized },
     orderBy: { createdAt: "desc" },
+    include: { invoice: true },
   });
 
   return requests.map((request) => ({
     ...request,
-    statusLabel: deriveTrackingStatusLabel(request.status),
+    statusLabel: deriveTrackingStatusLabel(request),
   }));
+}
+
+// Ownership check shared by every action below: a tracking session only
+// ever gets to act on ContactRequests submitted with its own phone number,
+// never an arbitrary id (which would otherwise let one logged-in customer
+// approve/reject or mark-paid another customer's request).
+async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
+  return prisma.contactRequest.findFirst({
+    where: { id: contactRequestId, phoneNormalized },
+    include: { invoice: true },
+  });
+}
+
+export async function approveInvoice(phoneNormalized, contactRequestId) {
+  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
+
+  if (!contactRequest?.invoice) {
+    return { error: "NOT_FOUND" };
+  }
+
+  if (contactRequest.invoice.status !== "PENDING") {
+    return { error: "INVALID_STATE" };
+  }
+
+  await prisma.$transaction([
+    prisma.invoice.update({
+      where: { id: contactRequest.invoice.id },
+      data: { status: "APPROVED", decidedAt: new Date() },
+    }),
+    prisma.contactRequest.update({
+      where: { id: contactRequestId },
+      data: { paymentStatus: "AWAITING_TRANSFER" },
+    }),
+  ]);
+
+  return { success: true };
+}
+
+export async function rejectInvoice(phoneNormalized, contactRequestId) {
+  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
+
+  if (!contactRequest?.invoice) {
+    return { error: "NOT_FOUND" };
+  }
+
+  if (contactRequest.invoice.status !== "PENDING") {
+    return { error: "INVALID_STATE" };
+  }
+
+  await prisma.invoice.update({
+    where: { id: contactRequest.invoice.id },
+    data: { status: "REJECTED", decidedAt: new Date() },
+  });
+
+  return { success: true };
+}
+
+export async function markTransferSent(phoneNormalized, contactRequestId) {
+  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
+
+  if (!contactRequest) {
+    return { error: "NOT_FOUND" };
+  }
+
+  if (contactRequest.paymentStatus !== "AWAITING_TRANSFER") {
+    return { error: "INVALID_STATE" };
+  }
+
+  await prisma.contactRequest.update({
+    where: { id: contactRequestId },
+    data: { paymentStatus: "UNDER_REVIEW" },
+  });
+
+  return { success: true };
 }

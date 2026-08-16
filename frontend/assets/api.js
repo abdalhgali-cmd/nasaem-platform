@@ -106,6 +106,10 @@ const STATUS_LABELS_AR = {
   ACTIVE: "نشط",
   INACTIVE: "غير نشط",
   SUSPENDED: "موقوف",
+  PENDING: "قيد الانتظار",
+  CONFIRMED: "مؤكد",
+  NOT_REQUIRED: "-",
+  AWAITING_TRANSFER: "بانتظار التحويل",
 };
 
 function statusBadge(status) {

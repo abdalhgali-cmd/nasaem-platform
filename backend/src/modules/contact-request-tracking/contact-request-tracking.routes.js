@@ -3,8 +3,11 @@ import rateLimit from "express-rate-limit";
 
 import { requireTrackingAuth } from "./tracking-auth.middleware.js";
 import {
+  approveMyInvoice,
   getMyRequests,
   logout,
+  markMyTransferSent,
+  rejectMyInvoice,
   requestCode,
   verifyCode,
 } from "./contact-request-tracking.controller.js";
@@ -39,6 +42,9 @@ const verifyCodeLimiter = rateLimit({
 router.post("/request-code", requestCodeLimiter, requestCode);
 router.post("/verify-code", verifyCodeLimiter, verifyCode);
 router.get("/requests", requireTrackingAuth, getMyRequests);
+router.post("/requests/:id/invoice/approve", requireTrackingAuth, approveMyInvoice);
+router.post("/requests/:id/invoice/reject", requireTrackingAuth, rejectMyInvoice);
+router.post("/requests/:id/mark-transfer-sent", requireTrackingAuth, markMyTransferSent);
 router.post("/logout", requireTrackingAuth, logout);
 
 export default router;

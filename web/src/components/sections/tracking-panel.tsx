@@ -6,6 +6,15 @@ import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 
 type TrackedRequestStatus = "NEW" | "CONTACTED" | "CLOSED";
+type InvoiceStatus = "PENDING" | "APPROVED" | "REJECTED";
+type PaymentStatus = "NOT_REQUIRED" | "AWAITING_TRANSFER" | "UNDER_REVIEW" | "CONFIRMED";
+
+type TrackedInvoice = {
+  amount: string;
+  currency: string;
+  description: string | null;
+  status: InvoiceStatus;
+};
 
 type TrackedRequest = {
   id: string;
@@ -14,6 +23,8 @@ type TrackedRequest = {
   status: TrackedRequestStatus;
   statusLabel: string;
   createdAt: string;
+  invoice: TrackedInvoice | null;
+  paymentStatus: PaymentStatus;
 };
 
 type Stage = "checking" | "phone" | "code" | "requests";
@@ -23,6 +34,109 @@ const STATUS_BADGE_CLASS: Record<TrackedRequestStatus, string> = {
   CONTACTED: "bg-primary/10 text-primary dark:text-secondary",
   CLOSED: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
 };
+
+function formatInvoiceAmount(invoice: TrackedInvoice) {
+  return `${Number(invoice.amount).toLocaleString("en-US")} ${invoice.currency}`;
+}
+
+function RequestInvoicePanel({
+  req,
+  onActionComplete,
+}: {
+  req: TrackedRequest;
+  onActionComplete: () => Promise<void>;
+}) {
+  const [acting, setActing] = React.useState(false);
+  const [actionError, setActionError] = React.useState("");
+
+  if (!req.invoice) {
+    return null;
+  }
+
+  async function postAction(path: string) {
+    setActing(true);
+    setActionError("");
+
+    try {
+      const res = await fetch(`${API_URL}${path}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(payload?.message || "تعذّر تنفيذ العملية، حاول مرة أخرى");
+      }
+
+      await onActionComplete();
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "تعذّر تنفيذ العملية، حاول مرة أخرى"
+      );
+    } finally {
+      setActing(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-foreground">السعر المقترح</span>
+        <span className="text-base font-bold text-foreground" dir="ltr">
+          {formatInvoiceAmount(req.invoice)}
+        </span>
+      </div>
+      {req.invoice.description ? (
+        <p className="mt-1 text-xs text-muted-foreground">{req.invoice.description}</p>
+      ) : null}
+
+      {actionError ? (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{actionError}</p>
+      ) : null}
+
+      {req.invoice.status === "PENDING" ? (
+        <div className="mt-3 flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="gold"
+            disabled={acting}
+            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/approve`)}
+          >
+            موافقة على السعر
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={acting}
+            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/reject`)}
+          >
+            رفض
+          </Button>
+        </div>
+      ) : null}
+
+      {req.paymentStatus === "AWAITING_TRANSFER" ? (
+        <div className="mt-3">
+          <p className="text-xs text-muted-foreground">
+            بعد تحويل المبلغ، اضغط الزر التالي لإعلام فريقنا بذلك.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="gold"
+            className="mt-2"
+            disabled={acting}
+            onClick={() => postAction(`/tracking/requests/${req.id}/mark-transfer-sent`)}
+          >
+            تم تحويل المبلغ
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 // en-GB gives the same DD/MM/YYYY Gregorian shape as the staff dashboard's
 // ar-SA-u-ca-gregory-nu-latn (frontend/assets/api.js's formatDate) without
@@ -58,6 +172,13 @@ export function TrackingPanel() {
     const payload = await res.json().catch(() => null);
     return { loggedIn: true as const, requests: payload?.data ?? [] };
   }, []);
+
+  const refreshRequests = React.useCallback(async () => {
+    const result = await loadRequests();
+    if (result.loggedIn) {
+      setRequests(result.requests);
+    }
+  }, [loadRequests]);
 
   // Checks for an existing tracking session on mount (a real "synchronize
   // with an external system" effect). Guarded with `ignore` per React's own
@@ -196,6 +317,7 @@ export function TrackingPanel() {
                   </span>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
+                <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
                 <p className="mt-3 text-xs text-muted-foreground" dir="ltr">
                   {formatTrackedDate(req.createdAt)}
                 </p>

@@ -3,9 +3,11 @@ import rateLimit from "express-rate-limit";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
 import {
+  confirmPayment,
   getContactRequests,
   patchContactRequestStatus,
   storeContactRequest,
+  storeInvoice,
 } from "./contact-requests.controller.js";
 
 const router = Router();
@@ -38,6 +40,21 @@ router.patch(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   patchContactRequestStatus
+);
+router.post(
+  "/:id/invoice",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  storeInvoice
+);
+// Narrower than the roles above — matches payments.routes.js's split for
+// financial-confirmation actions specifically (SUPER_ADMIN/ADMIN/ACCOUNTANT),
+// not the general "can work this request" set.
+router.post(
+  "/:id/confirm-payment",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"),
+  confirmPayment
 );
 
 export default router;

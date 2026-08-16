@@ -1,9 +1,12 @@
 import {
   createContactRequestSchema,
+  createInvoiceSchema,
   updateContactRequestStatusSchema,
 } from "./contact-requests.validators.js";
 import {
+  confirmContactRequestPayment,
   createContactRequest,
+  createOrUpdateInvoice,
   listContactRequests,
   updateContactRequestStatus,
 } from "./contact-requests.service.js";
@@ -85,6 +88,72 @@ export async function patchContactRequestStatus(req, res, next) {
     return res.status(200).json({
       success: true,
       data: contactRequest,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function storeInvoice(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = createInvoiceSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const result = await createOrUpdateInvoice(id, parsed.data, req.user.id);
+
+    if (result.error === "NOT_FOUND") {
+      return res.status(404).json({
+        success: false,
+        message: "Contact request not found",
+      });
+    }
+
+    if (result.error === "ALREADY_APPROVED") {
+      return res.status(409).json({
+        success: false,
+        message: "Customer has already approved this invoice",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: result.invoice,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function confirmPayment(req, res, next) {
+  try {
+    const { id } = req.params;
+    const result = await confirmContactRequestPayment(id);
+
+    if (result.error === "NOT_FOUND") {
+      return res.status(404).json({
+        success: false,
+        message: "Contact request not found",
+      });
+    }
+
+    if (result.error === "INVALID_STATE") {
+      return res.status(409).json({
+        success: false,
+        message: "Payment is not awaiting review",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: result.contactRequest,
     });
   } catch (error) {
     next(error);

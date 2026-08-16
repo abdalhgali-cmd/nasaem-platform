@@ -6,6 +6,9 @@ import {
   requestLoginCode,
   verifyLoginCode,
   listContactRequestsForPhone,
+  approveInvoice,
+  rejectInvoice,
+  markTransferSent,
 } from "./contact-request-tracking.service.js";
 import { getTrackingTokenMaxAgeMs } from "../../utils/jwt.js";
 
@@ -82,6 +85,54 @@ export async function getMyRequests(req, res, next) {
       success: true,
       data: requests,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+function respondToAction(res, result, successMessage) {
+  if (result.error === "NOT_FOUND") {
+    return res.status(404).json({
+      success: false,
+      message: "Contact request or invoice not found",
+    });
+  }
+
+  if (result.error === "INVALID_STATE") {
+    return res.status(409).json({
+      success: false,
+      message: "This action isn't available for the request's current state",
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: successMessage,
+  });
+}
+
+export async function approveMyInvoice(req, res, next) {
+  try {
+    const result = await approveInvoice(req.trackingPhone, req.params.id);
+    return respondToAction(res, result, "تمت الموافقة على السعر");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function rejectMyInvoice(req, res, next) {
+  try {
+    const result = await rejectInvoice(req.trackingPhone, req.params.id);
+    return respondToAction(res, result, "تم رفض عرض السعر");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function markMyTransferSent(req, res, next) {
+  try {
+    const result = await markTransferSent(req.trackingPhone, req.params.id);
+    return respondToAction(res, result, "تم إعلام فريقنا بالتحويل، سنراجعه قريبًا");
   } catch (error) {
     next(error);
   }

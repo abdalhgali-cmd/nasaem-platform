@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SUPPORTED_CURRENCIES } from "../../utils/enums.js";
 
 export const createContactRequestSchema = z.object({
   name: z.string().trim().min(2, "الاسم مطلوب").max(120),
@@ -15,4 +16,10 @@ export const createContactRequestSchema = z.object({
 
 export const updateContactRequestStatusSchema = z.object({
   status: z.enum(["NEW", "CONTACTED", "CLOSED"]),
+});
+
+export const createInvoiceSchema = z.object({
+  amount: z.coerce.number().positive("المبلغ يجب أن يكون أكبر من صفر"),
+  currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
 });

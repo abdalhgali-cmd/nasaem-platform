@@ -62,6 +62,7 @@ export async function listContactRequests({ page, limit, skip, status }) {
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
+      include: { invoice: true },
     }),
     prisma.contactRequest.count({ where }),
   ]);
@@ -80,4 +81,78 @@ export async function updateContactRequestStatus(id, status) {
     where: { id },
     data: { status },
   });
+}
+
+// Creates the first quote for a ContactRequest, or reissues one after the
+// customer rejected the previous quote. Once a customer has approved a
+// quote the price is locked — callers must check for the "ALREADY_APPROVED"
+// error and refuse the request rather than silently overwriting an amount
+// the customer already agreed to pay.
+export async function createOrUpdateInvoice(contactRequestId, data, userId) {
+  const contactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    include: { invoice: true },
+  });
+
+  if (!contactRequest) {
+    return { error: "NOT_FOUND" };
+  }
+
+  if (contactRequest.invoice?.status === "APPROVED") {
+    return { error: "ALREADY_APPROVED" };
+  }
+
+  const invoice = await prisma.invoice.upsert({
+    where: { contactRequestId },
+    create: {
+      contactRequestId,
+      amount: data.amount,
+      currency: data.currency,
+      description: data.description || null,
+      createdByUserId: userId,
+    },
+    update: {
+      amount: data.amount,
+      currency: data.currency,
+      description: data.description || null,
+      status: "PENDING",
+      decidedAt: null,
+      createdByUserId: userId,
+    },
+  });
+
+  // Not awaited: same rationale as createContactRequest — a slow/unreachable
+  // WhatsApp API must never delay the response, and this silently no-ops
+  // when WHATSAPP_* env vars aren't set (dev/test).
+  sendWhatsAppMessage(
+    contactRequest.phoneNormalized,
+    `تم تحديد سعر لطلبك: ${data.amount} ${data.currency}\nيمكنك مراجعته والموافقة عليه عبر صفحة تتبع الطلب.`
+  );
+
+  return { invoice };
+}
+
+// Only moves AWAITING payment confirmation forward from UNDER_REVIEW — a
+// customer must have first approved the quote (Invoice.status APPROVED,
+// which sets paymentStatus AWAITING_TRANSFER) and then declared the
+// transfer sent (paymentStatus UNDER_REVIEW) before staff can confirm it.
+export async function confirmContactRequestPayment(contactRequestId) {
+  const contactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+  });
+
+  if (!contactRequest) {
+    return { error: "NOT_FOUND" };
+  }
+
+  if (contactRequest.paymentStatus !== "UNDER_REVIEW") {
+    return { error: "INVALID_STATE" };
+  }
+
+  const updated = await prisma.contactRequest.update({
+    where: { id: contactRequestId },
+    data: { paymentStatus: "CONFIRMED", paymentConfirmedAt: new Date() },
+  });
+
+  return { contactRequest: updated };
 }
