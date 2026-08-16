@@ -3,12 +3,14 @@ import { buildPaginationMeta } from "../../utils/pagination.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { normalizePhone } from "../../utils/phone.js";
 
 export async function createContactRequest(data, req) {
   const contactRequest = await prisma.contactRequest.create({
     data: {
       name: data.name,
       phone: data.phone,
+      phoneNormalized: normalizePhone(data.phone),
       email: data.email || null,
       service: data.service || null,
       message: data.message,

@@ -440,6 +440,10 @@ model ContactRequest {
   id        String               @id @default(cuid())
   name      String
   phone     String
+  // Digits-only, country-code-normalized form of `phone` (see utils/phone.js)
+  // — lets the /track flow match a request by phone regardless of how the
+  // customer originally typed it (spaces, +, leading 0 vs 249, ...).
+  phoneNormalized String          @default("")
   email     String?
   service   String?
   message   String
@@ -449,4 +453,22 @@ model ContactRequest {
 
   @@index([status])
   @@index([createdAt])
+  @@index([phoneNormalized])
+}
+
+// One-time WhatsApp verification codes for the public /track self-service
+// login (POST /api/tracking/request-code, verify-code) — deliberately
+// separate from User/Customer, since the person tracking a request may not
+// exist as either yet (a ContactRequest is often someone's very first
+// contact with the company, before they're ever onboarded as a Customer).
+model ContactRequestLoginCode {
+  id         String    @id @default(cuid())
+  phone      String
+  code       String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  @@index([phone])
 }

@@ -10,6 +10,7 @@ const routes = [
   "/packages",
   "/about",
   "/contact",
+  "/track",
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
