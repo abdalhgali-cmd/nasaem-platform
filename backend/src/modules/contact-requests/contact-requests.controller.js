@@ -1,11 +1,13 @@
 import {
   createContactRequestSchema,
   createInvoiceSchema,
+  createOfferSchema,
   updateContactRequestStatusSchema,
 } from "./contact-requests.validators.js";
 import {
   confirmContactRequestPayment,
   createContactRequest,
+  createOffer,
   createOrUpdateInvoice,
   listContactRequests,
   updateContactRequestStatus,
@@ -128,9 +130,61 @@ export async function storeInvoice(req, res, next) {
       });
     }
 
+    if (result.error === "OFFERS_EXIST") {
+      return res.status(409).json({
+        success: false,
+        message: "This request already uses multi-carrier offers, not a single invoice",
+      });
+    }
+
     return res.status(200).json({
       success: true,
       data: result.invoice,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function storeOffer(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = createOfferSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const result = await createOffer(id, parsed.data, req.user.id);
+
+    if (result.error === "NOT_FOUND") {
+      return res.status(404).json({
+        success: false,
+        message: "Contact request not found",
+      });
+    }
+
+    if (result.error === "INVOICE_EXISTS") {
+      return res.status(409).json({
+        success: false,
+        message: "This request already has a single invoice, not multi-carrier offers",
+      });
+    }
+
+    if (result.error === "ALREADY_SELECTED") {
+      return res.status(409).json({
+        success: false,
+        message: "The customer has already selected an offer",
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      data: result.offer,
     });
   } catch (error) {
     next(error);

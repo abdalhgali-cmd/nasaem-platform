@@ -135,6 +135,7 @@ model User {
   statusChangedLogs   OrderStatusHistory[]   @relation("StatusChangedBy")
   invoicesCreated     Invoice[]              @relation("InvoiceCreatedBy")
   reviewedContactRequestDocuments ContactRequestDocument[] @relation("ContactRequestDocumentReviewedBy")
+  contactRequestOffersCreated ContactRequestOffer[] @relation("ContactRequestOfferCreatedBy")
 
   @@index([role])
   @@index([status])
@@ -469,6 +470,13 @@ model ContactRequest {
 
   invoice   Invoice?
   documents ContactRequestDocument[]
+  offers    ContactRequestOffer[]   @relation("ContactRequestOffers")
+  // The offer the customer picked from `offers` (e.g. one carrier out of
+  // several quoted). Nullable/unique — set once, on selection; a distinct
+  // relation from `offers` since it points at exactly one specific row
+  // rather than owning the collection.
+  selectedOfferId String?              @unique
+  selectedOffer   ContactRequestOffer? @relation("SelectedOffer", fields: [selectedOfferId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([createdAt])
@@ -509,6 +517,33 @@ model ContactRequestDocument {
   @@index([contactRequestId])
   @@index([status])
   @@index([reviewedByUserId])
+}
+
+// One priced option among several staff can offer for the same request
+// (e.g. different flight/ferry carriers or schedules) — an alternative to
+// Invoice's single fixed quote for cases where the customer should pick
+// among genuinely different options rather than approve/reject one bundled
+// price. A request uses one pricing mechanism or the other, never both
+// (enforced in the service layer, not the schema). Append-only like
+// ContactRequestDocument — no edit/delete, staff just add a corrected offer
+// alongside if needed.
+model ContactRequestOffer {
+  id               String   @id @default(cuid())
+  contactRequestId String
+  carrier          String
+  description      String?
+  amount           Decimal  @db.Decimal(12, 2)
+  currency         String   @default("SAR")
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  contactRequest ContactRequest  @relation("ContactRequestOffers", fields: [contactRequestId], references: [id], onDelete: Cascade)
+  createdBy      User            @relation("ContactRequestOfferCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  selectedFor    ContactRequest? @relation("SelectedOffer")
+
+  @@index([contactRequestId])
+  @@index([createdByUserId])
 }
 
 enum InvoiceStatus {

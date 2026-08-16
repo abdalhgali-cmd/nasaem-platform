@@ -11,6 +11,7 @@ import {
   markMyTransferSent,
   rejectMyInvoice,
   requestCode,
+  selectMyOffer,
   uploadDocument,
   verifyCode,
 } from "./contact-request-tracking.controller.js";
@@ -60,6 +61,7 @@ router.post("/verify-code", verifyCodeLimiter, verifyCode);
 router.get("/requests", requireTrackingAuth, getMyRequests);
 router.post("/requests/:id/invoice/approve", requireTrackingAuth, approveMyInvoice);
 router.post("/requests/:id/invoice/reject", requireTrackingAuth, rejectMyInvoice);
+router.post("/requests/:id/offers/:offerId/select", requireTrackingAuth, selectMyOffer);
 router.post("/requests/:id/mark-transfer-sent", requireTrackingAuth, markMyTransferSent);
 router.post(
   "/requests/:id/documents",

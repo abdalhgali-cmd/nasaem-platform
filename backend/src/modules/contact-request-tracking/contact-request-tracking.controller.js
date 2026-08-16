@@ -8,6 +8,7 @@ import {
   listContactRequestsForPhone,
   approveInvoice,
   rejectInvoice,
+  selectOffer,
   markTransferSent,
   uploadMyDocument,
   getMyDocumentFile,
@@ -127,6 +128,15 @@ export async function rejectMyInvoice(req, res, next) {
   try {
     const result = await rejectInvoice(req.trackingPhone, req.params.id);
     return respondToAction(res, result, "تم رفض عرض السعر");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function selectMyOffer(req, res, next) {
+  try {
+    const result = await selectOffer(req.trackingPhone, req.params.id, req.params.offerId);
+    return respondToAction(res, result, "تم اختيار هذا العرض");
   } catch (error) {
     next(error);
   }

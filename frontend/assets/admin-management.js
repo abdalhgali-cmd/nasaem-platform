@@ -466,9 +466,10 @@ async function loadActivityLogs() {
 
 // --- Contact requests (public marketing-site form submissions) ---
 
-// Invoices are quoted in SAR only for now, matching every other price field
-// in this frontend (services/offers forms have no currency picker either —
-// the backend's per-model `currency` default is always "SAR").
+// Invoices/offers are quoted in SAR only for now, matching every other
+// price field in this frontend (services/offers-catalog forms have no
+// currency picker either — the backend's per-model `currency` default is
+// always "SAR").
 function invoiceCellHtml(req) {
   const info = req.invoice
     ? `<div>${formatMoney(req.invoice.amount, req.invoice.currency)}</div><div>${statusBadge(req.invoice.status)}</div>`
@@ -489,6 +490,53 @@ function invoiceCellHtml(req) {
         ${req.invoice ? "تحديث السعر" : "تحديد السعر"}
       </button>
     </div>`;
+}
+
+function offerAddFormHtml(req) {
+  return `
+    <div class="stack" style="margin-top: 6px; gap: 4px">
+      <input type="text" placeholder="الناقل" style="width: 80px" data-offer-carrier-input="${req.id}" />
+      <input
+        type="number" min="0" step="0.01" placeholder="المبلغ" style="width: 80px"
+        data-offer-amount-input="${req.id}"
+      />
+      <button type="button" class="btn secondary" data-add-offer="${req.id}">إضافة عرض</button>
+    </div>`;
+}
+
+function offersCellHtml(req) {
+  const offersList = req.offers
+    .map((offer) => {
+      const isSelected = offer.id === req.selectedOfferId;
+      return `
+        <div style="margin-bottom: 6px${isSelected ? "; font-weight: bold" : ""}">
+          ${escapeHtml(offer.carrier)}: ${formatMoney(offer.amount, offer.currency)}
+          ${isSelected ? statusBadge("APPROVED") : ""}
+        </div>`;
+    })
+    .join("");
+
+  const canAdd = canManageInvoice() && !req.selectedOfferId;
+
+  return `${offersList}${canAdd ? offerAddFormHtml(req) : ""}`;
+}
+
+// A request is priced via a single Invoice OR a set of multi-carrier
+// ContactRequestOffer options — never both (enforced server-side too, see
+// contact-requests.service.js). Nothing priced yet offers staff a choice
+// between the two mechanisms.
+function pricingCellHtml(req) {
+  if (req.offers && req.offers.length > 0) {
+    return offersCellHtml(req);
+  }
+
+  const invoiceHtml = invoiceCellHtml(req);
+
+  if (!req.invoice && canManageInvoice()) {
+    return `${invoiceHtml}<div class="muted" style="margin-top: 6px; font-size: 0.75rem">— أو —</div>${offerAddFormHtml(req)}`;
+  }
+
+  return invoiceHtml;
 }
 
 function paymentCellHtml(req) {
@@ -562,7 +610,7 @@ async function loadContactRequests() {
                 .join("")}
             </select>
           </td>
-          <td>${invoiceCellHtml(req)}</td>
+          <td>${pricingCellHtml(req)}</td>
           <td>${paymentCellHtml(req)}</td>
           <td>${documentsCellHtml(req)}</td>
           <td>${formatDate(req.createdAt)}</td>
@@ -604,6 +652,28 @@ function handleContactRequestActionClick(e) {
 
     api
       .post(`/contact-requests/${id}/invoice`, { amount, currency: "SAR" })
+      .then(loadContactRequests)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+
+  const addOfferBtn = e.target.closest("[data-add-offer]");
+  if (addOfferBtn) {
+    const id = addOfferBtn.dataset.addOffer;
+    const carrier = document.querySelector(`[data-offer-carrier-input="${id}"]`)?.value.trim();
+    const amount = Number(document.querySelector(`[data-offer-amount-input="${id}"]`)?.value);
+
+    if (!carrier) {
+      showAlert(mgmtAlert(), "أدخل اسم الناقل/الجهة");
+      return;
+    }
+    if (!amount || amount <= 0) {
+      showAlert(mgmtAlert(), "أدخل مبلغًا صحيحًا أكبر من صفر");
+      return;
+    }
+
+    api
+      .post(`/contact-requests/${id}/offers`, { carrier, amount, currency: "SAR" })
       .then(loadContactRequests)
       .catch((error) => showAlert(mgmtAlert(), error.message));
     return;

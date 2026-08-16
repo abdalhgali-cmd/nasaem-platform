@@ -62,7 +62,11 @@ export async function listContactRequests({ page, limit, skip, status }) {
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
-      include: { invoice: true, documents: { orderBy: { createdAt: "desc" } } },
+      include: {
+        invoice: true,
+        documents: { orderBy: { createdAt: "desc" } },
+        offers: { orderBy: { createdAt: "desc" } },
+      },
     }),
     prisma.contactRequest.count({ where }),
   ]);
@@ -87,11 +91,13 @@ export async function updateContactRequestStatus(id, status) {
 // customer rejected the previous quote. Once a customer has approved a
 // quote the price is locked — callers must check for the "ALREADY_APPROVED"
 // error and refuse the request rather than silently overwriting an amount
-// the customer already agreed to pay.
+// the customer already agreed to pay. A request also can't mix pricing
+// mechanisms — refuses if multi-carrier offers (see createOffer) are
+// already in play for it.
 export async function createOrUpdateInvoice(contactRequestId, data, userId) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
-    include: { invoice: true },
+    include: { invoice: true, offers: true },
   });
 
   if (!contactRequest) {
@@ -100,6 +106,10 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
 
   if (contactRequest.invoice?.status === "APPROVED") {
     return { error: "ALREADY_APPROVED" };
+  }
+
+  if (contactRequest.offers.length > 0) {
+    return { error: "OFFERS_EXIST" };
   }
 
   const invoice = await prisma.invoice.upsert({
@@ -130,6 +140,49 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
   );
 
   return { invoice };
+}
+
+// Adds one priced option to a request's multi-carrier offer set (see the
+// ContactRequestOffer schema comment for when to use this instead of
+// Invoice). Staff can keep adding offers until the customer selects one;
+// a request also can't mix pricing mechanisms — refuses if an Invoice is
+// already in play for it.
+export async function createOffer(contactRequestId, data, userId) {
+  const contactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    include: { invoice: true },
+  });
+
+  if (!contactRequest) {
+    return { error: "NOT_FOUND" };
+  }
+
+  if (contactRequest.invoice) {
+    return { error: "INVOICE_EXISTS" };
+  }
+
+  if (contactRequest.selectedOfferId) {
+    return { error: "ALREADY_SELECTED" };
+  }
+
+  const offer = await prisma.contactRequestOffer.create({
+    data: {
+      contactRequestId,
+      carrier: data.carrier,
+      description: data.description || null,
+      amount: data.amount,
+      currency: data.currency,
+      createdByUserId: userId,
+    },
+  });
+
+  // Not awaited: same rationale as elsewhere in this module.
+  sendWhatsAppMessage(
+    contactRequest.phoneNormalized,
+    `تمت إضافة عرض سعر جديد لطلبك (${data.carrier}): ${data.amount} ${data.currency}\nيمكنك مراجعة كل العروض واختيار الأنسب لك عبر صفحة تتبع الطلب.`
+  );
+
+  return { offer };
 }
 
 // Only moves AWAITING payment confirmation forward from UNDER_REVIEW — a

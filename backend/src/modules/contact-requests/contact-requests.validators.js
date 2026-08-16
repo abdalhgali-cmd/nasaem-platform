@@ -23,3 +23,10 @@ export const createInvoiceSchema = z.object({
   currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
   description: z.string().trim().max(2000).optional().or(z.literal("")),
 });
+
+export const createOfferSchema = z.object({
+  carrier: z.string().trim().min(2, "يرجى تحديد الناقل/الجهة").max(120),
+  amount: z.coerce.number().positive("المبلغ يجب أن يكون أكبر من صفر"),
+  currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
+});

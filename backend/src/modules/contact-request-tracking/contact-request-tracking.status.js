@@ -10,11 +10,14 @@ const STATUS_LABELS = {
 };
 
 // Precedence (highest first): a closed request always wins; then payment
-// progress (once an invoice is approved, the payment side of the story
-// matters more than the invoice's own PENDING/REJECTED state); then the
-// invoice's own decision state; falling back to the bare request status.
+// progress (once a price is settled — via Invoice approval or an offer
+// selection — the payment side of the story matters more than how the
+// price was settled); then the still-open pricing decision (an Invoice
+// awaiting approval/rejection, or a set of offers awaiting selection —
+// a request only ever has one of the two, see contact-requests.service.js);
+// falling back to the bare request status.
 export function deriveTrackingStatusLabel(contactRequest) {
-  const { status, paymentStatus, invoice } = contactRequest;
+  const { status, paymentStatus, invoice, offers, selectedOfferId } = contactRequest;
 
   if (status === "CLOSED") {
     return STATUS_LABELS.CLOSED;
@@ -38,6 +41,10 @@ export function deriveTrackingStatusLabel(contactRequest) {
 
   if (invoice?.status === "REJECTED") {
     return "تم رفض عرض السعر، بانتظار عرض جديد من فريقنا";
+  }
+
+  if (offers?.length > 0 && !selectedOfferId) {
+    return "توجد عروض أسعار متعددة بانتظار اختيارك";
   }
 
   return STATUS_LABELS[status] ?? status;

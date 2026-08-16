@@ -10,6 +10,7 @@ import {
   reviewDocument,
   storeContactRequest,
   storeInvoice,
+  storeOffer,
 } from "./contact-requests.controller.js";
 
 const router = Router();
@@ -48,6 +49,12 @@ router.post(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   storeInvoice
+);
+router.post(
+  "/:id/offers",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  storeOffer
 );
 // Narrower than the roles above — matches payments.routes.js's split for
 // financial-confirmation actions specifically (SUPER_ADMIN/ADMIN/ACCOUNTANT),

@@ -88,7 +88,11 @@ export async function listContactRequestsForPhone(phoneNormalized) {
   const requests = await prisma.contactRequest.findMany({
     where: { phoneNormalized },
     orderBy: { createdAt: "desc" },
-    include: { invoice: true, documents: { orderBy: { createdAt: "desc" } } },
+    include: {
+      invoice: true,
+      documents: { orderBy: { createdAt: "desc" } },
+      offers: { orderBy: { createdAt: "desc" } },
+    },
   });
 
   return requests.map((request) => ({
@@ -104,7 +108,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
 async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
   return prisma.contactRequest.findFirst({
     where: { id: contactRequestId, phoneNormalized },
-    include: { invoice: true },
+    include: { invoice: true, offers: true },
   });
 }
 
@@ -167,6 +171,31 @@ export async function rejectInvoice(phoneNormalized, contactRequestId) {
   await prisma.invoice.update({
     where: { id: contactRequest.invoice.id },
     data: { status: "REJECTED", decidedAt: new Date() },
+  });
+
+  return { success: true };
+}
+
+export async function selectOffer(phoneNormalized, contactRequestId, offerId) {
+  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
+
+  if (!contactRequest) {
+    return { error: "NOT_FOUND" };
+  }
+
+  if (contactRequest.selectedOfferId) {
+    return { error: "INVALID_STATE" };
+  }
+
+  const offer = contactRequest.offers.find((candidate) => candidate.id === offerId);
+
+  if (!offer) {
+    return { error: "NOT_FOUND" };
+  }
+
+  await prisma.contactRequest.update({
+    where: { id: contactRequestId },
+    data: { selectedOfferId: offerId, paymentStatus: "AWAITING_TRANSFER" },
   });
 
   return { success: true };

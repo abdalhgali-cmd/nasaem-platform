@@ -16,6 +16,14 @@ type TrackedInvoice = {
   status: InvoiceStatus;
 };
 
+type TrackedOffer = {
+  id: string;
+  carrier: string;
+  description: string | null;
+  amount: string;
+  currency: string;
+};
+
 type DocumentStatus = "PENDING" | "ACCEPTED" | "REJECTED";
 
 type TrackedDocument = {
@@ -33,6 +41,8 @@ type TrackedRequest = {
   statusLabel: string;
   createdAt: string;
   invoice: TrackedInvoice | null;
+  offers: TrackedOffer[];
+  selectedOfferId: string | null;
   paymentStatus: PaymentStatus;
   documents: TrackedDocument[];
 };
@@ -57,23 +67,17 @@ const STATUS_BADGE_CLASS: Record<TrackedRequestStatus, string> = {
   CLOSED: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
 };
 
-function formatInvoiceAmount(invoice: TrackedInvoice) {
-  return `${Number(invoice.amount).toLocaleString("en-US")} ${invoice.currency}`;
+function formatMoney(amount: string, currency: string) {
+  return `${Number(amount).toLocaleString("en-US")} ${currency}`;
 }
 
-function RequestInvoicePanel({
-  req,
-  onActionComplete,
-}: {
-  req: TrackedRequest;
-  onActionComplete: () => Promise<void>;
-}) {
+// Shared by every panel below that posts a tracking action (invoice
+// approve/reject, offer selection, mark-transfer-sent) and needs the
+// request list refreshed on success — same loading/error state, same
+// fetch-and-refresh shape each time.
+function useTrackingAction(onActionComplete: () => Promise<void>) {
   const [acting, setActing] = React.useState(false);
   const [actionError, setActionError] = React.useState("");
-
-  if (!req.invoice) {
-    return null;
-  }
 
   async function postAction(path: string) {
     setActing(true);
@@ -100,12 +104,28 @@ function RequestInvoicePanel({
     }
   }
 
+  return { acting, actionError, postAction };
+}
+
+function RequestInvoicePanel({
+  req,
+  onActionComplete,
+}: {
+  req: TrackedRequest;
+  onActionComplete: () => Promise<void>;
+}) {
+  const { acting, actionError, postAction } = useTrackingAction(onActionComplete);
+
+  if (!req.invoice) {
+    return null;
+  }
+
   return (
     <div className="mt-4 rounded-xl border border-border bg-background p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-semibold text-foreground">السعر المقترح</span>
         <span className="text-base font-bold text-foreground" dir="ltr">
-          {formatInvoiceAmount(req.invoice)}
+          {formatMoney(req.invoice.amount, req.invoice.currency)}
         </span>
       </div>
       {req.invoice.description ? (
@@ -138,24 +158,107 @@ function RequestInvoicePanel({
           </Button>
         </div>
       ) : null}
+    </div>
+  );
+}
 
-      {req.paymentStatus === "AWAITING_TRANSFER" ? (
-        <div className="mt-3">
-          <p className="text-xs text-muted-foreground">
-            بعد تحويل المبلغ، اضغط الزر التالي لإعلام فريقنا بذلك.
-          </p>
-          <Button
-            type="button"
-            size="sm"
-            variant="gold"
-            className="mt-2"
-            disabled={acting}
-            onClick={() => postAction(`/tracking/requests/${req.id}/mark-transfer-sent`)}
-          >
-            تم تحويل المبلغ
-          </Button>
-        </div>
+function RequestOffersPanel({
+  req,
+  onActionComplete,
+}: {
+  req: TrackedRequest;
+  onActionComplete: () => Promise<void>;
+}) {
+  const { acting, actionError, postAction } = useTrackingAction(onActionComplete);
+
+  if (req.offers.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <span className="text-sm font-semibold text-foreground">عروض الأسعار</span>
+
+      {actionError ? (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{actionError}</p>
       ) : null}
+
+      <ul className="mt-2 flex flex-col gap-2">
+        {req.offers.map((offer) => {
+          const isSelected = offer.id === req.selectedOfferId;
+          return (
+            <li
+              key={offer.id}
+              className={`rounded-lg border p-3 text-xs ${isSelected ? "border-accent bg-accent/5" : "border-border/70"}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold text-foreground">{offer.carrier}</span>
+                <span className="font-bold text-foreground" dir="ltr">
+                  {formatMoney(offer.amount, offer.currency)}
+                </span>
+              </div>
+              {offer.description ? (
+                <p className="mt-1 text-muted-foreground">{offer.description}</p>
+              ) : null}
+
+              {isSelected ? (
+                <span className="mt-2 inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                  تم الاختيار
+                </span>
+              ) : !req.selectedOfferId ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-2"
+                  disabled={acting}
+                  onClick={() => postAction(`/tracking/requests/${req.id}/offers/${offer.id}/select`)}
+                >
+                  اختيار هذا العرض
+                </Button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// Shown once per request, regardless of which pricing mechanism (Invoice or
+// multi-carrier offers) got it to AWAITING_TRANSFER — both feed the same
+// paymentStatus state machine from that point on.
+function RequestTransferAction({
+  req,
+  onActionComplete,
+}: {
+  req: TrackedRequest;
+  onActionComplete: () => Promise<void>;
+}) {
+  const { acting, actionError, postAction } = useTrackingAction(onActionComplete);
+
+  if (req.paymentStatus !== "AWAITING_TRANSFER") {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <p className="text-xs text-muted-foreground">
+        بعد تحويل المبلغ، اضغط الزر التالي لإعلام فريقنا بذلك.
+      </p>
+      {actionError ? (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{actionError}</p>
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        variant="gold"
+        className="mt-2"
+        disabled={acting}
+        onClick={() => postAction(`/tracking/requests/${req.id}/mark-transfer-sent`)}
+      >
+        تم تحويل المبلغ
+      </Button>
     </div>
   );
 }
@@ -446,6 +549,8 @@ export function TrackingPanel() {
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
                 <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
+                <RequestOffersPanel req={req} onActionComplete={refreshRequests} />
+                <RequestTransferAction req={req} onActionComplete={refreshRequests} />
                 <RequestDocumentsPanel req={req} onActionComplete={refreshRequests} />
                 <p className="mt-3 text-xs text-muted-foreground" dir="ltr">
                   {formatTrackedDate(req.createdAt)}
