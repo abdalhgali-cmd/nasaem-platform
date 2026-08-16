@@ -150,6 +150,12 @@ function canResetUserPassword() {
   return currentUser.role === "SUPER_ADMIN";
 }
 
+// Mirrors DELETE /services/:id's requireRole("SUPER_ADMIN") — stricter than
+// mgmtCanWrite("services") (SUPER_ADMIN + ADMIN), which governs create/toggle.
+function canDeleteService() {
+  return currentUser.role === "SUPER_ADMIN";
+}
+
 // Mirrors PATCH /users/:id/department's requireRole("SUPER_ADMIN", "ADMIN")
 // — same rule as canToggleUserStatus today, kept as its own function since
 // the two are conceptually distinct actions that just happen to share a
@@ -392,7 +398,10 @@ async function loadServices() {
           <td>${sv.category}</td>
           <td>${formatMoney(sv.basePrice, sv.currency)}</td>
           <td>${sv.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
-          <td>${mgmtCanWrite("services") ? `<button type="button" class="btn secondary" data-toggle-service="${sv.id}" data-active="${sv.active}">${sv.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>
+            ${mgmtCanWrite("services") ? `<button type="button" class="btn secondary" data-toggle-service="${sv.id}" data-active="${sv.active}">${sv.active ? "تعطيل" : "تفعيل"}</button>` : ""}
+            ${canDeleteService() ? `<button type="button" class="btn danger" data-delete-service="${sv.id}">حذف</button>` : ""}
+          </td>
         </tr>`
       )
       .join("");
@@ -431,13 +440,24 @@ async function createService() {
 }
 
 function handleServiceRowClick(e) {
-  const btn = e.target.closest("[data-toggle-service]");
-  if (!btn) return;
-  const active = btn.dataset.active === "true";
-  api
-    .patch(`/services/${btn.dataset.toggleService}`, { active: !active })
-    .then(loadServices)
-    .catch((error) => showAlert(mgmtAlert(), error.message));
+  const toggleBtn = e.target.closest("[data-toggle-service]");
+  if (toggleBtn) {
+    const active = toggleBtn.dataset.active === "true";
+    api
+      .patch(`/services/${toggleBtn.dataset.toggleService}`, { active: !active })
+      .then(loadServices)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+
+  const deleteBtn = e.target.closest("[data-delete-service]");
+  if (deleteBtn) {
+    if (!window.confirm("حذف هذه الخدمة؟ إذا كانت مستخدمة في طلبات سابقة سيتم تعطيلها بدلًا من حذفها.")) return;
+    api
+      .delete(`/services/${deleteBtn.dataset.deleteService}`)
+      .then(loadServices)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+  }
 }
 
 // --- Offers ---

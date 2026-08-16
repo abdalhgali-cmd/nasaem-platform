@@ -68,6 +68,11 @@ function canChangeOrderStatus() {
   return ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(currentUser.role);
 }
 
+// Mirrors DELETE /documents/:id's requireRole("SUPER_ADMIN", "ADMIN").
+function canDeleteDocument() {
+  return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
+}
+
 function canSeeManagement() {
   return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
 }
@@ -306,6 +311,7 @@ function renderOrderDetail(order, staff = []) {
         <td>${escapeHtml(doc.fileName)}</td>
         <td>${formatDate(doc.createdAt)}</td>
         <td><a href="${API_BASE}/documents/${doc.id}/file" download>تحميل</a></td>
+        <td>${canDeleteDocument() ? `<button type="button" class="btn danger" data-delete-document="${doc.id}">حذف</button>` : ""}</td>
       </tr>`
     )
     .join("");
@@ -375,8 +381,8 @@ function renderOrderDetail(order, staff = []) {
 
     <h3>المستندات</h3>
     <table>
-      <thead><tr><th>النوع</th><th>اسم الملف</th><th>تاريخ الرفع</th><th></th></tr></thead>
-      <tbody>${documentsRows || '<tr><td colspan="4">لا توجد مستندات</td></tr>'}</tbody>
+      <thead><tr><th>النوع</th><th>اسم الملف</th><th>تاريخ الرفع</th><th></th><th></th></tr></thead>
+      <tbody id="order-documents-body">${documentsRows || '<tr><td colspan="5">لا توجد مستندات</td></tr>'}</tbody>
     </table>
 
     <h3>سجل الحالات</h3>
@@ -398,6 +404,18 @@ function renderOrderDetail(order, staff = []) {
 
   if (canAssignOrder()) {
     el("assign-order-btn").addEventListener("click", () => assignOrderToUser(order.id));
+  }
+
+  if (canDeleteDocument()) {
+    el("order-documents-body").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-delete-document]");
+      if (!btn) return;
+      if (!window.confirm("حذف هذا المستند؟")) return;
+      api
+        .delete(`/documents/${btn.dataset.deleteDocument}`)
+        .then(() => openOrderDetail(order.id))
+        .catch((error) => window.alert(error.message));
+    });
   }
 }
 
