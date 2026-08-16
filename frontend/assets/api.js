@@ -110,6 +110,7 @@ const STATUS_LABELS_AR = {
   CONFIRMED: "مؤكد",
   NOT_REQUIRED: "-",
   AWAITING_TRANSFER: "بانتظار التحويل",
+  ACCEPTED: "مقبول",
 };
 
 function statusBadge(status) {

@@ -10,6 +10,11 @@ import {
   listContactRequests,
   updateContactRequestStatus,
 } from "./contact-requests.service.js";
+import { reviewContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
+import {
+  getContactRequestDocumentFile,
+  updateContactRequestDocumentStatus,
+} from "../contact-request-documents/contact-request-documents.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 
 export async function storeContactRequest(req, res, next) {
@@ -154,6 +159,62 @@ export async function confirmPayment(req, res, next) {
     return res.status(200).json({
       success: true,
       data: result.contactRequest,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function downloadDocumentFile(req, res, next) {
+  try {
+    const { id, documentId } = req.params;
+    const file = await getContactRequestDocumentFile(id, documentId);
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
+
+    return res.sendFile(file.absolutePath, {
+      headers: { "Content-Type": file.mimeType },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function reviewDocument(req, res, next) {
+  try {
+    const { id, documentId } = req.params;
+    const parsed = reviewContactRequestDocumentSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const result = await updateContactRequestDocumentStatus(
+      id,
+      documentId,
+      parsed.data,
+      req.user.id
+    );
+
+    if (result.error === "NOT_FOUND") {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: result.document,
     });
   } catch (error) {
     next(error);

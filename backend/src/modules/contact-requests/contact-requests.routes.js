@@ -4,8 +4,10 @@ import rateLimit from "express-rate-limit";
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
 import {
   confirmPayment,
+  downloadDocumentFile,
   getContactRequests,
   patchContactRequestStatus,
+  reviewDocument,
   storeContactRequest,
   storeInvoice,
 } from "./contact-requests.controller.js";
@@ -55,6 +57,18 @@ router.post(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"),
   confirmPayment
+);
+router.get(
+  "/:id/documents/:documentId/file",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  downloadDocumentFile
+);
+router.patch(
+  "/:id/documents/:documentId/status",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  reviewDocument
 );
 
 export default router;

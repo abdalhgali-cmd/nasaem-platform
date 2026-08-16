@@ -134,6 +134,7 @@ model User {
   notifications       Notification[]         @relation("UserNotifications")
   statusChangedLogs   OrderStatusHistory[]   @relation("StatusChangedBy")
   invoicesCreated     Invoice[]              @relation("InvoiceCreatedBy")
+  reviewedContactRequestDocuments ContactRequestDocument[] @relation("ContactRequestDocumentReviewedBy")
 
   @@index([role])
   @@index([status])
@@ -466,11 +467,48 @@ model ContactRequest {
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
-  invoice Invoice?
+  invoice   Invoice?
+  documents ContactRequestDocument[]
 
   @@index([status])
   @@index([createdAt])
   @@index([phoneNormalized])
+}
+
+enum ContactRequestDocumentStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+// A file the customer uploaded via /track for this request (e.g. a passport
+// scan) and staff's review of it. Append-only by design — a re-upload after
+// rejection creates a new row rather than overwriting the old one, so the
+// review history stays intact; "the current one" is simply the most recent
+// row per `label`. No fixed per-service checklist exists (services vary too
+// widely — visas, flights, hotels, ...), so `label` is free text rather than
+// an enum.
+model ContactRequestDocument {
+  id               String                        @id @default(cuid())
+  contactRequestId String
+  label            String
+  fileName         String
+  storagePath      String
+  mimeType         String
+  sizeBytes        Int
+  status           ContactRequestDocumentStatus @default(PENDING)
+  reviewNote       String?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  reviewedBy     User?          @relation("ContactRequestDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([contactRequestId])
+  @@index([status])
+  @@index([reviewedByUserId])
 }
 
 enum InvoiceStatus {

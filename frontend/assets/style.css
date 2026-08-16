@@ -282,7 +282,8 @@ tbody tr:hover {
 .badge.status-COMPLETED,
 .badge.status-PAID,
 .badge.status-ACTIVE,
-.badge.status-CONFIRMED {
+.badge.status-CONFIRMED,
+.badge.status-ACCEPTED {
   background: #dcfce7;
   color: #166534;
 }

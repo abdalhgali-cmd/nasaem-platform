@@ -4,6 +4,10 @@ import { normalizePhone } from "../../utils/phone.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { signTrackingToken } from "../../utils/jwt.js";
 import { deriveTrackingStatusLabel } from "./contact-request-tracking.status.js";
+import {
+  createContactRequestDocument,
+  getContactRequestDocumentFile,
+} from "../contact-request-documents/contact-request-documents.service.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -84,7 +88,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
   const requests = await prisma.contactRequest.findMany({
     where: { phoneNormalized },
     orderBy: { createdAt: "desc" },
-    include: { invoice: true },
+    include: { invoice: true, documents: { orderBy: { createdAt: "desc" } } },
   });
 
   return requests.map((request) => ({
@@ -102,6 +106,26 @@ async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
     where: { id: contactRequestId, phoneNormalized },
     include: { invoice: true },
   });
+}
+
+export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file }) {
+  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
+
+  if (!contactRequest) {
+    return { error: "NOT_FOUND" };
+  }
+
+  return createContactRequestDocument(contactRequestId, { label, file });
+}
+
+export async function getMyDocumentFile(phoneNormalized, contactRequestId, documentId) {
+  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
+
+  if (!contactRequest) {
+    return null;
+  }
+
+  return getContactRequestDocumentFile(contactRequestId, documentId);
 }
 
 export async function approveInvoice(phoneNormalized, contactRequestId) {

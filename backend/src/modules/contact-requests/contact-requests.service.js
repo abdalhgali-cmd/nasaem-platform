@@ -62,7 +62,7 @@ export async function listContactRequests({ page, limit, skip, status }) {
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
-      include: { invoice: true },
+      include: { invoice: true, documents: { orderBy: { createdAt: "desc" } } },
     }),
     prisma.contactRequest.count({ where }),
   ]);

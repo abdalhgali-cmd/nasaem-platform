@@ -37,6 +37,28 @@ export const uploadDocument = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 }).single("file");
 
+const CONTACT_REQUEST_DOCUMENT_DIR = path.resolve("uploads", "contact-request-documents");
+fs.mkdirSync(CONTACT_REQUEST_DOCUMENT_DIR, { recursive: true });
+
+const contactRequestDocumentStorage = multer.diskStorage({
+  destination(req, file, cb) {
+    cb(null, CONTACT_REQUEST_DOCUMENT_DIR);
+  },
+  filename(req, file, cb) {
+    const uniqueName = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+
+// Customer-uploaded documents (via /track) — same allowed types/size as
+// staff-side documents, kept in a separate directory since these are
+// unreviewed input from the public until staff accept/reject them.
+export const uploadContactRequestDocument = multer({
+  storage: contactRequestDocumentStorage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+}).single("file");
+
 const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function imageFileFilter(req, file, cb) {

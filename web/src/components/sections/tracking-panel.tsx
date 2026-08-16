@@ -16,6 +16,15 @@ type TrackedInvoice = {
   status: InvoiceStatus;
 };
 
+type DocumentStatus = "PENDING" | "ACCEPTED" | "REJECTED";
+
+type TrackedDocument = {
+  id: string;
+  label: string;
+  status: DocumentStatus;
+  reviewNote: string | null;
+};
+
 type TrackedRequest = {
   id: string;
   service: string | null;
@@ -25,6 +34,19 @@ type TrackedRequest = {
   createdAt: string;
   invoice: TrackedInvoice | null;
   paymentStatus: PaymentStatus;
+  documents: TrackedDocument[];
+};
+
+const DOCUMENT_BADGE_CLASS: Record<DocumentStatus, string> = {
+  PENDING: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  ACCEPTED: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  REJECTED: "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+const DOCUMENT_STATUS_LABEL: Record<DocumentStatus, string> = {
+  PENDING: "قيد المراجعة",
+  ACCEPTED: "مقبول",
+  REJECTED: "مرفوض",
 };
 
 type Stage = "checking" | "phone" | "code" | "requests";
@@ -133,6 +155,112 @@ function RequestInvoicePanel({
             تم تحويل المبلغ
           </Button>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RequestDocumentsPanel({
+  req,
+  onActionComplete,
+}: {
+  req: TrackedRequest;
+  onActionComplete: () => Promise<void>;
+}) {
+  const [label, setLabel] = React.useState("");
+  const [file, setFile] = React.useState<File | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState("");
+
+  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!file) return;
+
+    setUploading(true);
+    setUploadError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("label", label);
+      formData.append("file", file);
+
+      const res = await fetch(`${API_URL}/tracking/requests/${req.id}/documents`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(payload?.message || "تعذّر رفع الملف، حاول مرة أخرى");
+      }
+
+      setLabel("");
+      setFile(null);
+      e.currentTarget.reset();
+      await onActionComplete();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "تعذّر رفع الملف، حاول مرة أخرى");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <span className="text-sm font-semibold text-foreground">المستندات</span>
+
+      {req.documents.length > 0 ? (
+        <ul className="mt-2 flex flex-col gap-2">
+          {req.documents.map((doc) => (
+            <li key={doc.id} className="rounded-lg border border-border/70 p-2 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-foreground">{doc.label}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 font-semibold ${DOCUMENT_BADGE_CLASS[doc.status]}`}
+                >
+                  {DOCUMENT_STATUS_LABEL[doc.status]}
+                </span>
+              </div>
+              {doc.status === "REJECTED" && doc.reviewNote ? (
+                <p className="mt-1 text-red-600 dark:text-red-400">{doc.reviewNote}</p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">لم يتم رفع أي مستندات بعد.</p>
+      )}
+
+      <form onSubmit={handleUpload} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="flex flex-1 flex-col gap-1">
+          <label className="text-xs font-semibold text-foreground">نوع المستند</label>
+          <input
+            type="text"
+            required
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="مثال: جواز السفر"
+            className="h-10 rounded-lg border border-border bg-card px-3 text-xs outline-none transition focus:border-primary"
+          />
+        </div>
+        <div className="flex flex-1 flex-col gap-1">
+          <label className="text-xs font-semibold text-foreground">الملف</label>
+          <input
+            type="file"
+            required
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="text-xs text-muted-foreground file:me-2 file:rounded-md file:border-0 file:bg-primary/10 file:px-2 file:py-1 file:text-xs file:font-semibold file:text-primary"
+          />
+        </div>
+        <Button type="submit" size="sm" variant="outline" disabled={uploading}>
+          {uploading ? <Loader2 className="size-4 animate-spin" /> : null}
+          رفع
+        </Button>
+      </form>
+      {uploadError ? (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{uploadError}</p>
       ) : null}
     </div>
   );
@@ -318,6 +446,7 @@ export function TrackingPanel() {
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
                 <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
+                <RequestDocumentsPanel req={req} onActionComplete={refreshRequests} />
                 <p className="mt-3 text-xs text-muted-foreground" dir="ltr">
                   {formatTrackedDate(req.createdAt)}
                 </p>

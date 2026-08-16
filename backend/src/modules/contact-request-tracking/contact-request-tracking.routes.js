@@ -2,17 +2,33 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
 import { requireTrackingAuth } from "./tracking-auth.middleware.js";
+import { uploadContactRequestDocument } from "../../middleware/upload.middleware.js";
 import {
   approveMyInvoice,
+  downloadMyDocumentFile,
   getMyRequests,
   logout,
   markMyTransferSent,
   rejectMyInvoice,
   requestCode,
+  uploadDocument,
   verifyCode,
 } from "./contact-request-tracking.controller.js";
 
 const router = Router();
+
+function handleUpload(req, res, next) {
+  uploadContactRequestDocument(req, res, (error) => {
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || "File upload failed",
+      });
+    }
+
+    next();
+  });
+}
 
 // Public, unauthenticated endpoints — tighter than the general API limiter
 // (app.js) since both are open targets (SMS/WhatsApp-bombing a phone
@@ -45,6 +61,17 @@ router.get("/requests", requireTrackingAuth, getMyRequests);
 router.post("/requests/:id/invoice/approve", requireTrackingAuth, approveMyInvoice);
 router.post("/requests/:id/invoice/reject", requireTrackingAuth, rejectMyInvoice);
 router.post("/requests/:id/mark-transfer-sent", requireTrackingAuth, markMyTransferSent);
+router.post(
+  "/requests/:id/documents",
+  requireTrackingAuth,
+  handleUpload,
+  uploadDocument
+);
+router.get(
+  "/requests/:id/documents/:documentId/file",
+  requireTrackingAuth,
+  downloadMyDocumentFile
+);
 router.post("/logout", requireTrackingAuth, logout);
 
 export default router;

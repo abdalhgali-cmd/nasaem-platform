@@ -500,6 +500,39 @@ function paymentCellHtml(req) {
   return `${badge}<div style="margin-top: 6px"><button type="button" class="btn secondary" data-confirm-payment="${req.id}">تأكيد الدفع</button></div>`;
 }
 
+// label/reviewNote both come from free text (customer-entered label, staff-
+// entered rejection reason) rendered via innerHTML — escapeHtml() required.
+function documentsCellHtml(req) {
+  if (!req.documents || req.documents.length === 0) {
+    return `<div class="muted">لا توجد مستندات</div>`;
+  }
+
+  const canReview = canManageInvoice();
+
+  return req.documents
+    .map((doc) => {
+      const fileUrl = `/api/contact-requests/${req.id}/documents/${doc.id}/file`;
+      const reviewControls =
+        canReview && doc.status === "PENDING"
+          ? `
+        <div class="stack" style="margin-top: 4px; gap: 4px">
+          <button type="button" class="btn secondary" data-accept-document="${doc.id}" data-request-id="${req.id}">قبول</button>
+          <input type="text" placeholder="سبب الرفض" style="width: 110px" data-reject-note-input="${doc.id}" />
+          <button type="button" class="btn secondary" data-reject-document="${doc.id}" data-request-id="${req.id}">رفض</button>
+        </div>`
+          : "";
+
+      return `
+        <div style="margin-bottom: 8px">
+          <a href="${fileUrl}" target="_blank" rel="noopener">${escapeHtml(doc.label)}</a>
+          ${statusBadge(doc.status)}
+          ${doc.reviewNote ? `<div class="muted" style="font-size: 0.75rem">${escapeHtml(doc.reviewNote)}</div>` : ""}
+          ${reviewControls}
+        </div>`;
+    })
+    .join("");
+}
+
 async function loadContactRequests() {
   try {
     const { page, limit, status } = mgmtState.contactRequests;
@@ -531,6 +564,7 @@ async function loadContactRequests() {
           </td>
           <td>${invoiceCellHtml(req)}</td>
           <td>${paymentCellHtml(req)}</td>
+          <td>${documentsCellHtml(req)}</td>
           <td>${formatDate(req.createdAt)}</td>
         </tr>`
       )
@@ -579,6 +613,38 @@ function handleContactRequestActionClick(e) {
   if (confirmPaymentBtn) {
     api
       .post(`/contact-requests/${confirmPaymentBtn.dataset.confirmPayment}/confirm-payment`, {})
+      .then(loadContactRequests)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+
+  const acceptDocBtn = e.target.closest("[data-accept-document]");
+  if (acceptDocBtn) {
+    api
+      .patch(
+        `/contact-requests/${acceptDocBtn.dataset.requestId}/documents/${acceptDocBtn.dataset.acceptDocument}/status`,
+        { status: "ACCEPTED" }
+      )
+      .then(loadContactRequests)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+
+  const rejectDocBtn = e.target.closest("[data-reject-document]");
+  if (rejectDocBtn) {
+    const documentId = rejectDocBtn.dataset.rejectDocument;
+    const note = document.querySelector(`[data-reject-note-input="${documentId}"]`)?.value.trim();
+
+    if (!note) {
+      showAlert(mgmtAlert(), "يرجى كتابة سبب الرفض");
+      return;
+    }
+
+    api
+      .patch(`/contact-requests/${rejectDocBtn.dataset.requestId}/documents/${documentId}/status`, {
+        status: "REJECTED",
+        reviewNote: note,
+      })
       .then(loadContactRequests)
       .catch((error) => showAlert(mgmtAlert(), error.message));
   }

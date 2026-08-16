@@ -9,7 +9,10 @@ import {
   approveInvoice,
   rejectInvoice,
   markTransferSent,
+  uploadMyDocument,
+  getMyDocumentFile,
 } from "./contact-request-tracking.service.js";
+import { uploadContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
 import { getTrackingTokenMaxAgeMs } from "../../utils/jwt.js";
 
 const TRACKING_COOKIE_OPTIONS = {
@@ -133,6 +136,65 @@ export async function markMyTransferSent(req, res, next) {
   try {
     const result = await markTransferSent(req.trackingPhone, req.params.id);
     return respondToAction(res, result, "تم إعلام فريقنا بالتحويل، سنراجعه قريبًا");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function uploadDocument(req, res, next) {
+  try {
+    const parsed = uploadContactRequestDocumentSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "A file is required",
+      });
+    }
+
+    const result = await uploadMyDocument(req.trackingPhone, req.params.id, {
+      label: parsed.data.label,
+      file: req.file,
+    });
+
+    if (result.error === "NOT_FOUND") {
+      return res.status(404).json({
+        success: false,
+        message: "Contact request not found",
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      data: result.document,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function downloadMyDocumentFile(req, res, next) {
+  try {
+    const file = await getMyDocumentFile(req.trackingPhone, req.params.id, req.params.documentId);
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
+
+    return res.sendFile(file.absolutePath, {
+      headers: { "Content-Type": file.mimeType },
+    });
   } catch (error) {
     next(error);
   }
