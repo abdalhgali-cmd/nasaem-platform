@@ -28,3 +28,9 @@ export const resetUserPasswordSchema = z.object({
 export const updateUserDepartmentSchema = z.object({
   department: z.enum(DEPARTMENTS).nullable(),
 });
+
+// Nullable — clearing a phone must be expressible, same reasoning as
+// updateUserDepartmentSchema above.
+export const updateUserPhoneSchema = z.object({
+  phone: z.string().trim().min(6).max(30).nullable(),
+});

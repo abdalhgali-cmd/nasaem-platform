@@ -1,5 +1,5 @@
-import { loginSchema } from "./auth.validators.js";
-import { getCurrentUser, loginUser } from "./auth.service.js";
+import { confirmStaffPasswordResetSchema, loginSchema, requestStaffPasswordResetSchema } from "./auth.validators.js";
+import { getCurrentUser, loginUser, requestStaffPasswordReset, resetStaffPasswordWithCode } from "./auth.service.js";
 import { getAccessTokenMaxAgeMs } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 
@@ -84,6 +84,65 @@ export async function logout(req, res, next) {
     return res.status(200).json({
       success: true,
       message: "Logout successful",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function requestPasswordReset(req, res, next) {
+  try {
+    const parsed = requestStaffPasswordResetSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const result = await requestStaffPasswordReset(parsed.data.email);
+
+    return res.status(200).json({
+      success: true,
+      message: "إذا كان البريد مسجّلًا لدى موظف لديه رقم هاتف، سيصلك رمز عبر واتساب",
+      data: result,
+    });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+}
+
+export async function confirmPasswordReset(req, res, next) {
+  try {
+    const parsed = confirmStaffPasswordResetSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const result = await resetStaffPasswordWithCode(
+      parsed.data.resetCodeId,
+      parsed.data.code,
+      parsed.data.password,
+      req
+    );
+
+    if (!result) {
+      return res.status(400).json({ success: false, message: "الرمز غير صحيح أو منتهي الصلاحية" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "تم تحديث كلمة المرور بنجاح، يمكنك تسجيل الدخول الآن",
     });
   } catch (error) {
     next(error);

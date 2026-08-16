@@ -158,6 +158,7 @@ model User {
   notifications       Notification[]         @relation("UserNotifications")
   statusChangedLogs   OrderStatusHistory[]   @relation("StatusChangedBy")
   executionStageLogs  ContactRequestExecutionHistory[] @relation("ExecutionStageChangedBy")
+  passwordResetCodes  StaffPasswordResetCode[] @relation("StaffPasswordResets")
 
   @@index([role])
   @@index([status])
@@ -817,4 +818,24 @@ model ContactRequestExecutionHistory {
 
   @@index([contactRequestId])
   @@index([changedByUserId])
+}
+
+// One-time WhatsApp codes for staff self-service password reset. Deliberately
+// a separate table from CustomerLoginCode (which is keyed by phone and
+// relation-free by design — see its comment): this one is keyed by userId,
+// authorizes a password write rather than minting a session, and must never
+// be verifiable through the customer-auth endpoints.
+model StaffPasswordResetCode {
+  id         String    @id @default(cuid())
+  userId     String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation("StaffPasswordResets", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }

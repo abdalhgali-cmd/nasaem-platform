@@ -23,6 +23,29 @@
         </div>
         <button type="submit" class="btn" id="submit-btn" style="width: 100%">دخول</button>
       </form>
+      <p class="muted" style="margin-top: 10px">
+        <a href="#" id="forgot-password-link">نسيت كلمة المرور؟</a>
+      </p>
+
+      <form id="reset-form" class="hidden">
+        <div id="reset-alert"></div>
+        <div class="field" id="reset-email-field">
+          <label for="reset-email">البريد الإلكتروني</label>
+          <input type="email" id="reset-email" autocomplete="username" />
+        </div>
+        <div class="field hidden" id="reset-code-field">
+          <label for="reset-code">الرمز المُرسل عبر واتساب</label>
+          <input type="text" id="reset-code" maxlength="6" autocomplete="one-time-code" />
+        </div>
+        <div class="field hidden" id="reset-password-field">
+          <label for="reset-password">كلمة المرور الجديدة</label>
+          <input type="password" id="reset-password" autocomplete="new-password" />
+        </div>
+        <button type="submit" class="btn secondary" id="reset-submit-btn" style="width: 100%">إرسال الرمز</button>
+        <p class="muted" style="margin-top: 10px">
+          <a href="#" id="back-to-login-link">العودة لتسجيل الدخول</a>
+        </p>
+      </form>
     </div>
   </div>
 

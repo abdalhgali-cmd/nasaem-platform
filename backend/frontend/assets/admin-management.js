@@ -16,6 +16,8 @@ const ACTIVITY_ACTION_LABELS_AR = {
   USER_STATUS_CHANGED: "تغيير حالة مستخدم",
   USER_PASSWORD_RESET: "إعادة تعيين كلمة مرور",
   USER_DEPARTMENT_CHANGED: "تغيير قسم مستخدم",
+  USER_PHONE_CHANGED: "تغيير رقم هاتف مستخدم",
+  USER_PASSWORD_RESET_SELF_SERVICE: "إعادة تعيين كلمة مرور ذاتيًا",
   CONTACT_REQUEST_RECEIVED: "استلام طلب تواصل",
   CONTACT_REQUEST_QUOTE_CREATED: "إرسال عرض سعر لطلب تواصل",
   CONTACT_REQUEST_QUOTE_APPROVED: "موافقة العميل على عرض السعر",
@@ -164,6 +166,11 @@ function canEditUserDepartment() {
   return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
 }
 
+// Mirrors PATCH /users/:id/phone's requireRole("SUPER_ADMIN", "ADMIN").
+function canEditUserPhone() {
+  return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
+}
+
 function initManagementTab() {
   if (!mgmtState.wired) {
     wireManagementTabs();
@@ -229,6 +236,7 @@ function wireManagementTabs() {
   el("carriers-body").addEventListener("change", handleCarrierStatusChange);
   el("users-body").addEventListener("click", handleUserRowClick);
   el("users-body").addEventListener("change", handleUserDepartmentChange);
+  el("users-body").addEventListener("change", handleUserPhoneChange);
   el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
   el("contact-requests-body").addEventListener("change", handlePaymentStatusChange);
   el("contact-requests-body").addEventListener("change", handleExecutionStageChange);
@@ -602,6 +610,13 @@ async function loadUsers() {
           <td>${u.employeeNo}</td>
           <td>${u.fullName}</td>
           <td>${u.email}</td>
+          <td>
+            ${
+              canEditUserPhone()
+                ? `<input type="tel" data-user-phone="${u.id}" value="${u.phone ? escapeHtml(u.phone) : ""}" placeholder="بدون رقم" style="max-width: 140px" />`
+                : escapeHtml(u.phone || "بدون رقم")
+            }
+          </td>
           <td>${ROLE_LABELS_AR[u.role] || u.role}</td>
           <td>
             ${
@@ -642,11 +657,13 @@ async function createUserAccount() {
       fullName,
       email,
       password,
+      phone: el("u-phone").value.trim() || undefined,
       role: el("u-role").value,
       department: el("u-department").value || null,
     });
     el("u-fullName").value = "";
     el("u-email").value = "";
+    el("u-phone").value = "";
     el("u-password").value = "";
     el("u-department").value = "";
     loadUsers();
@@ -663,6 +680,16 @@ function handleUserDepartmentChange(e) {
   api
     .patch(`/users/${select.dataset.userDepartment}/department`, { department: select.value || null })
     .then(() => showAlert(mgmtAlert(), "تم تحديث القسم.", "success"))
+    .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+function handleUserPhoneChange(e) {
+  const input = e.target.closest("[data-user-phone]");
+  if (!input) return;
+  const phone = input.value.trim();
+  api
+    .patch(`/users/${input.dataset.userPhone}/phone`, { phone: phone || null })
+    .then(() => showAlert(mgmtAlert(), "تم تحديث رقم الهاتف.", "success"))
     .catch((error) => showAlert(mgmtAlert(), error.message));
 }
 

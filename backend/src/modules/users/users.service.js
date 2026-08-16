@@ -104,6 +104,22 @@ export async function updateUserDepartment(id, department) {
   });
 }
 
+export async function updateUserPhone(id, phone) {
+  const existing = await prisma.user.findUnique({ where: { id } });
+
+  if (!existing) {
+    return null;
+  }
+
+  // User.phone is @unique — a duplicate throws P2002, which
+  // error.middleware.js's describePrismaError already maps to a clean 409.
+  return prisma.user.update({
+    where: { id },
+    data: { phone },
+    select: userListSelect,
+  });
+}
+
 export async function resetUserPassword(id, password) {
   const existing = await prisma.user.findUnique({ where: { id } });
 

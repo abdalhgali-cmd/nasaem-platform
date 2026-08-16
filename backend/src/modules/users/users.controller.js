@@ -2,6 +2,7 @@ import {
   createUserSchema,
   resetUserPasswordSchema,
   updateUserDepartmentSchema,
+  updateUserPhoneSchema,
   updateUserStatusSchema,
 } from "./users.validators.js";
 import {
@@ -11,6 +12,7 @@ import {
   listUsers,
   resetUserPassword,
   updateUserDepartment,
+  updateUserPhone,
 } from "./users.service.js";
 import { logActivity } from "../../utils/activityLog.js";
 
@@ -186,6 +188,46 @@ export async function updateDepartment(req, res, next) {
     return res.status(200).json({
       success: true,
       message: "User department updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updatePhone(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = updateUserPhoneSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const user = await updateUserPhone(id, parsed.data.phone);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    logActivity({
+      userId: req.user?.id,
+      action: "USER_PHONE_CHANGED",
+      entity: "User",
+      entityId: id,
+      req,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User phone updated successfully",
       data: user,
     });
   } catch (error) {
