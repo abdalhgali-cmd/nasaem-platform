@@ -5,6 +5,22 @@ import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { normalizePhone } from "../../utils/phone.js";
 
+// Fans out an internal notification to every active SUPER_ADMIN/ADMIN —
+// originally inlined in createContactRequest only; extracted so every other
+// contact-request event staff should know about (customer approved a price,
+// selected an offer, uploaded a document, ...) can reuse the same fan-out
+// instead of staff having to poll the Contact Requests tab to notice.
+export async function notifyAdmins({ title, message, type }) {
+  const admins = await prisma.user.findMany({
+    where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" },
+    select: { id: true },
+  });
+
+  await Promise.all(
+    admins.map((admin) => createNotification({ title, message, type, userId: admin.id }))
+  );
+}
+
 export async function createContactRequest(data, req) {
   const contactRequest = await prisma.contactRequest.create({
     data: {
@@ -24,23 +40,11 @@ export async function createContactRequest(data, req) {
     req,
   });
 
-  // Fan out an internal notification to every admin so a new inquiry from
-  // the public site is actually seen, not just silently stored.
-  const admins = await prisma.user.findMany({
-    where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" },
-    select: { id: true },
+  await notifyAdmins({
+    title: "طلب تواصل جديد من الموقع",
+    message: `${contactRequest.name} (${contactRequest.phone}) — ${contactRequest.message.slice(0, 120)}`,
+    type: "CONTACT_REQUEST",
   });
-
-  await Promise.all(
-    admins.map((admin) =>
-      createNotification({
-        title: "طلب تواصل جديد من الموقع",
-        message: `${contactRequest.name} (${contactRequest.phone}) — ${contactRequest.message.slice(0, 120)}`,
-        type: "CONTACT_REQUEST",
-        userId: admin.id,
-      })
-    )
-  );
 
   // Not awaited: a slow/unreachable WhatsApp API must not delay the
   // response to whoever submitted the contact form. No-ops entirely when
@@ -79,20 +83,29 @@ export async function listContactRequests({ page, limit, skip, status }) {
 // CLOSED — set together with it, and cleared together if the request is
 // ever reopened (moved back to NEW/CONTACTED), so a stale outcome from a
 // previous closure can never linger on a request that's active again.
-export async function updateContactRequestStatus(id, { status, outcome, outcomeNote }) {
+export async function updateContactRequestStatus(id, { status, outcome, outcomeNote }, userId) {
   const existing = await prisma.contactRequest.findUnique({ where: { id } });
 
   if (!existing) {
     return null;
   }
 
-  return prisma.contactRequest.update({
+  const updated = await prisma.contactRequest.update({
     where: { id },
     data:
       status === "CLOSED"
         ? { status, outcome, outcomeNote: outcomeNote || null, closedAt: new Date() }
         : { status, outcome: null, outcomeNote: null, closedAt: null },
   });
+
+  logActivity({
+    userId,
+    action: "CONTACT_REQUEST_STATUS_CHANGED",
+    entity: "ContactRequest",
+    entityId: id,
+  });
+
+  return updated;
 }
 
 // Creates the first quote for a ContactRequest, or reissues one after the
@@ -137,6 +150,13 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
       decidedAt: null,
       createdByUserId: userId,
     },
+  });
+
+  logActivity({
+    userId,
+    action: "CONTACT_REQUEST_INVOICE_SET",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
   });
 
   // Not awaited: same rationale as createContactRequest — a slow/unreachable
@@ -184,6 +204,13 @@ export async function createOffer(contactRequestId, data, userId) {
     },
   });
 
+  logActivity({
+    userId,
+    action: "CONTACT_REQUEST_OFFER_ADDED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+  });
+
   // Not awaited: same rationale as elsewhere in this module.
   sendWhatsAppMessage(
     contactRequest.phoneNormalized,
@@ -197,7 +224,7 @@ export async function createOffer(contactRequestId, data, userId) {
 // customer must have first approved the quote (Invoice.status APPROVED,
 // which sets paymentStatus AWAITING_TRANSFER) and then declared the
 // transfer sent (paymentStatus UNDER_REVIEW) before staff can confirm it.
-export async function confirmContactRequestPayment(contactRequestId) {
+export async function confirmContactRequestPayment(contactRequestId, userId) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
   });
@@ -213,6 +240,13 @@ export async function confirmContactRequestPayment(contactRequestId) {
   const updated = await prisma.contactRequest.update({
     where: { id: contactRequestId },
     data: { paymentStatus: "CONFIRMED", paymentConfirmedAt: new Date() },
+  });
+
+  logActivity({
+    userId,
+    action: "CONTACT_REQUEST_PAYMENT_CONFIRMED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
   });
 
   return { contactRequest: updated };

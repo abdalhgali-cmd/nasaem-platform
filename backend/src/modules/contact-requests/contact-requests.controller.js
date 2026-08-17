@@ -88,7 +88,7 @@ export async function patchContactRequestStatus(req, res, next) {
       });
     }
 
-    const contactRequest = await updateContactRequestStatus(id, parsed.data);
+    const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user.id);
 
     if (!contactRequest) {
       return res.status(404).json({
@@ -199,7 +199,7 @@ export async function storeOffer(req, res, next) {
 export async function confirmPayment(req, res, next) {
   try {
     const { id } = req.params;
-    const result = await confirmContactRequestPayment(id);
+    const result = await confirmContactRequestPayment(id, req.user.id);
 
     if (result.error === "NOT_FOUND") {
       return res.status(404).json({

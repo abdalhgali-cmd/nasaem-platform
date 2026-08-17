@@ -14,6 +14,17 @@ const ACTIVITY_ACTION_LABELS_AR = {
   USER_CREATED: "إنشاء مستخدم",
   USER_STATUS_CHANGED: "تغيير حالة مستخدم",
   CONTACT_REQUEST_RECEIVED: "استلام طلب تواصل",
+  CONTACT_REQUEST_INVOICE_SET: "تحديد سعر لطلب تواصل",
+  CONTACT_REQUEST_OFFER_ADDED: "إضافة عرض لطلب تواصل",
+  CONTACT_REQUEST_PAYMENT_CONFIRMED: "تأكيد دفع طلب تواصل",
+  CONTACT_REQUEST_STATUS_CHANGED: "تغيير حالة طلب تواصل",
+  CONTACT_REQUEST_DOCUMENT_REVIEWED: "مراجعة مستند طلب تواصل",
+  CONTACT_REQUEST_DELIVERABLE_UPLOADED: "رفع ملف نهائي لطلب تواصل",
+  CONTACT_REQUEST_INVOICE_APPROVED: "موافقة العميل على السعر",
+  CONTACT_REQUEST_INVOICE_REJECTED: "رفض العميل للسعر",
+  CONTACT_REQUEST_OFFER_SELECTED: "اختيار العميل لعرض",
+  CONTACT_REQUEST_TRANSFER_MARKED_SENT: "إعلان العميل عن التحويل",
+  CONTACT_REQUEST_DOCUMENT_UPLOADED: "رفع العميل مستندًا",
 };
 
 const CONTACT_REQUEST_STATUS_LABELS_AR = {

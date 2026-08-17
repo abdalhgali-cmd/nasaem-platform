@@ -3,12 +3,14 @@ import prisma from "../../config/database.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { signTrackingToken } from "../../utils/jwt.js";
+import { logActivity } from "../../utils/activityLog.js";
 import { deriveTrackingStatusLabel } from "./contact-request-tracking.status.js";
 import {
   createContactRequestDocument,
   getContactRequestDocumentFile,
 } from "../contact-request-documents/contact-request-documents.service.js";
 import { getContactRequestDeliverableFile } from "../contact-request-deliverables/contact-request-deliverables.service.js";
+import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -166,6 +168,18 @@ export async function approveInvoice(phoneNormalized, contactRequestId) {
     }),
   ]);
 
+  logActivity({
+    action: "CONTACT_REQUEST_INVOICE_APPROVED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+  });
+
+  await notifyAdmins({
+    title: "موافقة العميل على السعر",
+    message: `وافق ${contactRequest.name} على السعر المحدد لطلبه`,
+    type: "CONTACT_REQUEST_INVOICE_APPROVED",
+  });
+
   return { success: true };
 }
 
@@ -183,6 +197,18 @@ export async function rejectInvoice(phoneNormalized, contactRequestId) {
   await prisma.invoice.update({
     where: { id: contactRequest.invoice.id },
     data: { status: "REJECTED", decidedAt: new Date() },
+  });
+
+  logActivity({
+    action: "CONTACT_REQUEST_INVOICE_REJECTED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+  });
+
+  await notifyAdmins({
+    title: "رفض العميل للسعر",
+    message: `رفض ${contactRequest.name} عرض السعر المحدد لطلبه`,
+    type: "CONTACT_REQUEST_INVOICE_REJECTED",
   });
 
   return { success: true };
@@ -210,6 +236,18 @@ export async function selectOffer(phoneNormalized, contactRequestId, offerId) {
     data: { selectedOfferId: offerId, paymentStatus: "AWAITING_TRANSFER" },
   });
 
+  logActivity({
+    action: "CONTACT_REQUEST_OFFER_SELECTED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+  });
+
+  await notifyAdmins({
+    title: "اختيار العميل لعرض",
+    message: `اختار ${contactRequest.name} عرض ${offer.carrier}`,
+    type: "CONTACT_REQUEST_OFFER_SELECTED",
+  });
+
   return { success: true };
 }
 
@@ -227,6 +265,21 @@ export async function markTransferSent(phoneNormalized, contactRequestId) {
   await prisma.contactRequest.update({
     where: { id: contactRequestId },
     data: { paymentStatus: "UNDER_REVIEW" },
+  });
+
+  logActivity({
+    action: "CONTACT_REQUEST_TRANSFER_MARKED_SENT",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+  });
+
+  // Arguably the most operationally important notification here — staff
+  // need to actively go verify the bank transfer before they can confirm
+  // the payment (confirmContactRequestPayment only accepts UNDER_REVIEW).
+  await notifyAdmins({
+    title: "إعلان العميل عن تحويل المبلغ",
+    message: `أعلن ${contactRequest.name} عن تحويل المبلغ لطلبه، بانتظار التأكيد`,
+    type: "CONTACT_REQUEST_TRANSFER_MARKED_SENT",
   });
 
   return { success: true };

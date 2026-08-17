@@ -1,5 +1,6 @@
 import path from "path";
 import prisma from "../../config/database.js";
+import { logActivity } from "../../utils/activityLog.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
 
@@ -25,6 +26,13 @@ export async function createContactRequestDeliverable(contactRequestId, { label,
       sizeBytes: file.size,
       uploadedByUserId,
     },
+  });
+
+  logActivity({
+    userId: uploadedByUserId,
+    action: "CONTACT_REQUEST_DELIVERABLE_UPLOADED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
   });
 
   return { deliverable };

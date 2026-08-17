@@ -1,6 +1,8 @@
 import path from "path";
 import prisma from "../../config/database.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
+import { logActivity } from "../../utils/activityLog.js";
+import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
 
@@ -25,6 +27,21 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
       mimeType: file.mimetype,
       sizeBytes: file.size,
     },
+  });
+
+  // Customer-initiated (no staff req.user) — logged with userId: null, same
+  // as every other tracking-driven event, and fanned out to admins so
+  // staff actually notice a document is waiting for review.
+  logActivity({
+    action: "CONTACT_REQUEST_DOCUMENT_UPLOADED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+  });
+
+  await notifyAdmins({
+    title: "رفع مستند جديد",
+    message: `رفع ${contactRequest.name} مستندًا جديدًا: ${label.slice(0, 60)}`,
+    type: "CONTACT_REQUEST_DOCUMENT_UPLOADED",
   });
 
   return { document };
@@ -73,6 +90,13 @@ export async function updateContactRequestDocumentStatus(
       reviewedAt: new Date(),
     },
     include: { reviewedBy: { select: safeUserSelect } },
+  });
+
+  logActivity({
+    userId: reviewerUserId,
+    action: "CONTACT_REQUEST_DOCUMENT_REVIEWED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
   });
 
   return { document: updated };
