@@ -9,18 +9,26 @@ const STATUS_LABELS = {
   CLOSED: "تم إغلاق الطلب",
 };
 
-// Precedence (highest first): a closed request always wins; then payment
-// progress (once a price is settled — via Invoice approval or an offer
-// selection — the payment side of the story matters more than how the
-// price was settled); then the still-open pricing decision (an Invoice
-// awaiting approval/rejection, or a set of offers awaiting selection —
-// a request only ever has one of the two, see contact-requests.service.js);
-// falling back to the bare request status.
+// Precedence (highest first): a closed request always wins; then delivered
+// final files (the single most concrete, actionable thing a customer can
+// see — more useful than repeating "payment confirmed" once there's
+// actually something to download); then payment progress (once a price is
+// settled — via Invoice approval or an offer selection — the payment side
+// of the story matters more than how the price was settled); then the
+// still-open pricing decision (an Invoice awaiting approval/rejection, or a
+// set of offers awaiting selection — a request only ever has one of the
+// two, see contact-requests.service.js); falling back to the bare request
+// status.
 export function deriveTrackingStatusLabel(contactRequest) {
-  const { status, paymentStatus, invoice, offers, selectedOfferId } = contactRequest;
+  const { status, paymentStatus, invoice, offers, selectedOfferId, deliverables } =
+    contactRequest;
 
   if (status === "CLOSED") {
     return STATUS_LABELS.CLOSED;
+  }
+
+  if (deliverables?.length > 0) {
+    return "ملفاتك النهائية جاهزة للتحميل";
   }
 
   if (paymentStatus === "CONFIRMED") {

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, Loader2, LogOut, PhoneCall, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Download, Loader2, LogOut, PhoneCall, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 
@@ -33,6 +33,11 @@ type TrackedDocument = {
   reviewNote: string | null;
 };
 
+type TrackedDeliverable = {
+  id: string;
+  label: string;
+};
+
 type TrackedRequest = {
   id: string;
   service: string | null;
@@ -45,6 +50,7 @@ type TrackedRequest = {
   selectedOfferId: string | null;
   paymentStatus: PaymentStatus;
   documents: TrackedDocument[];
+  deliverables: TrackedDeliverable[];
 };
 
 const DOCUMENT_BADGE_CLASS: Record<DocumentStatus, string> = {
@@ -369,6 +375,39 @@ function RequestDocumentsPanel({
   );
 }
 
+// Read-only, unlike every other panel here — nothing for the customer to
+// approve/reject/upload, just files staff delivered that are theirs to
+// download. A plain same-site link (not a fetch+blob dance) is enough: the
+// tracking cookie is SameSite=Lax, which browsers still send on a direct
+// top-level navigation like opening this link in a new tab, exactly like
+// the staff dashboard already does for its own document links.
+function RequestDeliverablesPanel({ req }: { req: TrackedRequest }) {
+  if (req.deliverables.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-accent/30 bg-accent/5 p-4">
+      <span className="text-sm font-semibold text-foreground">ملفاتك النهائية جاهزة</span>
+      <ul className="mt-2 flex flex-col gap-2">
+        {req.deliverables.map((deliverable) => (
+          <li key={deliverable.id}>
+            <a
+              href={`${API_URL}/tracking/requests/${req.id}/deliverables/${deliverable.id}/file`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+            >
+              <Download className="size-4" />
+              {deliverable.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // en-GB gives the same DD/MM/YYYY Gregorian shape as the staff dashboard's
 // ar-SA-u-ca-gregory-nu-latn (frontend/assets/api.js's formatDate) without
 // that locale's embedded bidi control characters, which visually reorder
@@ -548,6 +587,7 @@ export function TrackingPanel() {
                   </span>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
+                <RequestDeliverablesPanel req={req} />
                 <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
                 <RequestOffersPanel req={req} onActionComplete={refreshRequests} />
                 <RequestTransferAction req={req} onActionComplete={refreshRequests} />

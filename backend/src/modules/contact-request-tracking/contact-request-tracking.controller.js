@@ -12,6 +12,7 @@ import {
   markTransferSent,
   uploadMyDocument,
   getMyDocumentFile,
+  getMyDeliverableFile,
 } from "./contact-request-tracking.service.js";
 import { uploadContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
 import { getTrackingTokenMaxAgeMs } from "../../utils/jwt.js";
@@ -199,6 +200,29 @@ export async function downloadMyDocumentFile(req, res, next) {
       return res.status(404).json({
         success: false,
         message: "Document not found",
+      });
+    }
+
+    return res.sendFile(file.absolutePath, {
+      headers: { "Content-Type": file.mimeType },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function downloadMyDeliverableFile(req, res, next) {
+  try {
+    const file = await getMyDeliverableFile(
+      req.trackingPhone,
+      req.params.id,
+      req.params.deliverableId
+    );
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: "Deliverable not found",
       });
     }
 

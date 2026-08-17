@@ -2,18 +2,34 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
+import { uploadContactRequestDeliverable } from "../../middleware/upload.middleware.js";
 import {
   confirmPayment,
+  downloadDeliverableFile,
   downloadDocumentFile,
   getContactRequests,
   patchContactRequestStatus,
   reviewDocument,
   storeContactRequest,
+  storeDeliverable,
   storeInvoice,
   storeOffer,
 } from "./contact-requests.controller.js";
 
 const router = Router();
+
+function handleDeliverableUpload(req, res, next) {
+  uploadContactRequestDeliverable(req, res, (error) => {
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || "File upload failed",
+      });
+    }
+
+    next();
+  });
+}
 
 // This is the only public (unauthenticated) write endpoint in the API — the
 // marketing site's contact form posts here directly from the browser.
@@ -76,6 +92,19 @@ router.patch(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   reviewDocument
+);
+router.post(
+  "/:id/deliverables",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  handleDeliverableUpload,
+  storeDeliverable
+);
+router.get(
+  "/:id/deliverables/:deliverableId/file",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  downloadDeliverableFile
 );
 
 export default router;

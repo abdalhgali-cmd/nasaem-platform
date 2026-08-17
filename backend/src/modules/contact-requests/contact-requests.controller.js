@@ -17,6 +17,11 @@ import {
   getContactRequestDocumentFile,
   updateContactRequestDocumentStatus,
 } from "../contact-request-documents/contact-request-documents.service.js";
+import { uploadContactRequestDeliverableSchema } from "../contact-request-deliverables/contact-request-deliverables.validators.js";
+import {
+  createContactRequestDeliverable,
+  getContactRequestDeliverableFile,
+} from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 
 export async function storeContactRequest(req, res, next) {
@@ -269,6 +274,68 @@ export async function reviewDocument(req, res, next) {
     return res.status(200).json({
       success: true,
       data: result.document,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function storeDeliverable(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = uploadContactRequestDeliverableSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "A file is required",
+      });
+    }
+
+    const result = await createContactRequestDeliverable(
+      id,
+      { label: parsed.data.label, file: req.file },
+      req.user.id
+    );
+
+    if (result.error === "NOT_FOUND") {
+      return res.status(404).json({
+        success: false,
+        message: "Contact request not found",
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      data: result.deliverable,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function downloadDeliverableFile(req, res, next) {
+  try {
+    const { id, deliverableId } = req.params;
+    const file = await getContactRequestDeliverableFile(id, deliverableId);
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: "Deliverable not found",
+      });
+    }
+
+    return res.sendFile(file.absolutePath, {
+      headers: { "Content-Type": file.mimeType },
     });
   } catch (error) {
     next(error);

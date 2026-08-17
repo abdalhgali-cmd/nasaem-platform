@@ -59,6 +59,29 @@ export const uploadContactRequestDocument = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 }).single("file");
 
+const CONTACT_REQUEST_DELIVERABLE_DIR = path.resolve("uploads", "contact-request-deliverables");
+fs.mkdirSync(CONTACT_REQUEST_DELIVERABLE_DIR, { recursive: true });
+
+const contactRequestDeliverableStorage = multer.diskStorage({
+  destination(req, file, cb) {
+    cb(null, CONTACT_REQUEST_DELIVERABLE_DIR);
+  },
+  filename(req, file, cb) {
+    const uniqueName = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+
+// Staff-uploaded finished deliverables (issued visa, ticket, voucher) for
+// the customer to download from /track — same allowed types/size as the
+// other document uploads, kept in its own directory since these are
+// trusted staff output, not customer input awaiting review.
+export const uploadContactRequestDeliverable = multer({
+  storage: contactRequestDeliverableStorage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+}).single("file");
+
 const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function imageFileFilter(req, file, cb) {

@@ -550,7 +550,7 @@ function paymentCellHtml(req) {
 
 // label/reviewNote both come from free text (customer-entered label, staff-
 // entered rejection reason) rendered via innerHTML — escapeHtml() required.
-function documentsCellHtml(req) {
+function customerDocumentsHtml(req) {
   if (!req.documents || req.documents.length === 0) {
     return `<div class="muted">لا توجد مستندات</div>`;
   }
@@ -579,6 +579,37 @@ function documentsCellHtml(req) {
         </div>`;
     })
     .join("");
+}
+
+// Staff-delivered final files (issued visa, ticket, voucher) — the other
+// direction from customerDocumentsHtml's customer-uploaded, staff-reviewed
+// files. No review status here: the file itself is the deliverable.
+function deliverablesHtml(req) {
+  const items = (req.deliverables || [])
+    .map((d) => {
+      const fileUrl = `/api/contact-requests/${req.id}/deliverables/${d.id}/file`;
+      return `<div style="margin-bottom: 4px"><a href="${fileUrl}" target="_blank" rel="noopener">${escapeHtml(d.label)}</a></div>`;
+    })
+    .join("");
+
+  const addForm = canManageInvoice()
+    ? `
+    <div class="stack" style="margin-top: 4px; gap: 4px">
+      <input type="text" placeholder="اسم الملف" style="width: 90px" data-deliverable-label-input="${req.id}" />
+      <input type="file" style="width: 120px" data-deliverable-file-input="${req.id}" />
+      <button type="button" class="btn secondary" data-upload-deliverable="${req.id}">رفع</button>
+    </div>`
+    : "";
+
+  return `${items}${addForm}`;
+}
+
+function documentsCellHtml(req) {
+  return `
+    <div><strong>مستندات العميل</strong></div>
+    ${customerDocumentsHtml(req)}
+    <div style="margin-top: 10px"><strong>الملفات النهائية</strong></div>
+    ${deliverablesHtml(req)}`;
 }
 
 async function loadContactRequests() {
@@ -715,6 +746,32 @@ function handleContactRequestActionClick(e) {
         status: "REJECTED",
         reviewNote: note,
       })
+      .then(loadContactRequests)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+
+  const uploadDeliverableBtn = e.target.closest("[data-upload-deliverable]");
+  if (uploadDeliverableBtn) {
+    const id = uploadDeliverableBtn.dataset.uploadDeliverable;
+    const label = document.querySelector(`[data-deliverable-label-input="${id}"]`)?.value.trim();
+    const file = document.querySelector(`[data-deliverable-file-input="${id}"]`)?.files[0];
+
+    if (!label) {
+      showAlert(mgmtAlert(), "أدخل اسم الملف");
+      return;
+    }
+    if (!file) {
+      showAlert(mgmtAlert(), "اختر ملفًا لرفعه");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("label", label);
+    formData.append("file", file);
+
+    api
+      .upload(`/contact-requests/${id}/deliverables`, formData)
       .then(loadContactRequests)
       .catch((error) => showAlert(mgmtAlert(), error.message));
   }

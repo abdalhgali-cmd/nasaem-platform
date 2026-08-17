@@ -8,6 +8,7 @@ import {
   createContactRequestDocument,
   getContactRequestDocumentFile,
 } from "../contact-request-documents/contact-request-documents.service.js";
+import { getContactRequestDeliverableFile } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -92,6 +93,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       invoice: true,
       documents: { orderBy: { createdAt: "desc" } },
       offers: { orderBy: { createdAt: "desc" } },
+      deliverables: { orderBy: { createdAt: "desc" } },
     },
   });
 
@@ -130,6 +132,16 @@ export async function getMyDocumentFile(phoneNormalized, contactRequestId, docum
   }
 
   return getContactRequestDocumentFile(contactRequestId, documentId);
+}
+
+export async function getMyDeliverableFile(phoneNormalized, contactRequestId, deliverableId) {
+  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
+
+  if (!contactRequest) {
+    return null;
+  }
+
+  return getContactRequestDeliverableFile(contactRequestId, deliverableId);
 }
 
 export async function approveInvoice(phoneNormalized, contactRequestId) {

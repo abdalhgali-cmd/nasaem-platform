@@ -75,67 +75,68 @@ model Branch {
 }
 
 model CompanyProfile {
-  id          String   @id @default(cuid())
-  name        String
-  legalName   String?
-  logoUrl     String?
-  phone       String?
-  whatsapp    String?
-  email       String?
-  address     String?
-  website     String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  legalName String?
+  logoUrl   String?
+  phone     String?
+  whatsapp  String?
+  email     String?
+  address   String?
+  website   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Currency {
-  id         String   @id @default(cuid())
-  code       String   @unique
-  name       String
-  symbol     String
-  rateToSAR  Decimal  @db.Decimal(18, 6)
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  symbol    String
+  rateToSAR Decimal  @db.Decimal(18, 6)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Supplier {
-  id         String   @id @default(cuid())
-  code       String   @unique
-  name       String
-  type       String
-  phone      String?
-  email      String?
-  notes      String?
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  type      String
+  phone     String?
+  email     String?
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model User {
-  id              String     @id @default(cuid())
-  employeeNo      String     @unique
-  fullName        String
-  email           String     @unique
-  phone           String?    @unique
-  passwordHash    String
-  role            UserRole   @default(EMPLOYEE)
-  status          UserStatus @default(ACTIVE)
-  branchId        String?
-  lastLogin       DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id           String     @id @default(cuid())
+  employeeNo   String     @unique
+  fullName     String
+  email        String     @unique
+  phone        String?    @unique
+  passwordHash String
+  role         UserRole   @default(EMPLOYEE)
+  status       UserStatus @default(ACTIVE)
+  branchId     String?
+  lastLogin    DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  branch              Branch?                @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  assignedOrders      Order[]                @relation("AssignedOrders")
-  uploadedDocuments   Document[]             @relation("UploadedDocuments")
-  notes               Note[]
-  activityLogs        ActivityLog[]
-  notifications       Notification[]         @relation("UserNotifications")
-  statusChangedLogs   OrderStatusHistory[]   @relation("StatusChangedBy")
-  invoicesCreated     Invoice[]              @relation("InvoiceCreatedBy")
-  reviewedContactRequestDocuments ContactRequestDocument[] @relation("ContactRequestDocumentReviewedBy")
-  contactRequestOffersCreated ContactRequestOffer[] @relation("ContactRequestOfferCreatedBy")
+  branch                             Branch?                     @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  assignedOrders                     Order[]                     @relation("AssignedOrders")
+  uploadedDocuments                  Document[]                  @relation("UploadedDocuments")
+  notes                              Note[]
+  activityLogs                       ActivityLog[]
+  notifications                      Notification[]              @relation("UserNotifications")
+  statusChangedLogs                  OrderStatusHistory[]        @relation("StatusChangedBy")
+  invoicesCreated                    Invoice[]                   @relation("InvoiceCreatedBy")
+  reviewedContactRequestDocuments    ContactRequestDocument[]    @relation("ContactRequestDocumentReviewedBy")
+  contactRequestOffersCreated        ContactRequestOffer[]       @relation("ContactRequestOfferCreatedBy")
+  contactRequestDeliverablesUploaded ContactRequestDeliverable[] @relation("ContactRequestDeliverableUploadedBy")
 
   @@index([role])
   @@index([status])
@@ -143,24 +144,24 @@ model User {
 }
 
 model Customer {
-  id            String    @id @default(cuid())
-  customerNo    String    @unique
-  fullName      String
-  passportNo    String    @unique
-  nationality   String
-  birthDate     DateTime?
-  gender        Gender?
-  phone         String?
-  email         String?
-  country       String?
-  city          String?
-  address       String?
-  notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  customerNo  String    @unique
+  fullName    String
+  passportNo  String    @unique
+  nationality String
+  birthDate   DateTime?
+  gender      Gender?
+  phone       String?
+  email       String?
+  country     String?
+  city        String?
+  address     String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  orders     Order[]
-  documents  Document[]
+  orders    Order[]
+  documents Document[]
 
   @@index([customerNo])
   @@index([passportNo])
@@ -169,37 +170,37 @@ model Customer {
 }
 
 model Service {
-  id          String      @id @default(cuid())
-  code        String      @unique
+  id          String   @id @default(cuid())
+  code        String   @unique
   name        String
   category    String
   description String?
-  basePrice   Decimal     @db.Decimal(12, 2)
-  currency    String      @default("SAR")
-  active      Boolean     @default(true)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  basePrice   Decimal  @db.Decimal(12, 2)
+  currency    String   @default("SAR")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  orderItems  OrderItem[]
-  workflows   Workflow[]
-  visaTypes   VisaType[]
+  orderItems OrderItem[]
+  workflows  Workflow[]
+  visaTypes  VisaType[]
 
   @@index([category])
   @@index([active])
 }
 
 model VisaType {
-  id          String    @id @default(cuid())
-  code        String    @unique
+  id          String   @id @default(cuid())
+  code        String   @unique
   name        String
   country     String
   description String?
-  basePrice   Decimal   @db.Decimal(12, 2)
-  currency    String    @default("SAR")
-  active      Boolean   @default(true)
+  basePrice   Decimal  @db.Decimal(12, 2)
+  currency    String   @default("SAR")
+  active      Boolean  @default(true)
   serviceId   String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   service Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
 
@@ -208,15 +209,15 @@ model VisaType {
 }
 
 model Workflow {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   serviceId   String
   stepNo      Int
   title       String
   description String?
-  required    Boolean   @default(true)
-  active      Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  required    Boolean  @default(true)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
@@ -225,28 +226,28 @@ model Workflow {
 }
 
 model Order {
-  id              String         @id @default(cuid())
-  orderNumber     String         @unique
-  customerId      String
-  assignedUserId  String?
-  branchId        String?
-  status          OrderStatus    @default(NEW)
-  paymentStatus   PaymentStatus  @default(UNPAID)
-  priority        String         @default("NORMAL")
-  totalAmount     Decimal        @db.Decimal(12, 2)
-  currency       String         @default("SAR")
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id             String        @id @default(cuid())
+  orderNumber    String        @unique
+  customerId     String
+  assignedUserId String?
+  branchId       String?
+  status         OrderStatus   @default(NEW)
+  paymentStatus  PaymentStatus @default(UNPAID)
+  priority       String        @default("NORMAL")
+  totalAmount    Decimal       @db.Decimal(12, 2)
+  currency       String        @default("SAR")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  customer       Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  assignedUser   User?                @relation("AssignedOrders", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  branch         Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  items          OrderItem[]
-  documents      Document[]
-  payments       Payment[]
-  notes          Note[]
-  history        OrderStatusHistory[]
-  notifications  Notification[]
+  customer      Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignedUser  User?                @relation("AssignedOrders", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  branch        Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  items         OrderItem[]
+  documents     Document[]
+  payments      Payment[]
+  notes         Note[]
+  history       OrderStatusHistory[]
+  notifications Notification[]
 
   @@index([customerId])
   @@index([assignedUserId])
@@ -257,15 +258,15 @@ model Order {
 }
 
 model OrderItem {
-  id          String    @id @default(cuid())
-  orderId     String
-  serviceId   String
-  quantity    Int       @default(1)
-  unitPrice   Decimal   @db.Decimal(12, 2)
-  discount    Decimal   @db.Decimal(12, 2) @default(0)
-  total       Decimal   @db.Decimal(12, 2)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  orderId   String
+  serviceId String
+  quantity  Int      @default(1)
+  unitPrice Decimal  @db.Decimal(12, 2)
+  discount  Decimal  @default(0) @db.Decimal(12, 2)
+  total     Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   service Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
@@ -275,21 +276,21 @@ model OrderItem {
 }
 
 model Document {
-  id            String       @id @default(cuid())
-  orderId       String
-  customerId    String
-  uploadedById  String
-  type          DocumentType
-  fileName      String
-  storagePath   String
-  mimeType      String?
-  sizeBytes     Int?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  id           String       @id @default(cuid())
+  orderId      String
+  customerId   String
+  uploadedById String
+  type         DocumentType
+  fileName     String
+  storagePath  String
+  mimeType     String?
+  sizeBytes    Int?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
-  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  uploadedBy  User    @relation("UploadedDocuments", fields: [uploadedById], references: [id], onDelete: Restrict)
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  uploadedBy User     @relation("UploadedDocuments", fields: [uploadedById], references: [id], onDelete: Restrict)
 
   @@index([orderId])
   @@index([customerId])
@@ -316,12 +317,12 @@ model Payment {
 }
 
 model Note {
-  id         String    @id @default(cuid())
-  orderId    String
-  userId     String
-  note       String
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  orderId   String
+  userId    String
+  note      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -331,16 +332,16 @@ model Note {
 }
 
 model OrderStatusHistory {
-  id              String       @id @default(cuid())
+  id              String      @id @default(cuid())
   orderId         String
   oldStatus       OrderStatus
   newStatus       OrderStatus
   changedByUserId String
   notes           String?
-  changedAt       DateTime     @default(now())
+  changedAt       DateTime    @default(now())
 
-  order       Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  changedByUser User @relation("StatusChangedBy", fields: [changedByUserId], references: [id], onDelete: Restrict)
+  order         Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  changedByUser User  @relation("StatusChangedBy", fields: [changedByUserId], references: [id], onDelete: Restrict)
 
   @@index([orderId])
   @@index([changedByUserId])
@@ -382,14 +383,14 @@ model Offer {
 }
 
 model ActivityLog {
-  id         String    @id @default(cuid())
-  userId     String?
-  action     String
-  entity     String
-  entityId   String?
-  ipAddress  String?
-  userAgent  String?
-  createdAt  DateTime  @default(now())
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -399,11 +400,11 @@ model ActivityLog {
 }
 
 model Setting {
-  id         String   @id @default(cuid())
-  key        String   @unique
-  value      String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Used to generate sequential human-readable numbers (order/customer/employee)
@@ -452,31 +453,32 @@ enum ContactRequestPaymentStatus {
 // endpoint) — reviewed and actioned by staff, distinct from Customer/Order
 // which represent an already-onboarded client with a real booking.
 model ContactRequest {
-  id        String               @id @default(cuid())
-  name      String
-  phone     String
+  id                 String                      @id @default(cuid())
+  name               String
+  phone              String
   // Digits-only, country-code-normalized form of `phone` (see utils/phone.js)
   // — lets the /track flow match a request by phone regardless of how the
   // customer originally typed it (spaces, +, leading 0 vs 249, ...).
-  phoneNormalized String          @default("")
-  email     String?
-  service   String?
-  message   String
-  status    ContactRequestStatus @default(NEW)
+  phoneNormalized    String                      @default("")
+  email              String?
+  service            String?
+  message            String
+  status             ContactRequestStatus        @default(NEW)
   paymentStatus      ContactRequestPaymentStatus @default(NOT_REQUIRED)
   paymentConfirmedAt DateTime?
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
 
-  invoice   Invoice?
-  documents ContactRequestDocument[]
-  offers    ContactRequestOffer[]   @relation("ContactRequestOffers")
+  invoice         Invoice?
+  documents       ContactRequestDocument[]
+  deliverables    ContactRequestDeliverable[]
+  offers          ContactRequestOffer[]       @relation("ContactRequestOffers")
   // The offer the customer picked from `offers` (e.g. one carrier out of
   // several quoted). Nullable/unique — set once, on selection; a distinct
   // relation from `offers` since it points at exactly one specific row
   // rather than owning the collection.
-  selectedOfferId String?              @unique
-  selectedOffer   ContactRequestOffer? @relation("SelectedOffer", fields: [selectedOfferId], references: [id], onDelete: SetNull)
+  selectedOfferId String?                     @unique
+  selectedOffer   ContactRequestOffer?        @relation("SelectedOffer", fields: [selectedOfferId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([createdAt])
@@ -497,7 +499,7 @@ enum ContactRequestDocumentStatus {
 // widely — visas, flights, hotels, ...), so `label` is free text rather than
 // an enum.
 model ContactRequestDocument {
-  id               String                        @id @default(cuid())
+  id               String                       @id @default(cuid())
   contactRequestId String
   label            String
   fileName         String
@@ -508,8 +510,8 @@ model ContactRequestDocument {
   reviewNote       String?
   reviewedByUserId String?
   reviewedAt       DateTime?
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
 
   contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
   reviewedBy     User?          @relation("ContactRequestDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
@@ -517,6 +519,32 @@ model ContactRequestDocument {
   @@index([contactRequestId])
   @@index([status])
   @@index([reviewedByUserId])
+}
+
+// The missing other half of ContactRequestDocument's file exchange: staff
+// deliver a finished file (an issued visa, a ticket, a hotel voucher) for
+// the customer to download from /track. Deliberately its own model rather
+// than reusing ContactRequestDocument — there's nothing for the customer to
+// accept/reject here, so that model's review status/note fields would be
+// meaningless noise on every row. Append-only, no status: the file itself
+// is the deliverable; a correction is just another upload.
+model ContactRequestDeliverable {
+  id               String   @id @default(cuid())
+  contactRequestId String
+  label            String
+  fileName         String
+  storagePath      String
+  mimeType         String
+  sizeBytes        Int
+  uploadedByUserId String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  uploadedBy     User           @relation("ContactRequestDeliverableUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([contactRequestId])
+  @@index([uploadedByUserId])
 }
 
 // One priced option among several staff can offer for the same request

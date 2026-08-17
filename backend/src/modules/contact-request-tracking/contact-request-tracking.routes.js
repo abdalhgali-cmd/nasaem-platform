@@ -5,6 +5,7 @@ import { requireTrackingAuth } from "./tracking-auth.middleware.js";
 import { uploadContactRequestDocument } from "../../middleware/upload.middleware.js";
 import {
   approveMyInvoice,
+  downloadMyDeliverableFile,
   downloadMyDocumentFile,
   getMyRequests,
   logout,
@@ -73,6 +74,11 @@ router.get(
   "/requests/:id/documents/:documentId/file",
   requireTrackingAuth,
   downloadMyDocumentFile
+);
+router.get(
+  "/requests/:id/deliverables/:deliverableId/file",
+  requireTrackingAuth,
+  downloadMyDeliverableFile
 );
 router.post("/logout", requireTrackingAuth, logout);
 
