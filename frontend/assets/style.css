@@ -272,7 +272,8 @@ tbody tr:hover {
 
 .badge.status-WAITING_DOCUMENTS,
 .badge.status-PAYMENT_PENDING,
-.badge.status-PROCESSING {
+.badge.status-PROCESSING,
+.badge.status-AWAITING_TRANSFER {
   background: #fef3c7;
   color: #92400e;
 }
@@ -280,7 +281,9 @@ tbody tr:hover {
 .badge.status-APPROVED,
 .badge.status-COMPLETED,
 .badge.status-PAID,
-.badge.status-ACTIVE {
+.badge.status-ACTIVE,
+.badge.status-CONFIRMED,
+.badge.status-ACCEPTED {
   background: #dcfce7;
   color: #166534;
 }

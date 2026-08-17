@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SUPPORTED_CURRENCIES } from "../../utils/enums.js";
 
 export const createContactRequestSchema = z.object({
   name: z.string().trim().min(2, "الاسم مطلوب").max(120),
@@ -13,6 +14,28 @@ export const createContactRequestSchema = z.object({
   website: z.string().optional(),
 });
 
-export const updateContactRequestStatusSchema = z.object({
-  status: z.enum(["NEW", "CONTACTED", "CLOSED"]),
+export const updateContactRequestStatusSchema = z
+  .object({
+    status: z.enum(["NEW", "CONTACTED", "CLOSED"]),
+    outcome: z.enum(["COMPLETED", "REJECTED", "CANCELLED"]).optional(),
+    outcomeNote: z.string().trim().max(2000).optional().or(z.literal("")),
+  })
+  // outcome only makes sense once the request is actually closed — required
+  // there, not accepted (silently or otherwise) anywhere else.
+  .refine((data) => data.status !== "CLOSED" || Boolean(data.outcome), {
+    message: "يرجى تحديد نتيجة الإغلاق",
+    path: ["outcome"],
+  });
+
+export const createInvoiceSchema = z.object({
+  amount: z.coerce.number().positive("المبلغ يجب أن يكون أكبر من صفر"),
+  currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
+});
+
+export const createOfferSchema = z.object({
+  carrier: z.string().trim().min(2, "يرجى تحديد الناقل/الجهة").max(120),
+  amount: z.coerce.number().positive("المبلغ يجب أن يكون أكبر من صفر"),
+  currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
 });

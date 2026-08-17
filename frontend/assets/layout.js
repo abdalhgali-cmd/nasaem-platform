@@ -63,12 +63,16 @@ async function wireNotificationBell() {
         dropdown.innerHTML = '<p class="muted" style="padding: 10px">لا توجد إشعارات</p>';
         return;
       }
+      // title/message can embed customer-entered free text (e.g. a contact
+      // form submission's name/message) — escapeHtml() is required here,
+      // not optional, since this is rendered straight into the staff
+      // dashboard via innerHTML.
       dropdown.innerHTML = data
         .map(
           (n) => `
           <div class="notif-item ${n.readAt ? "" : "unread"}" data-notif-id="${n.id}">
-            <strong>${n.title}</strong>
-            <p>${n.message}</p>
+            <strong>${escapeHtml(n.title)}</strong>
+            <p>${escapeHtml(n.message)}</p>
             <span class="muted">${formatDate(n.createdAt)}</span>
           </div>`
         )

@@ -1,0 +1,745 @@
+"use client";
+
+import * as React from "react";
+import { CheckCircle2, Download, Loader2, LogOut, PhoneCall, ShieldCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { API_URL } from "@/lib/api-url";
+
+type TrackedRequestStatus = "NEW" | "CONTACTED" | "CLOSED";
+type InvoiceStatus = "PENDING" | "APPROVED" | "REJECTED";
+type PaymentStatus = "NOT_REQUIRED" | "AWAITING_TRANSFER" | "UNDER_REVIEW" | "CONFIRMED";
+
+type TrackedInvoice = {
+  amount: string;
+  currency: string;
+  description: string | null;
+  status: InvoiceStatus;
+};
+
+type TrackedOffer = {
+  id: string;
+  carrier: string;
+  description: string | null;
+  amount: string;
+  currency: string;
+};
+
+type DocumentStatus = "PENDING" | "ACCEPTED" | "REJECTED";
+
+type TrackedDocument = {
+  id: string;
+  label: string;
+  status: DocumentStatus;
+  reviewNote: string | null;
+};
+
+type TrackedDeliverable = {
+  id: string;
+  label: string;
+};
+
+type ClosedOutcome = "COMPLETED" | "REJECTED" | "CANCELLED";
+
+type TrackedRequest = {
+  id: string;
+  service: string | null;
+  message: string;
+  status: TrackedRequestStatus;
+  statusLabel: string;
+  createdAt: string;
+  invoice: TrackedInvoice | null;
+  offers: TrackedOffer[];
+  selectedOfferId: string | null;
+  paymentStatus: PaymentStatus;
+  documents: TrackedDocument[];
+  deliverables: TrackedDeliverable[];
+  outcome: ClosedOutcome | null;
+  outcomeNote: string | null;
+};
+
+const OUTCOME_BADGE_CLASS: Record<ClosedOutcome, string> = {
+  COMPLETED: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  REJECTED: "bg-red-500/10 text-red-600 dark:text-red-400",
+  CANCELLED: "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+// A closed request's badge color should reflect how it ended, not always
+// the generic "closed" green — a REJECTED/CANCELLED outcome reads as bad
+// news and shouldn't look identical to a successfully COMPLETED one.
+function requestBadgeClass(req: TrackedRequest) {
+  if (req.status === "CLOSED" && req.outcome) {
+    return OUTCOME_BADGE_CLASS[req.outcome];
+  }
+  return STATUS_BADGE_CLASS[req.status];
+}
+
+const DOCUMENT_BADGE_CLASS: Record<DocumentStatus, string> = {
+  PENDING: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  ACCEPTED: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  REJECTED: "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+const DOCUMENT_STATUS_LABEL: Record<DocumentStatus, string> = {
+  PENDING: "قيد المراجعة",
+  ACCEPTED: "مقبول",
+  REJECTED: "مرفوض",
+};
+
+type Stage = "checking" | "phone" | "code" | "requests";
+
+const STATUS_BADGE_CLASS: Record<TrackedRequestStatus, string> = {
+  NEW: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  CONTACTED: "bg-primary/10 text-primary dark:text-secondary",
+  CLOSED: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+};
+
+function formatMoney(amount: string, currency: string) {
+  return `${Number(amount).toLocaleString("en-US")} ${currency}`;
+}
+
+// Shared by every panel below that posts a tracking action (invoice
+// approve/reject, offer selection, mark-transfer-sent) and needs the
+// request list refreshed on success — same loading/error state, same
+// fetch-and-refresh shape each time.
+function useTrackingAction(onActionComplete: () => Promise<void>) {
+  const [acting, setActing] = React.useState(false);
+  const [actionError, setActionError] = React.useState("");
+
+  async function postAction(path: string) {
+    setActing(true);
+    setActionError("");
+
+    try {
+      const res = await fetch(`${API_URL}${path}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(payload?.message || "تعذّر تنفيذ العملية، حاول مرة أخرى");
+      }
+
+      await onActionComplete();
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "تعذّر تنفيذ العملية، حاول مرة أخرى"
+      );
+    } finally {
+      setActing(false);
+    }
+  }
+
+  return { acting, actionError, postAction };
+}
+
+function RequestInvoicePanel({
+  req,
+  onActionComplete,
+}: {
+  req: TrackedRequest;
+  onActionComplete: () => Promise<void>;
+}) {
+  const { acting, actionError, postAction } = useTrackingAction(onActionComplete);
+
+  if (!req.invoice) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-foreground">السعر المقترح</span>
+        <span className="text-base font-bold text-foreground" dir="ltr">
+          {formatMoney(req.invoice.amount, req.invoice.currency)}
+        </span>
+      </div>
+      {req.invoice.description ? (
+        <p className="mt-1 text-xs text-muted-foreground">{req.invoice.description}</p>
+      ) : null}
+
+      {actionError ? (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{actionError}</p>
+      ) : null}
+
+      {req.invoice.status === "PENDING" ? (
+        <div className="mt-3 flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="gold"
+            disabled={acting}
+            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/approve`)}
+          >
+            موافقة على السعر
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={acting}
+            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/reject`)}
+          >
+            رفض
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RequestOffersPanel({
+  req,
+  onActionComplete,
+}: {
+  req: TrackedRequest;
+  onActionComplete: () => Promise<void>;
+}) {
+  const { acting, actionError, postAction } = useTrackingAction(onActionComplete);
+
+  if (req.offers.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <span className="text-sm font-semibold text-foreground">عروض الأسعار</span>
+
+      {actionError ? (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{actionError}</p>
+      ) : null}
+
+      <ul className="mt-2 flex flex-col gap-2">
+        {req.offers.map((offer) => {
+          const isSelected = offer.id === req.selectedOfferId;
+          return (
+            <li
+              key={offer.id}
+              className={`rounded-lg border p-3 text-xs ${isSelected ? "border-accent bg-accent/5" : "border-border/70"}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold text-foreground">{offer.carrier}</span>
+                <span className="font-bold text-foreground" dir="ltr">
+                  {formatMoney(offer.amount, offer.currency)}
+                </span>
+              </div>
+              {offer.description ? (
+                <p className="mt-1 text-muted-foreground">{offer.description}</p>
+              ) : null}
+
+              {isSelected ? (
+                <span className="mt-2 inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                  تم الاختيار
+                </span>
+              ) : !req.selectedOfferId ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-2"
+                  disabled={acting}
+                  onClick={() => postAction(`/tracking/requests/${req.id}/offers/${offer.id}/select`)}
+                >
+                  اختيار هذا العرض
+                </Button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// Shown once per request, regardless of which pricing mechanism (Invoice or
+// multi-carrier offers) got it to AWAITING_TRANSFER — both feed the same
+// paymentStatus state machine from that point on.
+function RequestTransferAction({
+  req,
+  onActionComplete,
+}: {
+  req: TrackedRequest;
+  onActionComplete: () => Promise<void>;
+}) {
+  const { acting, actionError, postAction } = useTrackingAction(onActionComplete);
+
+  if (req.paymentStatus !== "AWAITING_TRANSFER") {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <p className="text-xs text-muted-foreground">
+        بعد تحويل المبلغ، اضغط الزر التالي لإعلام فريقنا بذلك.
+      </p>
+      {actionError ? (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{actionError}</p>
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        variant="gold"
+        className="mt-2"
+        disabled={acting}
+        onClick={() => postAction(`/tracking/requests/${req.id}/mark-transfer-sent`)}
+      >
+        تم تحويل المبلغ
+      </Button>
+    </div>
+  );
+}
+
+function RequestDocumentsPanel({
+  req,
+  onActionComplete,
+}: {
+  req: TrackedRequest;
+  onActionComplete: () => Promise<void>;
+}) {
+  const [label, setLabel] = React.useState("");
+  const [file, setFile] = React.useState<File | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState("");
+
+  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!file) return;
+
+    setUploading(true);
+    setUploadError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("label", label);
+      formData.append("file", file);
+
+      const res = await fetch(`${API_URL}/tracking/requests/${req.id}/documents`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(payload?.message || "تعذّر رفع الملف، حاول مرة أخرى");
+      }
+
+      setLabel("");
+      setFile(null);
+      e.currentTarget.reset();
+      await onActionComplete();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "تعذّر رفع الملف، حاول مرة أخرى");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <span className="text-sm font-semibold text-foreground">المستندات</span>
+
+      {req.documents.length > 0 ? (
+        <ul className="mt-2 flex flex-col gap-2">
+          {req.documents.map((doc) => (
+            <li key={doc.id} className="rounded-lg border border-border/70 p-2 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-foreground">{doc.label}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 font-semibold ${DOCUMENT_BADGE_CLASS[doc.status]}`}
+                >
+                  {DOCUMENT_STATUS_LABEL[doc.status]}
+                </span>
+              </div>
+              {doc.status === "REJECTED" && doc.reviewNote ? (
+                <p className="mt-1 text-red-600 dark:text-red-400">{doc.reviewNote}</p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">لم يتم رفع أي مستندات بعد.</p>
+      )}
+
+      <form onSubmit={handleUpload} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="flex flex-1 flex-col gap-1">
+          <label className="text-xs font-semibold text-foreground">نوع المستند</label>
+          <input
+            type="text"
+            required
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="مثال: جواز السفر"
+            className="h-10 rounded-lg border border-border bg-card px-3 text-xs outline-none transition focus:border-primary"
+          />
+        </div>
+        <div className="flex flex-1 flex-col gap-1">
+          <label className="text-xs font-semibold text-foreground">الملف</label>
+          <input
+            type="file"
+            required
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="text-xs text-muted-foreground file:me-2 file:rounded-md file:border-0 file:bg-primary/10 file:px-2 file:py-1 file:text-xs file:font-semibold file:text-primary"
+          />
+        </div>
+        <Button type="submit" size="sm" variant="outline" disabled={uploading}>
+          {uploading ? <Loader2 className="size-4 animate-spin" /> : null}
+          رفع
+        </Button>
+      </form>
+      {uploadError ? (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{uploadError}</p>
+      ) : null}
+    </div>
+  );
+}
+
+// Read-only, unlike every other panel here — nothing for the customer to
+// approve/reject/upload, just files staff delivered that are theirs to
+// download. A plain same-site link (not a fetch+blob dance) is enough: the
+// tracking cookie is SameSite=Lax, which browsers still send on a direct
+// top-level navigation like opening this link in a new tab, exactly like
+// the staff dashboard already does for its own document links.
+function RequestDeliverablesPanel({ req }: { req: TrackedRequest }) {
+  if (req.deliverables.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-accent/30 bg-accent/5 p-4">
+      <span className="text-sm font-semibold text-foreground">ملفاتك النهائية جاهزة</span>
+      <ul className="mt-2 flex flex-col gap-2">
+        {req.deliverables.map((deliverable) => (
+          <li key={deliverable.id}>
+            <a
+              href={`${API_URL}/tracking/requests/${req.id}/deliverables/${deliverable.id}/file`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+            >
+              <Download className="size-4" />
+              {deliverable.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// en-GB gives the same DD/MM/YYYY Gregorian shape as the staff dashboard's
+// ar-SA-u-ca-gregory-nu-latn (frontend/assets/api.js's formatDate) without
+// that locale's embedded bidi control characters, which visually reorder
+// the digits when rendered inside this page's RTL Arabic layout even under
+// an explicit dir="ltr" on the containing element.
+function formatTrackedDate(value: string) {
+  return new Date(value).toLocaleDateString("en-GB", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+export function TrackingPanel() {
+  const [stage, setStage] = React.useState<Stage>("checking");
+  const [phone, setPhone] = React.useState("");
+  const [code, setCode] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [info, setInfo] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
+  const [requests, setRequests] = React.useState<TrackedRequest[]>([]);
+
+  const loadRequests = React.useCallback(async () => {
+    const res = await fetch(`${API_URL}/tracking/requests`, {
+      credentials: "include",
+    });
+
+    if (!res.ok) {
+      return { loggedIn: false as const };
+    }
+
+    const payload = await res.json().catch(() => null);
+    return { loggedIn: true as const, requests: payload?.data ?? [] };
+  }, []);
+
+  const refreshRequests = React.useCallback(async () => {
+    const result = await loadRequests();
+    if (result.loggedIn) {
+      setRequests(result.requests);
+    }
+  }, [loadRequests]);
+
+  // Checks for an existing tracking session on mount (a real "synchronize
+  // with an external system" effect). Guarded with `ignore` per React's own
+  // data-fetching-in-effects guidance so a stale response from a fast
+  // unmount/remount can never clobber newer state.
+  React.useEffect(() => {
+    let ignore = false;
+
+    loadRequests().then((result) => {
+      if (ignore) return;
+
+      if (result.loggedIn) {
+        setRequests(result.requests);
+        setStage("requests");
+      } else {
+        setStage("phone");
+      }
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [loadRequests]);
+
+  async function handleRequestCode(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError("");
+    setInfo("");
+
+    try {
+      const res = await fetch(`${API_URL}/tracking/request-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(payload?.message || "تعذّر إرسال رمز التحقق، حاول مرة أخرى");
+      }
+
+      setInfo(payload?.message || "تم إرسال رمز التحقق عبر واتساب");
+      setStage("code");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "تعذّر إرسال رمز التحقق، حاول مرة أخرى"
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleVerifyCode(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const res = await fetch(`${API_URL}/tracking/verify-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ phone, code }),
+      });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(payload?.message || "رمز التحقق غير صحيح");
+      }
+
+      setCode("");
+      const result = await loadRequests();
+      if (result.loggedIn) {
+        setRequests(result.requests);
+        setStage("requests");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "رمز التحقق غير صحيح");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleLogout() {
+    await fetch(`${API_URL}/tracking/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+    setPhone("");
+    setCode("");
+    setRequests([]);
+    setError("");
+    setInfo("");
+    setStage("phone");
+  }
+
+  if (stage === "checking") {
+    return (
+      <div className="flex justify-center py-20">
+        <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (stage === "requests") {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-foreground">طلباتك</h2>
+          <Button variant="outline" size="sm" onClick={handleLogout} type="button">
+            <LogOut className="size-4" />
+            تسجيل الخروج
+          </Button>
+        </div>
+
+        {requests.length === 0 ? (
+          <p className="rounded-2xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+            لا توجد طلبات مرتبطة بهذا الرقم بعد.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-4">
+            {requests.map((req) => (
+              <li
+                key={req.id}
+                className="rounded-2xl border border-border bg-card p-5 shadow-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-sm font-bold text-foreground">
+                    {req.service || "استفسار عام"}
+                  </span>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${requestBadgeClass(req)}`}
+                  >
+                    {req.statusLabel}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
+                {req.status === "CLOSED" && req.outcomeNote ? (
+                  <p className="mt-1 text-sm text-muted-foreground">{req.outcomeNote}</p>
+                ) : null}
+                <RequestDeliverablesPanel req={req} />
+                <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
+                <RequestOffersPanel req={req} onActionComplete={refreshRequests} />
+                <RequestTransferAction req={req} onActionComplete={refreshRequests} />
+                <RequestDocumentsPanel req={req} onActionComplete={refreshRequests} />
+                <p className="mt-3 text-xs text-muted-foreground" dir="ltr">
+                  {formatTrackedDate(req.createdAt)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-md rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-8">
+      {error ? (
+        <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </div>
+      ) : null}
+      {info && stage === "code" ? (
+        <div className="mb-5 flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="size-4 shrink-0" />
+          {info}
+        </div>
+      ) : null}
+
+      {stage === "phone" ? (
+        <form onSubmit={handleRequestCode} className="flex flex-col gap-5">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary dark:text-secondary">
+              <PhoneCall className="size-6" />
+            </span>
+            <h2 className="text-lg font-bold text-foreground">تتبع طلبك</h2>
+            <p className="text-sm text-muted-foreground">
+              أدخل رقم الهاتف الذي استخدمته عند التواصل معنا، وسنرسل لك رمز تحقق
+              عبر واتساب.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="phone" className="text-sm font-semibold text-foreground">
+              رقم الهاتف
+            </label>
+            <input
+              id="phone"
+              name="phone"
+              type="tel"
+              required
+              dir="ltr"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="h-12 rounded-xl border border-border bg-background px-4 text-end text-sm outline-none transition focus:border-primary"
+              placeholder="+249 9XX XXX XXX"
+            />
+          </div>
+          <Button
+            type="submit"
+            variant="gold"
+            size="lg"
+            className="w-full"
+            disabled={submitting}
+          >
+            {submitting ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ShieldCheck className="size-4" />
+            )}
+            {submitting ? "جارٍ الإرسال..." : "إرسال رمز التحقق"}
+          </Button>
+        </form>
+      ) : (
+        <form onSubmit={handleVerifyCode} className="flex flex-col gap-5">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary dark:text-secondary">
+              <ShieldCheck className="size-6" />
+            </span>
+            <h2 className="text-lg font-bold text-foreground">أدخل رمز التحقق</h2>
+            <p className="text-sm text-muted-foreground">
+              أرسلنا رمزًا مكوّنًا من 6 أرقام عبر واتساب إلى الرقم الذي أدخلته.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="code" className="text-sm font-semibold text-foreground">
+              رمز التحقق
+            </label>
+            <input
+              id="code"
+              name="code"
+              inputMode="numeric"
+              pattern="\d{6}"
+              maxLength={6}
+              required
+              dir="ltr"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              className="h-12 rounded-xl border border-border bg-background px-4 text-center text-lg font-bold tracking-[0.5em] outline-none transition focus:border-primary"
+              placeholder="000000"
+            />
+          </div>
+          <Button
+            type="submit"
+            variant="gold"
+            size="lg"
+            className="w-full"
+            disabled={submitting}
+          >
+            {submitting ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ShieldCheck className="size-4" />
+            )}
+            {submitting ? "جارٍ التحقق..." : "تأكيد"}
+          </Button>
+          <button
+            type="button"
+            onClick={() => {
+              setStage("phone");
+              setCode("");
+              setError("");
+              setInfo("");
+            }}
+            className="text-center text-sm font-semibold text-primary hover:underline"
+          >
+            تغيير رقم الهاتف
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
