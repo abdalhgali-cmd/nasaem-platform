@@ -88,7 +88,7 @@ export async function patchContactRequestStatus(req, res, next) {
       });
     }
 
-    const contactRequest = await updateContactRequestStatus(id, parsed.data.status);
+    const contactRequest = await updateContactRequestStatus(id, parsed.data);
 
     if (!contactRequest) {
       return res.status(404).json({

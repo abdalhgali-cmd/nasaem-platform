@@ -437,6 +437,18 @@ enum ContactRequestStatus {
   CLOSED
 }
 
+// Reuses OrderStatus's exact terminology for a terminal outcome (COMPLETED/
+// REJECTED/CANCELLED) rather than inventing new words like "SUCCESS" — same
+// meaning, same Arabic labels already in frontend/assets/api.js's
+// STATUS_LABELS_AR, same badge colors already in style.css. Only meaningful
+// while status is CLOSED; see updateContactRequestStatus, which clears it on
+// reopen.
+enum ContactRequestOutcome {
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
 // Tracks the customer's side of a manual bank-transfer payment for a priced
 // ContactRequest — there is no payment gateway integration, so this is a
 // declared-then-verified flow: staff price it (Invoice), the customer
@@ -464,6 +476,11 @@ model ContactRequest {
   service            String?
   message            String
   status             ContactRequestStatus        @default(NEW)
+  // Only set while status is CLOSED — why/how it ended. Cleared if the
+  // request is reopened (moved back to NEW/CONTACTED).
+  outcome            ContactRequestOutcome?
+  outcomeNote        String?
+  closedAt           DateTime?
   paymentStatus      ContactRequestPaymentStatus @default(NOT_REQUIRED)
   paymentConfirmedAt DateTime?
   createdAt          DateTime                    @default(now())

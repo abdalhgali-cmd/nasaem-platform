@@ -22,6 +22,12 @@ const CONTACT_REQUEST_STATUS_LABELS_AR = {
   CLOSED: "مغلق",
 };
 
+// Only meaningful once a request is CLOSED (see contact-requests.validators.js).
+// Reuses STATUS_LABELS_AR's existing COMPLETED/REJECTED/CANCELLED entries
+// (api.js) rather than a duplicate label map — same words OrderStatus
+// already uses for the same meanings.
+const CONTACT_REQUEST_OUTCOMES = ["COMPLETED", "REJECTED", "CANCELLED"];
+
 function mgmtCanWrite(entity) {
   // Mirrors the requireRole(...) checks on each backend POST route.
   const rules = {
@@ -612,6 +618,55 @@ function documentsCellHtml(req) {
     ${deliverablesHtml(req)}`;
 }
 
+function statusCellHtml(req) {
+  const selectHtml = `
+    <select data-contact-request-status="${req.id}">
+      ${Object.entries(CONTACT_REQUEST_STATUS_LABELS_AR)
+        .map(
+          ([value, label]) =>
+            `<option value="${value}" ${value === req.status ? "selected" : ""}>${label}</option>`
+        )
+        .join("")}
+    </select>`;
+
+  if (req.status !== "CLOSED" || !req.outcome) {
+    return selectHtml;
+  }
+
+  return `
+    ${selectHtml}
+    <div style="margin-top: 4px">
+      ${statusBadge(req.outcome)}
+      ${req.outcomeNote ? `<div class="muted" style="font-size: 0.75rem">${escapeHtml(req.outcomeNote)}</div>` : ""}
+      <button type="button" class="btn secondary" data-edit-close-outcome="${req.id}" style="margin-top: 4px">تعديل النتيجة</button>
+    </div>`;
+}
+
+// Rendered below the status <select> when closing needs an outcome — either
+// because the staff member just picked "مغلق" (the PATCH below came back
+// 400) or because they clicked "تعديل النتيجة" on an already-closed row.
+function showCloseOutcomeForm(select) {
+  const id = select.dataset.contactRequestStatus;
+  const existing = select.parentElement.querySelector(`[data-close-outcome-form="${id}"]`);
+  if (existing) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.dataset.closeOutcomeForm = id;
+  wrapper.className = "stack";
+  wrapper.style.marginTop = "6px";
+  wrapper.style.gap = "6px";
+  wrapper.innerHTML = `
+    <select data-close-outcome-select="${id}">
+      ${CONTACT_REQUEST_OUTCOMES.map(
+        (value) => `<option value="${value}">${STATUS_LABELS_AR[value] || value}</option>`
+      ).join("")}
+    </select>
+    <input type="text" placeholder="ملاحظة (اختياري)" style="width: 120px" data-close-outcome-note="${id}" />
+    <button type="button" class="btn secondary" data-confirm-close="${id}">تأكيد الإغلاق</button>
+  `;
+  select.insertAdjacentElement("afterend", wrapper);
+}
+
 async function loadContactRequests() {
   try {
     const { page, limit, status } = mgmtState.contactRequests;
@@ -631,16 +686,7 @@ async function loadContactRequests() {
           <td dir="ltr">${escapeHtml(req.phone)}</td>
           <td>${escapeHtml(req.service || "-")}</td>
           <td style="max-width: 280px; white-space: normal">${escapeHtml(req.message)}</td>
-          <td>
-            <select data-contact-request-status="${req.id}">
-              ${Object.entries(CONTACT_REQUEST_STATUS_LABELS_AR)
-                .map(
-                  ([value, label]) =>
-                    `<option value="${value}" ${value === req.status ? "selected" : ""}>${label}</option>`
-                )
-                .join("")}
-            </select>
-          </td>
+          <td>${statusCellHtml(req)}</td>
           <td>${pricingCellHtml(req)}</td>
           <td>${paymentCellHtml(req)}</td>
           <td>${documentsCellHtml(req)}</td>
@@ -666,10 +712,46 @@ function handleContactRequestStatusChange(e) {
       status: select.value,
     })
     .then(loadContactRequests)
-    .catch((error) => showAlert(mgmtAlert(), error.message));
+    .catch((error) => {
+      // CLOSED requires an outcome (see contact-requests.validators.js) —
+      // reveal the outcome mini-form right here instead of just alerting,
+      // so completing the close is a two-click fix, not a dead end.
+      if (select.value === "CLOSED" && error.status === 400) {
+        showCloseOutcomeForm(select);
+        return;
+      }
+      showAlert(mgmtAlert(), error.message);
+    });
 }
 
 function handleContactRequestActionClick(e) {
+  const editCloseOutcomeBtn = e.target.closest("[data-edit-close-outcome]");
+  if (editCloseOutcomeBtn) {
+    const id = editCloseOutcomeBtn.dataset.editCloseOutcome;
+    const select = document.querySelector(`[data-contact-request-status="${id}"]`);
+    if (select) showCloseOutcomeForm(select);
+    return;
+  }
+
+  const confirmCloseBtn = e.target.closest("[data-confirm-close]");
+  if (confirmCloseBtn) {
+    const id = confirmCloseBtn.dataset.confirmClose;
+    const outcome = document.querySelector(`[data-close-outcome-select="${id}"]`)?.value;
+    const outcomeNote = document
+      .querySelector(`[data-close-outcome-note="${id}"]`)
+      ?.value.trim();
+
+    api
+      .patch(`/contact-requests/${id}/status`, {
+        status: "CLOSED",
+        outcome,
+        ...(outcomeNote ? { outcomeNote } : {}),
+      })
+      .then(loadContactRequests)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+
   const setInvoiceBtn = e.target.closest("[data-set-invoice]");
   if (setInvoiceBtn) {
     const id = setInvoiceBtn.dataset.setInvoice;

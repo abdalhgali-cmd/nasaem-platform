@@ -9,6 +9,15 @@ const STATUS_LABELS = {
   CLOSED: "تم إغلاق الطلب",
 };
 
+// Only shown while status is CLOSED — falls back to the generic CLOSED
+// label above for any already-closed request predating this outcome field
+// (outcome null), so existing data stays valid.
+const OUTCOME_LABELS = {
+  COMPLETED: "تم إنجاز طلبك بنجاح",
+  REJECTED: "تم رفض الطلب",
+  CANCELLED: "تم إلغاء الطلب",
+};
+
 // Precedence (highest first): a closed request always wins; then delivered
 // final files (the single most concrete, actionable thing a customer can
 // see — more useful than repeating "payment confirmed" once there's
@@ -20,11 +29,11 @@ const STATUS_LABELS = {
 // two, see contact-requests.service.js); falling back to the bare request
 // status.
 export function deriveTrackingStatusLabel(contactRequest) {
-  const { status, paymentStatus, invoice, offers, selectedOfferId, deliverables } =
+  const { status, outcome, paymentStatus, invoice, offers, selectedOfferId, deliverables } =
     contactRequest;
 
   if (status === "CLOSED") {
-    return STATUS_LABELS.CLOSED;
+    return (outcome && OUTCOME_LABELS[outcome]) || STATUS_LABELS.CLOSED;
   }
 
   if (deliverables?.length > 0) {

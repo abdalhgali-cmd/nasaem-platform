@@ -14,9 +14,18 @@ export const createContactRequestSchema = z.object({
   website: z.string().optional(),
 });
 
-export const updateContactRequestStatusSchema = z.object({
-  status: z.enum(["NEW", "CONTACTED", "CLOSED"]),
-});
+export const updateContactRequestStatusSchema = z
+  .object({
+    status: z.enum(["NEW", "CONTACTED", "CLOSED"]),
+    outcome: z.enum(["COMPLETED", "REJECTED", "CANCELLED"]).optional(),
+    outcomeNote: z.string().trim().max(2000).optional().or(z.literal("")),
+  })
+  // outcome only makes sense once the request is actually closed — required
+  // there, not accepted (silently or otherwise) anywhere else.
+  .refine((data) => data.status !== "CLOSED" || Boolean(data.outcome), {
+    message: "يرجى تحديد نتيجة الإغلاق",
+    path: ["outcome"],
+  });
 
 export const createInvoiceSchema = z.object({
   amount: z.coerce.number().positive("المبلغ يجب أن يكون أكبر من صفر"),

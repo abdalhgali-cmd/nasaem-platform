@@ -38,6 +38,8 @@ type TrackedDeliverable = {
   label: string;
 };
 
+type ClosedOutcome = "COMPLETED" | "REJECTED" | "CANCELLED";
+
 type TrackedRequest = {
   id: string;
   service: string | null;
@@ -51,7 +53,25 @@ type TrackedRequest = {
   paymentStatus: PaymentStatus;
   documents: TrackedDocument[];
   deliverables: TrackedDeliverable[];
+  outcome: ClosedOutcome | null;
+  outcomeNote: string | null;
 };
+
+const OUTCOME_BADGE_CLASS: Record<ClosedOutcome, string> = {
+  COMPLETED: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  REJECTED: "bg-red-500/10 text-red-600 dark:text-red-400",
+  CANCELLED: "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+// A closed request's badge color should reflect how it ended, not always
+// the generic "closed" green — a REJECTED/CANCELLED outcome reads as bad
+// news and shouldn't look identical to a successfully COMPLETED one.
+function requestBadgeClass(req: TrackedRequest) {
+  if (req.status === "CLOSED" && req.outcome) {
+    return OUTCOME_BADGE_CLASS[req.outcome];
+  }
+  return STATUS_BADGE_CLASS[req.status];
+}
 
 const DOCUMENT_BADGE_CLASS: Record<DocumentStatus, string> = {
   PENDING: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
@@ -581,12 +601,15 @@ export function TrackingPanel() {
                     {req.service || "استفسار عام"}
                   </span>
                   <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_BADGE_CLASS[req.status]}`}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${requestBadgeClass(req)}`}
                   >
                     {req.statusLabel}
                   </span>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
+                {req.status === "CLOSED" && req.outcomeNote ? (
+                  <p className="mt-1 text-sm text-muted-foreground">{req.outcomeNote}</p>
+                ) : null}
                 <RequestDeliverablesPanel req={req} />
                 <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
                 <RequestOffersPanel req={req} onActionComplete={refreshRequests} />

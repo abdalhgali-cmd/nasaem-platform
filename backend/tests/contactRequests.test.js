@@ -121,7 +121,7 @@ describe("contact requests", () => {
   test("updating an unknown contact request returns 404", async () => {
     const res = await adminAgent
       .patch("/api/contact-requests/does-not-exist/status")
-      .send({ status: "CLOSED" });
+      .send({ status: "CLOSED", outcome: "COMPLETED" });
     assert.equal(res.status, 404);
   });
 

@@ -75,7 +75,11 @@ export async function listContactRequests({ page, limit, skip, status }) {
   return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
-export async function updateContactRequestStatus(id, status) {
+// outcome/outcomeNote/closedAt only mean anything while the request is
+// CLOSED — set together with it, and cleared together if the request is
+// ever reopened (moved back to NEW/CONTACTED), so a stale outcome from a
+// previous closure can never linger on a request that's active again.
+export async function updateContactRequestStatus(id, { status, outcome, outcomeNote }) {
   const existing = await prisma.contactRequest.findUnique({ where: { id } });
 
   if (!existing) {
@@ -84,7 +88,10 @@ export async function updateContactRequestStatus(id, status) {
 
   return prisma.contactRequest.update({
     where: { id },
-    data: { status },
+    data:
+      status === "CLOSED"
+        ? { status, outcome, outcomeNote: outcomeNote || null, closedAt: new Date() }
+        : { status, outcome: null, outcomeNote: null, closedAt: null },
   });
 }
 
