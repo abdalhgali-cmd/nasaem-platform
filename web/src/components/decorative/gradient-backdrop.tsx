@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,6 +13,13 @@ export function GradientBackdrop({
   variant?: "light" | "dark";
   className?: string;
 }) {
+  // Multiple instances of this component can render on the same page (e.g.
+  // Hero + Stats), so the pattern id can't be a hardcoded literal — that
+  // produced duplicate `id="star-pattern"` nodes and an ambiguous `url(#...)`
+  // reference. useId() is SSR/hydration-safe by construction and gives each
+  // instance its own id, matching between server and client.
+  const patternId = useId();
+
   return (
     <div
       aria-hidden
@@ -41,7 +49,7 @@ export function GradientBackdrop({
       >
         <defs>
           <pattern
-            id="star-pattern"
+            id={patternId}
             width="56"
             height="56"
             patternUnits="userSpaceOnUse"
@@ -53,7 +61,7 @@ export function GradientBackdrop({
             />
           </pattern>
         </defs>
-        <rect width="100%" height="100%" fill="url(#star-pattern)" />
+        <rect width="100%" height="100%" fill={`url(#${patternId})`} />
       </svg>
     </div>
   );
