@@ -59,6 +59,17 @@ export const uploadContactRequestDocument = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 }).single("file");
 
+// Same storage/validation as uploadContactRequestDocument above, but for the
+// Public Service Intake wizard's single combined submission — the customer
+// attaches several required documents (passport, photo, ...) alongside the
+// rest of the intake form in one POST /api/contact-requests, before a
+// tracking session (phone verification) exists to own a separate upload.
+export const uploadContactRequestIntakeDocuments = multer({
+  storage: contactRequestDocumentStorage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+}).array("documents", 6);
+
 const CONTACT_REQUEST_DELIVERABLE_DIR = path.resolve("uploads", "contact-request-deliverables");
 fs.mkdirSync(CONTACT_REQUEST_DELIVERABLE_DIR, { recursive: true });
 

@@ -1,3 +1,4 @@
+import path from "path";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { logActivity } from "../../utils/activityLog.js";
@@ -21,7 +22,14 @@ export async function notifyAdmins({ title, message, type }) {
   );
 }
 
-export async function createContactRequest(data, req) {
+// `files` are the Service Intake wizard's uploaded documents (Umrah/Visas/
+// Packages), if any — the plain contact form never sends these, so this
+// defaults to none and behaves exactly as before. Documents are created in
+// the same nested-write as the ContactRequest itself so a request is never
+// left without the documents the customer attached to it.
+export async function createContactRequest(data, req, files = []) {
+  const documentLabels = data.documentLabels || [];
+
   const contactRequest = await prisma.contactRequest.create({
     data: {
       name: data.name,
@@ -29,7 +37,22 @@ export async function createContactRequest(data, req) {
       phoneNormalized: normalizePhone(data.phone),
       email: data.email || null,
       service: data.service || null,
+      serviceId: data.serviceId || null,
+      visaTypeId: data.visaTypeId || null,
+      travelerCount: data.travelerCount ?? null,
+      intakeData: data.intakeData ?? undefined,
       message: data.message,
+      documents: files.length
+        ? {
+            create: files.map((file, index) => ({
+              label: documentLabels[index] || file.originalname,
+              fileName: file.originalname,
+              storagePath: path.join("contact-request-documents", file.filename),
+              mimeType: file.mimetype,
+              sizeBytes: file.size,
+            })),
+          }
+        : undefined,
     },
   });
 
@@ -42,7 +65,9 @@ export async function createContactRequest(data, req) {
 
   await notifyAdmins({
     title: "طلب تواصل جديد من الموقع",
-    message: `${contactRequest.name} (${contactRequest.phone}) — ${contactRequest.message.slice(0, 120)}`,
+    message:
+      `${contactRequest.name} (${contactRequest.phone}) — ${contactRequest.message.slice(0, 120)}` +
+      (files.length ? ` — مع ${files.length} مستند(ات) مرفق(ة)` : ""),
     type: "CONTACT_REQUEST",
   });
 
@@ -71,6 +96,10 @@ export async function listContactRequests({ page, limit, skip, status }) {
         documents: { orderBy: { createdAt: "desc" } },
         offers: { orderBy: { createdAt: "desc" } },
         deliverables: { orderBy: { createdAt: "desc" } },
+        // Selected fields only — staff need the human-readable name/category
+        // for a Service Intake submission, not the full catalog row.
+        serviceRef: { select: { id: true, name: true, category: true } },
+        visaType: { select: { id: true, name: true, country: true } },
       },
     }),
     prisma.contactRequest.count({ where }),

@@ -3,6 +3,7 @@ import { Briefcase, Globe2, Plane, Stamp, Users2 } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
+import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
@@ -13,6 +14,9 @@ export const metadata: Metadata = {
     "استخراج تأشيرات العمرة، الزيارة العائلية، العمل، والتأشيرات الدولية بمتابعة كاملة من فريق نسائم الحرمين حتى الاستلام.",
 };
 
+// visaTypeCode matches VisaType.code seeded in backend/prisma/seed.js — lets
+// each card's CTA deep-link straight into the intake wizard with this type
+// pre-selected instead of just a generic "start" link.
 const visaCategories = [
   {
     icon: Stamp,
@@ -20,6 +24,7 @@ const visaCategories = [
     duration: "٣ - ٧ أيام عمل",
     description: "استخراج تأشيرة عمرة فردية أو جماعية بالتنسيق المباشر مع الجهات المعتمدة.",
     requirements: ["صورة الجواز", "الصورة الشخصية", "صورة إقامة الضامن", "رقم الضامن (أبشر)"],
+    visaTypeCode: "VISA-UMRAH",
   },
   {
     icon: Users2,
@@ -32,6 +37,7 @@ const visaCategories = [
       "صورة إقامة مرسل الزيارة (من أبشر)",
       "مستندات إضافية حسب صلة القرابة",
     ],
+    visaTypeCode: "VISA-FAMILY-VISIT",
   },
   {
     icon: Briefcase,
@@ -39,6 +45,7 @@ const visaCategories = [
     duration: "حسب الجهة المُصدرة",
     description: "استكمال إجراءات عقد العمل، الفحص الطبي، واستخراج الفيش الجنائي.",
     requirements: ["رقم المكتب المفوَّض", "عقد العمل", "صورة الجواز", "الصورة الشخصية"],
+    visaTypeCode: "VISA-WORK",
   },
   {
     icon: Globe2,
@@ -46,6 +53,7 @@ const visaCategories = [
     duration: "يختلف حسب الدولة",
     description: "الصين، بالي، ودول أفريقيا — نراجع طلبك ونوضح أي مستند إضافي مطلوب.",
     requirements: ["صورة الجواز", "الصورة الشخصية", "دعوة أو حجز الطيران والفندق (حسب الدولة)"],
+    visaTypeCode: "VISA-INTERNATIONAL",
   },
   {
     icon: Plane,
@@ -53,10 +61,17 @@ const visaCategories = [
     duration: "٣ - ٥ أيام عمل",
     description: "خطوتك الأولى للسفر إلى مصر عبر الطيران أو أحد المعابر البرية.",
     requirements: ["صورة الجواز", "تذكرة الطيران أو طلب الحجز (أو تحديد اسم المعبر البري)"],
+    visaTypeCode: "VISA-EGYPT-CLEARANCE",
   },
 ];
 
-export default function VisasPage() {
+export default async function VisasPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ visaType?: string }>;
+}) {
+  const { visaType } = await searchParams;
+
   return (
     <>
       <PageHero
@@ -100,10 +115,22 @@ export default function VisasPage() {
                       ))}
                     </ul>
                   </div>
+                  <Button asChild variant="primary" size="sm" className="mt-5 w-full">
+                    <a href={`?visaType=${visa.visaTypeCode}#book`}>قدّم الآن</a>
+                  </Button>
                 </div>
               </FadeIn>
             ))}
           </Stagger>
+        </Container>
+      </section>
+
+      <section id="book" className="scroll-mt-24 bg-section py-24">
+        <Container>
+          <SectionHeading eyebrow="التقديم" title="ابدأ طلب التأشيرة" />
+          <div className="mt-12">
+            <ServiceIntakeWizard service="visa" initialServiceCode={visaType} />
+          </div>
         </Container>
       </section>
 

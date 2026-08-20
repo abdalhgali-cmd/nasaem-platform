@@ -1,6 +1,26 @@
 import { z } from "zod";
 import { SUPPORTED_CURRENCIES } from "../../utils/enums.js";
 
+// The Service Intake wizard submits multipart/form-data (to attach document
+// files alongside the rest of the form in one request), where every field
+// arrives as a string — so JSON-shaped fields (intakeData, documentLabels)
+// arrive JSON-encoded and need parsing first. The plain JSON contact form
+// (application/json) already hands these as native arrays/objects, in which
+// case this is a no-op. On unparsable input, the raw string is returned
+// unchanged so the schema below reports a normal validation error instead
+// of throwing.
+function parseIfJsonString(value) {
+  if (typeof value !== "string" || value === "") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
 export const createContactRequestSchema = z.object({
   name: z.string().trim().min(2, "الاسم مطلوب").max(120),
   phone: z.string().trim().min(6, "رقم الهاتف مطلوب").max(30),
@@ -12,6 +32,29 @@ export const createContactRequestSchema = z.object({
   // Silently accepted (never surfaced as a validation error) so bots can't
   // learn to probe around it.
   website: z.string().optional(),
+  // Everything below is optional and only ever sent by the Service Intake
+  // wizard (Umrah/Visas/Packages) — the original free-text contact form
+  // never sends these, and the request is created exactly as before when
+  // they're absent.
+  serviceId: z.string().trim().min(1).optional().or(z.literal("")),
+  visaTypeId: z.string().trim().min(1).optional().or(z.literal("")),
+  travelerCount: z.coerce.number().int().positive().max(50).optional(),
+  // Free-form structured answers from the wizard's "service data" step
+  // (traveler list, package/visa-specific notes, ...) — intentionally
+  // unstructured server-side (see schema.prisma's ContactRequest.intakeData
+  // comment), just capped in size so it can't be used to smuggle arbitrary
+  // amounts of data into the database.
+  intakeData: z.preprocess(
+    parseIfJsonString,
+    z.record(z.string(), z.any()).optional()
+  ),
+  // Labels for each file in the `documents` upload, in the same order —
+  // e.g. ["صورة الجواز", "الصورة الشخصية"]. Reuses the same per-document
+  // label concept already used by contact-request-documents.validators.js.
+  documentLabels: z.preprocess(
+    parseIfJsonString,
+    z.array(z.string().trim().min(1).max(120)).max(6).optional()
+  ),
 });
 
 export const updateContactRequestStatusSchema = z

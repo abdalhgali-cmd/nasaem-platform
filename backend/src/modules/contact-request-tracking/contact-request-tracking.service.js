@@ -96,6 +96,8 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       documents: { orderBy: { createdAt: "desc" } },
       offers: { orderBy: { createdAt: "desc" } },
       deliverables: { orderBy: { createdAt: "desc" } },
+      serviceRef: { select: { id: true, name: true, category: true } },
+      visaType: { select: { id: true, name: true, country: true } },
     },
   });
 

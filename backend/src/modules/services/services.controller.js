@@ -3,10 +3,24 @@ import {
   createService,
   deleteService,
   getServiceById,
+  listPublicCatalog,
   listServices,
   updateService,
 } from "./services.service.js";
 import { parsePagination } from "../../utils/pagination.js";
+
+export async function getPublicCatalog(req, res, next) {
+  try {
+    const { services, visaTypes } = await listPublicCatalog();
+
+    return res.status(200).json({
+      success: true,
+      data: { services, visaTypes },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function getServices(req, res, next) {
   try {

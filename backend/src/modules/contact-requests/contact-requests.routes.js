@@ -2,7 +2,10 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
-import { uploadContactRequestDeliverable } from "../../middleware/upload.middleware.js";
+import {
+  uploadContactRequestDeliverable,
+  uploadContactRequestIntakeDocuments,
+} from "../../middleware/upload.middleware.js";
 import {
   confirmPayment,
   downloadDeliverableFile,
@@ -31,6 +34,23 @@ function handleDeliverableUpload(req, res, next) {
   });
 }
 
+// A no-op for the plain JSON contact form (multer only parses
+// multipart/form-data bodies and calls next() untouched otherwise) — only
+// the Service Intake wizard's multipart submission actually uploads files
+// here.
+function handleIntakeDocumentsUpload(req, res, next) {
+  uploadContactRequestIntakeDocuments(req, res, (error) => {
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || "File upload failed",
+      });
+    }
+
+    next();
+  });
+}
+
 // This is the only public (unauthenticated) write endpoint in the API — the
 // marketing site's contact form posts here directly from the browser.
 // Tighter than the general API limiter (app.js) since it's an open target
@@ -46,7 +66,7 @@ const publicContactLimiter = rateLimit({
   },
 });
 
-router.post("/", publicContactLimiter, storeContactRequest);
+router.post("/", publicContactLimiter, handleIntakeDocumentsUpload, storeContactRequest);
 
 router.get(
   "/",

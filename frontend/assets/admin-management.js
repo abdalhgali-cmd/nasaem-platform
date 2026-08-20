@@ -621,6 +621,38 @@ function deliverablesHtml(req) {
   return `${items}${addForm}`;
 }
 
+// Service Intake submissions (Umrah/Visas/Packages) carry a real
+// Service/VisaType catalog reference plus optional traveler count and
+// free-form intakeData (see contact-requests.service.js's listContactRequests
+// include). Plain contact-form submissions have none of these, so this
+// gracefully falls back to just the free-text service label as before.
+function serviceCellHtml(req) {
+  const parts = [escapeHtml(req.service || "-")];
+
+  if (req.serviceRef) {
+    parts.push(`<div class="muted" style="font-size: 0.75rem">${escapeHtml(req.serviceRef.name)}</div>`);
+  }
+
+  if (req.visaType) {
+    parts.push(
+      `<div class="muted" style="font-size: 0.75rem">تأشيرة: ${escapeHtml(req.visaType.name)}</div>`
+    );
+  }
+
+  if (req.travelerCount) {
+    parts.push(`<div class="muted" style="font-size: 0.75rem">عدد المسافرين: ${req.travelerCount}</div>`);
+  }
+
+  if (req.intakeData && Object.keys(req.intakeData).length > 0) {
+    parts.push(
+      `<details style="margin-top: 4px"><summary class="muted" style="font-size: 0.75rem; cursor: pointer">بيانات الطلب</summary>` +
+        `<pre style="white-space: pre-wrap; font-size: 0.7rem; margin: 4px 0 0">${escapeHtml(JSON.stringify(req.intakeData, null, 2))}</pre></details>`
+    );
+  }
+
+  return parts.join("");
+}
+
 function documentsCellHtml(req) {
   return `
     <div><strong>مستندات العميل</strong></div>
@@ -695,7 +727,7 @@ async function loadContactRequests() {
         <tr>
           <td>${escapeHtml(req.name)}</td>
           <td dir="ltr">${escapeHtml(req.phone)}</td>
-          <td>${escapeHtml(req.service || "-")}</td>
+          <td>${serviceCellHtml(req)}</td>
           <td style="max-width: 280px; white-space: normal">${escapeHtml(req.message)}</td>
           <td>${statusCellHtml(req)}</td>
           <td>${pricingCellHtml(req)}</td>
