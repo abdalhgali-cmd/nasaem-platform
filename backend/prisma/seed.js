@@ -72,11 +72,107 @@ async function seedServiceCategories() {
   console.log(`Seeded ${SERVICE_CATEGORIES.length} service categories.`);
 }
 
+// The public /packages page (web/src/app/packages/page.tsx) displays these
+// three packages as plain hardcoded copy with no backend identifier. There
+// is no dedicated Package model — per the Phase 1 intake design, each
+// package is represented as a real Service row (category="package") so a
+// Public Service Intake submission can carry a real serviceId instead of a
+// fabricated one. Prices mirror the page's current display prices; staff
+// can adjust them later via the existing Service PATCH endpoint.
+const PACKAGE_SERVICES = [
+  { code: "SVC-PKG-FAMILY", name: "باقة العائلة", basePrice: 2900 },
+  { code: "SVC-PKG-HONEYMOON", name: "باقة شهر العسل", basePrice: 5200 },
+  { code: "SVC-PKG-BUSINESS", name: "باقة رحلات العمل", basePrice: 3600 },
+];
+
+async function seedPackageServices() {
+  for (const pkg of PACKAGE_SERVICES) {
+    await prisma.service.upsert({
+      where: { code: pkg.code },
+      update: {},
+      create: {
+        code: pkg.code,
+        name: pkg.name,
+        category: "package",
+        basePrice: pkg.basePrice,
+        currency: "SAR",
+      },
+    });
+  }
+
+  console.log(`Seeded ${PACKAGE_SERVICES.length} package services.`);
+}
+
+// VisaType existed in the schema from the start but was never seeded or
+// used anywhere in the codebase until the Phase 1 Public Service Intake —
+// these rows back the "نوع التأشيرة" selection on the public /visas intake,
+// matching the categories already shown on web/src/app/visas/page.tsx.
+// Linked to the matching Service row (seeded above) where one already
+// exists for that category; "تأشيرة العمرة" links to the existing Umrah
+// service since no separate visa-only service exists for it yet.
+const VISA_TYPES = [
+  {
+    code: "VISA-UMRAH",
+    name: "تأشيرة العمرة",
+    country: "السعودية",
+    serviceCode: "SVC-UMRAH",
+  },
+  {
+    code: "VISA-FAMILY-VISIT",
+    name: "الزيارة العائلية",
+    country: "السعودية",
+    serviceCode: "SVC-FAMILY-VISIT",
+  },
+  {
+    code: "VISA-WORK",
+    name: "تأشيرة العمل",
+    country: "السعودية",
+    serviceCode: "SVC-WORK-VISA",
+  },
+  {
+    code: "VISA-INTERNATIONAL",
+    name: "التأشيرات الدولية",
+    country: "دولي",
+    serviceCode: "SVC-INTL-VISA",
+  },
+  {
+    code: "VISA-EGYPT-CLEARANCE",
+    name: "الموافقة الأمنية لمصر",
+    country: "مصر",
+    serviceCode: "SVC-EGYPT-CLEARANCE",
+  },
+];
+
+async function seedVisaTypes() {
+  for (const visa of VISA_TYPES) {
+    const service = await prisma.service.findUnique({ where: { code: visa.serviceCode } });
+
+    await prisma.visaType.upsert({
+      where: { code: visa.code },
+      update: {},
+      create: {
+        code: visa.code,
+        name: visa.name,
+        country: visa.country,
+        basePrice: 0,
+        currency: "SAR",
+        serviceId: service?.id ?? null,
+      },
+    });
+  }
+
+  console.log(`Seeded ${VISA_TYPES.length} visa types.`);
+}
+
 async function main() {
   // Runs on every seed invocation (idempotent via upsert), independent of
   // whether the super admin already exists.
   await seedSuperAdmin();
   await seedServiceCategories();
+  await seedPackageServices();
+  // Visa types reference services by code, so they must be seeded after
+  // seedServiceCategories()/seedPackageServices() have created those rows.
+  await seedVisaTypes();
 }
 
 main()

@@ -46,7 +46,7 @@ export async function storeContactRequest(req, res, next) {
       });
     }
 
-    const contactRequest = await createContactRequest(parsed.data, req);
+    const contactRequest = await createContactRequest(parsed.data, req, req.files);
 
     return res.status(201).json({
       success: true,

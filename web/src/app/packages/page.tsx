@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Check, Gem, Heart, Plane, Star, Users } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
+import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
 import { Button } from "@/components/ui/button";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,9 @@ export const metadata: Metadata = {
     "باقات سفر شاملة تجمع الطيران والإقامة والجولات في باقة واحدة — للعائلات وشهر العسل ورحلات العمل.",
 };
 
+// serviceCode matches the Service.code seeded in backend/prisma/seed.js
+// (category="package") — lets "اطلب هذه الباقة" carry a real Service id
+// into the intake wizard instead of a fabricated one.
 const packages = [
   {
     icon: Users,
@@ -23,6 +26,7 @@ const packages = [
     description: "رحلة مريحة للعائلات تشمل إقامة مناسبة للأطفال وبرنامج جولات خفيف.",
     features: ["طيران ذهاب وعودة", "إقامة عائلية (غرف مترابطة)", "نقل خاص للمطار والجولات", "برنامج جولات مناسب للأطفال"],
     highlighted: false,
+    serviceCode: "SVC-PKG-FAMILY",
   },
   {
     icon: Heart,
@@ -32,6 +36,7 @@ const packages = [
     description: "أجواء رومانسية في وجهة مميزة، بإقامة فاخرة وتنظيم كامل للتفاصيل.",
     features: ["طيران درجة أعمال (اختياري)", "إقامة في فندق ٥ نجوم", "عشاء رومانسي مُهدى", "جولة خاصة للزوجين"],
     highlighted: true,
+    serviceCode: "SVC-PKG-HONEYMOON",
   },
   {
     icon: Plane,
@@ -41,6 +46,7 @@ const packages = [
     description: "تنظيم سريع ومرن لرحلات العمل مع إقامة قريبة من مراكز الأعمال.",
     features: ["حجز طيران مرن التعديل", "فندق قريب من مركز الأعمال", "خدمة نقل فوري", "دعم على مدار الساعة أثناء الرحلة"],
     highlighted: false,
+    serviceCode: "SVC-PKG-BUSINESS",
   },
 ];
 
@@ -50,7 +56,13 @@ const whyUs = [
   { icon: Check, title: "مرونة في التعديل", description: "إمكانية تعديل الباقة لتناسب احتياجاتك الخاصة." },
 ];
 
-export default function PackagesPage() {
+export default async function PackagesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ package?: string }>;
+}) {
+  const { package: selectedPackageCode } = await searchParams;
+
   return (
     <>
       <PageHero
@@ -106,7 +118,7 @@ export default function PackagesPage() {
                   </ul>
 
                   <Button asChild variant={pkg.highlighted ? "gold" : "primary"} size="lg" className="mt-8 w-full">
-                    <Link href="/contact">اطلب هذه الباقة</Link>
+                    <a href={`?package=${pkg.serviceCode}#book`}>اطلب هذه الباقة</a>
                   </Button>
                 </div>
               </FadeIn>
@@ -138,9 +150,18 @@ export default function PackagesPage() {
               أخبرنا بتفاصيل رحلتك ونحن نصمم لك باقة خاصة تناسب ميزانيتك وموعدك.
             </p>
             <Button asChild className="mt-5">
-              <Link href="/contact">تواصل معنا الآن</Link>
+              <a href="#book">اطلب باقة الآن</a>
             </Button>
           </FadeIn>
+        </Container>
+      </section>
+
+      <section id="book" className="scroll-mt-24 py-24">
+        <Container>
+          <SectionHeading eyebrow="الحجز" title="ابدأ طلب الباقة" />
+          <div className="mt-12">
+            <ServiceIntakeWizard service="package" initialServiceCode={selectedPackageCode} />
+          </div>
         </Container>
       </section>
     </>

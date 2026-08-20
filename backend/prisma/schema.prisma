@@ -181,9 +181,10 @@ model Service {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  orderItems OrderItem[]
-  workflows  Workflow[]
-  visaTypes  VisaType[]
+  orderItems      OrderItem[]
+  workflows       Workflow[]
+  visaTypes       VisaType[]
+  contactRequests ContactRequest[]
 
   @@index([category])
   @@index([active])
@@ -202,7 +203,8 @@ model VisaType {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  service Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  service         Service?         @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  contactRequests ContactRequest[]
 
   @@index([country])
   @@index([active])
@@ -474,6 +476,20 @@ model ContactRequest {
   phoneNormalized    String                      @default("")
   email              String?
   service            String?
+  // Real catalog references for a Public Service Intake submission (Umrah /
+  // Visas / Packages) — both nullable/optional so the original free-text
+  // contact form (no service picked from a catalog) keeps working unchanged.
+  // servicePackages already reuses Service (category="package") rather than
+  // a dedicated Package model — see prisma/seed.js.
+  serviceId          String?
+  visaTypeId         String?
+  // Number of travelers declared at intake (Umrah/Visas), when applicable.
+  travelerCount      Int?
+  // Free-form structured intake data that doesn't warrant its own relational
+  // model yet (traveler list, package/visa-specific answers, notes) — kept
+  // as JSON rather than inventing fixed columns/tables for business rules
+  // this phase doesn't need to enforce server-side.
+  intakeData         Json?
   message            String
   status             ContactRequestStatus        @default(NEW)
   // Only set while status is CLOSED — why/how it ended. Cleared if the
@@ -486,6 +502,8 @@ model ContactRequest {
   createdAt          DateTime                    @default(now())
   updatedAt          DateTime                    @updatedAt
 
+  serviceRef      Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  visaType        VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
   invoice         Invoice?
   documents       ContactRequestDocument[]
   deliverables    ContactRequestDeliverable[]
@@ -500,6 +518,8 @@ model ContactRequest {
   @@index([status])
   @@index([createdAt])
   @@index([phoneNormalized])
+  @@index([serviceId])
+  @@index([visaTypeId])
 }
 
 enum ContactRequestDocumentStatus {

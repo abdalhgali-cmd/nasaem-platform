@@ -18,6 +18,48 @@ export async function getServiceById(id) {
   return prisma.service.findUnique({ where: { id } });
 }
 
+// Backs the public Service Intake wizard (web/): active services + visa
+// types only, with a narrow field set (no internal metadata like
+// createdAt/updatedAt) — deliberately not the same shape as the staff
+// listServices() above, which is auth-gated and returns full rows.
+const PUBLIC_SERVICE_SELECT = {
+  id: true,
+  code: true,
+  name: true,
+  category: true,
+  description: true,
+  basePrice: true,
+  currency: true,
+};
+
+const PUBLIC_VISA_TYPE_SELECT = {
+  id: true,
+  code: true,
+  name: true,
+  country: true,
+  description: true,
+  basePrice: true,
+  currency: true,
+  serviceId: true,
+};
+
+export async function listPublicCatalog() {
+  const [services, visaTypes] = await Promise.all([
+    prisma.service.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: PUBLIC_SERVICE_SELECT,
+    }),
+    prisma.visaType.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: PUBLIC_VISA_TYPE_SELECT,
+    }),
+  ]);
+
+  return { services, visaTypes };
+}
+
 export async function createService(data) {
   return prisma.service.create({
     data: {
