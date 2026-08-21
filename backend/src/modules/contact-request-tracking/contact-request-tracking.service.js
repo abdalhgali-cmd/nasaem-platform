@@ -103,6 +103,10 @@ export async function listContactRequestsForPhone(phoneNormalized) {
 
   return requests.map((request) => ({
     ...request,
+    // internalNotes is staff-only context (see ContactRequestOffer schema
+    // comment) — every other field on an offer is meant for the customer,
+    // so this is the one that must be stripped before this reaches /track.
+    offers: request.offers.map(({ internalNotes, ...offer }) => offer),
     statusLabel: deriveTrackingStatusLabel(request),
   }));
 }
@@ -231,6 +235,12 @@ export async function selectOffer(phoneNormalized, contactRequestId, offerId) {
 
   if (!offer) {
     return { error: "NOT_FOUND" };
+  }
+
+  // A Manual Flight Offer's price is only good until validUntil — never
+  // let a customer lock in a fare staff have marked as no longer available.
+  if (offer.validUntil && offer.validUntil < new Date()) {
+    return { error: "OFFER_EXPIRED" };
   }
 
   await prisma.contactRequest.update({

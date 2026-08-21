@@ -110,6 +110,13 @@ function respondToAction(res, result, successMessage) {
     });
   }
 
+  if (result.error === "OFFER_EXPIRED") {
+    return res.status(409).json({
+      success: false,
+      message: "This offer has expired — ask staff for a new one",
+    });
+  }
+
   return res.status(200).json({
     success: true,
     message: successMessage,

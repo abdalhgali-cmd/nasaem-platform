@@ -76,9 +76,35 @@ export const createInvoiceSchema = z.object({
   description: z.string().trim().max(2000).optional().or(z.literal("")),
 });
 
+const optionalTrimmedString = (max) => z.string().trim().max(max).optional().or(z.literal(""));
+
+// Structured schedule/fare fields for a Manual Flight Offer — every field is
+// optional since the same offer mechanism is also used for non-flight
+// carriers (e.g. a ferry), where none of this applies. See
+// NASAEM_Flights_Hotels_Provider_Procurement_Checklist.md §18: this is a
+// staff-entered offer, never a live provider fare.
+const flightOfferDetailsSchema = z.object({
+  flightNumber: optionalTrimmedString(20),
+  origin: optionalTrimmedString(120),
+  destination: optionalTrimmedString(120),
+  departureDate: optionalTrimmedString(20),
+  departureTime: optionalTrimmedString(10),
+  arrivalDate: optionalTrimmedString(20),
+  arrivalTime: optionalTrimmedString(10),
+  stops: z.coerce.number().int().min(0).optional(),
+  cabinClass: optionalTrimmedString(60),
+  baggageAllowance: optionalTrimmedString(200),
+  seatsAvailable: z.coerce.number().int().min(0).optional(),
+  terms: optionalTrimmedString(2000),
+});
+
 export const createOfferSchema = z.object({
   carrier: z.string().trim().min(2, "يرجى تحديد الناقل/الجهة").max(120),
   amount: z.coerce.number().positive("المبلغ يجب أن يكون أكبر من صفر"),
   currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
   description: z.string().trim().max(2000).optional().or(z.literal("")),
+  flightDetails: flightOfferDetailsSchema.optional(),
+  validUntil: z.coerce.date().optional(),
+  // Staff-only — never returned to the customer-facing tracking API.
+  internalNotes: z.string().trim().max(2000).optional().or(z.literal("")),
 });

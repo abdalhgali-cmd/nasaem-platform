@@ -16,12 +16,33 @@ type TrackedInvoice = {
   status: InvoiceStatus;
 };
 
+// Structured schedule/fare fields for a Manual Flight Offer (see
+// NASAEM_Flights_Hotels_Provider_Procurement_Checklist.md §18) — every
+// field optional since the same offer mechanism also covers non-flight
+// carriers, where none of this is set.
+type TrackedFlightDetails = {
+  flightNumber?: string;
+  origin?: string;
+  destination?: string;
+  departureDate?: string;
+  departureTime?: string;
+  arrivalDate?: string;
+  arrivalTime?: string;
+  stops?: number;
+  cabinClass?: string;
+  baggageAllowance?: string;
+  seatsAvailable?: number;
+  terms?: string;
+};
+
 type TrackedOffer = {
   id: string;
   carrier: string;
   description: string | null;
   amount: string;
   currency: string;
+  flightDetails: TrackedFlightDetails | null;
+  validUntil: string | null;
 };
 
 type DocumentStatus = "PENDING" | "ACCEPTED" | "REJECTED";
@@ -188,6 +209,42 @@ function RequestInvoicePanel({
   );
 }
 
+// Renders a Manual Flight Offer's schedule as a structured card instead of
+// free text (per the Manual Flight Offers workflow — see
+// NASAEM_Flights_Hotels_Provider_Procurement_Checklist.md §18: "العميل لا
+// يرى مجرد نص حر"). Every field is optional and absent entirely for a
+// non-flight offer, in which case this renders nothing.
+function FlightOfferDetails({ details }: { details: TrackedFlightDetails | null }) {
+  if (!details) {
+    return null;
+  }
+
+  const route = [details.origin, details.destination].filter(Boolean).join(" ← ");
+  const departure = [details.departureDate, details.departureTime].filter(Boolean).join(" ");
+  const arrival = [details.arrivalDate, details.arrivalTime].filter(Boolean).join(" ");
+  const extras = [
+    details.flightNumber ? `رحلة ${details.flightNumber}` : null,
+    typeof details.stops === "number" ? (details.stops === 0 ? "بدون توقف" : `${details.stops} توقف`) : null,
+    details.cabinClass,
+    details.baggageAllowance ? `الأمتعة: ${details.baggageAllowance}` : null,
+    typeof details.seatsAvailable === "number" ? `${details.seatsAvailable} مقعد متاح` : null,
+  ].filter(Boolean);
+
+  if (!route && !departure && !arrival && extras.length === 0 && !details.terms) {
+    return null;
+  }
+
+  return (
+    <div className="mt-1 flex flex-col gap-0.5 text-muted-foreground">
+      {route ? <span>{route}</span> : null}
+      {departure ? <span>مغادرة: {departure}</span> : null}
+      {arrival ? <span>وصول: {arrival}</span> : null}
+      {extras.length > 0 ? <span>{extras.join(" · ")}</span> : null}
+      {details.terms ? <span>الشروط: {details.terms}</span> : null}
+    </div>
+  );
+}
+
 function RequestOffersPanel({
   req,
   onActionComplete,
@@ -212,6 +269,8 @@ function RequestOffersPanel({
       <ul className="mt-2 flex flex-col gap-2">
         {req.offers.map((offer) => {
           const isSelected = offer.id === req.selectedOfferId;
+          const isExpired = offer.validUntil ? new Date(offer.validUntil) < new Date() : false;
+
           return (
             <li
               key={offer.id}
@@ -223,15 +282,25 @@ function RequestOffersPanel({
                   {formatMoney(offer.amount, offer.currency)}
                 </span>
               </div>
+
+              <FlightOfferDetails details={offer.flightDetails} />
+
               {offer.description ? (
                 <p className="mt-1 text-muted-foreground">{offer.description}</p>
+              ) : null}
+
+              {offer.validUntil ? (
+                <p className={`mt-1 ${isExpired ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+                  {isExpired ? "انتهت صلاحية العرض بتاريخ " : "صالح حتى "}
+                  {formatTrackedDate(offer.validUntil)}
+                </p>
               ) : null}
 
               {isSelected ? (
                 <span className="mt-2 inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-600 dark:text-emerald-400">
                   تم الاختيار
                 </span>
-              ) : !req.selectedOfferId ? (
+              ) : !req.selectedOfferId && !isExpired ? (
                 <Button
                   type="button"
                   size="sm"

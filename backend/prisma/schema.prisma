@@ -584,6 +584,16 @@ model ContactRequestDeliverable {
   @@index([uploadedByUserId])
 }
 
+// Where a ContactRequestOffer came from. MANUAL is the only path that exists
+// today (staff type it in by hand — see the Manual Flight Offers workflow);
+// API is reserved for a future Phase B provider integration (Duffel/
+// Amadeus/...) that has not been built and must not be assumed to exist —
+// see NASAEM_Flights_Hotels_Provider_Procurement_Checklist.md §18-19.
+enum ContactRequestOfferSource {
+  MANUAL
+  API
+}
+
 // One priced option among several staff can offer for the same request
 // (e.g. different flight/ferry carriers or schedules) — an alternative to
 // Invoice's single fixed quote for cases where the customer should pick
@@ -593,15 +603,36 @@ model ContactRequestDeliverable {
 // ContactRequestDocument — no edit/delete, staff just add a corrected offer
 // alongside if needed.
 model ContactRequestOffer {
-  id               String   @id @default(cuid())
+  id               String                    @id @default(cuid())
   contactRequestId String
   carrier          String
   description      String?
-  amount           Decimal  @db.Decimal(12, 2)
-  currency         String   @default("SAR")
+  amount           Decimal                   @db.Decimal(12, 2)
+  currency         String                    @default("SAR")
+  // Structured flight schedule/fare details (flight number, route, times,
+  // cabin, baggage, stops, ...) for a Manual Flight Offer — kept as JSON
+  // rather than fixed columns since nothing server-side enforces business
+  // rules on individual fields yet, same convention as
+  // ContactRequest.intakeData. The tracking API renders this into a
+  // structured card for the customer instead of free text; absent for
+  // offers that aren't flights.
+  flightDetails    Json?
+  // Only meaningful for a time-sensitive quoted fare; null means "no
+  // expiry" (every offer today, until Phase B introduces fares that
+  // actually expire).
+  validUntil       DateTime?
+  // Staff-only context (e.g. why this fare was picked, a supplier
+  // reference) — deliberately never selected by the tracking endpoints
+  // (contact-request-tracking.service.js), unlike every other field here.
+  internalNotes    String?
+  // MANUAL (default) today; provider/providerOfferId stay null until a
+  // Phase B provider integration exists to populate them.
+  source           ContactRequestOfferSource @default(MANUAL)
+  provider         String?
+  providerOfferId  String?
   createdByUserId  String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
 
   contactRequest ContactRequest  @relation("ContactRequestOffers", fields: [contactRequestId], references: [id], onDelete: Cascade)
   createdBy      User            @relation("ContactRequestOfferCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)

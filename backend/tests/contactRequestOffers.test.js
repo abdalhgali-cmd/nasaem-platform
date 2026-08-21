@@ -3,7 +3,7 @@ import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 
-// Only two fresh ContactRequests are created in this whole file — the
+// Only three fresh ContactRequests are created in this whole file — the
 // public POST /api/contact-requests endpoint enforces a hard 5-per-window
 // rate limit shared across this file's process (see contactRequests.test.js
 // and contactRequestInvoice.test.js, which budget the same way).
@@ -148,5 +148,57 @@ describe("contact request multi-carrier offers", () => {
       `/api/tracking/requests/${contactRequestId}/offers/does-not-exist/select`
     );
     assert.equal(crossOwnerRes.status, 404);
+  });
+
+  test("manual flight offer: structured details reach the customer, internalNotes never does, and an expired offer can't be selected", async () => {
+    const phone = `0924${uniqueSuffix()}`;
+    const contactRequestId = await submitContactRequest(phone);
+
+    const flightDetails = {
+      flightNumber: "SV1234",
+      origin: "الرياض",
+      destination: "جدة",
+      departureDate: "2026-09-01",
+      departureTime: "10:30",
+      stops: 0,
+      cabinClass: "اقتصادية",
+    };
+
+    const liveOfferRes = await superAdminAgent
+      .post(`/api/contact-requests/${contactRequestId}/offers`)
+      .send({
+        carrier: "Saudia",
+        amount: 1200,
+        currency: "SAR",
+        flightDetails,
+        internalNotes: "سعر خاص عبر مورد محلي",
+      });
+    assert.equal(liveOfferRes.status, 201, JSON.stringify(liveOfferRes.body));
+    assert.equal(liveOfferRes.body.data.source, "MANUAL");
+    assert.equal(liveOfferRes.body.data.internalNotes, "سعر خاص عبر مورد محلي");
+    assert.deepEqual(liveOfferRes.body.data.flightDetails, flightDetails);
+
+    const expiredOfferRes = await superAdminAgent
+      .post(`/api/contact-requests/${contactRequestId}/offers`)
+      .send({ carrier: "flynas", amount: 900, currency: "SAR", validUntil: "2020-01-01" });
+    assert.equal(expiredOfferRes.status, 201);
+    const expiredOfferId = expiredOfferRes.body.data.id;
+
+    const customerAgent = await loginTrackingAgent(phone);
+    const tracked = await fetchTracked(customerAgent, contactRequestId);
+
+    const liveOfferAsSeenByCustomer = tracked.offers.find((o) => o.carrier === "Saudia");
+    assert.deepEqual(liveOfferAsSeenByCustomer.flightDetails, flightDetails);
+    assert.equal(
+      "internalNotes" in liveOfferAsSeenByCustomer,
+      false,
+      "internalNotes must never reach the tracking API"
+    );
+
+    // A staff-set expiry in the past blocks selection, not just display.
+    const selectExpiredRes = await customerAgent.post(
+      `/api/tracking/requests/${contactRequestId}/offers/${expiredOfferId}/select`
+    );
+    assert.equal(selectExpiredRes.status, 409);
   });
 });

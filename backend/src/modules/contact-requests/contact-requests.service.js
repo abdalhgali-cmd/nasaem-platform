@@ -199,6 +199,23 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
   return { invoice };
 }
 
+// Drops blank fields the flight-offer form submits as "" rather than
+// omitting (every field is optional, so a staff member filling in only
+// half of them is the common case) and collapses an all-blank object to
+// null, so a non-flight offer (e.g. a ferry carrier) stores no JSON at all
+// instead of an empty-looking one.
+function sanitizeFlightDetails(flightDetails) {
+  if (!flightDetails) {
+    return null;
+  }
+
+  const entries = Object.entries(flightDetails).filter(
+    ([, value]) => value !== "" && value !== undefined && value !== null
+  );
+
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
 // Adds one priced option to a request's multi-carrier offer set (see the
 // ContactRequestOffer schema comment for when to use this instead of
 // Invoice). Staff can keep adding offers until the customer selects one;
@@ -229,6 +246,9 @@ export async function createOffer(contactRequestId, data, userId) {
       description: data.description || null,
       amount: data.amount,
       currency: data.currency,
+      flightDetails: sanitizeFlightDetails(data.flightDetails),
+      validUntil: data.validUntil || null,
+      internalNotes: data.internalNotes || null,
       createdByUserId: userId,
     },
   });

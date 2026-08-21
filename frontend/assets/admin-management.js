@@ -509,15 +509,67 @@ function invoiceCellHtml(req) {
     </div>`;
 }
 
+// Manual Flight Offer fields (see NASAEM_Flights_Hotels_Provider_Procurement_Checklist.md
+// §18) — kept inside a collapsed <details>, same pattern already used for
+// req.intakeData below, so a non-flight offer (e.g. a ferry carrier) can
+// still be added with just carrier+amount as before.
 function offerAddFormHtml(req) {
   return `
-    <div class="stack" style="margin-top: 6px; gap: 4px">
-      <input type="text" placeholder="الناقل" style="width: 80px" data-offer-carrier-input="${req.id}" />
+    <div class="stack" style="margin-top: 6px; gap: 4px; flex-wrap: wrap">
+      <input type="text" placeholder="الناقل/شركة الطيران" style="width: 110px" data-offer-carrier-input="${req.id}" />
       <input
         type="number" min="0" step="0.01" placeholder="المبلغ" style="width: 80px"
         data-offer-amount-input="${req.id}"
       />
+      <details style="width: 100%">
+        <summary class="muted" style="font-size: 0.75rem; cursor: pointer">تفاصيل رحلة (اختياري)</summary>
+        <div class="stack" style="margin-top: 4px; gap: 4px; flex-wrap: wrap">
+          <input type="text" placeholder="رقم الرحلة" style="width: 90px" data-offer-flight-number-input="${req.id}" />
+          <input type="text" placeholder="من" style="width: 80px" data-offer-origin-input="${req.id}" />
+          <input type="text" placeholder="إلى" style="width: 80px" data-offer-destination-input="${req.id}" />
+          <input type="date" style="width: 135px" data-offer-departure-date-input="${req.id}" />
+          <input type="time" style="width: 90px" data-offer-departure-time-input="${req.id}" />
+          <input type="date" style="width: 135px" data-offer-arrival-date-input="${req.id}" />
+          <input type="time" style="width: 90px" data-offer-arrival-time-input="${req.id}" />
+          <input type="number" min="0" placeholder="التوقفات" style="width: 70px" data-offer-stops-input="${req.id}" />
+          <input type="text" placeholder="الدرجة" style="width: 80px" data-offer-cabin-class-input="${req.id}" />
+          <input type="text" placeholder="الأمتعة المسموحة" style="width: 110px" data-offer-baggage-input="${req.id}" />
+          <input type="number" min="0" placeholder="المقاعد المتاحة" style="width: 100px" data-offer-seats-input="${req.id}" />
+          <input type="date" title="صالح حتى" style="width: 135px" data-offer-valid-until-input="${req.id}" />
+          <textarea placeholder="الشروط والأحكام (تظهر للعميل)" style="width: 100%" rows="2" data-offer-terms-input="${req.id}"></textarea>
+          <textarea placeholder="ملاحظات داخلية (لا تظهر للعميل)" style="width: 100%" rows="2" data-offer-internal-notes-input="${req.id}"></textarea>
+        </div>
+      </details>
       <button type="button" class="btn secondary" data-add-offer="${req.id}">إضافة عرض</button>
+    </div>`;
+}
+
+function flightOfferDetailsHtml(offer) {
+  const d = offer.flightDetails;
+  if (!d) return "";
+
+  const route = [d.origin, d.destination].filter(Boolean).join(" ← ");
+  const departure = [d.departureDate, d.departureTime].filter(Boolean).join(" ");
+  const arrival = [d.arrivalDate, d.arrivalTime].filter(Boolean).join(" ");
+  const schedule = [departure && `مغادرة: ${departure}`, arrival && `وصول: ${arrival}`]
+    .filter(Boolean)
+    .join(" · ");
+  const extra = [
+    d.flightNumber && `رحلة ${d.flightNumber}`,
+    Number.isFinite(d.stops) ? (d.stops === 0 ? "بدون توقف" : `${d.stops} توقف`) : null,
+    d.cabinClass,
+    d.baggageAllowance && `الأمتعة: ${d.baggageAllowance}`,
+    Number.isFinite(d.seatsAvailable) && `${d.seatsAvailable} مقعد متاح`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return `
+    <div class="muted" style="font-size: 0.75rem; margin-top: 2px">
+      ${route ? `<div>${escapeHtml(route)}</div>` : ""}
+      ${schedule ? `<div>${escapeHtml(schedule)}</div>` : ""}
+      ${extra ? `<div>${escapeHtml(extra)}</div>` : ""}
+      ${d.terms ? `<div>الشروط: ${escapeHtml(d.terms)}</div>` : ""}
     </div>`;
 }
 
@@ -525,10 +577,16 @@ function offersCellHtml(req) {
   const offersList = req.offers
     .map((offer) => {
       const isSelected = offer.id === req.selectedOfferId;
+      const isExpired = offer.validUntil && new Date(offer.validUntil) < new Date();
+
       return `
-        <div style="margin-bottom: 6px${isSelected ? "; font-weight: bold" : ""}">
+        <div style="margin-bottom: 8px${isSelected ? "; font-weight: bold" : ""}">
           ${escapeHtml(offer.carrier)}: ${formatMoney(offer.amount, offer.currency)}
           ${isSelected ? statusBadge("APPROVED") : ""}
+          ${isExpired ? `<span class="badge status-REJECTED">منتهي الصلاحية</span>` : ""}
+          ${flightOfferDetailsHtml(offer)}
+          ${offer.validUntil ? `<div class="muted" style="font-size: 0.7rem">صالح حتى: ${escapeHtml(formatDate(offer.validUntil))}</div>` : ""}
+          ${offer.internalNotes ? `<div class="muted" style="font-size: 0.7rem">ملاحظة داخلية: ${escapeHtml(offer.internalNotes)}</div>` : ""}
         </div>`;
     })
     .join("");
@@ -816,7 +874,8 @@ function handleContactRequestActionClick(e) {
   const addOfferBtn = e.target.closest("[data-add-offer]");
   if (addOfferBtn) {
     const id = addOfferBtn.dataset.addOffer;
-    const carrier = document.querySelector(`[data-offer-carrier-input="${id}"]`)?.value.trim();
+    const field = (name) => document.querySelector(`[data-offer-${name}-input="${id}"]`)?.value.trim();
+    const carrier = field("carrier");
     const amount = Number(document.querySelector(`[data-offer-amount-input="${id}"]`)?.value);
 
     if (!carrier) {
@@ -828,8 +887,36 @@ function handleContactRequestActionClick(e) {
       return;
     }
 
+    // Every flight-details field is optional — omitted/blank inputs are
+    // dropped server-side (see sanitizeFlightDetails in
+    // contact-requests.service.js), so a non-flight offer stays exactly as
+    // simple as before.
+    const flightDetails = {
+      flightNumber: field("flight-number"),
+      origin: field("origin"),
+      destination: field("destination"),
+      departureDate: field("departure-date"),
+      departureTime: field("departure-time"),
+      arrivalDate: field("arrival-date"),
+      arrivalTime: field("arrival-time"),
+      stops: field("stops") || undefined,
+      cabinClass: field("cabin-class"),
+      baggageAllowance: field("baggage"),
+      seatsAvailable: field("seats") || undefined,
+      terms: field("terms"),
+    };
+    const validUntil = field("valid-until");
+    const internalNotes = field("internal-notes");
+
     api
-      .post(`/contact-requests/${id}/offers`, { carrier, amount, currency: "SAR" })
+      .post(`/contact-requests/${id}/offers`, {
+        carrier,
+        amount,
+        currency: "SAR",
+        flightDetails,
+        ...(validUntil ? { validUntil } : {}),
+        ...(internalNotes ? { internalNotes } : {}),
+      })
       .then(loadContactRequests)
       .catch((error) => showAlert(mgmtAlert(), error.message));
     return;
