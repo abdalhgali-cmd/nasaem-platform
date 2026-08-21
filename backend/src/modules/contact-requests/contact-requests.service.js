@@ -5,6 +5,22 @@ import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { normalizePhone } from "../../utils/phone.js";
+import {
+  OUTCOME_LABELS,
+  STATUS_LABELS,
+} from "../contact-request-tracking/contact-request-tracking.status.js";
+
+// Short, consistent "which request is this about" prefix for every
+// customer-facing WhatsApp notification below — reuses the same `service`
+// label and `id` the customer already sees on the wizard's confirmation
+// screen and in /track, so the reference is recognizable, not a new format.
+// Exported so the sibling document/deliverable modules can build the same
+// reference in their own customer notifications instead of duplicating it.
+export function describeRequest(contactRequest) {
+  return contactRequest.service
+    ? `${contactRequest.service} (رقم ${contactRequest.id})`
+    : `رقم ${contactRequest.id}`;
+}
 
 // Fans out an internal notification to every active SUPER_ADMIN/ADMIN —
 // originally inlined in createContactRequest only; extracted so every other
@@ -133,6 +149,84 @@ export async function updateContactRequestStatus(id, { status, outcome, outcomeN
     entity: "ContactRequest",
     entityId: id,
   });
+
+  // Guarded on the status actually changing — staff editing only the
+  // outcome/note of an already-CLOSED request (see "تعديل النتيجة" in the
+  // staff dashboard) re-submits the same CLOSED status and must not re-fire
+  // a notification the customer already received.
+  if (existing.status !== updated.status) {
+    const label =
+      updated.status === "CLOSED"
+        ? (updated.outcome && OUTCOME_LABELS[updated.outcome]) || STATUS_LABELS.CLOSED
+        : STATUS_LABELS[updated.status];
+
+    // Not awaited: same rationale as every other WhatsApp send in this
+    // module — never let a slow/unreachable WhatsApp API delay the staff
+    // response, and this silently no-ops when WHATSAPP_* env vars aren't
+    // set (dev/test).
+    sendWhatsAppMessage(
+      updated.phoneNormalized,
+      `تحديث بخصوص طلبك (${describeRequest(updated)}):\n${label}\nيمكنك متابعة كل التفاصيل عبر صفحة تتبع الطلب.`
+    );
+  }
+
+  return updated;
+}
+
+// Phase 1.5 — auto-completion. Pure predicate, deliberately side-effect
+// free so it's trivially unit-testable and safe to call from both trigger
+// points below without worrying about DB access: given a request's current
+// status/paymentStatus and whether it already has at least one delivered
+// file, decide if it's now safe to auto-close it as COMPLETED. Reuses the
+// existing NOT_REQUIRED/AWAITING_TRANSFER/UNDER_REVIEW/CONFIRMED payment
+// state machine and the existing CLOSED/COMPLETED status+outcome values —
+// no new state is introduced.
+export function shouldAutoComplete({ status, paymentStatus, hasDeliverable }) {
+  return status !== "CLOSED" && paymentStatus === "CONFIRMED" && Boolean(hasDeliverable);
+}
+
+// Re-checks the condition above and closes the request if it now holds.
+// Called after either half of it could have just become true (payment
+// confirmed, or a deliverable uploaded) — whichever happens second is the
+// one that actually closes it; whichever happens first is a no-op here.
+// Idempotent: once a request is CLOSED, every later call (e.g. a second
+// deliverable) sees status === "CLOSED" and does nothing — no repeat
+// update, no repeat notification, no other side effect.
+export async function maybeAutoCompleteContactRequest(contactRequestId) {
+  const contactRequest = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    include: { deliverables: { select: { id: true }, take: 1 } },
+  });
+
+  if (!contactRequest) {
+    return null;
+  }
+
+  const eligible = shouldAutoComplete({
+    status: contactRequest.status,
+    paymentStatus: contactRequest.paymentStatus,
+    hasDeliverable: contactRequest.deliverables.length > 0,
+  });
+
+  if (!eligible) {
+    return null;
+  }
+
+  const updated = await prisma.contactRequest.update({
+    where: { id: contactRequestId },
+    data: { status: "CLOSED", outcome: "COMPLETED", outcomeNote: null, closedAt: new Date() },
+  });
+
+  logActivity({
+    action: "CONTACT_REQUEST_AUTO_COMPLETED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+  });
+
+  sendWhatsAppMessage(
+    updated.phoneNormalized,
+    `${OUTCOME_LABELS.COMPLETED} — ${describeRequest(updated)}.\nشكرًا لثقتك بنا!`
+  );
 
   return updated;
 }
@@ -278,5 +372,17 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
     entityId: contactRequestId,
   });
 
-  return { contactRequest: updated };
+  // Not awaited: same rationale as elsewhere in this module.
+  sendWhatsAppMessage(
+    updated.phoneNormalized,
+    `تم تأكيد استلام تحويلك لطلبك (${describeRequest(updated)}). سنبدأ بتنفيذ طلبك.`
+  );
+
+  // A deliverable may already exist from before this payment confirmation
+  // (staff sometimes prepare/upload the final file while payment is still
+  // under review) — re-check the auto-completion condition now that the
+  // payment half of it just became true.
+  const completed = await maybeAutoCompleteContactRequest(contactRequestId);
+
+  return { contactRequest: completed ?? updated };
 }

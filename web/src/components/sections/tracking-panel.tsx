@@ -40,9 +40,42 @@ type TrackedDeliverable = {
 
 type ClosedOutcome = "COMPLETED" | "REJECTED" | "CANCELLED";
 
+// Phase 1.5 — Service Intake context (Umrah/Visas/Packages). Only the
+// human-readable fields the customer needs — never an internal id beyond
+// what identifies *which* catalog entry (name/category/country), matching
+// the "no unnecessary internal ids" rule for this panel.
+type TrackedServiceRef = {
+  name: string;
+  category: string;
+};
+
+type TrackedVisaType = {
+  name: string;
+  country: string;
+};
+
+type TrackedTraveler = {
+  fullName?: string;
+  passportNo?: string;
+  nationality?: string;
+};
+
+// Free-form by design (see schema.prisma's ContactRequest.intakeData
+// comment) — every field is optional here too, and every read below
+// tolerates it being entirely absent (plain contact-form submissions never
+// set it) or partially filled.
+type TrackedIntakeData = {
+  travelers?: TrackedTraveler[];
+  notes?: string;
+} | null;
+
 type TrackedRequest = {
   id: string;
   service: string | null;
+  serviceRef: TrackedServiceRef | null;
+  visaType: TrackedVisaType | null;
+  travelerCount: number | null;
+  intakeData: TrackedIntakeData;
   message: string;
   status: TrackedRequestStatus;
   statusLabel: string;
@@ -395,6 +428,62 @@ function RequestDocumentsPanel({
   );
 }
 
+// Phase 1.5 — the structured Service Intake data the customer submitted
+// through the wizard (visa type, traveler count, traveler list, notes).
+// Deliberately never renders intakeData as raw JSON — broken into the same
+// labeled sections a person filled in on the wizard, and silently omits any
+// piece that's missing rather than showing an empty/broken section (plain
+// contact-form requests have none of this and render nothing here at all).
+function RequestIntakeSummaryPanel({ req }: { req: TrackedRequest }) {
+  const travelers = (req.intakeData?.travelers ?? []).filter(
+    (t) => t.fullName && t.fullName.trim().length > 0
+  );
+  const notes = req.intakeData?.notes?.trim();
+  const hasTravelerCount = typeof req.travelerCount === "number" && req.travelerCount > 0;
+
+  if (!req.visaType && !hasTravelerCount && travelers.length === 0 && !notes) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <span className="text-sm font-semibold text-foreground">تفاصيل الطلب</span>
+      <div className="mt-2 flex flex-col gap-3 text-xs text-muted-foreground">
+        {req.visaType ? (
+          <span>
+            نوع التأشيرة: <span className="font-semibold text-foreground">{req.visaType.name}</span>
+            {" "}({req.visaType.country})
+          </span>
+        ) : null}
+
+        {hasTravelerCount ? <span>عدد المسافرين: {req.travelerCount}</span> : null}
+
+        {travelers.length > 0 ? (
+          <div>
+            <span className="font-semibold text-foreground">بيانات المسافرين</span>
+            <ul className="mt-1 flex flex-col gap-1">
+              {travelers.map((traveler, index) => (
+                <li key={index}>
+                  {traveler.fullName}
+                  {traveler.passportNo ? ` — جواز: ${traveler.passportNo}` : ""}
+                  {traveler.nationality ? ` — ${traveler.nationality}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {notes ? (
+          <div>
+            <span className="font-semibold text-foreground">ملاحظات</span>
+            <p className="mt-1">{notes}</p>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 // Read-only, unlike every other panel here — nothing for the customer to
 // approve/reject/upload, just files staff delivered that are theirs to
 // download. A plain same-site link (not a fetch+blob dance) is enough: the
@@ -610,6 +699,7 @@ export function TrackingPanel() {
                 {req.status === "CLOSED" && req.outcomeNote ? (
                   <p className="mt-1 text-sm text-muted-foreground">{req.outcomeNote}</p>
                 ) : null}
+                <RequestIntakeSummaryPanel req={req} />
                 <RequestDeliverablesPanel req={req} />
                 <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
                 <RequestOffersPanel req={req} onActionComplete={refreshRequests} />

@@ -1,6 +1,11 @@
 import path from "path";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
+import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import {
+  describeRequest,
+  maybeAutoCompleteContactRequest,
+} from "../contact-requests/contact-requests.service.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
 
@@ -34,6 +39,19 @@ export async function createContactRequestDeliverable(contactRequestId, { label,
     entity: "ContactRequest",
     entityId: contactRequestId,
   });
+
+  // Not awaited: same rationale as every other WhatsApp send in this
+  // codebase — never let a slow/unreachable WhatsApp API delay the staff
+  // response.
+  sendWhatsAppMessage(
+    contactRequest.phoneNormalized,
+    `أصبح الملف "${label}" جاهزًا لطلبك (${describeRequest(contactRequest)}).\nيمكنك تحميله عبر صفحة تتبع الطلب.`
+  );
+
+  // Payment may already have been confirmed before this file existed — the
+  // deliverable half of the auto-completion condition just became true, so
+  // re-check it now that both could hold.
+  await maybeAutoCompleteContactRequest(contactRequestId);
 
   return { deliverable };
 }

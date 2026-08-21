@@ -2,7 +2,8 @@ import path from "path";
 import prisma from "../../config/database.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
-import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
+import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { describeRequest, notifyAdmins } from "../contact-requests/contact-requests.service.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
 
@@ -98,6 +99,26 @@ export async function updateContactRequestDocumentStatus(
     entity: "ContactRequest",
     entityId: contactRequestId,
   });
+
+  // Guarded on the review status actually changing — re-saving the same
+  // decision (e.g. staff re-submitting a rejection with just an edited
+  // note) must not re-notify the customer with a duplicate message.
+  if (document.status !== updated.status) {
+    const contactRequest = await prisma.contactRequest.findUnique({
+      where: { id: contactRequestId },
+    });
+
+    const message =
+      updated.status === "ACCEPTED"
+        ? `تم قبول المستند "${updated.label}" الخاص بطلبك (${describeRequest(contactRequest)}).`
+        : `تم رفض المستند "${updated.label}" الخاص بطلبك (${describeRequest(contactRequest)}).\n` +
+          `السبب: ${updated.reviewNote}\nيرجى إعادة رفعه عبر صفحة تتبع الطلب.`;
+
+    // Not awaited: same rationale as every other WhatsApp send in this
+    // codebase — never let a slow/unreachable WhatsApp API delay the staff
+    // response.
+    sendWhatsAppMessage(contactRequest.phoneNormalized, message);
+  }
 
   return { document: updated };
 }
