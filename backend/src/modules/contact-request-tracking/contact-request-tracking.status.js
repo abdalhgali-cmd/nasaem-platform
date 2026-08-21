@@ -3,7 +3,10 @@
 // controller) so later phases that enrich ContactRequest (documents,
 // execution tracking, ...) have one obvious place to extend the precedence
 // instead of scattering status text across the API layer.
-const STATUS_LABELS = {
+// Exported (not just used internally below) so contact-requests.service.js
+// can build customer-facing WhatsApp notifications using the exact same
+// Arabic copy shown in /track, instead of a second, drifting set of strings.
+export const STATUS_LABELS = {
   NEW: "تم استلام طلبك وهو قيد المراجعة",
   CONTACTED: "تم التواصل معك بخصوص طلبك",
   CLOSED: "تم إغلاق الطلب",
@@ -12,7 +15,7 @@ const STATUS_LABELS = {
 // Only shown while status is CLOSED — falls back to the generic CLOSED
 // label above for any already-closed request predating this outcome field
 // (outcome null), so existing data stays valid.
-const OUTCOME_LABELS = {
+export const OUTCOME_LABELS = {
   COMPLETED: "تم إنجاز طلبك بنجاح",
   REJECTED: "تم رفض الطلب",
   CANCELLED: "تم إلغاء الطلب",
