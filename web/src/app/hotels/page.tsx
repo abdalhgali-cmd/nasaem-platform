@@ -1,90 +1,54 @@
 import type { Metadata } from "next";
-import { Hotel, MapPin, ShieldCheck, Star, Wifi, Utensils, Car, Wind } from "lucide-react";
+import { Hotel, Wifi, Utensils, Car, Wind } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
-import { PageHero } from "@/components/sections/page-hero";
-import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
+import { HotelRequestClient } from "@/components/sections/hotel-request-client";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 
 export const metadata: Metadata = {
   title: "حجز الفنادق",
   description:
-    "احجز إقامتك في فنادق مختارة بعناية بالقرب من الحرمين الشريفين وفي كل الوجهات الرئيسية، بمستويات تناسب كل ميزانية.",
+    "اطلب حجز فندق في وجهتك، وسيتحقق فريق نسائم الحرمين من التوفر والسعر ويعود إليك بالعرض المناسب.",
 };
 
-const cities = [
-  { city: "مكة المكرمة", note: "بجوار الحرم مباشرة", rating: "4.8", price: "480" },
-  { city: "المدينة المنورة", note: "على مقربة من المسجد النبوي", rating: "4.7", price: "350" },
-  { city: "جدة", note: "بالقرب من الواجهة البحرية", rating: "4.6", price: "290" },
-  { city: "القاهرة", note: "في قلب المدينة", rating: "4.5", price: "210" },
-  { city: "دبي", note: "بالقرب من وسط المدينة", rating: "4.7", price: "610" },
-  { city: "إسطنبول", note: "في المنطقة التاريخية", rating: "4.6", price: "340" },
-];
-
 const amenities = [
-  { icon: Wifi, label: "إنترنت لاسلكي مجاني" },
-  { icon: Utensils, label: "إفطار متضمن" },
-  { icon: Car, label: "خدمة نقل من وإلى المطار" },
-  { icon: Wind, label: "تكييف مركزي" },
+  { icon: Wifi, label: "إنترنت لاسلكي" },
+  { icon: Utensils, label: "إفطار حسب الحجز" },
+  { icon: Car, label: "خيارات نقل" },
+  { icon: Wind, label: "غرف مكيفة" },
 ];
 
 export default function HotelsPage() {
   return (
     <>
-      <PageHero
-        eyebrow="حجز الفنادق"
-        breadcrumb="الفنادق"
-        title="إقامة مريحة أينما توجّهت"
-        description="فنادق مختارة بعناية توفّر لك الراحة والقرب من الأماكن المهمة في كل وجهة."
-      />
-
-      <section className="relative -mt-12 pb-8">
-        <Container>
-          <FadeIn className="flex justify-center">
-            <BookingSearchWidget />
-          </FadeIn>
-        </Container>
-      </section>
+      <HotelRequestClient />
 
       <section className="py-16">
         <Container>
-          <SectionHeading eyebrow="وجهات مقترحة" title="فنادق في أهم الوجهات" />
-          <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {cities.map((item, index) => (
-              <FadeIn key={item.city} delay={index * 0.06}>
-                <div className="group flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl">
-                  <div className="relative flex h-36 items-center justify-center bg-gradient-to-br from-primary via-secondary to-primary">
-                    <Hotel className="size-11 text-white/90" />
+          <SectionHeading eyebrow="خدمة الفنادق" title="تجهيز الحجز حسب احتياجك" />
+          <div className="mt-10 grid gap-6 lg:grid-cols-3">
+            {[
+              ["مكة والمدينة", "خيارات قريبة من الحرمين حسب التوفر والميزانية."],
+              ["جدة والقاهرة ودبي", "نبحث لك عن الفندق المناسب للمدة والميزانية المطلوبة."],
+              ["وجهات أخرى", "أرسل المدينة والتواريخ وسنراجع الخيارات المتاحة."],
+            ].map(([title, description], index) => (
+              <FadeIn key={title} delay={index * 0.06}>
+                <div className="h-full rounded-3xl border border-border bg-card p-6 shadow-sm">
+                  <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary dark:text-secondary">
+                    <Hotel className="size-6" />
                   </div>
-                  <div className="flex flex-1 flex-col p-6">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-foreground">{item.city}</h3>
-                      <span className="flex items-center gap-1 text-xs font-bold text-accent-foreground/80 dark:text-accent">
-                        <Star className="size-3.5 fill-current" />
-                        {item.rating}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-                      <MapPin className="size-3.5" />
-                      {item.note}
-                    </p>
-                    <div className="mt-5 flex items-end justify-between">
-                      <div>
-                        <span className="text-[11px] text-muted-foreground">لليلة الواحدة من</span>
-                        <p className="text-lg font-extrabold text-foreground">${item.price}</p>
-                      </div>
-                    </div>
-                  </div>
+                  <h3 className="mt-4 font-bold text-foreground">{title}</h3>
+                  <p className="mt-2 text-sm leading-7 text-muted-foreground">{description}</p>
                 </div>
               </FadeIn>
             ))}
-          </Stagger>
+          </div>
         </Container>
       </section>
 
       <section className="bg-section py-24">
         <Container>
-          <SectionHeading eyebrow="مميزات إقامتك" title="كل ما تحتاجه لإقامة مريحة" />
+          <SectionHeading eyebrow="مميزات الإقامة" title="طلباتك تصلنا بتفاصيل واضحة" />
           <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {amenities.map((item, index) => (
               <FadeIn key={item.label} delay={index * 0.06}>
@@ -97,10 +61,6 @@ export default function HotelsPage() {
               </FadeIn>
             ))}
           </Stagger>
-          <FadeIn className="mt-10 flex items-center justify-center gap-2 text-sm font-semibold text-muted-foreground">
-            <ShieldCheck className="size-4 text-success" />
-            جميع الفنادق مُختارة ومُراجعة بعناية لضمان جودة الإقامة
-          </FadeIn>
         </Container>
       </section>
     </>
