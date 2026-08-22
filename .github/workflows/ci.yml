@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/flights-booking-phase2]
   pull_request:
 
 jobs:
@@ -39,21 +39,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
-
       - name: Install dependencies
         run: npm install
-
       - name: Apply database migrations
         run: npx prisma migrate deploy
-
       - name: Seed database
         run: npm run prisma:seed
-
       - name: Run tests
         run: npm test
