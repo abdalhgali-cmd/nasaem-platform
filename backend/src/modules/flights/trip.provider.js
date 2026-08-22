@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { getCurrencyRates } from "./flights.service.js";
 
 function normalizeTripFlight(item, rates) {
