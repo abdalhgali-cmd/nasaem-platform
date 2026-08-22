@@ -28,7 +28,11 @@ function renderHeader(user, activePage) {
   `;
 
   document.getElementById("logout-btn").addEventListener("click", async () => {
-    try { await api.post("/auth/logout"); } catch (error) {}
+    try {
+      await api.post("/auth/logout");
+    } catch (error) {
+      // Ignore — redirect regardless, the cookie clears client-side either way.
+    }
     window.location.href = "/login.html";
   });
 
@@ -46,7 +50,9 @@ async function wireNotificationBell() {
       const unread = meta.unreadCount || 0;
       badge.textContent = unread > 9 ? "9+" : String(unread);
       badge.classList.toggle("hidden", unread === 0);
-    } catch (error) {}
+    } catch (error) {
+      // Non-critical — leave the badge as-is.
+    }
   }
 
   async function loadDropdown() {
@@ -57,6 +63,10 @@ async function wireNotificationBell() {
         dropdown.innerHTML = '<p class="muted" style="padding: 10px">لا توجد إشعارات</p>';
         return;
       }
+      // title/message can embed customer-entered free text (e.g. a contact
+      // form submission's name/message) — escapeHtml() is required here,
+      // not optional, since this is rendered straight into the staff
+      // dashboard via innerHTML.
       dropdown.innerHTML = data
         .map(
           (n) => `
@@ -85,11 +95,15 @@ async function wireNotificationBell() {
       await api.patch(`/notifications/${item.dataset.notifId}/read`);
       item.classList.remove("unread");
       refreshBadge();
-    } catch (error) {}
+    } catch (error) {
+      // Ignore — item stays marked unread, user can retry.
+    }
   });
 
   document.addEventListener("click", (e) => {
-    if (!dropdown.contains(e.target) && e.target !== btn) dropdown.classList.add("hidden");
+    if (!dropdown.contains(e.target) && e.target !== btn) {
+      dropdown.classList.add("hidden");
+    }
   });
 
   refreshBadge();
