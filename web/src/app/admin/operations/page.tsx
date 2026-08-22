@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { CustomerQuickLookup } from "@/components/sections/customer-quick-lookup";
 import { ManagerSnapshot } from "@/components/sections/manager-snapshot";
 import { OperationsCenter } from "@/components/sections/operations-center";
-import { OperationsDeliverablePanel } from "@/components/sections/operations-deliverable-panel";
 
 export const metadata: Metadata = {
   title: "مركز العمليات — نسائم الحرمين",
@@ -13,7 +12,6 @@ export default function OperationsPage() {
   return (
     <>
       <OperationsCenter />
-      <OperationsDeliverablePanel requestId="" reference="" />
       <CustomerQuickLookup />
       <ManagerSnapshot />
     </>
