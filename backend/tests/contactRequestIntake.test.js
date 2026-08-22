@@ -34,7 +34,18 @@ describe("service intake — public catalog", () => {
     ]);
 
     const packages = res.body.data.services.filter((s) => s.category === "package");
-    assert.equal(packages.length, 3, "expected the 3 seeded package services");
+    assert.equal(packages.length, 6, "expected the 6 seeded package services (3 general + 3 Umrah)");
+    assert.deepEqual(
+      packages.map((pkg) => pkg.code).sort(),
+      [
+        "SVC-PKG-FAMILY",
+        "SVC-PKG-HONEYMOON",
+        "SVC-PKG-BUSINESS",
+        "SVC-UMRAH-VISA",
+        "SVC-UMRAH-SERVICES",
+        "SVC-UMRAH-GROUP",
+      ].sort()
+    );
 
     const visaType = res.body.data.visaTypes.find((v) => v.code === "VISA-WORK");
     assert.ok(visaType, "expected the seeded work-visa VisaType in the public catalog");
