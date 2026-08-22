@@ -10,9 +10,6 @@ export const siteConfig = {
   email: "Nasaem.alHaramain2024@gmail.com",
   address: "كسلا، شرق الموقف العام، مقابل مخابز باتسري، بجوار استديو جميل",
   branches: ["كسلا"],
-  // No real social profiles provided yet — left empty rather than linking
-  // to guessed URLs. Fill in and re-enable the footer icons row (see
-  // site-footer.tsx) once accounts exist.
   social: {
     facebook: "",
     instagram: "",
@@ -30,6 +27,7 @@ export const mainNav: NavItem[] = [
   { label: "العمرة", href: "/umrah" },
   { label: "التأشيرات", href: "/visas" },
   { label: "الطيران", href: "/flights" },
+  { label: "العبارات", href: "/ferries" },
   { label: "الفنادق", href: "/hotels" },
   { label: "الباقات", href: "/packages" },
   { label: "من نحن", href: "/about" },
