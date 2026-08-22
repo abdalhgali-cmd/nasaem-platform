@@ -1,5 +1,4 @@
 import XLSX from "xlsx";
-import { requireNumber } from "../../utils/validation.js";
 import {
   createManualFlight,
   deleteManualFlight,
@@ -10,11 +9,6 @@ import {
   updateManualFlight,
 } from "./flights.service.js";
 import { searchTripFlights } from "./trip.provider.js";
-
-function parseLegs(body) {
-  if (Array.isArray(body.legs) && body.legs.length) return body.legs;
-  return [{ from: body.from, to: body.to, departureDate: body.departureDate || body.date }];
-}
 
 export async function searchFlights(req, res, next) {
   try {
