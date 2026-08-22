@@ -47,9 +47,28 @@ describe("service intake — public catalog", () => {
       ].sort()
     );
 
-    const visaType = res.body.data.visaTypes.find((v) => v.code === "VISA-WORK");
-    assert.ok(visaType, "expected the seeded work-visa VisaType in the public catalog");
-    assert.equal(visaType.country, "السعودية");
+    const visaTypes = res.body.data.visaTypes;
+    const expectedVisaCodes = [
+      "VISA-UMRAH",
+      "VISA-FAMILY-VISIT",
+      "VISA-WORK",
+      "VISA-INTERNATIONAL",
+      "VISA-EGYPT-CLEARANCE",
+    ];
+    assert.deepEqual(visaTypes.map((v) => v.code).sort(), expectedVisaCodes.sort());
+
+    for (const visa of visaTypes) {
+      assert.ok(visa.id, `expected an id for ${visa.code}`);
+      assert.ok(visa.serviceId, `expected ${visa.code} to be linked to a parent service`);
+      assert.equal(typeof visa.name, "string");
+      assert.equal(typeof visa.country, "string");
+      assert.equal(typeof visa.currency, "string");
+      assert.equal(typeof visa.basePrice, "string");
+    }
+
+    const workVisa = visaTypes.find((v) => v.code === "VISA-WORK");
+    assert.ok(workVisa, "expected the seeded work-visa VisaType in the public catalog");
+    assert.equal(workVisa.country, "السعودية");
   });
 });
 
