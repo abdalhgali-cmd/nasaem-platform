@@ -17,7 +17,9 @@ import {
   storeContactRequest,
   storeDeliverable,
   storeInvoice,
+  storeInvoiceFromPricing,
   storeOffer,
+  storeOfferFromPricing,
 } from "./contact-requests.controller.js";
 
 const router = Router();
@@ -78,6 +80,18 @@ router.post(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
   previewPricing
+);
+router.post(
+  "/:id/pricing-invoice",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  storeInvoiceFromPricing
+);
+router.post(
+  "/:id/pricing-offer",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  storeOfferFromPricing
 );
 router.post(
   "/:id/invoice",
