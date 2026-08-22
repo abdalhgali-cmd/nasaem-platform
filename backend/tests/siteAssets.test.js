@@ -9,6 +9,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const IMAGE_A = path.join(__dirname, "fixtures", "passport-mrz-sample.png");
 const IMAGE_B = path.join(__dirname, "fixtures", "no-mrz-sample.png");
 
+async function waitForActivityLog(agent, predicate, { attempts = 10, delayMs = 25 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await agent.get("/api/activity-logs?limit=50");
+    if (response.status === 200) {
+      const match = response.body.data.find(predicate);
+      if (match) return match;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return null;
+}
+
 describe("site assets", () => {
   test("listing is public — the marketing site has no staff session", async () => {
     const res = await request(app).get("/api/site-assets");
@@ -80,8 +92,6 @@ describe("site assets", () => {
     const firstLength = fileRes.body.length;
     assert.ok(firstLength > 0);
 
-    // Re-upload with a different image — same key, should replace in place
-    // (list still has exactly one row for this key) and serve new content.
     const secondUpload = await agent.post("/api/site-assets/icon-flight").attach("image", IMAGE_B);
     assert.equal(secondUpload.status, 200);
 
@@ -99,9 +109,8 @@ describe("site assets", () => {
     const uploadRes = await agent.post("/api/site-assets/icon-umrah").attach("image", IMAGE_A);
     assert.equal(uploadRes.status, 200);
 
-    const activityRes = await agent.get("/api/activity-logs?limit=50");
-    assert.equal(activityRes.status, 200);
-    const logged = activityRes.body.data.find(
+    const logged = await waitForActivityLog(
+      agent,
       (entry) => entry.action === "SITE_ASSET_UPDATED" && entry.entityId === uploadRes.body.data.id
     );
     assert.ok(logged, "expected a SITE_ASSET_UPDATED activity log entry");
