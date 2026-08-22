@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Ship, type LucideIcon } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
@@ -9,10 +9,19 @@ import { getSiteAssetUrls, type SiteAssetKey } from "@/lib/site-assets";
 const services: {
   key: SiteAssetKey;
   fallbackIcon: string;
+  icon?: LucideIcon;
   title: string;
   description: string;
   href: string;
 }[] = [
+  {
+    key: "icon-flight",
+    fallbackIcon: "/icons/flight.png",
+    icon: Ship,
+    title: "حجز البواخر",
+    description: "احجز رحلتك البحرية بين سواكن وجدة، وحدد التاريخ وعدد المسافرين والناقل المفضل ليتابع فريقنا التوفر والإجراءات.",
+    href: "/ferries",
+  },
   {
     key: "icon-umrah",
     fallbackIcon: "/icons/umrah.png",
@@ -70,14 +79,18 @@ export async function Services() {
         />
 
         <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {services.map((service, index) => (
+          {services.map((service, index) => {
+            const ServiceIcon = service.icon;
+            return (
             <FadeIn key={service.title} delay={index * 0.05} className="h-full">
               <Link
                 href={service.href}
                 className="group flex h-full flex-col rounded-3xl border border-border bg-card p-7 shadow-sm transition-all duration-300 hover:-translate-y-1.5 hover:border-primary/30 hover:shadow-xl hover:shadow-primary/10"
               >
                 <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-secondary/10 transition-transform duration-300 group-hover:scale-105">
-                  {assetUrls[service.key] ? (
+                  {ServiceIcon ? (
+                    <ServiceIcon className="size-11 text-primary" aria-hidden="true" />
+                  ) : assetUrls[service.key] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={assetUrls[service.key]} alt="" className="size-11 object-contain" />
                   ) : (
@@ -102,7 +115,8 @@ export async function Services() {
                 </span>
               </Link>
             </FadeIn>
-          ))}
+            );
+          })}
         </Stagger>
       </Container>
     </section>
