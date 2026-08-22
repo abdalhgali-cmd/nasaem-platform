@@ -19,6 +19,7 @@ import contactRequestRoutes from "../modules/contact-requests/contact-requests.r
 import contactRequestTrackingRoutes from "../modules/contact-request-tracking/contact-request-tracking.routes.js";
 import passportOcrRoutes from "../modules/passport-ocr/passport-ocr.routes.js";
 import siteAssetRoutes from "../modules/site-assets/site-assets.routes.js";
+import flightRoutes from "../modules/flights/flights.routes.js";
 
 const router = Router();
 
@@ -62,5 +63,6 @@ router.use("/contact-requests", contactRequestRoutes);
 router.use("/tracking", contactRequestTrackingRoutes);
 router.use("/passport-ocr", passportOcrRoutes);
 router.use("/site-assets", siteAssetRoutes);
+router.use("/flights", flightRoutes);
 
 export default router;
