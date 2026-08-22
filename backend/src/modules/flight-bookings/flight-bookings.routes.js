@@ -7,6 +7,7 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.post("/", async (req, res, next) => { try { res.status(201).json({ success: true, booking: await createFlightBooking(req.body) }); } catch (e) { next(e); } });
+router.get("/bank-accounts", async (req, res, next) => { try { res.json({ success: true, accounts: await getBankAccounts() }); } catch (e) { next(e); } });
 router.get("/:id", async (req, res, next) => { try { const booking = await getFlightBooking(req.params.id); if (!booking) return res.status(404).json({ success: false, message: "Booking not found" }); res.json({ success: true, booking }); } catch (e) { next(e); } });
 router.get("/:id/file/:kind", async (req, res, next) => { try { const file = await getBookingFile(req.params.id, req.params.kind); res.download(file.path, file.name); } catch (e) { next(e); } });
 router.post("/:id/payment-receipt", upload.single("file"), async (req, res, next) => { try { res.json({ success: true, booking: await submitPaymentReceipt(req.params.id, req.file) }); } catch (e) { next(e); } });
