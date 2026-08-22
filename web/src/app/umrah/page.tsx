@@ -4,7 +4,7 @@ import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
 import { FeaturedUmrah } from "@/components/sections/featured-umrah";
-import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
+import { UmrahBookingSection } from "@/components/sections/umrah-booking-section";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
@@ -52,9 +52,7 @@ export default function UmrahPage() {
                     {index + 1}
                   </span>
                   <h3 className="mt-4 text-base font-bold text-foreground">{step.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {step.description}
-                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{step.description}</p>
                 </div>
               </FadeIn>
             ))}
@@ -91,16 +89,14 @@ export default function UmrahPage() {
         <Container>
           <SectionHeading eyebrow="احجز الآن" title="ابدأ طلب العمرة" />
           <div className="mt-12">
-            <ServiceIntakeWizard service="umrah" />
+            <UmrahBookingSection />
           </div>
         </Container>
       </section>
 
       <section className="bg-gradient-to-b from-primary to-[#0a2f70] py-16 text-white">
         <Container className="flex flex-col items-center gap-6 text-center">
-          <h2 className="text-2xl font-extrabold sm:text-3xl">
-            لديك استفسار عن باقات العمرة؟
-          </h2>
+          <h2 className="text-2xl font-extrabold sm:text-3xl">لديك استفسار عن باقات العمرة؟</h2>
           <p className="max-w-lg text-white/75">
             فريقنا جاهز للإجابة على كل أسئلتك ومساعدتك في اختيار الباقة الأنسب لك ولعائلتك.
           </p>
