@@ -1,0 +1,1 @@
+Trip.com integration is deferred. Flight search uses agency manual and Excel inventory until the external provider is enabled.
