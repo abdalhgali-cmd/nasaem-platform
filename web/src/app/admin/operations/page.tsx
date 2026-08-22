@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { CustomerQuickLookup } from "@/components/sections/customer-quick-lookup";
+import { ManagerSnapshot } from "@/components/sections/manager-snapshot";
 import { OperationsCenter } from "@/components/sections/operations-center";
 
 export const metadata: Metadata = {
@@ -12,6 +13,7 @@ export default function OperationsPage() {
     <>
       <OperationsCenter />
       <CustomerQuickLookup />
+      <ManagerSnapshot />
     </>
   );
 }
