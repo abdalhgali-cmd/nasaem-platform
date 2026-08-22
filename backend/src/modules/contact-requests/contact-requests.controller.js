@@ -12,7 +12,13 @@ import {
   listContactRequests,
   updateContactRequestStatus,
 } from "./contact-requests.service.js";
-import { pricingPreviewSchema, previewContactRequestPrice } from "./contact-requests.pricing.js";
+import {
+  buildPricingDescription,
+  pricingOfferSchema,
+  pricingPreviewSchema,
+  pricingQuoteSchema,
+  previewContactRequestPrice,
+} from "./contact-requests.pricing.js";
 import { reviewContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
 import {
   getContactRequestDocumentFile,
@@ -169,6 +175,40 @@ export async function storeInvoice(req, res, next) {
   }
 }
 
+export async function storeInvoiceFromPricing(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = pricingQuoteSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const pricing = previewContactRequestPrice(parsed.data);
+    const result = await createOrUpdateInvoice(
+      id,
+      {
+        amount: pricing.customerPrice,
+        currency: parsed.data.currency,
+        description: buildPricingDescription(parsed.data),
+      },
+      req.user.id
+    );
+
+    if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
+    if (result.error === "ALREADY_APPROVED") return res.status(409).json({ success: false, message: "Customer has already approved this invoice" });
+    if (result.error === "OFFERS_EXIST") return res.status(409).json({ success: false, message: "This request already uses multi-carrier offers, not a single invoice" });
+
+    return res.status(201).json({ success: true, data: { pricing, invoice: result.invoice } });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function storeOffer(req, res, next) {
   try {
     const { id } = req.params;
@@ -214,29 +254,55 @@ export async function storeOffer(req, res, next) {
   }
 }
 
+export async function storeOfferFromPricing(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = pricingOfferSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const pricing = previewContactRequestPrice(parsed.data);
+    const result = await createOffer(
+      id,
+      {
+        carrier: parsed.data.carrier,
+        amount: pricing.customerPrice,
+        currency: parsed.data.currency,
+        description: buildPricingDescription(parsed.data),
+      },
+      req.user.id
+    );
+
+    if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
+    if (result.error === "INVOICE_EXISTS") return res.status(409).json({ success: false, message: "This request already has a single invoice, not multi-carrier offers" });
+    if (result.error === "ALREADY_SELECTED") return res.status(409).json({ success: false, message: "The customer has already selected an offer" });
+
+    return res.status(201).json({ success: true, data: { pricing, offer: result.offer } });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function confirmPayment(req, res, next) {
   try {
     const { id } = req.params;
     const result = await confirmContactRequestPayment(id, req.user.id);
 
     if (result.error === "NOT_FOUND") {
-      return res.status(404).json({
-        success: false,
-        message: "Contact request not found",
-      });
+      return res.status(404).json({ success: false, message: "Contact request not found" });
     }
 
     if (result.error === "INVALID_STATE") {
-      return res.status(409).json({
-        success: false,
-        message: "Payment is not awaiting review",
-      });
+      return res.status(409).json({ success: false, message: "Payment is not awaiting review" });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: result.contactRequest,
-    });
+    return res.status(200).json({ success: true, data: result.contactRequest });
   } catch (error) {
     next(error);
   }
@@ -247,16 +313,9 @@ export async function downloadDocumentFile(req, res, next) {
     const { id, documentId } = req.params;
     const file = await getContactRequestDocumentFile(id, documentId);
 
-    if (!file) {
-      return res.status(404).json({
-        success: false,
-        message: "Document not found",
-      });
-    }
+    if (!file) return res.status(404).json({ success: false, message: "Document not found" });
 
-    return res.sendFile(file.absolutePath, {
-      headers: { "Content-Type": file.mimeType },
-    });
+    return res.sendFile(file.absolutePath, { headers: { "Content-Type": file.mimeType } });
   } catch (error) {
     next(error);
   }
@@ -268,31 +327,13 @@ export async function reviewDocument(req, res, next) {
     const parsed = reviewContactRequestDocumentSchema.safeParse(req.body);
 
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: parsed.error.flatten(),
-      });
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
-    const result = await updateContactRequestDocumentStatus(
-      id,
-      documentId,
-      parsed.data,
-      req.user.id
-    );
+    const result = await updateContactRequestDocumentStatus(id, documentId, parsed.data, req.user.id);
+    if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Document not found" });
 
-    if (result.error === "NOT_FOUND") {
-      return res.status(404).json({
-        success: false,
-        message: "Document not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: result.document,
-    });
+    return res.status(200).json({ success: true, data: result.document });
   } catch (error) {
     next(error);
   }
@@ -304,37 +345,15 @@ export async function storeDeliverable(req, res, next) {
     const parsed = uploadContactRequestDeliverableSchema.safeParse(req.body);
 
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: parsed.error.flatten(),
-      });
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "A file is required",
-      });
-    }
+    if (!req.file) return res.status(400).json({ success: false, message: "A file is required" });
 
-    const result = await createContactRequestDeliverable(
-      id,
-      { label: parsed.data.label, file: req.file },
-      req.user.id
-    );
+    const result = await createContactRequestDeliverable(id, { label: parsed.data.label, file: req.file }, req.user.id);
+    if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
 
-    if (result.error === "NOT_FOUND") {
-      return res.status(404).json({
-        success: false,
-        message: "Contact request not found",
-      });
-    }
-
-    return res.status(201).json({
-      success: true,
-      data: result.deliverable,
-    });
+    return res.status(201).json({ success: true, data: result.deliverable });
   } catch (error) {
     next(error);
   }
@@ -345,16 +364,9 @@ export async function downloadDeliverableFile(req, res, next) {
     const { id, deliverableId } = req.params;
     const file = await getContactRequestDeliverableFile(id, deliverableId);
 
-    if (!file) {
-      return res.status(404).json({
-        success: false,
-        message: "Deliverable not found",
-      });
-    }
+    if (!file) return res.status(404).json({ success: false, message: "Deliverable not found" });
 
-    return res.sendFile(file.absolutePath, {
-      headers: { "Content-Type": file.mimeType },
-    });
+    return res.sendFile(file.absolutePath, { headers: { "Content-Type": file.mimeType } });
   } catch (error) {
     next(error);
   }
