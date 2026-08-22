@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>تسجيل الدخول — نسائم الحرمين</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="card login-card">
+      <h2>نسائم الحرمين</h2>
+      <p class="muted">تسجيل دخول الموظفين</p>
+      <div id="alert-box"></div>
+      <form id="login-form">
+        <div class="field">
+          <label for="email">البريد الإلكتروني</label>
+          <input type="email" id="email" name="email" required autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="password">كلمة المرور</label>
+          <input type="password" id="password" name="password" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn" id="submit-btn" style="width: 100%">دخول</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/assets/api.js"></script>
+  <script src="/assets/login.js"></script>
+</body>
+</html>
