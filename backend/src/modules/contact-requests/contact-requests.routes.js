@@ -12,6 +12,7 @@ import {
   downloadDocumentFile,
   getContactRequests,
   patchContactRequestStatus,
+  previewPricing,
   reviewDocument,
   storeContactRequest,
   storeDeliverable,
@@ -34,10 +35,6 @@ function handleDeliverableUpload(req, res, next) {
   });
 }
 
-// A no-op for the plain JSON contact form (multer only parses
-// multipart/form-data bodies and calls next() untouched otherwise) — only
-// the Service Intake wizard's multipart submission actually uploads files
-// here.
 function handleIntakeDocumentsUpload(req, res, next) {
   uploadContactRequestIntakeDocuments(req, res, (error) => {
     if (error) {
@@ -51,10 +48,6 @@ function handleIntakeDocumentsUpload(req, res, next) {
   });
 }
 
-// This is the only public (unauthenticated) write endpoint in the API — the
-// marketing site's contact form posts here directly from the browser.
-// Tighter than the general API limiter (app.js) since it's an open target
-// for spam with no auth gate in front of it.
 const publicContactLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -81,6 +74,12 @@ router.patch(
   patchContactRequestStatus
 );
 router.post(
+  "/:id/pricing-preview",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  previewPricing
+);
+router.post(
   "/:id/invoice",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
@@ -92,9 +91,6 @@ router.post(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   storeOffer
 );
-// Narrower than the roles above — matches payments.routes.js's split for
-// financial-confirmation actions specifically (SUPER_ADMIN/ADMIN/ACCOUNTANT),
-// not the general "can work this request" set.
 router.post(
   "/:id/confirm-payment",
   requireAuth,
