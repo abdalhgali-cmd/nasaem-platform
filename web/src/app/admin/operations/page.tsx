@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CustomerQuickLookup } from "@/components/sections/customer-quick-lookup";
 import { OperationsCenter } from "@/components/sections/operations-center";
 
 export const metadata: Metadata = {
@@ -7,5 +8,10 @@ export const metadata: Metadata = {
 };
 
 export default function OperationsPage() {
-  return <OperationsCenter />;
+  return (
+    <>
+      <OperationsCenter />
+      <CustomerQuickLookup />
+    </>
+  );
 }
