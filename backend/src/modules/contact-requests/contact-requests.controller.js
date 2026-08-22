@@ -12,6 +12,7 @@ import {
   listContactRequests,
   updateContactRequestStatus,
 } from "./contact-requests.service.js";
+import { pricingPreviewSchema, previewContactRequestPrice } from "./contact-requests.pricing.js";
 import { reviewContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
 import {
   getContactRequestDocumentFile,
@@ -36,9 +37,6 @@ export async function storeContactRequest(req, res, next) {
       });
     }
 
-    // Honeypot: a bot filled in a field real users never see. Respond as if
-    // it succeeded (no error, no record created) so the bot has no signal
-    // to learn from.
     if (parsed.data.website) {
       return res.status(201).json({
         success: true,
@@ -100,6 +98,26 @@ export async function patchContactRequestStatus(req, res, next) {
     return res.status(200).json({
       success: true,
       data: contactRequest,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function previewPricing(req, res, next) {
+  try {
+    const parsed = pricingPreviewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: previewContactRequestPrice(parsed.data),
     });
   } catch (error) {
     next(error);
