@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Calculator, CheckCircle2, CreditCard, FileText } from "lucide-react";
+import { Calculator, CheckCircle2, CreditCard, FileText, Layers3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 
@@ -25,6 +25,7 @@ export function OperationsPricingPanel({ requestId, reference, onUpdated }: Prop
   const [exchangeRate, setExchangeRate] = React.useState("");
   const [marginPercent, setMarginPercent] = React.useState("0");
   const [currency, setCurrency] = React.useState("USD");
+  const [carrier, setCarrier] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [preview, setPreview] = React.useState<Preview | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -52,24 +53,38 @@ export function OperationsPricingPanel({ requestId, reference, onUpdated }: Prop
     }
   }
 
-  async function createInvoice() {
+  async function createPricing(kind: "invoice" | "offer") {
     if (!preview) return;
+    if (kind === "offer" && !carrier.trim()) {
+      setError("اكتب اسم الناقل/الخيار أولًا");
+      return;
+    }
+
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      const response = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(requestId)}/pricing-invoice`, {
+      const endpoint = kind === "invoice" ? "pricing-invoice" : "pricing-offer";
+      const body = {
+        sourceAmount,
+        exchangeRate,
+        marginPercent,
+        currency,
+        description,
+        ...(kind === "offer" ? { carrier } : {}),
+      };
+      const response = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(requestId)}/${endpoint}`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceAmount, exchangeRate, marginPercent, sourceCurrency: currency, description }),
+        body: JSON.stringify(body),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) throw new Error(payload?.message || "تعذر إنشاء الفاتورة");
-      setMessage(`تم إنشاء الفاتورة للطلب ${reference}`);
+      if (!response.ok || !payload?.success) throw new Error(payload?.message || "تعذر تنفيذ التسعير");
+      setMessage(kind === "invoice" ? `تم إنشاء الفاتورة للطلب ${reference}` : `تمت إضافة عرض ${carrier} للطلب ${reference}`);
       onUpdated?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر إنشاء الفاتورة");
+      setError(err instanceof Error ? err.message : "تعذر تنفيذ التسعير");
     } finally {
       setBusy(false);
     }
@@ -79,19 +94,21 @@ export function OperationsPricingPanel({ requestId, reference, onUpdated }: Prop
     <div className="mt-4 rounded-2xl border border-border bg-muted/20 p-4">
       <div className="flex items-center gap-2">
         <Calculator className="size-4 text-primary" />
-        <h4 className="font-black">التسعير والدفع</h4>
+        <h4 className="font-black">التسعير والعروض</h4>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <label className="text-xs font-bold text-muted-foreground">المبلغ الأصلي<input value={sourceAmount} onChange={(e) => setSourceAmount(e.target.value)} inputMode="decimal" className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="100" /></label>
-        <label className="text-xs font-bold text-muted-foreground">العملة<select value={currency} onChange={(e) => setCurrency(e.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm"><option value="USD">USD</option><option value="SAR">SAR</option><option value="AED">AED</option><option value="EGP">EGP</option></select></label>
+        <label className="text-xs font-bold text-muted-foreground">العملة<select value={currency} onChange={(e) => setCurrency(e.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm"><option value="USD">USD</option><option value="SAR">SAR</option><option value="AED">AED</option><option value="EGP">EGP</option><option value="SDG">SDG</option></select></label>
         <label className="text-xs font-bold text-muted-foreground">سعر الصرف<input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} inputMode="decimal" className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="600" /></label>
         <label className="text-xs font-bold text-muted-foreground">هامش الوكالة %<input value={marginPercent} onChange={(e) => setMarginPercent(e.target.value)} inputMode="decimal" className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="5" /></label>
-        <label className="text-xs font-bold text-muted-foreground lg:col-span-1">وصف السعر<input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="طيران + خدمة" /></label>
+        <label className="text-xs font-bold text-muted-foreground">الناقل/الخيار<input value={carrier} onChange={(e) => setCarrier(e.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="Tarko" /></label>
+        <label className="text-xs font-bold text-muted-foreground">وصف السعر<input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="رحلة مباشرة" /></label>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button type="button" onClick={() => void previewPrice()} disabled={busy || !sourceAmount || !exchangeRate}><Calculator className="size-4" />حساب السعر</Button>
-        <Button type="button" variant="gold" onClick={() => void createInvoice()} disabled={busy || !preview}><FileText className="size-4" />إنشاء الفاتورة</Button>
+        <Button type="button" variant="gold" onClick={() => void createPricing("invoice")} disabled={busy || !preview}><FileText className="size-4" />إنشاء فاتورة</Button>
+        <Button type="button" variant="outline" onClick={() => void createPricing("offer")} disabled={busy || !preview || !carrier.trim()}><Layers3 className="size-4" />إضافة عرض</Button>
       </div>
 
       {preview ? (
