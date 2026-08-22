@@ -1,0 +1,1 @@
+The Phase 2 branch is ready for CI validation before any merge into main.
