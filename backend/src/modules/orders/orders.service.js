@@ -3,6 +3,8 @@ import prisma from "../../config/database.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { createNotification } from "../../utils/notifications.js";
+import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 
 function toDecimal(value) {
   return new Prisma.Decimal(Number(value || 0).toFixed(2));
@@ -20,6 +22,18 @@ const ORDER_STATUS_TRANSITIONS = {
   COMPLETED: [],
   REJECTED: [],
   CANCELLED: [],
+};
+
+const ORDER_STATUS_LABELS = {
+  NEW: "طلب جديد",
+  UNDER_REVIEW: "قيد المراجعة",
+  WAITING_DOCUMENTS: "بانتظار المستندات",
+  PAYMENT_PENDING: "بانتظار الدفع",
+  PROCESSING: "جاري التنفيذ",
+  APPROVED: "تمت الموافقة",
+  COMPLETED: "مكتمل",
+  REJECTED: "مرفوض",
+  CANCELLED: "ملغي",
 };
 
 export function isValidOrderStatusTransition(fromStatus, toStatus) {
@@ -137,12 +151,60 @@ export async function createOrder(data, actorUserId = null) {
   });
 }
 
+function customerStatusMessage(order, status) {
+  const label = ORDER_STATUS_LABELS[status] || status;
+  return `تحديث طلبك ${order.orderNumber}: ${label}.\nيمكنك متابعة التفاصيل من حسابك في نسائم الحرمين.`;
+}
+
+async function notifyOrderStatusChange(order, oldStatus, newStatus) {
+  if (oldStatus === newStatus) return;
+
+  const title = `تحديث الطلب ${order.orderNumber}`;
+  const message = `تم تغيير حالة الطلب من ${ORDER_STATUS_LABELS[oldStatus] || oldStatus} إلى ${ORDER_STATUS_LABELS[newStatus] || newStatus}.`;
+
+  if (order.assignedUser?.id) {
+    await createNotification({
+      title,
+      message,
+      type: "ORDER_STATUS",
+      userId: order.assignedUser.id,
+      orderId: order.id,
+    });
+  }
+
+  const admins = await prisma.user.findMany({
+    where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" },
+    select: { id: true },
+  });
+
+  const uniqueRecipientIds = new Set(admins.map((admin) => admin.id));
+  if (order.assignedUser?.id) uniqueRecipientIds.add(order.assignedUser.id);
+
+  await Promise.all(
+    [...uniqueRecipientIds]
+      .filter((id) => id !== order.assignedUser?.id)
+      .map((userId) =>
+        createNotification({
+          title,
+          message,
+          type: "ORDER_STATUS",
+          userId,
+          orderId: order.id,
+        })
+      )
+  );
+
+  if (order.customer?.phone) {
+    sendWhatsAppMessage(order.customer.phone, customerStatusMessage(order, newStatus));
+  }
+}
+
 export async function updateOrderStatus(orderId, status, changedByUserId, notes = null) {
   if (!changedByUserId) {
     throw new Error("A valid user is required to update order status");
   }
 
-  return prisma.$transaction(async (tx) => {
+  const updatedOrder = await prisma.$transaction(async (tx) => {
     const currentOrder = await tx.order.findUnique({
       where: { id: orderId },
       select: { status: true },
@@ -183,4 +245,18 @@ export async function updateOrderStatus(orderId, status, changedByUserId, notes 
       },
     });
   });
+
+  if (!updatedOrder) return null;
+
+  const previousStatus = updatedOrder.history.length > 0
+    ? updatedOrder.history[updatedOrder.history.length - 1]?.oldStatus
+    : null;
+
+  if (previousStatus) {
+    // Notification delivery is deliberately outside the transaction so a
+    // slow WhatsApp/API/database failure cannot roll back a valid status change.
+    await notifyOrderStatusChange(updatedOrder, previousStatus, updatedOrder.status);
+  }
+
+  return updatedOrder;
 }
