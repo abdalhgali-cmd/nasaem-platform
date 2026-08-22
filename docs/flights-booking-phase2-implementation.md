@@ -1,0 +1,1 @@
+Phase 2 implementation is intentionally separated from main and Phase 1. It implements the customer-to-staff workflow without pretending that the agency's external/manual reservation step is automated.
