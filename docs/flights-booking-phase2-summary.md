@@ -1,0 +1,1 @@
+Customer submits flight booking request -> employee reserves manually -> provisional ticket upload -> customer sees ticket and bank accounts -> customer uploads receipt -> staff confirms payment -> employee uploads final ticket -> customer downloads final ticket.

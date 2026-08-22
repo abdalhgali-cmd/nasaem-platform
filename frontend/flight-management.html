@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>إدارة الرحلات — نسائم الحرمين</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header class="app-header" id="app-header"></header>
+  <main>
+    <div id="alert"></div>
+    <div class="card">
+      <div class="stack" style="justify-content:space-between;align-items:center">
+        <div><h1 style="margin:0">✈️ إدارة الرحلات</h1><p class="muted">إدخال الرحلات السودانية يدويًا أو استيرادها من Excel، وإدارة أسعار الصرف.</p></div>
+        <a class="btn secondary" href="/admin-dashboard.html" style="text-decoration:none">العودة للوحة التحكم</a>
+      </div>
+    </div>
+
+    <section class="card">
+      <h2>أسعار الصرف إلى الجنيه السوداني</h2>
+      <div class="grid cols-4">
+        <div class="field"><label for="fx-usd">1 USD = ج.س</label><input id="fx-usd" type="number" min="0" step="0.000001" /></div>
+        <div class="field"><label for="fx-sar">1 SAR = ج.س</label><input id="fx-sar" type="number" min="0" step="0.000001" /></div>
+        <div class="field"><label for="fx-aed">1 AED = ج.س</label><input id="fx-aed" type="number" min="0" step="0.000001" /></div>
+        <div class="field"><label for="fx-egp">1 EGP = ج.س</label><input id="fx-egp" type="number" min="0" step="0.000001" /></div>
+      </div>
+      <button class="btn" id="save-fx">حفظ أسعار الصرف</button>
+    </section>
+
+    <section class="card">
+      <h2>إضافة رحلة يدوية</h2>
+      <form id="flight-form">
+        <div class="grid cols-3">
+          <div class="field"><label>شركة الطيران *</label><input name="airline" required placeholder="TARCO" /></div>
+          <div class="field"><label>رقم الرحلة *</label><input name="flightNumber" required placeholder="3T202" /></div>
+          <div class="field"><label>الدرجة</label><input name="cabin" value="Economy" /></div>
+          <div class="field"><label>من *</label><input name="originName" required placeholder="Port Sudan" /></div>
+          <div class="field"><label>رمز المغادرة</label><input name="originCode" placeholder="PZU" /></div>
+          <div class="field"><label>إلى *</label><input name="destinationName" required placeholder="Jeddah" /></div>
+          <div class="field"><label>رمز الوصول</label><input name="destinationCode" placeholder="JED" /></div>
+          <div class="field"><label>وقت المغادرة *</label><input name="departureAt" type="datetime-local" required /></div>
+          <div class="field"><label>وقت الوصول *</label><input name="arrivalAt" type="datetime-local" required /></div>
+          <div class="field"><label>الأمتعة</label><input name="baggage" placeholder="30 KG" /></div>
+          <div class="field"><label>التوقفات</label><input name="stops" type="number" min="0" value="0" /></div>
+          <div class="field"><label>المقاعد</label><input name="availableSeats" type="number" min="0" /></div>
+          <div class="field"><label>السعر *</label><input name="price" type="number" min="0" step="0.01" required /></div>
+          <div class="field"><label>العملة *</label><select name="currency"><option value="SDG">جنيه سوداني</option><option value="USD">دولار</option><option value="SAR">ريال سعودي</option><option value="AED">درهم إماراتي</option><option value="EGP">جنيه مصري</option></select></div>
+          <div class="field"><label>مرجع داخلي</label><input name="externalRef" /></div>
+        </div>
+        <button class="btn" type="submit">إضافة الرحلة</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="stack" style="justify-content:space-between;align-items:center"><div><h2>استيراد Excel</h2><p class="muted">استخدم القالب ثم ارفع الملف. النظام يحسب السعر بالجنيه حسب سعر الصرف الحالي.</p></div><a class="btn secondary" href="/api/flights/template" style="text-decoration:none">تحميل قالب Excel</a></div>
+      <form id="excel-form" class="stack" style="margin-top:12px"><input id="excel-file" type="file" accept=".xlsx,.xls,.csv" required /><button class="btn" type="submit">استيراد الرحلات</button></form>
+      <pre id="excel-result" class="hidden" style="white-space:pre-wrap"></pre>
+    </section>
+
+    <section class="card">
+      <div class="stack" style="justify-content:space-between;align-items:center"><h2>الرحلات المدخلة</h2><button class="btn secondary" id="refresh">تحديث</button></div>
+      <table><thead><tr><th>الشركة</th><th>الرحلة</th><th>المسار</th><th>المغادرة</th><th>السعر</th><th>بالجنيه</th><th>المصدر</th><th>الحالة</th></tr></thead><tbody id="flights-body"></tbody></table>
+    </section>
+  </main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function show(message, error=false){ $("alert").innerHTML = `<div class="card" style="border-color:${error ? '#b91c1c' : '#15803d'}"><strong>${message}</strong></div>`; }
+async function api(url, options={}){
+  const res = await fetch(url, { credentials:'include', ...options });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok || data.success === false) throw new Error(data.message || `HTTP ${res.status}`);
+  return data;
+}
+async function loadRates(){
+  const data = await api('/api/flights/admin/rates');
+  $('fx-usd').value = data.data.USD || '';
+  $('fx-sar').value = data.data.SAR || '';
+  $('fx-aed').value = data.data.AED || '';
+  $('fx-egp').value = data.data.EGP || '';
+}
+async function loadFlights(){
+  const data = await api('/api/flights?limit=100');
+  $('flights-body').innerHTML = data.data.items.map(f => `<tr><td>${f.airline}</td><td>${f.flightNumber}</td><td>${f.origin.name} → ${f.destination.name}</td><td>${new Date(f.departureAt).toLocaleString('ar-SD')}</td><td>${Number(f.price).toLocaleString()} ${f.currency}</td><td>${f.priceSdg == null ? '—' : Number(f.priceSdg).toLocaleString() + ' ج.س'}</td><td>${f.source}</td><td>${f.active ? 'متاحة' : 'موقوفة'}</td></tr>`).join('');
+}
+$('save-fx').onclick = async () => { try { await api('/api/flights/admin/rates', {method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({USD:Number($('fx-usd').value),SAR:Number($('fx-sar').value),AED:Number($('fx-aed').value),EGP:Number($('fx-egp').value)})}); show('تم حفظ أسعار الصرف.'); await loadFlights(); } catch(e){ show(e.message,true); } };
+$('flight-form').onsubmit = async (e) => { e.preventDefault(); try { const body = Object.fromEntries(new FormData(e.target)); body.price=Number(body.price); body.stops=Number(body.stops||0); if(body.availableSeats==='') delete body.availableSeats; else body.availableSeats=Number(body.availableSeats); await api('/api/flights',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}); show('تمت إضافة الرحلة بنجاح.'); e.target.reset(); await loadFlights(); } catch(e){ show(e.message,true); } };
+$('excel-form').onsubmit = async (e) => { e.preventDefault(); try { const form = new FormData(); form.append('file',$('excel-file').files[0]); const data=await api('/api/flights/import',{method:'POST',body:form}); $('excel-result').classList.remove('hidden'); $('excel-result').textContent=JSON.stringify(data.data,null,2); show(`تم استيراد ${data.data.imported} رحلة، وفشل ${data.data.failed}.`); await loadFlights(); } catch(e){ show(e.message,true); } };
+$('refresh').onclick = () => loadFlights().catch(e=>show(e.message,true));
+Promise.all([loadRates(),loadFlights()]).catch(e=>show(e.message,true));
+</script>
+</body>
+</html>

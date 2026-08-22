@@ -1,0 +1,1 @@
+Phase 2 follows the requested manual staff reservation model. Live external Trip booking is not simulated.

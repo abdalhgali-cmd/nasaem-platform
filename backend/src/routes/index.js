@@ -19,28 +19,17 @@ import contactRequestRoutes from "../modules/contact-requests/contact-requests.r
 import contactRequestTrackingRoutes from "../modules/contact-request-tracking/contact-request-tracking.routes.js";
 import passportOcrRoutes from "../modules/passport-ocr/passport-ocr.routes.js";
 import siteAssetRoutes from "../modules/site-assets/site-assets.routes.js";
+import flightRoutes from "../modules/flights/flights.routes.js";
+import flightBookingRoutes from "../modules/flight-bookings/flight-bookings.routes.js";
 
 const router = Router();
 
 router.get("/health", async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-
-    res.status(200).json({
-      success: true,
-      system: "Nasaem Platform API",
-      version: "1.0.0",
-      database: "connected",
-      status: "running",
-    });
+    res.status(200).json({ success: true, system: "Nasaem Platform API", version: "1.0.0", database: "connected", status: "running" });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      system: "Nasaem Platform API",
-      version: "1.0.0",
-      database: "disconnected",
-      status: "error",
-    });
+    res.status(500).json({ success: false, system: "Nasaem Platform API", version: "1.0.0", database: "disconnected", status: "error" });
   }
 });
 
@@ -62,5 +51,7 @@ router.use("/contact-requests", contactRequestRoutes);
 router.use("/tracking", contactRequestTrackingRoutes);
 router.use("/passport-ocr", passportOcrRoutes);
 router.use("/site-assets", siteAssetRoutes);
+router.use("/flights", flightRoutes);
+router.use("/flight-bookings", flightBookingRoutes);
 
 export default router;

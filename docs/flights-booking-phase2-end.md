@@ -1,0 +1,1 @@
+End of Phase 2 scope: passenger intake, provisional ticket, payment receipt, payment confirmation, final ticket delivery.
