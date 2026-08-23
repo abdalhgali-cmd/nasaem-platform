@@ -1,8 +1,31 @@
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 
 const BACKEND_URL = "http://localhost:5000";
+
+// getPublicHomepage()/getPublicTheme()/getSiteAssetUrls() use Next's
+// `next.revalidate: 60` fetch cache: a page already loaded in the browser
+// never updates on its own (it was rendered server-side once, at the
+// time of that request), and even a *fresh* navigation within the 60s
+// window can still get served the stale cached version — Next's
+// stale-while-revalidate semantics mean the first request after the
+// window closes still returns the stale copy while triggering a
+// background refresh, only the *next* request after that is guaranteed
+// fresh. So proving "the change lands within the documented window"
+// requires repeated real navigations, not watching one already-rendered
+// page. Bounded to comfortably more than two 60s windows.
+async function pollByReloading<T>(page: Page, check: () => Promise<T>, isDone: (value: T) => boolean, label: string): Promise<T> {
+  const deadline = Date.now() + 150_000;
+  let last: T;
+  do {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    last = await check();
+    if (isDone(last)) return last;
+    await page.waitForTimeout(3_000);
+  } while (Date.now() < deadline);
+  throw new Error(`${label}: did not observe the expected value within the polling window. Last seen: ${JSON.stringify(last!)}`);
+}
 
 // Platform 3.0 Phase 18 — the plan's own required E2E scenario list
 // (Section 21): homepage, visa, airports, airlines, ferries, security
@@ -33,10 +56,10 @@ const BACKEND_URL = "http://localhost:5000";
 
 test.describe("Homepage — admin change reflects publicly", () => {
   test("changing the hero title updates the public homepage", async ({ page }) => {
-    // The 65s assertion below (bounded by getPublicHomepage()'s
-    // next.revalidate: 60 cache window) needs headroom beyond the
-    // config's default 30s test timeout.
-    test.setTimeout(80_000);
+    // pollByReloading's 150s budget (it needs to survive stale-while-
+    // revalidate serving one more stale response after the 60s window
+    // closes) needs headroom beyond the config's default 30s test timeout.
+    test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
 
     const beforeRes = await page.request.get(`${BACKEND_URL}/api/homepage/hero`);
@@ -47,19 +70,19 @@ test.describe("Homepage — admin change reflects publicly", () => {
     expect(patchRes.ok()).toBeTruthy();
 
     try {
-      await page.goto("/");
-      // getPublicHomepage() caches server-side for up to 60s
-      // (next.revalidate) — a generous timeout lets Playwright's built-in
-      // polling prove the change lands within that documented window,
-      // rather than assuming either immediate or cached-forever behavior.
-      await expect(page.locator("h1")).toContainText(newTitle, { timeout: 65_000 });
+      await pollByReloading(
+        page,
+        () => page.locator("h1").innerText(),
+        (text) => text.includes(newTitle),
+        "hero title"
+      );
     } finally {
       await page.request.patch(`${BACKEND_URL}/api/homepage/hero`, { data: { title: before.title } });
     }
   });
 
   test("changing the theme's primary color updates the public site's CSS variable", async ({ page }) => {
-    test.setTimeout(80_000);
+    test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
 
     const beforeRes = await page.request.get(`${BACKEND_URL}/api/theme`);
@@ -70,20 +93,19 @@ test.describe("Homepage — admin change reflects publicly", () => {
     expect(patchRes.ok()).toBeTruthy();
 
     try {
-      await page.goto("/");
-      await expect
-        .poll(
-          async () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim()),
-          { timeout: 65_000 }
-        )
-        .toBe(testColor);
+      await pollByReloading(
+        page,
+        () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim()),
+        (color) => color === testColor,
+        "theme primary color"
+      );
     } finally {
       await page.request.patch(`${BACKEND_URL}/api/theme`, { data: { primary: before.primary } });
     }
   });
 
   test("uploading a new hero image updates the public homepage's image", async ({ page }) => {
-    test.setTimeout(80_000);
+    test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
 
     const beforeRes = await page.request.get(`${BACKEND_URL}/api/site-assets`);
@@ -94,12 +116,14 @@ test.describe("Homepage — admin change reflects publicly", () => {
     });
     expect(uploadRes.ok(), await uploadRes.text()).toBeTruthy();
     const uploaded = (await uploadRes.json()).data;
+    const expectedVersion = `v=${new Date(uploaded.updatedAt).getTime()}`;
 
-    await page.goto("/");
-    const heroImg = page.locator("img[alt='']").first();
-    await expect
-      .poll(async () => heroImg.getAttribute("src"), { timeout: 65_000 })
-      .toContain(`v=${new Date(uploaded.updatedAt).getTime()}`);
+    await pollByReloading(
+      page,
+      () => page.locator("img[alt='']").first().getAttribute("src"),
+      (src) => !!src && src.includes(expectedVersion),
+      "hero image src"
+    );
 
     // No revert here on purpose: unlike hero text/theme (single-value
     // Settings rows, trivially reversible), a site asset upload replaces
@@ -259,6 +283,9 @@ test.describe("Airlines — backend logo-enrichment contract (see file header fo
       multipart: { image: { name: "logo.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
     });
     expect(logoRes.ok(), await logoRes.text()).toBeTruthy();
+    // The create response's `airline.logoKey` is still null (logo didn't
+    // exist yet) — the upload response has the real, current value.
+    const airlineWithLogo = (await logoRes.json()).data;
 
     const flightRes = await admin.post(`${BACKEND_URL}/api/flights`, {
       data: {
@@ -287,7 +314,8 @@ test.describe("Airlines — backend logo-enrichment contract (see file header fo
       const manualLegs = body?.legs?.[0]?.manual ?? [];
       const match = manualLegs.find((f: { id: string }) => f.id === flight.id);
       expect(match, "the created flight should appear in search results").toBeTruthy();
-      expect(match.airlineLogoKey, "attachAirlineLogos should resolve the logo key by matching airline name").toBe(airline.logoKey);
+      expect(match.airlineLogoKey, "attachAirlineLogos should resolve the logo key by matching airline name").toBe(airlineWithLogo.logoKey);
+      expect(match.airlineLogoKey).toBeTruthy();
     } finally {
       await admin.delete(`${BACKEND_URL}/api/flights/${flight.id}`);
       await admin.delete(`${BACKEND_URL}/api/airlines/${airline.id}`);

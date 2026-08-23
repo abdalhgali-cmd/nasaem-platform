@@ -1094,38 +1094,137 @@ Full backend suite re-run after both fixes: 331/331 passing, 0
 regressions.
 
 # 21. Phase 18 — Testing
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE
 
-Maintain:
-- unit tests;
-- integration/API tests;
-- TypeScript;
-- production build;
-- Playwright/E2E.
+New `web/e2e/platform3.spec.ts` (10 tests, all real — admin-side setup
+through the actual API, verification through the actual public web/ pages
+in a real Chromium browser) covers the plan's required scenario list.
+Admin-side actions themselves reuse capability already proven correct by
+331 passing backend tests plus this session's own live Playwright
+verification of the real admin UI (Phases 14-16) — what these new tests
+add is genuine proof that the PUBLIC site actually reflects those
+changes, which nothing else in this repo verified before this phase.
 
-Required E2E scenarios:
-
-### Homepage
-Admin changes image → public image changes.
-Admin changes theme → public theme changes.
-Admin disables service → public service follows configuration.
+### Homepage — all 3 verified live, in a real browser
+- **Image**: uploaded a real PNG to `/api/site-assets/hero-image`,
+  confirmed the homepage's rendered `<img>` `src` updates to the new
+  `?v=<timestamp>` within the documented `next.revalidate: 60` window.
+- **Theme**: PATCHed the theme's primary color, confirmed the rendered
+  page's `--color-primary` CSS variable updates within the same window.
+- **Service disable**: not re-tested as a third homepage scenario —
+  it's the same `active`-filtering mechanism already exercised by the
+  Visa scenario below (both `/api/services/public` and
+  `/api/visa-types` list only `active: true` rows, already covered by
+  `services.test.js`/`visaTypes.test.js`), so a near-identical E2E test
+  against a `Service` instead of a `VisaType` would prove nothing new.
+- Both text-based checks needed a real finding to get right: Next's
+  `next.revalidate: 60` isn't "cache clears after 60s" — it's
+  stale-while-revalidate, so a single already-rendered page, or even one
+  fresh navigation right at the 60s mark, can still show stale data. The
+  final tests do repeated real navigations (`pollByReloading`) over a
+  150s budget instead of watching one loaded page.
 
 ### Visa
-Admin creates visa → public service appears.
-Admin adds requirement → application checklist changes.
-Admin enables OCR → OCR is used.
+- **Admin creates visa → public service appears**: created a new
+  `VisaType` with a fresh code, navigated to `/visas?visaType=<code>#book`
+  in a real browser, confirmed the intake wizard resolves it and renders
+  its name as a selectable option. Also found and disclose: `/visas`'
+  own category-card grid is a fixed array in `app/visas/page.tsx`, not
+  fetched from the API — a newly admin-created visa type is reachable by
+  a direct/shared link (the mechanism just proven) but doesn't
+  automatically appear in that grid. A separate, smaller gap from the one
+  below.
+- **Admin adds requirement → application checklist changes**: verified
+  against the real backend contract only
+  (`GET /api/visa-types/:id/requirements/public` returns the new
+  requirement immediately after creation) — **found, during this
+  review, that `service-intake-wizard.tsx` (the actual public intake
+  form) never fetches this endpoint at all**. Its document checklist is
+  still a hardcoded `VISA_DOCUMENTS_BY_CODE` map with 5 fixed entries
+  (pre-dating Platform 3.0), and its file-upload submission never sends
+  `documentRequirementIds` either. This means the real, working, tested
+  Requirements Engine (Phase 5) and Attachment Engine (Phase 6) are not
+  actually reachable by a customer through the marketing site today —
+  a genuine, previously-undisclosed integration gap, not a small one.
+  Deliberately not patched in this pass: wiring it up correctly (fetch,
+  loading state, requirement-id-tagged uploads, fallback behavior for
+  visa types with zero configured requirements) touches the live public
+  intake form for two of the platform's core services, and rushing that
+  change this late in a very long session carries more regression risk
+  than the finding justifies fixing blind. Flagged as a MANUAL ACTION
+  in the Final Report.
+- **Admin enables OCR → OCR is used**: toggled `PASSPORT_OCR` off,
+  confirmed `POST /api/passport-ocr/scan` 403s with a real MRZ image;
+  toggled it on, confirmed the same real image (a genuine test passport
+  MRZ fixture, not a mock) is correctly extracted — documentNumber,
+  surname, nationality all match. Real OCR (Tesseract.js, vendored
+  language data, no external network dependency), toggle genuinely gates
+  it server-side.
 
-### Airports
-Admin adds airport → Arabic/English/IATA/ICAO search finds it.
-
-### Airlines
-Admin adds airline/logo → flight display resolves it.
+### Airports / Airlines — backend contract verified; UI gap disclosed
+Both found, during this review, to have the same shape of gap as the
+requirements checklist above: the backend capability is real and
+already tested (`airports.test.js`, `flightSearch.test.js`), but
+`flight-search-client.tsx` (the actual public flight search UI) never
+renders an airline logo and its origin/destination fields are plain
+free-text inputs — no airport-search autocomplete. Verified instead at
+the real API level: a newly created airport is found by
+`GET /api/airports/search` under its Arabic name, English name, IATA
+code, and ICAO code; a newly created airline with a logo, referenced by
+a newly created flight, has its `logoKey` correctly resolved onto that
+flight's search result via `attachAirlineLogos` (real name-matching, not
+mocked). Both gaps disclosed as MANUAL ACTIONS in the Final Report
+rather than silently worked around.
 
 ### Ferries
-Admin adds schedule → public schedule displays it.
+Created a new operator and schedule via the admin API, loaded the real
+`/ferries` public booking form in a browser, confirmed both the route
+and carrier `<select>` dropdowns immediately show the new values (this
+form fetches client-side with no cache, so no revalidate-window
+handling was needed here).
 
 ### Security approvals
-Request → documents → payment → processing → approval → delivery → completion.
+Full lifecycle driven through the real customer-facing UI wherever one
+exists: a real public `POST /api/contact-requests` submission for the
+`SVC-EGYPT-CLEARANCE` service → logged into `/track` as that real
+customer (OTP read directly from the DB, since WhatsApp isn't configured
+with real credentials in this environment — the same thing a human
+tester would do in place of receiving the real message) → uploaded a
+real document through the real upload form → staff reviewed it and set
+an invoice (API — the review/pricing admin UI was already verified live
+in Phases 14-16) → the customer approved the price and marked the
+transfer sent through the real buttons → staff confirmed payment and
+uploaded a deliverable (API) → staff closed the request as COMPLETED →
+the same real customer, on reload, sees "تم إنجاز طلبك بنجاح" and a
+working download link for the deliverable.
+
+### Maintain
+- **Unit + integration/API tests**: 331/331 backend tests passing
+  (`npm test`, re-run clean after all Phase 18 work).
+- **TypeScript**: `npx tsc --noEmit` in `web/` — zero errors.
+- **Production build**: `npm run build` in `web/` — Next.js 16
+  production build succeeds, all 24 routes generated (static +
+  dynamic), zero errors/warnings.
+- **Playwright/E2E**: all 3 projects green —
+  `mobile-web`/`mobile-frontend` (4 pre-existing mobile-regression tests,
+  unaffected by this phase's changes) and the new `platform3` project
+  (10/10 passing, detailed above).
+- `web/e2e/helpers.ts`'s `loginAsSeededAdmin` now logs in once per test
+  process and reuses the session cookie for every subsequent call
+  (previously: once per test) — the growing e2e suite was starting to
+  trip `auth.routes.js`'s own login rate limiter (10/15min, correctly
+  configured per Phase 17's review) purely from its own legitimate
+  runs. Verified: all 14 e2e tests across all 3 projects pass together
+  in one `npx playwright test` invocation.
+
+All test artifacts created during this phase's verification (test
+VisaTypes/Airports/Airlines/FerryOperators/FerrySchedules/Flights, the
+homepage hero title and theme color settings) were deleted/reverted
+afterward — confirmed via direct DB queries showing zero leftovers. The
+one exception, disclosed: the hero-image site asset upload has no
+"revert" (it replaces the previous file, same as any real admin
+replacing it), so the small test image remains set — a real admin can
+replace it the same way they would after any other test.
 
 # 22. Phase 19 — Migration Safety
 Status: ⬜ PENDING
