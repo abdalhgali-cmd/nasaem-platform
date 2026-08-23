@@ -45,6 +45,18 @@ enum PaymentStatus {
   REFUNDED
 }
 
+// Optional review lifecycle for an individual Payment record, layered on top
+// of the existing `status` field without changing its values (flight-booking
+// payment confirmation and other existing writers keep working unchanged).
+// Null means "recorded directly by staff, no review step used" — the
+// pre-existing behavior. Only payments explicitly submitted for review carry
+// PENDING/CONFIRMED/REJECTED.
+enum PaymentReviewStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
 enum DocumentType {
   PASSPORT
   PHOTO
@@ -151,6 +163,7 @@ model User {
   activityLogs                       ActivityLog[]
   notifications                      Notification[]              @relation("UserNotifications")
   statusChangedLogs                  OrderStatusHistory[]        @relation("StatusChangedBy")
+  paymentsReviewed                   Payment[]                   @relation("PaymentReviewedBy")
   invoicesCreated                    Invoice[]                   @relation("InvoiceCreatedBy")
   reviewedContactRequestDocuments    ContactRequestDocument[]    @relation("ContactRequestDocumentReviewedBy")
   contactRequestOffersCreated        ContactRequestOffer[]       @relation("ContactRequestOfferCreatedBy")
@@ -319,21 +332,27 @@ model Document {
 }
 
 model Payment {
-  id              String        @id @default(cuid())
-  orderId         String
-  amount          Decimal       @db.Decimal(12, 2)
-  currency        String        @default("SAR")
-  paymentMethod   String
-  referenceNumber String?
-  status          PaymentStatus @default(UNPAID)
-  paidAt          DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id               String               @id @default(cuid())
+  orderId          String
+  amount           Decimal              @db.Decimal(12, 2)
+  currency         String               @default("SAR")
+  paymentMethod    String
+  referenceNumber  String?
+  status           PaymentStatus        @default(UNPAID)
+  paidAt           DateTime?
+  reviewStatus     PaymentReviewStatus?
+  rejectionReason  String?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order      Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("PaymentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([status])
+  @@index([reviewStatus])
 }
 
 model Note {
