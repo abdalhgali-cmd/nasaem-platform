@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Container } from "@/components/container";
 import { PageHero } from "@/components/sections/page-hero";
 import { TrackingPanel } from "@/components/sections/tracking-panel";
+import { PaymentAccountsPanel } from "@/components/sections/payment-accounts-panel";
 
 export const metadata: Metadata = {
   title: "تتبع طلبك",
@@ -23,6 +24,7 @@ export default function TrackPage() {
           <TrackingPanel />
         </Container>
       </section>
+      <PaymentAccountsPanel />
     </>
   );
 }
