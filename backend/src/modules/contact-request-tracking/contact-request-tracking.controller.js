@@ -11,6 +11,7 @@ import {
   selectOffer,
   markTransferSent,
   uploadMyDocument,
+  uploadPaymentReceipt,
   getMyDocumentFile,
   getMyDeliverableFile,
 } from "./contact-request-tracking.service.js";
@@ -26,223 +27,89 @@ const TRACKING_COOKIE_OPTIONS = {
 export async function requestCode(req, res, next) {
   try {
     const parsed = requestCodeSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: parsed.error.flatten(),
-      });
-    }
-
+    if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     const { debugCode } = await requestLoginCode(parsed.data.phone);
-
-    return res.status(200).json({
-      success: true,
-      message: "إذا كان الرقم مسجلاً، سيصلك رمز التحقق عبر واتساب",
-      ...(debugCode ? { debugCode } : {}),
-    });
-  } catch (error) {
-    next(error);
-  }
+    return res.status(200).json({ success: true, message: "إذا كان الرقم مسجلاً، سيصلك رمز التحقق عبر واتساب", ...(debugCode ? { debugCode } : {}) });
+  } catch (error) { next(error); }
 }
 
 export async function verifyCode(req, res, next) {
   try {
     const parsed = verifyCodeSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: parsed.error.flatten(),
-      });
-    }
-
+    if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     const result = await verifyLoginCode(parsed.data.phone, parsed.data.code);
-
-    if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        message: result.message,
-      });
-    }
-
-    res.cookie("trackingAccessToken", result.token, {
-      ...TRACKING_COOKIE_OPTIONS,
-      maxAge: getTrackingTokenMaxAgeMs(),
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "تم تسجيل الدخول بنجاح",
-    });
-  } catch (error) {
-    next(error);
-  }
+    if (!result.success) return res.status(400).json({ success: false, message: result.message });
+    res.cookie("trackingAccessToken", result.token, { ...TRACKING_COOKIE_OPTIONS, maxAge: getTrackingTokenMaxAgeMs() });
+    return res.status(200).json({ success: true, message: "تم تسجيل الدخول بنجاح" });
+  } catch (error) { next(error); }
 }
 
 export async function getMyRequests(req, res, next) {
   try {
     const requests = await listContactRequestsForPhone(req.trackingPhone);
-
-    return res.status(200).json({
-      success: true,
-      data: requests,
-    });
-  } catch (error) {
-    next(error);
-  }
+    return res.status(200).json({ success: true, data: requests });
+  } catch (error) { next(error); }
 }
 
 function respondToAction(res, result, successMessage) {
-  if (result.error === "NOT_FOUND") {
-    return res.status(404).json({
-      success: false,
-      message: "Contact request or invoice not found",
-    });
-  }
-
-  if (result.error === "INVALID_STATE") {
-    return res.status(409).json({
-      success: false,
-      message: "This action isn't available for the request's current state",
-    });
-  }
-
-  return res.status(200).json({
-    success: true,
-    message: successMessage,
-  });
+  if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request or invoice not found" });
+  if (result.error === "INVALID_STATE") return res.status(409).json({ success: false, message: "This action isn't available for the request's current state" });
+  return res.status(200).json({ success: true, message: successMessage });
 }
 
 export async function approveMyInvoice(req, res, next) {
-  try {
-    const result = await approveInvoice(req.trackingPhone, req.params.id);
-    return respondToAction(res, result, "تمت الموافقة على السعر");
-  } catch (error) {
-    next(error);
-  }
+  try { return respondToAction(res, await approveInvoice(req.trackingPhone, req.params.id), "تمت الموافقة على السعر"); } catch (error) { next(error); }
 }
-
 export async function rejectMyInvoice(req, res, next) {
-  try {
-    const result = await rejectInvoice(req.trackingPhone, req.params.id);
-    return respondToAction(res, result, "تم رفض عرض السعر");
-  } catch (error) {
-    next(error);
-  }
+  try { return respondToAction(res, await rejectInvoice(req.trackingPhone, req.params.id), "تم رفض عرض السعر"); } catch (error) { next(error); }
 }
-
 export async function selectMyOffer(req, res, next) {
-  try {
-    const result = await selectOffer(req.trackingPhone, req.params.id, req.params.offerId);
-    return respondToAction(res, result, "تم اختيار هذا العرض");
-  } catch (error) {
-    next(error);
-  }
+  try { return respondToAction(res, await selectOffer(req.trackingPhone, req.params.id, req.params.offerId), "تم اختيار هذا العرض"); } catch (error) { next(error); }
+}
+export async function markMyTransferSent(req, res, next) {
+  try { return respondToAction(res, await markTransferSent(req.trackingPhone, req.params.id), "تم إعلام فريقنا بالتحويل، سنراجعه قريبًا"); } catch (error) { next(error); }
 }
 
-export async function markMyTransferSent(req, res, next) {
+export async function uploadPaymentReceipt(req, res, next) {
   try {
-    const result = await markTransferSent(req.trackingPhone, req.params.id);
-    return respondToAction(res, result, "تم إعلام فريقنا بالتحويل، سنراجعه قريبًا");
-  } catch (error) {
-    next(error);
-  }
+    if (!req.file) return res.status(400).json({ success: false, message: "A file is required" });
+    const result = await uploadPaymentReceipt(req.trackingPhone, req.params.id, req.file);
+    if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
+    if (result.error === "INVALID_STATE") return res.status(409).json({ success: false, message: "Payment receipt can only be uploaded after the customer approves the price" });
+    return res.status(201).json({ success: true, message: "تم رفع إشعار الدفع", data: result.document });
+  } catch (error) { next(error); }
 }
 
 export async function uploadDocument(req, res, next) {
   try {
     const parsed = uploadContactRequestDocumentSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: parsed.error.flatten(),
-      });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "A file is required",
-      });
-    }
-
-    const result = await uploadMyDocument(req.trackingPhone, req.params.id, {
-      label: parsed.data.label,
-      file: req.file,
-    });
-
-    if (result.error === "NOT_FOUND") {
-      return res.status(404).json({
-        success: false,
-        message: "Contact request not found",
-      });
-    }
-
-    return res.status(201).json({
-      success: true,
-      data: result.document,
-    });
-  } catch (error) {
-    next(error);
-  }
+    if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    if (!req.file) return res.status(400).json({ success: false, message: "A file is required" });
+    const result = await uploadMyDocument(req.trackingPhone, req.params.id, { label: parsed.data.label, file: req.file });
+    if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
+    return res.status(201).json({ success: true, data: result.document });
+  } catch (error) { next(error); }
 }
 
 export async function downloadMyDocumentFile(req, res, next) {
   try {
     const file = await getMyDocumentFile(req.trackingPhone, req.params.id, req.params.documentId);
-
-    if (!file) {
-      return res.status(404).json({
-        success: false,
-        message: "Document not found",
-      });
-    }
-
-    return res.sendFile(file.absolutePath, {
-      headers: { "Content-Type": file.mimeType },
-    });
-  } catch (error) {
-    next(error);
-  }
+    if (!file) return res.status(404).json({ success: false, message: "Document not found" });
+    return res.sendFile(file.absolutePath, { headers: { "Content-Type": file.mimeType } });
+  } catch (error) { next(error); }
 }
 
 export async function downloadMyDeliverableFile(req, res, next) {
   try {
-    const file = await getMyDeliverableFile(
-      req.trackingPhone,
-      req.params.id,
-      req.params.deliverableId
-    );
-
-    if (!file) {
-      return res.status(404).json({
-        success: false,
-        message: "Deliverable not found",
-      });
-    }
-
-    return res.sendFile(file.absolutePath, {
-      headers: { "Content-Type": file.mimeType },
-    });
-  } catch (error) {
-    next(error);
-  }
+    const file = await getMyDeliverableFile(req.trackingPhone, req.params.id, req.params.deliverableId);
+    if (!file) return res.status(404).json({ success: false, message: "Deliverable not found" });
+    return res.sendFile(file.absolutePath, { headers: { "Content-Type": file.mimeType } });
+  } catch (error) { next(error); }
 }
 
 export async function logout(req, res, next) {
   try {
     res.clearCookie("trackingAccessToken", TRACKING_COOKIE_OPTIONS);
-
-    return res.status(200).json({
-      success: true,
-      message: "تم تسجيل الخروج",
-    });
-  } catch (error) {
-    next(error);
-  }
+    return res.status(200).json({ success: true, message: "تم تسجيل الخروج" });
+  } catch (error) { next(error); }
 }
