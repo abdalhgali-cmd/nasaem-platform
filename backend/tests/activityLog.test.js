@@ -115,4 +115,41 @@ describe("audit log old/new value capture (real writes)", () => {
     assert.equal(deletedLog.oldValue.name, name);
     assert.equal(deletedLog.newValue, null);
   });
+
+  // Regression test for a real bug this session's own Phase 20 CI/E2E run
+  // caught: VisaType.basePrice (and any other Prisma Decimal field) comes
+  // back from Prisma as a Decimal.js instance, not a plain number.
+  // redactSensitive() used to walk it as a generic object, serializing its
+  // internal {constructor, s, e, d} representation instead of the value —
+  // which Prisma's Json column then rejected, silently failing the whole
+  // activity log write (logActivity swallows errors, so nothing else
+  // noticed). Confirmed reproduced against a live VisaType create before
+  // being fixed.
+  test("VISA_TYPE_CREATED logs a Decimal field (basePrice) as a real value, not its internal representation", async () => {
+    const admin = await loginAsSuperAdmin();
+    const code = `AUDIT-DECIMAL-${uniqueSuffix()}`;
+
+    const createRes = await admin.post("/api/visa-types").send({
+      code,
+      name: "Audit Decimal Test",
+      country: "Test Country",
+      basePrice: 500,
+    });
+    assert.equal(createRes.status, 201, JSON.stringify(createRes.body));
+    const visaTypeId = createRes.body.data.id;
+
+    try {
+      const logsRes = await admin.get("/api/activity-logs?limit=10");
+      assert.equal(logsRes.status, 200);
+
+      const createdLog = logsRes.body.data.find(
+        (log) => log.action === "VISA_TYPE_CREATED" && log.entityId === visaTypeId
+      );
+      assert.ok(createdLog, "expected a VISA_TYPE_CREATED activity log entry — its absence means the write silently failed");
+      assert.equal(createdLog.newValue.basePrice, "500");
+      assert.equal(typeof createdLog.newValue.basePrice, "string");
+    } finally {
+      await admin.delete(`/api/visa-types/${visaTypeId}`);
+    }
+  });
 });

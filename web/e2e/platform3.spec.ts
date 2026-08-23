@@ -15,16 +15,25 @@ const BACKEND_URL = "http://localhost:5000";
 // fresh. So proving "the change lands within the documented window"
 // requires repeated real navigations, not watching one already-rendered
 // page. Bounded to comfortably more than two 60s windows.
-async function pollByReloading<T>(page: Page, check: () => Promise<T>, isDone: (value: T) => boolean, label: string): Promise<T> {
+// Each `check()` call is itself given a short, bounded timeout and its
+// errors are caught — a locator that doesn't match anything yet (e.g. the
+// hero image hasn't rendered on this particular navigation) must not hang
+// the whole poll; it just counts as "not ready", exactly like an
+// unmatched value would, and the loop reloads and tries again.
+async function pollByReloading<T>(page: Page, check: (timeoutMs: number) => Promise<T>, isDone: (value: T) => boolean, label: string): Promise<T> {
   const deadline = Date.now() + 150_000;
-  let last: T;
+  let last: T | undefined;
   do {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    last = await check();
-    if (isDone(last)) return last;
+    try {
+      last = await check(5_000);
+      if (isDone(last)) return last;
+    } catch {
+      // Not ready on this navigation — fall through to retry.
+    }
     await page.waitForTimeout(3_000);
   } while (Date.now() < deadline);
-  throw new Error(`${label}: did not observe the expected value within the polling window. Last seen: ${JSON.stringify(last!)}`);
+  throw new Error(`${label}: did not observe the expected value within the polling window. Last seen: ${JSON.stringify(last)}`);
 }
 
 // Platform 3.0 Phase 18 — the plan's own required E2E scenario list
@@ -72,7 +81,7 @@ test.describe("Homepage — admin change reflects publicly", () => {
     try {
       await pollByReloading(
         page,
-        () => page.locator("h1").innerText(),
+        (timeoutMs) => page.locator("h1").innerText({ timeout: timeoutMs }),
         (text) => text.includes(newTitle),
         "hero title"
       );
@@ -96,7 +105,7 @@ test.describe("Homepage — admin change reflects publicly", () => {
       await pollByReloading(
         page,
         () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim()),
-        (color) => color === testColor,
+        (color: string) => color === testColor,
         "theme primary color"
       );
     } finally {
@@ -120,7 +129,7 @@ test.describe("Homepage — admin change reflects publicly", () => {
 
     await pollByReloading(
       page,
-      () => page.locator("img[alt='']").first().getAttribute("src"),
+      (timeoutMs) => page.locator("img[alt='']").first().getAttribute("src", { timeout: timeoutMs }),
       (src) => !!src && src.includes(expectedVersion),
       "hero image src"
     );

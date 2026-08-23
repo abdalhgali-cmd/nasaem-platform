@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import prisma from "../config/database.js";
 
 // Platform 3.0 Phase 16 — matched case-insensitively against object keys
@@ -20,6 +21,15 @@ export function redactSensitive(value, seen = new WeakSet()) {
 
   if (typeof value === "object") {
     if (value instanceof Date) return value;
+    // Prisma money/quantity fields (e.g. VisaType.basePrice) come back as
+    // Decimal.js instances, not plain numbers. Walking one as a generic
+    // object (the fallback below) serializes its internal representation
+    // (constructor/s/e/d) instead of the value, which Prisma's Json
+    // column then rejects outright — found via a real CI failure where
+    // VISA_TYPE_CREATED's activity log silently failed to write. Stored
+    // as a string, not a number, to preserve exact decimal precision for
+    // this money-adjacent field the same way the database itself does.
+    if (value instanceof Prisma.Decimal) return value.toString();
     if (seen.has(value)) return undefined; // guard against circular refs
     seen.add(value);
 
