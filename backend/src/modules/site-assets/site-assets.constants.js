@@ -11,4 +11,6 @@ export const SITE_ASSET_KEYS = [
   "icon-hotel",
   "icon-international",
   "icon-packages",
+  "favicon",
+  "hero-image",
 ];

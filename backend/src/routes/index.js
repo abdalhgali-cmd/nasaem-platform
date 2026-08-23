@@ -25,6 +25,7 @@ import paymentAccountRoutes from "../modules/payment-accounts/payment-accounts.r
 import paymentAccountPublicRoutes from "../modules/payment-accounts/payment-accounts.public.routes.js";
 import umrahGroupRoutes from "../modules/umrah-groups/umrah-groups.routes.js";
 import financeRoutes from "../modules/finance/finance.routes.js";
+import homepageRoutes from "../modules/homepage/homepage.routes.js";
 
 const router = Router();
 
@@ -61,5 +62,6 @@ router.use("/flights", flightRoutes);
 router.use("/flight-bookings", flightBookingRoutes);
 router.use("/umrah-groups", umrahGroupRoutes);
 router.use("/finance", financeRoutes);
+router.use("/homepage", homepageRoutes);
 
 export default router;

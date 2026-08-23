@@ -117,11 +117,37 @@ async function seedVisaTypes() {
   console.log(`Seeded ${VISA_TYPES.length} visa types.`);
 }
 
+// Mirrors the cards previously hardcoded in
+// web/src/components/sections/services.tsx, so switching that section over
+// to admin-controlled data (Platform 3.0 Phase 1) doesn't blank the public
+// homepage on first deploy — an admin can then edit/reorder/hide from here.
+const HOMEPAGE_SECTIONS = [
+  { key: "ferries", title: "حجز البواخر", description: "احجز رحلتك البحرية بين سواكن وجدة، وحدد التاريخ وعدد المسافرين والناقل المفضل ليتابع فريقنا التوفر والإجراءات.", href: "/ferries", iconKey: "ship", sortOrder: 0 },
+  { key: "umrah", title: "باقات العمرة", description: "تأشيرة فقط أو باقة متكاملة تشمل الطيران والفنادق والنقل — بإشراف كامل من الإدارة حتى العودة.", href: "/umrah", iconKey: "landmark", sortOrder: 1 },
+  { key: "visas", title: "التأشيرات", description: "زيارة عائلية، تأشيرة عمل، أو تأشيرات دولية — نتابع إجراءاتك بدقة وسرعة حتى الاستلام.", href: "/visas", iconKey: "stamp", sortOrder: 2 },
+  { key: "flights", title: "حجز الطيران", description: "أفضل أسعار تذاكر الطيران الداخلي والدولي على أشهر شركات الطيران، برحلة ذهاب أو ذهاب وعودة.", href: "/flights", iconKey: "plane", sortOrder: 3 },
+  { key: "hotels", title: "حجز الفنادق", description: "فنادق قريبة من الحرمين الشريفين وفي كل الوجهات، بمستويات مختلفة تناسب كل ميزانية.", href: "/hotels", iconKey: "hotel", sortOrder: 4 },
+  { key: "intl-visas", title: "التأشيرات الدولية", description: "الصين، بالي، ودول أفريقيا — نوضح لك المستندات المطلوبة قبل بدء الإجراءات.", href: "/visas", iconKey: "globe", sortOrder: 5 },
+  { key: "packages", title: "باقات السفر الشاملة", description: "برامج سياحية جاهزة تجمع الطيران والإقامة والجولات في باقة واحدة بسعر مريح.", href: "/packages", iconKey: "package", sortOrder: 6 },
+];
+
+async function seedHomepageSections() {
+  for (const section of HOMEPAGE_SECTIONS) {
+    await prisma.homepageSection.upsert({
+      where: { key: section.key },
+      update: {},
+      create: section,
+    });
+  }
+  console.log(`Seeded ${HOMEPAGE_SECTIONS.length} homepage sections.`);
+}
+
 async function main() {
   await seedSuperAdmin();
   await seedServiceCategories();
   await seedPackageServices();
   await seedVisaTypes();
+  await seedHomepageSections();
 }
 
 main()

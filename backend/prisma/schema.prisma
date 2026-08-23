@@ -434,6 +434,35 @@ model Offer {
   @@index([status])
 }
 
+// Admin-controlled homepage service cards (Platform 3.0 Phase 1). The hero
+// itself (title/description/CTA/image) is deliberately NOT modeled here —
+// it's a singleton, so it lives as Setting rows (HOMEPAGE_HERO_*) and a
+// SiteAsset image slot ("hero-image"), reusing existing infrastructure
+// instead of a table with exactly one meaningful row. This model is for the
+// list of service cards, which genuinely need order + per-row visibility +
+// per-row image, none of which Setting can express.
+//
+// iconKey/imageKey are validated against fixed allow-lists at the API layer
+// (a known Lucide icon name; an existing SiteAsset key) rather than trusted
+// as arbitrary strings, so a section can never reference an icon component
+// or asset that doesn't exist.
+model HomepageSection {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  title       String
+  description String?
+  href        String?
+  iconKey     String?
+  imageKey    String?
+  visible     Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([visible])
+  @@index([sortOrder])
+}
+
 // A travel batch for a group Umrah trip. Deliberately thin: it holds the
 // group-level logistics (name/date/airline/hotel/transport) and nothing
 // else — every per-traveler fact (visa/ticket/payment/document readiness)
