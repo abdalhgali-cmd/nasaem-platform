@@ -11,7 +11,7 @@ import {
   selectOffer,
   markTransferSent,
   uploadMyDocument,
-  uploadPaymentReceipt,
+  uploadPaymentReceipt as uploadPaymentReceiptService,
   getMyDocumentFile,
   getMyDeliverableFile,
 } from "./contact-request-tracking.service.js";
@@ -73,7 +73,7 @@ export async function markMyTransferSent(req, res, next) {
 export async function uploadPaymentReceipt(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: "A file is required" });
-    const result = await uploadPaymentReceipt(req.trackingPhone, req.params.id, req.file);
+    const result = await uploadPaymentReceiptService(req.trackingPhone, req.params.id, req.file);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
     if (result.error === "INVALID_STATE") return res.status(409).json({ success: false, message: "Payment receipt can only be uploaded after the customer approves the price" });
     return res.status(201).json({ success: true, message: "تم رفع إشعار الدفع", data: result.document });
