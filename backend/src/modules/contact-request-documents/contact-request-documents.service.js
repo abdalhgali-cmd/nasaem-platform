@@ -3,6 +3,7 @@ import prisma from "../../config/database.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { describeRequest, notifyAdmins } from "../contact-requests/contact-requests.service.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
@@ -11,31 +12,31 @@ const UPLOAD_ROOT = path.resolve("uploads");
 // specific VisaRequirement, validates it against that requirement's own
 // allowedMimeTypes/maxSizeBytes/maxFiles rules (on top of the generic
 // global MIME/size filter multer already applies to every upload).
-// Returns an error code the controller maps to a clean 400, or null if
-// the upload is fine to proceed.
+// Returns { requirement } on success (so the caller can read ocrEnabled
+// without a second query) or { error } if the upload should be rejected.
 async function validateRequirementUpload(contactRequest, requirementId, file) {
   const requirement = await prisma.visaRequirement.findUnique({ where: { id: requirementId } });
 
   if (!requirement || requirement.visaTypeId !== contactRequest.visaTypeId) {
-    return { code: "REQUIREMENT_NOT_FOUND" };
+    return { error: { code: "REQUIREMENT_NOT_FOUND" } };
   }
 
   if (requirement.allowedMimeTypes.length > 0 && !requirement.allowedMimeTypes.includes(file.mimetype)) {
-    return { code: "INVALID_MIME", allowedMimeTypes: requirement.allowedMimeTypes };
+    return { error: { code: "INVALID_MIME", allowedMimeTypes: requirement.allowedMimeTypes } };
   }
 
   if (requirement.maxSizeBytes && file.size > requirement.maxSizeBytes) {
-    return { code: "FILE_TOO_LARGE", maxSizeBytes: requirement.maxSizeBytes };
+    return { error: { code: "FILE_TOO_LARGE", maxSizeBytes: requirement.maxSizeBytes } };
   }
 
   const existingCount = await prisma.contactRequestDocument.count({
     where: { contactRequestId: contactRequest.id, requirementId },
   });
   if (existingCount >= requirement.maxFiles) {
-    return { code: "MAX_FILES_REACHED", maxFiles: requirement.maxFiles };
+    return { error: { code: "MAX_FILES_REACHED", maxFiles: requirement.maxFiles } };
   }
 
-  return null;
+  return { requirement };
 }
 
 export async function createContactRequestDocument(contactRequestId, { label, file, requirementId }) {
@@ -47,16 +48,21 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
     return { error: "NOT_FOUND" };
   }
 
+  let requirement = null;
   if (requirementId) {
-    const validationError = await validateRequirementUpload(contactRequest, requirementId, file);
-    if (validationError) return { error: validationError.code, details: validationError };
+    const validation = await validateRequirementUpload(contactRequest, requirementId, file);
+    if (validation.error) return { error: validation.error.code, details: validation.error };
+    requirement = validation.requirement;
   }
+
+  const ocrResult = await maybeRunPassportOcr(requirement, file);
 
   const document = await prisma.contactRequestDocument.create({
     data: {
       contactRequestId,
       label,
       requirementId: requirementId || null,
+      ocrResult: ocrResult ?? undefined,
       fileName: file.originalname,
       // Relative to the uploads root, not the absolute server path — same
       // convention as documents.controller.js, so API responses never leak

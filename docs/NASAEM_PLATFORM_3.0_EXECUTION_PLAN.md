@@ -376,7 +376,35 @@ Associate files safely with Customer → Order → Requirement where appropriate
 Prevent cross-customer access, path traversal, unauthorized downloads and oversized/invalid files.
 
 # 10. Phase 7 — Passport OCR Configuration
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — reused the existing tesseract.js/MRZ implementation
+as-is (extraction and match/deterministic comparison logic already did
+everything this phase asks for: passport number/name/DOB/nationality/
+issuing country/sex/expiry extraction, and match/mismatch/not_comparable
+comparison results — pre-existing, unmodified). The actual gap this phase
+closed: OCR was previously only reachable through a standalone staff
+"scan any passport" tool, with no link to a specific visa/requirement at
+all. New shared `maybeRunPassportOcr(requirement, file)` (passport-
+ocr.service.js) now runs automatically, but ONLY when the uploaded file
+is tagged with a VisaRequirement whose `ocrEnabled` (added in Phase 5) is
+true — wired into both attachment upload paths from Phase 6. Requirements
+with `ocrEnabled: false`, or uploads not tied to any requirement, never
+trigger OCR. The result is stored on the ContactRequestDocument (new
+`ocrResult` column) purely as additional information for staff — nothing
+is ever written back onto authoritative data, matching the existing
+comparePassportDataToCustomer's own posture. OCR already ran 100%
+in-process (tesseract.js + vendored language data, no network calls
+anywhere in that module) before this phase and still does, so "do not
+send passport data externally unless explicitly configured" was already
+true and stays true — verified by there being no fetch/HTTP client in
+passport-ocr.service.js.
+4 new backend tests, run against the real tesseract worker and a real
+sample passport MRZ image fixture (not mocked): a real extraction attaches
+a populated ocrResult; a non-MRZ image still succeeds with ocrResult null
+(never blocks the upload); an `ocrEnabled: false` requirement never
+triggers extraction; an upload with no requirement never triggers
+extraction. These ran as genuine end-to-end HTTP requests through the
+real upload routes, so this stands as the live evidence for this phase.
+259 tests green.
 
 Reuse the existing Passport OCR implementation.
 

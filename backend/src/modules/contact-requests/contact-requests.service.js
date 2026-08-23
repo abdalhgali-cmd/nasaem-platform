@@ -9,6 +9,7 @@ import {
   OUTCOME_LABELS,
   STATUS_LABELS,
 } from "../contact-request-tracking/contact-request-tracking.status.js";
+import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 
 // Short, consistent "which request is this about" prefix for every
 // customer-facing WhatsApp notification below — reuses the same `service`
@@ -76,6 +77,11 @@ export async function createContactRequest(data, req, files = []) {
   // fetched above rather than a second query per file. Rejects the whole
   // submission (nothing is created) rather than silently dropping/
   // mislabeling a file that doesn't satisfy its requirement.
+  // Platform 3.0 Phase 7: OCR result per file index, populated only for
+  // files tagged with a requirementId whose ocrEnabled is set (see the
+  // validation loop below, which also builds requirementsById).
+  const ocrResults = new Array(files.length).fill(null);
+
   if (documentRequirementIds.some(Boolean)) {
     const requirementsById = new Map((requirementsSnapshot || []).map((r) => [r.id, r]));
     const countByRequirement = new Map();
@@ -100,6 +106,8 @@ export async function createContactRequest(data, req, files = []) {
       if (seenCount > requirement.maxFiles) {
         return { error: "MAX_FILES_REACHED", details: { requirementId, maxFiles: requirement.maxFiles } };
       }
+
+      ocrResults[i] = await maybeRunPassportOcr(requirement, file);
     }
   }
 
@@ -121,6 +129,7 @@ export async function createContactRequest(data, req, files = []) {
             create: files.map((file, index) => ({
               label: documentLabels[index] || file.originalname,
               requirementId: documentRequirementIds[index] || null,
+              ocrResult: ocrResults[index] ?? undefined,
               fileName: file.originalname,
               storagePath: path.join("contact-request-documents", file.filename),
               mimeType: file.mimetype,

@@ -705,6 +705,12 @@ model ContactRequestDocument {
   // unchanged. onDelete: SetNull — deleting a requirement definition must
   // never delete a customer's already-uploaded document.
   requirementId    String?
+  // Platform 3.0 Phase 7 (Passport OCR Configuration) — set only when the
+  // linked VisaRequirement has ocrEnabled and the uploaded file is an
+  // image. Purely informational/additive: nothing here is ever written
+  // back onto authoritative data, and a failed/absent extraction never
+  // blocks the upload itself (see maybeRunPassportOcr).
+  ocrResult        Json?
   createdAt        DateTime                     @default(now())
   updatedAt        DateTime                     @updatedAt
 
