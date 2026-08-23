@@ -1,5 +1,5 @@
-import { createOrderSchema, updateOrderStatusSchema } from "./orders.validators.js";
-import { createOrder, getOrderById, listOrders, updateOrderStatus } from "./orders.service.js";
+import { assignOrderSchema, createOrderSchema, updateOrderStatusSchema } from "./orders.validators.js";
+import { assignOrder, createOrder, getOrderById, listOrders, updateOrderStatus } from "./orders.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
@@ -9,6 +9,11 @@ export async function getOrders(req, res, next) {
     const { data, meta } = await listOrders({
       ...parsePagination(req.query),
       status: req.query.status,
+      paymentStatus: req.query.paymentStatus,
+      assignedUserId: req.query.assignedUserId,
+      serviceId: req.query.serviceId,
+      search: req.query.search,
+      stalledHours: req.query.stalledHours ? Number(req.query.stalledHours) : null,
     });
 
     return res.status(200).json({
@@ -16,6 +21,29 @@ export async function getOrders(req, res, next) {
       data,
       meta,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function assignOrderAction(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = assignOrderSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+
+    const order = await assignOrder(id, parsed.data.assignedUserId, req.user?.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    logActivity({ userId: req.user?.id, action: "ORDER_ASSIGNED", entity: "Order", entityId: order.id, req });
+
+    return res.status(200).json({ success: true, message: "Order assigned successfully", data: order });
   } catch (error) {
     next(error);
   }

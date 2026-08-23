@@ -17,6 +17,10 @@ export const createOrderSchema = z.object({
   items: z.array(orderItemSchema).min(1, "At least one order item is required"),
 });
 
+export const assignOrderSchema = z.object({
+  assignedUserId: z.string().min(1).nullable(),
+});
+
 export const updateOrderStatusSchema = z.object({
   status: z.enum([
     "NEW",

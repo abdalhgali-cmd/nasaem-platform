@@ -44,13 +44,54 @@ async function generateOrderNumber() {
   return `NH-${year}-${String(nextNumber).padStart(6, "0")}`;
 }
 
-export async function listOrders({ page, limit, skip, status }) {
-  const where = status ? { status } : undefined;
+export async function listOrders({ page, limit, skip, status, paymentStatus, assignedUserId, serviceId, search, stalledHours }) {
+  const where = {
+    ...(status ? { status } : {}),
+    ...(paymentStatus ? { paymentStatus } : {}),
+    ...(assignedUserId === "UNASSIGNED" ? { assignedUserId: null } : assignedUserId ? { assignedUserId } : {}),
+    ...(serviceId ? { items: { some: { serviceId } } } : {}),
+    ...(stalledHours ? { updatedAt: { lte: new Date(Date.now() - stalledHours * 3600000) } } : {}),
+    ...(search
+      ? {
+          OR: [
+            { orderNumber: { contains: search, mode: "insensitive" } },
+            { customer: { fullName: { contains: search, mode: "insensitive" } } },
+            { customer: { phone: { contains: search, mode: "insensitive" } } },
+            { customer: { passportNo: { contains: search, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
+  };
   const [data, total] = await Promise.all([
-    prisma.order.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, include: { customer: true, assignedUser: { select: safeUserSelect } } }),
+    prisma.order.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } } } }),
     prisma.order.count({ where }),
   ]);
   return { data, meta: buildPaginationMeta(page, limit, total) };
+}
+
+export async function assignOrder(orderId, assignedUserId, changedByUserId) {
+  if (!changedByUserId) throw new Error("A valid user is required to assign an order");
+
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) return null;
+
+  const updated = await prisma.order.update({
+    where: { id: orderId },
+    data: { assignedUserId: assignedUserId || null },
+    include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } } },
+  });
+
+  if (updated.assignedUserId && updated.assignedUserId !== changedByUserId) {
+    await createNotification({
+      title: "طلب مُسند إليك",
+      message: `تم إسناد الطلب ${updated.orderNumber} إليك`,
+      type: "ORDER_ASSIGNED",
+      userId: updated.assignedUserId,
+      orderId: updated.id,
+    });
+  }
+
+  return updated;
 }
 
 export async function getOrderById(id) {
@@ -105,15 +146,47 @@ async function notifyOrderStatusChange(order, oldStatus, newStatus) {
   if (order.customer?.phone) sendWhatsAppMessage(order.customer.phone, customerStatusMessage(order, newStatus));
 }
 
-// The current Document model does not carry an approval status. Until the
-// required-document workflow is introduced, a non-empty document set is the
-// strongest safe readiness signal available without inventing schema fields.
+// Required document types per Service.category (the free-text category
+// values seeded in prisma/seed.js — there is no separate requirements table
+// in the schema, so this stays a code-level map rather than a migration).
+// A category not listed here falls back to DEFAULT_REQUIRED_DOCUMENT_TYPES
+// rather than blocking completion on a document type the service was never
+// told it needs.
+const SERVICE_DOCUMENT_REQUIREMENTS = {
+  flight: ["PASSPORT"],
+  hotel: ["PASSPORT"],
+  umrah: ["PASSPORT", "PHOTO"],
+  family_visit: ["PASSPORT", "PHOTO"],
+  work_visa: ["PASSPORT", "PHOTO"],
+  egypt_clearance: ["PASSPORT"],
+  ferry: ["PASSPORT"],
+  intl_visa: ["PASSPORT", "PHOTO"],
+  tasheel: ["PASSPORT"],
+  package: ["PASSPORT", "PHOTO"],
+};
+const DEFAULT_REQUIRED_DOCUMENT_TYPES = ["PASSPORT"];
+
+// Union of the required document types across every service on the order —
+// an order with a flight item and an umrah item needs whatever either one
+// needs, not just one of them.
+export function getRequiredDocumentTypes(order) {
+  const categories = (order.items || []).map((item) => item.service?.category).filter(Boolean);
+  if (categories.length === 0) return DEFAULT_REQUIRED_DOCUMENT_TYPES;
+  const required = new Set();
+  for (const category of categories) {
+    for (const type of SERVICE_DOCUMENT_REQUIREMENTS[category] || DEFAULT_REQUIRED_DOCUMENT_TYPES) required.add(type);
+  }
+  return [...required];
+}
+
 function hasRequiredDocuments(order) {
-  return Array.isArray(order.documents) && order.documents.length > 0;
+  const required = getRequiredDocumentTypes(order);
+  const uploadedTypes = new Set((order.documents || []).map((document) => document.type));
+  return required.every((type) => uploadedTypes.has(type));
 }
 
 function hasConfirmedPayment(order) {
-  return order.paymentStatus === "PAID" || order.paymentStatus === "CONFIRMED";
+  return order.paymentStatus === "PAID";
 }
 
 export function canCompleteOrder(order) {
@@ -126,7 +199,10 @@ export async function updateOrderStatus(orderId, status, changedByUserId, notes 
   const updatedOrder = await prisma.$transaction(async (tx) => {
     const currentOrder = await tx.order.findUnique({
       where: { id: orderId },
-      include: { documents: { select: { id: true } } },
+      include: {
+        documents: { select: { type: true } },
+        items: { include: { service: { select: { category: true } } } },
+      },
     });
     if (!currentOrder) return null;
     if (!isValidOrderStatusTransition(currentOrder.status, status)) {

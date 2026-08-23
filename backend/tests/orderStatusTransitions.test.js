@@ -1,7 +1,7 @@
 import "./env.js";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { canCompleteOrder, isValidOrderStatusTransition } from "../src/modules/orders/orders.service.js";
+import { canCompleteOrder, getRequiredDocumentTypes, isValidOrderStatusTransition } from "../src/modules/orders/orders.service.js";
 
 describe("isValidOrderStatusTransition", () => {
   test("allows NEW -> UNDER_REVIEW", () => assert.equal(isValidOrderStatusTransition("NEW", "UNDER_REVIEW"), true));
@@ -20,15 +20,28 @@ describe("isValidOrderStatusTransition", () => {
   test("rejects an unknown source status", () => assert.equal(isValidOrderStatusTransition("NOT_A_REAL_STATUS", "NEW"), false));
 });
 
+const flightOrder = { items: [{ service: { category: "flight" } }] };
+const umrahOrder = { items: [{ service: { category: "umrah" } }] };
+const mixedOrder = { items: [{ service: { category: "flight" } }, { service: { category: "umrah" } }] };
+
+describe("getRequiredDocumentTypes", () => {
+  test("flight only requires a passport", () => assert.deepEqual(getRequiredDocumentTypes(flightOrder), ["PASSPORT"]));
+  test("umrah requires a passport and a photo", () => assert.deepEqual(getRequiredDocumentTypes(umrahOrder), ["PASSPORT", "PHOTO"]));
+  test("an order mixing services requires the union of both", () => assert.deepEqual(getRequiredDocumentTypes(mixedOrder), ["PASSPORT", "PHOTO"]));
+  test("an unknown/unlisted category falls back to requiring a passport", () => assert.deepEqual(getRequiredDocumentTypes({ items: [{ service: { category: "unknown_new_category" } }] }), ["PASSPORT"]));
+  test("an order with no items falls back to requiring a passport", () => assert.deepEqual(getRequiredDocumentTypes({ items: [] }), ["PASSPORT"]));
+});
+
 describe("canCompleteOrder", () => {
-  test("requires confirmed payment and at least one document", () => {
-    assert.equal(canCompleteOrder({ paymentStatus: "PAID", documents: [{ id: "doc-1" }] }), true);
-    assert.equal(canCompleteOrder({ paymentStatus: "CONFIRMED", documents: [{ id: "doc-2" }] }), true);
+  test("requires confirmed payment and every required document type", () => {
+    assert.equal(canCompleteOrder({ ...flightOrder, paymentStatus: "PAID", documents: [{ type: "PASSPORT" }] }), true);
+    assert.equal(canCompleteOrder({ ...umrahOrder, paymentStatus: "PAID", documents: [{ type: "PASSPORT" }, { type: "PHOTO" }] }), true);
   });
   test("rejects unpaid orders", () => {
-    assert.equal(canCompleteOrder({ paymentStatus: "UNPAID", documents: [{ id: "doc-1" }] }), false);
+    assert.equal(canCompleteOrder({ ...flightOrder, paymentStatus: "UNPAID", documents: [{ type: "PASSPORT" }] }), false);
   });
-  test("rejects orders with no documents", () => {
-    assert.equal(canCompleteOrder({ paymentStatus: "PAID", documents: [] }), false);
+  test("rejects orders missing a required document type", () => {
+    assert.equal(canCompleteOrder({ ...flightOrder, paymentStatus: "PAID", documents: [] }), false);
+    assert.equal(canCompleteOrder({ ...umrahOrder, paymentStatus: "PAID", documents: [{ type: "PASSPORT" }] }), false);
   });
 });
