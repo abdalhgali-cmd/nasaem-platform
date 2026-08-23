@@ -87,14 +87,23 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "npm run dev",
+      // `npm run dev` (plain `next dev`, Turbopack by default in Next 16)
+      // fails outright on a GitHub Actions ubuntu-latest runner: a fresh
+      // `npm install` there doesn't resolve a working native SWC binary
+      // (@next/swc-linux-x64-gnu isn't installed; the musl fallback fails
+      // to load — "invalid ELF header"), and Turbopack refuses to run on
+      // the resulting WASM-only fallback ("Turbopack is not supported on
+      // this platform... Only WebAssembly (WASM) bindings were loaded").
+      // `next build` tolerates this same environment fine (the `web` CI
+      // job passes) — only the dev server enforces native bindings this
+      // strictly. `--webpack` is the fix Next's own error message names;
+      // scoped to just this Playwright-driven dev server, not the
+      // `npm run dev` real developers use locally (which works fine with
+      // Turbopack in every environment this was actually tested in).
+      command: "npx next dev --webpack",
       cwd: __dirname,
       url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
-      // 60s wasn't enough on a cold GitHub Actions runner — `next dev`'s
-      // first compile is slower there than on a warm local machine or
-      // this dev sandbox (found running Phase 20's CI wiring: the e2e job
-      // failed with "Timed out waiting 60000ms from config.webServer").
       timeout: 120_000,
       stdout: "pipe",
       stderr: "pipe",
