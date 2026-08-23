@@ -14,6 +14,7 @@ export const createServiceSchema = z.object({
   sortOrder: z.coerce.number().int().optional(),
   iconKey: z.enum(ICON_KEYS).optional().nullable(),
   features: featuresSchema,
+  processingTime: z.string().trim().max(100).optional().nullable(),
 });
 
 export const updateServiceSchema = createServiceSchema.partial();

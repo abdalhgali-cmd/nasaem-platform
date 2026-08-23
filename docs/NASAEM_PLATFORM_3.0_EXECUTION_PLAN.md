@@ -426,7 +426,36 @@ Show deterministic match/mismatch results.
 Do not send passport data externally unless explicitly configured.
 
 # 11. Phase 8 — Security Approvals
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — Security Approvals already existed as a Service
+(SVC-EGYPT-CLEARANCE, "الموافقة الأمنية لمصر") from the original seed, so
+this phase's job was making sure the platform's existing generic systems
+(Service from Phase 3, requirements from Phase 5) actually cover it as a
+first-class citizen rather than building it a bespoke engine.
+Two small, justified extensions instead of duplication: added
+Service.processingTime (mirrors VisaType's own field) and generalized
+VisaRequirement to attach to a Service directly (new nullable serviceId
+alongside the now-optional visaTypeId — exactly one set, enforced at the
+API layer) since Security Approvals is a Service, not a VisaType, but
+needs the identical checklist/attachment/OCR engine Phase 5-7 already
+built. Extracted the requirements CRUD into a shared
+`requirements` module so visa-types and services both call the same
+implementation instead of forking it — refactored, not duplicated;
+re-verified the existing visa-types requirement tests still pass
+unchanged after the extraction. New `/api/services/:id/requirements`
+(+ `/public`) mirrors `/api/visa-types/:id/requirements` exactly.
+Uses the existing order/contact-request workflow unmodified — no new
+engine, no new status enum, nothing touched in orders/contact-requests
+status handling.
+14 new backend tests (7 for the generalized service-requirement engine
+incl. a cross-scope safety test — a visa-type-scoped requirement id is
+rejected on a service-scoped submission — plus 7 re-verifying the
+pre-existing visa-types requirement tests are unaffected); 266 tests
+green. Verified live against the dev DB: configured the real
+SVC-EGYPT-CLEARANCE service end-to-end as an admin would (icon, 5-10 day
+processing time, features, a passport-copy requirement with OCR enabled),
+confirmed all of it on the public catalog and public checklist endpoints,
+and added a real "الموافقات الأمنية" (Security Approvals) homepage
+section — kept as genuine default content, not test debris.
 
 Add Security Approvals as a first-class service and homepage section.
 

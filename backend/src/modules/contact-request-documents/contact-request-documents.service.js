@@ -17,7 +17,15 @@ const UPLOAD_ROOT = path.resolve("uploads");
 async function validateRequirementUpload(contactRequest, requirementId, file) {
   const requirement = await prisma.visaRequirement.findUnique({ where: { id: requirementId } });
 
-  if (!requirement || requirement.visaTypeId !== contactRequest.visaTypeId) {
+  // A requirement belongs to exactly one parent (visaTypeId or
+  // serviceId — see schema.prisma's VisaRequirement comment); it must
+  // match whichever one this contact request was actually submitted for.
+  const belongsToRequest =
+    requirement &&
+    ((requirement.visaTypeId && requirement.visaTypeId === contactRequest.visaTypeId) ||
+      (requirement.serviceId && requirement.serviceId === contactRequest.serviceId));
+
+  if (!belongsToRequest) {
     return { error: { code: "REQUIREMENT_NOT_FOUND" } };
   }
 

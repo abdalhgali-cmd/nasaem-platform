@@ -33,6 +33,7 @@ const PUBLIC_SERVICE_SELECT = {
   iconKey: true,
   imageKey: true,
   features: true,
+  processingTime: true,
 };
 
 const PUBLIC_VISA_TYPE_SELECT = {
@@ -82,6 +83,7 @@ export async function createService(data) {
       sortOrder: data.sortOrder ?? 0,
       iconKey: data.iconKey || null,
       features: data.features ?? undefined,
+      processingTime: data.processingTime || null,
     },
   });
 }

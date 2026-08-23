@@ -36,6 +36,7 @@ describe("service intake — public catalog", () => {
       "id",
       "imageKey",
       "name",
+      "processingTime",
     ]);
 
     const packages = res.body.data.services.filter((s) => s.category === "package");
