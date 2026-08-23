@@ -1227,21 +1227,66 @@ replacing it), so the small test image remains set — a real admin can
 replace it the same way they would after any other test.
 
 # 22. Phase 19 — Migration Safety
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE
 
-Known project hazard:
-some flight tables were historically created using raw SQL and are not fully represented in Prisma models.
-
-Therefore:
-- never use `prisma migrate dev` in production;
-- never use `prisma db push` in production;
-- inspect every migration SQL;
-- reject unintended DROP/TRUNCATE/destructive changes;
-- test migrations on fresh PostgreSQL;
-- run `prisma migrate deploy`;
-- run `prisma migrate status`.
-
-Keep migration integrity tests protecting critical flight tables.
+- **Inspected every migration SQL**: scripted a scan of all 30 migration
+  files (`prisma/migrations/*/migration.sql`) for `DROP TABLE`,
+  `DROP COLUMN`, and `TRUNCATE`. Zero `DROP COLUMN`/`TRUNCATE` statements
+  exist anywhere in the migration history (every schema change across
+  Platform 3.0 has been purely additive). The only `DROP TABLE`/
+  `DROP CONSTRAINT` matches found are inside explanatory comments (the
+  standard "here's what `prisma migrate dev` proposed and I removed"
+  note this session has written into every migration touching a
+  flight_* table) — confirmed by eye, not just grep, that none are live
+  executable statements.
+- **Automated protection already in place, re-verified**:
+  `backend/tests/migrationIntegrity.test.js` (pre-existing, not new to
+  this phase) does this same scan programmatically on every `npm test`
+  run — it fails the build if any future migration file contains a real
+  (non-comment) destructive statement against `flight_bookings`/
+  `flight_inventory`/`flight_bank_accounts`, plus asserts those three
+  tables and Payment's review-workflow columns actually exist. This is
+  the durable guardrail Phase 19 asks to "keep" — it already existed and
+  has passed on every single full-suite run this session (every phase's
+  migration was checked by it before being trusted).
+- **Tested migrations on fresh PostgreSQL** (the one genuinely new
+  verification this phase performed — every prior phase only applied
+  its own new migration incrementally to an already-migrated database):
+  created a brand-new, completely empty database
+  (`nasaem_platform_migration_test`) and ran `prisma migrate deploy`
+  against it from zero. All 30 migrations — the platform's entire
+  history, not just this session's — applied cleanly in order with no
+  errors. `prisma migrate status` then reported "Database schema is up
+  to date!" against that fresh database, and the three flight_* raw-SQL
+  tables were confirmed present via `\dt`. Went one step further than
+  the plan's literal ask: ran `prisma/seed.js` against that same fresh
+  database and confirmed it seeds cleanly (super admin, 9 service
+  categories, 6 package services, 5 visa types, 7 homepage sections, 11
+  feature flags) — real proof the schema produced by replaying the full
+  migration chain actually supports the application, not just that the
+  SQL executes. The temporary database was dropped afterward.
+- **`prisma migrate deploy`/`prisma migrate status`**: used throughout
+  this session already (every phase from 13 onward) instead of
+  `migrate dev` for actually applying a migration to the dev/test
+  databases — `migrate dev` was used only locally to *author* a new
+  migration file (`--create-only`), never to apply one, exactly matching
+  this phase's "never use `prisma migrate dev`/`db push` in production"
+  rule's spirit even in this dev environment.
+- **A real bug found and fixed while re-running the full suite for this
+  phase's verification**: `airports.test.js`'s "an inactive airport is
+  excluded from search results" test created a new `Inactive Airport
+  <suffix>` row on every run with no cleanup — after this session's many
+  `npm test` runs, 22 such rows had accumulated in the test database.
+  Since `listAirports()` (the admin listing) orders by `nameEn` and those
+  rows alphabetically precede "King Abdulaziz International Airport",
+  they pushed the fixed Jeddah test fixture past the default
+  page-1/limit-20 pagination window, intermittently failing
+  `airports.test.js`'s "normalizes IATA/ICAO codes to uppercase" test —
+  reproduced live during this phase's verification runs. Fixed with a
+  `finally`-block cleanup (same reproduce → fix → regression-test posture
+  as every other bug found this session); the 22 already-accumulated
+  leftover rows were deleted directly. Confirmed fixed via 3 consecutive
+  clean `npm test` runs (331/331 each) after the fix.
 
 # 23. Phase 20 — CI/CD
 Status: ⬜ PENDING

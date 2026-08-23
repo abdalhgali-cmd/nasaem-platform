@@ -83,8 +83,21 @@ describe("global airport directory (Platform 3.0 Phase 11)", () => {
     });
     assert.equal(createRes.status, 201);
 
-    const searchRes = await request(app).get(`/api/airports/search?q=${encodeURIComponent("Inactive Airport " + suffix)}`);
-    assert.ok(!searchRes.body.data.some((a) => a.id === createRes.body.data.id));
+    try {
+      const searchRes = await request(app).get(`/api/airports/search?q=${encodeURIComponent("Inactive Airport " + suffix)}`);
+      assert.ok(!searchRes.body.data.some((a) => a.id === createRes.body.data.id));
+    } finally {
+      // Unlike JED/TXX above, this row's name always carries a fresh
+      // per-run suffix (deliberately, so concurrent runs of this file
+      // never collide) — but that also means nothing else ever cleans it
+      // up. Left uncleaned across enough `npm test` runs against the same
+      // persistent test DB, these accumulate ahead of "King Abdulaziz..."
+      // in the admin listing's alphabetical order (listAirports orders by
+      // nameEn) and push it past the default page-1 pagination window,
+      // intermittently failing the "normalizes IATA/ICAO codes" test
+      // above — a real bug this exact scenario reproduced.
+      await prisma.airport.delete({ where: { id: createRes.body.data.id } });
+    }
   });
 
   test("rejects a malformed IATA/ICAO code", async () => {
