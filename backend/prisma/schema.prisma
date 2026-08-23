@@ -728,6 +728,20 @@ model Counter {
   updatedAt DateTime @updatedAt
 }
 
+// Platform 3.0 Phase 13 — a fixed, seeded set of toggles (see
+// feature-flags/feature-flags.constants.js's FEATURE_FLAG_KEYS), not an
+// admin-creatable arbitrary list — `key` as the primary key mirrors
+// Counter's own pattern above. Enforcement happens server-side via
+// requireFeatureEnabled() (feature-flags/feature-flags.middleware.js),
+// wired into the specific route for each capability — never just a
+// frontend-hidden button.
+model FeatureFlag {
+  key         String   @id
+  enabled     Boolean  @default(true)
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
 model SiteAsset {
   id          String   @id @default(cuid())
   key         String   @unique

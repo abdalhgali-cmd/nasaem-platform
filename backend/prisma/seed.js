@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import prisma from "../src/config/database.js";
 import { nextSequence } from "../src/utils/sequence.js";
+import { FEATURE_FLAG_DESCRIPTIONS, FEATURE_FLAG_KEYS } from "../src/modules/feature-flags/feature-flags.constants.js";
 
 const SERVICE_CATEGORIES = [
   { code: "SVC-FLIGHT", name: "تذاكر الطيران", category: "flight" },
@@ -142,12 +143,26 @@ async function seedHomepageSections() {
   console.log(`Seeded ${HOMEPAGE_SECTIONS.length} homepage sections.`);
 }
 
+async function seedFeatureFlags() {
+  for (const key of FEATURE_FLAG_KEYS) {
+    await prisma.featureFlag.upsert({
+      where: { key },
+      // Update only the description, never `enabled` — an admin's
+      // deliberate toggle must survive a reseed unchanged.
+      update: { description: FEATURE_FLAG_DESCRIPTIONS[key] ?? null },
+      create: { key, enabled: true, description: FEATURE_FLAG_DESCRIPTIONS[key] ?? null },
+    });
+  }
+  console.log(`Seeded ${FEATURE_FLAG_KEYS.length} feature flags.`);
+}
+
 async function main() {
   await seedSuperAdmin();
   await seedServiceCategories();
   await seedPackageServices();
   await seedVisaTypes();
   await seedHomepageSections();
+  await seedFeatureFlags();
 }
 
 main()

@@ -11,6 +11,8 @@ import {
 } from "../contact-request-tracking/contact-request-tracking.status.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
+import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
+import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 
 // Short, consistent "which request is this about" prefix for every
 // customer-facing WhatsApp notification below — reuses the same `service`
@@ -48,6 +50,20 @@ export async function notifyAdmins({ title, message, type }) {
 export async function createContactRequest(data, req, files = []) {
   const documentLabels = data.documentLabels || [];
   const documentRequirementIds = data.documentRequirementIds || [];
+
+  // Platform 3.0 Phase 13: HOTEL_SEARCH/SECURITY_APPROVAL gate intake for
+  // the specific, real Service categories that already exist for those
+  // capabilities (seeded in Phase 3/8: "hotel", "egypt_clearance") — not
+  // a guessed/invented rule for what else might count as one. See
+  // SERVICE_CATEGORY_FEATURE_FLAGS's own comment for this disclosed
+  // boundary.
+  if (data.serviceId) {
+    const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true } });
+    const flagKey = service ? SERVICE_CATEGORY_FEATURE_FLAGS[service.category] : null;
+    if (flagKey && !(await isFeatureEnabled(flagKey))) {
+      return { error: "FEATURE_DISABLED" };
+    }
+  }
 
   // Platform 3.0 Phase 5: capture the selected visa type's (or, since
   // Phase 8, service's — e.g. Security Approvals) active requirements

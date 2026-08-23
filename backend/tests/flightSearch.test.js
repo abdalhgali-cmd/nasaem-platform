@@ -2,6 +2,7 @@ import "./env.js";
 import http from "node:http";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import prisma from "../src/config/database.js";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 import { clearTripSearchCache } from "../src/modules/flights/flights.cache.js";
 
@@ -9,11 +10,28 @@ function futureDateString(daysAhead) {
   return new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
+// flight_inventory is a raw-SQL table with no Prisma model, so nothing
+// deletes these rows automatically. flightFxRefresh.test.js's own
+// assertion depends on a LIMIT-100, departure_at-ordered query — enough
+// accumulated manual flights with earlier dates than its fixed
+// 2026-09-20 fixture can silently push its own row past that limit. This
+// file is the one creating those earlier-dated flights, so it cleans up
+// after itself.
+const createdFlightIds = [];
+
 describe("flight search (Platform 3.0 Phase 12)", () => {
   let agent;
 
   before(async () => {
     agent = await loginAsSuperAdmin();
+  });
+
+  after(async () => {
+    if (createdFlightIds.length === 0) return;
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM flight_inventory WHERE id = ANY($1::text[])`,
+      createdFlightIds
+    );
   });
 
   test("public search endpoint requires no authentication and requires from/to/departureDate", async () => {
@@ -48,6 +66,7 @@ describe("flight search (Platform 3.0 Phase 12)", () => {
       currency: "USD",
     });
     assert.equal(sudaneseFlight.status, 201, JSON.stringify(sudaneseFlight.body));
+    createdFlightIds.push(sudaneseFlight.body.data.id);
 
     const nonSudaneseFlight = await agent.post("/api/flights").send({
       airline: `Other Airline ${suffix}`,
@@ -62,6 +81,7 @@ describe("flight search (Platform 3.0 Phase 12)", () => {
       currency: "USD",
     });
     assert.equal(nonSudaneseFlight.status, 201);
+    createdFlightIds.push(nonSudaneseFlight.body.data.id);
 
     const res = await request(app).get(`/api/flights/search?from=PZU&to=JED&date=${date}`);
     const manualAirlines = res.body.legs[0].manual.map((f) => f.airline);
@@ -81,7 +101,7 @@ describe("flight search (Platform 3.0 Phase 12)", () => {
 
     // "BADR" is one of the hardcoded SUDANESE_AIRLINES entries, so a
     // flight whose airline name contains it passes the existing filter.
-    await agent.post("/api/flights").send({
+    const flightRes = await agent.post("/api/flights").send({
       airline: `BADR ${suffix}`,
       flightNumber: `BR${suffix.slice(-3)}`,
       originCode: "PZU",
@@ -93,6 +113,7 @@ describe("flight search (Platform 3.0 Phase 12)", () => {
       price: 500,
       currency: "USD",
     });
+    createdFlightIds.push(flightRes.body.data.id);
 
     const res = await request(app).get(`/api/flights/search?from=PZU&to=JED&date=${date}`);
     const flight = res.body.legs[0].manual.find((f) => f.airline === `BADR ${suffix}`);
@@ -103,7 +124,7 @@ describe("flight search (Platform 3.0 Phase 12)", () => {
   test("a flight for an airline with no configured logo has airlineLogoKey: null (never invents one)", async () => {
     const suffix = uniqueSuffix();
     const date = futureDateString(27);
-    await agent.post("/api/flights").send({
+    const flightRes = await agent.post("/api/flights").send({
       airline: `SUDANAIR ${suffix}`,
       flightNumber: `SD${suffix.slice(-3)}`,
       originCode: "PZU",
@@ -115,6 +136,7 @@ describe("flight search (Platform 3.0 Phase 12)", () => {
       price: 500,
       currency: "USD",
     });
+    createdFlightIds.push(flightRes.body.data.id);
 
     const res = await request(app).get(`/api/flights/search?from=PZU&to=JED&date=${date}`);
     const flight = res.body.legs[0].manual.find((f) => f.airline === `SUDANAIR ${suffix}`);

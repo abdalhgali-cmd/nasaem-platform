@@ -40,6 +40,7 @@ const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
   INVALID_MIME: "One of the uploaded files has a type that isn't allowed for its requirement",
   FILE_TOO_LARGE: "One of the uploaded files exceeds the maximum size allowed for its requirement",
   MAX_FILES_REACHED: "Too many files were uploaded for one of the requirements",
+  FEATURE_DISABLED: "This service is currently unavailable",
 };
 
 export async function storeContactRequest(req, res, next) {
@@ -68,7 +69,8 @@ export async function storeContactRequest(req, res, next) {
     // submission is rejected (nothing was created), same posture as any
     // other validation failure on this route.
     if (contactRequest?.error) {
-      return res.status(400).json({
+      const status = contactRequest.error === "FEATURE_DISABLED" ? 403 : 400;
+      return res.status(status).json({
         success: false,
         message: UPLOAD_REQUIREMENT_ERROR_MESSAGES[contactRequest.error] || "Validation failed",
         details: contactRequest.details,

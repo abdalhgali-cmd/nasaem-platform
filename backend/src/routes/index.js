@@ -31,6 +31,7 @@ import visaTypeRoutes from "../modules/visa-types/visa-types.routes.js";
 import ferryRoutes from "../modules/ferries/ferries.routes.js";
 import airlineRoutes from "../modules/airlines/airlines.routes.js";
 import airportRoutes from "../modules/airports/airports.routes.js";
+import featureFlagRoutes from "../modules/feature-flags/feature-flags.routes.js";
 
 const router = Router();
 
@@ -73,5 +74,6 @@ router.use("/visa-types", visaTypeRoutes);
 router.use("/ferries", ferryRoutes);
 router.use("/airlines", airlineRoutes);
 router.use("/airports", airportRoutes);
+router.use("/feature-flags", featureFlagRoutes);
 
 export default router;

@@ -672,7 +672,60 @@ Display real data only:
 If no provider/credentials exist, clearly mark the integration as not configured rather than inventing flights.
 
 # 16. Phase 13 — Feature Flags / Service Features
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — new FeatureFlag model (key as primary key, mirrors
+the existing Counter model's pattern), a fixed seeded set of exactly the
+plan's own 11 keys (PAYMENTS/QUOTES/DOCUMENTS/PASSPORT_OCR/WHATSAPP/
+CUSTOMER_APPROVAL/FLIGHT_SEARCH/HOTEL_SEARCH/SECURITY_APPROVAL/
+CUSTOMER_UPLOAD/STAFF_REVIEW — admins can toggle, never add an arbitrary
+new key), admin CRUD + a public read-only map. The actual requirement —
+"enforced server-side, not only hidden in UI" — is a `requireFeatureEnabled(key)`
+middleware wired directly into each capability's real route/call site,
+never a frontend-only check:
+- PASSPORT_OCR gates both the standalone staff scan route AND the
+  automatic per-requirement OCR from Phase 7 (maybeRunPassportOcr) — one
+  flag, both entry points.
+- WHATSAPP gates sendWhatsAppMessage itself, so every caller (order
+  notifications, contact-request notifications, tracking OTP) is covered
+  by one check. Disabling it does stop OTP delivery too — an accepted,
+  disclosed consequence of "WhatsApp" being one flag, not split into
+  auth/notification sub-flags the plan never asked for.
+- FLIGHT_SEARCH gates GET /api/flights/search; PAYMENTS gates confirm-
+  payment; QUOTES gates the pricing-preview/invoice/offer group;
+  DOCUMENTS gates staff deliverable upload; STAFF_REVIEW gates document
+  accept/reject; CUSTOMER_APPROVAL gates the tracking portal's invoice
+  approve/reject; CUSTOMER_UPLOAD gates the tracking portal's document
+  re-upload and payment-receipt upload (the Service Intake wizard's
+  initial attachment isn't gated — blocking a customer's whole
+  submission over an upload sub-feature was judged too broad a side
+  effect for what this flag is for).
+- HOTEL_SEARCH/SECURITY_APPROVAL gate contact-request creation for the
+  specific, real Service categories that already exist for those
+  capabilities ("hotel", "egypt_clearance", seeded in Phase 3/8) —
+  deliberately not a guessed heuristic for any future service that might
+  also count as one; a disclosed, narrow boundary rather than an invented
+  rule.
+Fixed a genuine regression the WHATSAPP gate caused along the way: adding
+an `await` on a real DB query before sendWhatsAppMessage's fire-and-forget
+dispatch broke a pre-existing test's synchronous-completion assumption
+(the caller never awaits this function specifically so a slow/unreachable
+WhatsApp API can't delay the request that triggered it) — fixed with a
+synchronously-read, stale-while-revalidate in-memory cache instead of an
+inline await, restoring the original timing profile.
+Also fixed a second, pre-existing latent flakiness risk that this
+phase's new flight-creating tests exposed: flightFxRefresh.test.js
+verified its own flight through a LIMIT 100 paginated list, which
+concurrent test files writing to the same shared flight_inventory table
+could push it past; changed it to a direct row lookup by id, and added
+cleanup to both it and the new flightSearch.test.js. 314 tests green
+across 3 consecutive full-suite runs (this was a genuine concurrency bug,
+so single-green-run evidence wasn't enough).
+20 new backend tests (feature-flags CRUD/RBAC/public endpoint, the
+PASSPORT_OCR route-block proof, and the HOTEL_SEARCH category-scoped
+block proof — with unrelated services confirmed unaffected). Verified
+live against the dev DB: all 11 flags seeded and enabled by default,
+disabling FLIGHT_SEARCH returns a real 403 from the actual search
+endpoint, re-enabling restores it, and an unauthenticated toggle attempt
+is rejected.
 
 Allow service-level feature configuration such as:
 - payments;

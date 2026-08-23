@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { createWorker } from "tesseract.js";
+import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { parse as parseMrz } from "mrz";
 
 // Vendored locally (backend/ocr-data/eng.traineddata.gz) so OCR works without
@@ -140,6 +141,11 @@ export async function maybeRunPassportOcr(requirement, file) {
   if (!requirement?.ocrEnabled || !file.mimetype.startsWith(IMAGE_MIME_PREFIX)) {
     return null;
   }
+  // Platform 3.0 Phase 13: the PASSPORT_OCR flag gates both this
+  // automatic per-requirement extraction and the standalone staff scan
+  // tool (passport-ocr.routes.js) — disabling it stops OCR everywhere,
+  // not just one entry point.
+  if (!(await isFeatureEnabled("PASSPORT_OCR"))) return null;
 
   try {
     const buffer = file.buffer || (await fs.readFile(file.path));
