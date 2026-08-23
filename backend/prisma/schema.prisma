@@ -212,6 +212,17 @@ model Service {
   basePrice   Decimal  @db.Decimal(12, 2)
   currency    String   @default("SAR")
   active      Boolean  @default(true)
+  // Platform 3.0 Phase 3 (Dynamic Service Catalog) — admin-configurable
+  // display metadata. iconKey/imageKey mirror HomepageSection's pattern
+  // exactly: iconKey is validated against the shared ICON_KEYS allow-list
+  // at the API layer (utils/enums.js), imageKey is a derived SiteAsset key
+  // (`service-image-<id>`) set only after a successful image upload.
+  // features is a small array of short bullet strings, not a separate
+  // table — nothing here needs its own identity, ordering or relations.
+  sortOrder   Int      @default(0)
+  iconKey     String?
+  imageKey    String?
+  features    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -222,6 +233,7 @@ model Service {
 
   @@index([category])
   @@index([active])
+  @@index([sortOrder])
 }
 
 model VisaType {

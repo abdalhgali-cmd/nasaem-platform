@@ -210,7 +210,25 @@ Definition of Done:
 - unauthorized changes are blocked.
 
 # 6. Phase 3 — Dynamic Service Catalog
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE (API) — extended the existing Service model in place
+(sortOrder/iconKey/imageKey/features columns; create/edit/activate-
+deactivate already existed and were untouched) rather than duplicating it.
+New: `PATCH /api/services/reorder`, `POST /api/services/:id/image`,
+icon validated against the shared ICON_KEYS allow-list (utils/enums.js,
+now also reused by the homepage module), features as a small JSON string
+array. Public catalog now orders by sortOrder and only returns active
+services (already true before this phase). 8 new backend tests plus a
+pre-existing public-catalog shape test updated for the 3 new fields;
+226+8 tests green. Verified live end-to-end via the real dev DB: created
+services, reordered them (public catalog order changed accordingly),
+uploaded an image (retrievable via the site-assets file route), set an
+icon/features (rejected an invalid icon key with 400), and confirmed an
+unauthenticated reorder request is rejected with 401.
+Known gap: `frontend/`'s back-office services table still only exposes
+create + activate/deactivate (its pre-existing UI, unchanged) — reorder/
+icon/image/features are fully functional and RBAC-gated via the API and
+tests, but have no input widgets in that table yet. Flagging this
+explicitly rather than claiming a finished admin UI that doesn't exist.
 
 Inspect the existing Service model first.
 

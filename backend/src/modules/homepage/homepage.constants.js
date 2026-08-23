@@ -1,24 +1,12 @@
+import { ICON_KEYS } from "../../utils/enums.js";
+
 // Fixed allow-list of icon names a homepage section can reference. Matched
 // client-side (web/src/lib/homepage-icons.ts) against a fixed map of actual
 // Lucide components — validated here too so a section can never be saved
-// pointing at an icon name the frontend has no component for.
-export const HOMEPAGE_ICON_KEYS = [
-  "ship",
-  "landmark",
-  "stamp",
-  "plane",
-  "hotel",
-  "globe",
-  "package",
-  "shield-check",
-  "map-pin",
-  "file-check",
-  "credit-card",
-  "users",
-  "star",
-  "clock",
-  "check-circle",
-];
+// pointing at an icon name the frontend has no component for. Re-exported
+// from the shared list in utils/enums.js (also used by the service
+// catalog) so both modules validate against the exact same set.
+export const HOMEPAGE_ICON_KEYS = ICON_KEYS;
 
 // Setting keys backing the homepage hero (a singleton — see
 // HomepageSection's schema comment for why the hero isn't a table row).

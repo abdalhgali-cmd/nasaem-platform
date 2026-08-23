@@ -4,7 +4,7 @@ import { buildPaginationMeta } from "../../utils/pagination.js";
 export async function listServices({ page, limit, skip }) {
   const [data, total] = await Promise.all([
     prisma.service.findMany({
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
       skip,
       take: limit,
     }),
@@ -30,6 +30,9 @@ const PUBLIC_SERVICE_SELECT = {
   description: true,
   basePrice: true,
   currency: true,
+  iconKey: true,
+  imageKey: true,
+  features: true,
 };
 
 const PUBLIC_VISA_TYPE_SELECT = {
@@ -47,7 +50,7 @@ export async function listPublicCatalog() {
   const [services, visaTypes] = await Promise.all([
     prisma.service.findMany({
       where: { active: true },
-      orderBy: { name: "asc" },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: PUBLIC_SERVICE_SELECT,
     }),
     prisma.visaType.findMany({
@@ -70,6 +73,9 @@ export async function createService(data) {
       basePrice: data.basePrice,
       currency: data.currency || "SAR",
       active: typeof data.active === "boolean" ? data.active : true,
+      sortOrder: data.sortOrder ?? 0,
+      iconKey: data.iconKey || null,
+      features: data.features ?? undefined,
     },
   });
 }
@@ -105,4 +111,25 @@ export async function deleteService(id) {
 
   await prisma.service.delete({ where: { id } });
   return existing;
+}
+
+export async function setServiceImageKey(id, imageKey) {
+  const existing = await prisma.service.findUnique({ where: { id } });
+  if (!existing) return null;
+  return prisma.service.update({ where: { id }, data: { imageKey } });
+}
+
+// Assigns sortOrder = position in the given id list, so admins can drag
+// services into a new order (same reorder-by-explicit-list shape as
+// homepage sections, just applied to the whole set in one call instead of
+// one PATCH per row).
+export async function reorderServices(orderedIds) {
+  const existingCount = await prisma.service.count({ where: { id: { in: orderedIds } } });
+  if (existingCount !== orderedIds.length) return null;
+
+  await prisma.$transaction(
+    orderedIds.map((id, index) => prisma.service.update({ where: { id }, data: { sortOrder: index } })),
+  );
+
+  return prisma.service.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }] });
 }

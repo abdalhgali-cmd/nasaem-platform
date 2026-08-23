@@ -23,13 +23,18 @@ describe("service intake — public catalog", () => {
     assert.ok(umrah, "expected the seeded Umrah service in the public catalog");
     assert.equal(umrah.category, "umrah");
     // Narrow field set only — no createdAt/updatedAt/internal metadata leaked.
+    // iconKey/imageKey/features were added in Platform 3.0 Phase 3 (Dynamic
+    // Service Catalog) — see services.service.js's PUBLIC_SERVICE_SELECT.
     assert.deepEqual(Object.keys(umrah).sort(), [
       "basePrice",
       "category",
       "code",
       "currency",
       "description",
+      "features",
+      "iconKey",
       "id",
+      "imageKey",
       "name",
     ]);
 
