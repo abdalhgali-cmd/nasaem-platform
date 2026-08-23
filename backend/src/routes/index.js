@@ -22,6 +22,7 @@ import siteAssetRoutes from "../modules/site-assets/site-assets.routes.js";
 import flightRoutes from "../modules/flights/flights.routes.js";
 import flightBookingRoutes from "../modules/flight-bookings/flight-bookings.routes.js";
 import paymentAccountRoutes from "../modules/payment-accounts/payment-accounts.routes.js";
+import paymentAccountPublicRoutes from "../modules/payment-accounts/payment-accounts.public.routes.js";
 
 const router = Router();
 
@@ -51,6 +52,7 @@ router.use("/notifications", notificationRoutes);
 router.use("/contact-requests", contactRequestRoutes);
 router.use("/tracking", contactRequestTrackingRoutes);
 router.use("/payment-accounts", paymentAccountRoutes);
+router.use("/payment-accounts/public", paymentAccountPublicRoutes);
 router.use("/passport-ocr", passportOcrRoutes);
 router.use("/site-assets", siteAssetRoutes);
 router.use("/flights", flightRoutes);
