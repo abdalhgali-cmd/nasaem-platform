@@ -18,9 +18,17 @@ const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 
 const app = express();
 
+// Platform 3.0 Phase 17: fails closed, not open. `cors`'s `origin: true`
+// reflects whatever Origin header the request sends — combined with
+// `credentials: true`, an unset CORS_ORIGIN previously meant ANY site
+// could make cookie-authenticated requests against this API. `false`
+// denies cross-origin requests instead (same-origin requests — the
+// frontend/ back-office served by this same app — carry no Origin header
+// and are unaffected either way); a misconfigured deployment now fails
+// safe instead of silently granting universal CORS access.
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN?.split(",").map((origin) => origin.trim()) ?? true,
+    origin: process.env.CORS_ORIGIN?.split(",").map((origin) => origin.trim()) ?? false,
     credentials: true,
   })
 );

@@ -44,6 +44,25 @@ describe("flight booking workflow", () => {
     const prematureRes = await admin.post(`/api/flight-bookings/${booking.id}/confirm-payment`).send({});
     assert.equal(prematureRes.status, 400);
 
+    // Platform 3.0 Phase 17: listFlightBookings() was refactored to map
+    // already-fetched rows in memory instead of re-querying each booking
+    // individually (an N+1 fix) — this is the evidence the list endpoint's
+    // output shape is unchanged by that refactor.
+    const listRes = await admin.get("/api/flight-bookings/admin/list");
+    assert.equal(listRes.status, 200);
+    const listed = listRes.body.bookings.find((b) => b.id === booking.id);
+    assert.ok(listed, "expected the created booking in the admin list");
+    assert.equal(listed.status, "PAYMENT_CONFIRMED");
+    assert.equal(listed.statusLabel, "تم تأكيد الدفع");
+    assert.deepEqual(listed.flightIds, [flightId]);
+    assert.equal(listed.customer_email, "flight@test.local");
+    assert.equal(listed.customer_phone, phone);
+
+    const filteredListRes = await admin.get("/api/flight-bookings/admin/list").query({ status: "PAYMENT_CONFIRMED" });
+    assert.equal(filteredListRes.status, 200);
+    assert.ok(filteredListRes.body.bookings.every((b) => b.status === "PAYMENT_CONFIRMED"));
+    assert.ok(filteredListRes.body.bookings.some((b) => b.id === booking.id));
+
     const finalRes = await admin.post(`/api/flight-bookings/${booking.id}/final-ticket`).attach("file", Buffer.from("final ticket"), "final.txt");
     assert.equal(finalRes.status, 200);
     assert.equal(finalRes.body.booking.status, "FINAL_TICKET_ISSUED");

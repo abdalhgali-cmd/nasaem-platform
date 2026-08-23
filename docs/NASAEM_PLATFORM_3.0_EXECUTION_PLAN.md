@@ -977,31 +977,121 @@ Evidence:
   raw-SQL tables confirmed still present via `\dt` afterward.
 
 # 20. Phase 17 — Performance & Security
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE
 
-Review:
-- Prisma N+1 queries;
-- indexes;
-- pagination;
-- response size;
-- image loading;
-- caching where justified;
-- dashboard queries.
+A review phase: the codebase was audited directly (backend security paths
+read line-by-line) plus a dedicated read-only Explore agent surveying
+N+1s/pagination/indexes/response size/dashboard queries across every
+module. Two real, verified issues were found and fixed; everything else
+found was either already correct or a low-risk, disclosed deferral —
+nothing was changed speculatively.
 
-Security review:
-- authentication;
-- authorization;
-- customer isolation;
-- document access;
-- IDOR;
-- upload validation;
-- rate limiting;
-- input validation;
-- error leakage;
-- secrets;
-- CORS/CSRF where applicable.
+## Fixed
 
-Every customer-facing resource must enforce ownership or authorized access.
+- **CORS fail-open default (security, real bug)** —
+  `backend/src/app.js`: `cors({ origin: ... ?? true, credentials: true })`
+  meant that if `CORS_ORIGIN` were ever left unset (e.g. a misconfigured
+  production deploy), the `cors` package's `origin: true` reflects
+  *any* request's Origin header — combined with `credentials: true`,
+  that's universal cross-site cookie-authenticated access, silently.
+  Both the dev `.env` and `.env.example` do set `CORS_ORIGIN`, so this
+  wasn't actively exploited in this environment, but the fallback itself
+  was a fail-*open* misconfiguration trap. Changed the fallback to
+  `false` (deny cross-origin when unset) — fails closed instead. Same-
+  origin requests (the `frontend/` back-office, served by this same
+  Express app) are unaffected either way, since they carry no Origin
+  header. Full suite re-run clean after the change (supertest requests
+  aren't real cross-origin browser requests, so this couldn't regress
+  any existing test either way — verified by inspection, not just by
+  the tests passing).
+- **N+1 query in the flight bookings admin list (performance, real bug)**
+  — `backend/src/modules/flight-bookings/flight-bookings.service.js`'s
+  `listFlightBookings()` fetched up to 200 booking rows (already joined
+  with customer name/phone), then ran a second full JOIN query
+  *per row* via `getFlightBooking(row.id)` to get data the first query
+  already had — 1 + N queries for what needed to be 1. Fixed by
+  extracting the row → response-shape mapping (`flightIds` JSON parsing +
+  `statusLabel` lookup) into a shared `mapBookingRow()` function used by
+  both `getFlightBooking` and `listFlightBookings`, and adding the one
+  column the list query was missing (`customer_email`) so the output
+  shape is byte-for-byte unchanged — just built from data already in
+  hand instead of re-queried. New assertions added to the existing
+  `flightBookingWorkflow.test.js` (list endpoint + status filter, exact
+  field values including `statusLabel`/`flightIds`/`customer_email`)
+  prove the refactor didn't change behavior.
+
+## Reviewed and confirmed already correct (no change needed)
+
+- **Customer isolation / IDOR on the `/track` portal** — every mutating
+  and reading action in `contact-request-tracking.service.js` routes
+  through `findOwnedContactRequest(phoneNormalized, contactRequestId)`,
+  which scopes the query itself (`where: { id, phoneNormalized }`) rather
+  than fetching by id and comparing after — genuinely IDOR-safe, not
+  just apparently so. Document/deliverable file lookups
+  (`getContactRequestDocumentFile`/`getContactRequestDeliverableFile`)
+  are double-scoped by both `contactRequestId` and the file's own id.
+- **File upload validation** — every `multer` config (documents,
+  contact-request documents/deliverables, passport OCR images, site
+  assets) enforces a MIME allowlist, a size limit, and — critically —
+  server-generated random filenames (`Date.now()-<16 hex chars><ext>`),
+  never the client-supplied filename, so path traversal via a crafted
+  upload filename isn't reachable.
+- **SQL injection** — every raw query in `flights.service.js` and
+  `flight-bookings.service.js` (the two modules using
+  `$queryRawUnsafe`/`$executeRawUnsafe`, since `flight_inventory`/
+  `flight_bookings`/`flight_bank_accounts` have no Prisma model) passes
+  user-controlled values as parameterized `$1`/`$2`/... arguments, never
+  string-interpolated into the SQL text itself — confirmed by reading
+  every call site, not just grepping for the unsafe-sounding function
+  name.
+- **Auth cookies** — both the staff session cookie and the tracking-
+  portal cookie are `httpOnly` + `sameSite: "lax"` + `secure` in
+  production — a solid baseline against both XSS cookie theft and CSRF.
+- **Rate limiting** — staff login has its own stricter limiter (10/15min)
+  on top of the app-wide one (200/15min); the tracking portal's
+  `/request-code` (5/15min) and `/verify-code` (20/15min) are limited
+  separately, appropriately tighter given they gate OTP-style access.
+- **Authorization coverage** — every `*.routes.js` file in
+  `backend/src/modules` either calls `requireAuth`/`requireRole` or is
+  the one deliberate exception (`contact-request-tracking.routes.js`,
+  which uses its own `requireTrackingAuth` for its separate customer
+  token family — confirmed applied to every route except the explicitly
+  public, rate-limited `/request-code`/`/verify-code`), confirmed by
+  scripted inspection of the whole routes tree, not spot-checking.
+- **Indexes** — `schema.prisma` already has an `@@index`/`@unique` on
+  every foreign key, `status`/`active`/`createdAt` column, and business
+  identifier (email/phone/passportNo/code) actually used in a `where`/
+  `orderBy` across the service files reviewed. No missing index found.
+- **Secrets** — `.env`/`.env.*` (except the `.example` files) are
+  gitignored and confirmed not tracked in git; no hardcoded API
+  key/secret/password-shaped literal found anywhere in tracked source.
+
+## Reviewed and deferred (disclosed, not silently skipped)
+
+- **Finance report in-memory aggregation** (`finance.service.js`) sums/
+  groups fetched orders in JavaScript instead of Postgres-side
+  `groupBy`/`aggregate` (which `dashboard.service.js` already does
+  correctly). Left unchanged: refactoring live financial-report
+  aggregation logic carries real correctness risk for numbers this plan
+  is explicit about never getting wrong, and the actual order volume in
+  this environment doesn't yet make it a real cost — a "fix it once it's
+  actually slow" tradeoff, not an oversight.
+- **A handful of small admin/reference-table list endpoints** (users,
+  offers, airlines, branches, suppliers, feature-flags, ferry schedules,
+  and others) have no `take`/pagination cap. All are hand-curated,
+  admin-managed tables realistically sized in the dozens today; adding
+  pagination everywhere "just in case" would be exactly the kind of
+  unrelated, unjustified change the plan's own rules warn against. Ferry
+  schedules is the one worth watching as it grows over time (no
+  date-based filtering yet), noted here rather than silently left.
+- **`contact-requests` list endpoint** includes full `intakeData`/
+  `requirementsSnapshot`/`ocrResult` JSON blobs per row instead of a
+  lighter `select` for the list view. Already paginated (max 100/page),
+  so the actual response-size cost is bounded; a future trim is possible
+  but not urgent enough to touch working, tested code in this pass.
+
+Full backend suite re-run after both fixes: 331/331 passing, 0
+regressions.
 
 # 21. Phase 18 — Testing
 Status: ⬜ PENDING
