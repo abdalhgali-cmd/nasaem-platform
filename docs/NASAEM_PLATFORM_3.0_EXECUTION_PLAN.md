@@ -475,7 +475,32 @@ Request → Review → Documents → Payment → Processing → Approval → Del
 Do not create a second order engine.
 
 # 12. Phase 9 — Ferries / Maritime
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — new FerryOperator/FerrySchedule models (ferries had
+no existing table, so no raw-SQL/flight_* migration hazard applied
+here). Admin CRUD for both (operator: name/nameEn/logo/active/order;
+schedule: origin/destination/date/departure/arrival time/duration/price/
+currency/capacity/active/order), a logo upload reusing the SiteAsset
+pipeline exactly like homepage sections/service images, and a public
+`/api/ferries/public` returning active operators plus only
+upcoming (not past-dated) active schedules.
+"Do not break existing ferry functionality" — the booking intake form
+(web/src/components/sections/ferry-service-client.tsx) previously
+hardcoded its route/carrier `<select>` options in React; those are now
+populated from the real admin-configured directory, falling back to the
+exact same hardcoded options (same never-blank-the-form posture as
+getSiteAssetUrls/getPublicHomepage) when nothing's configured yet or the
+fetch fails. The actual booking submission — the POST /api/contact-
+requests call, its intakeData shape, its message text — was not touched
+at all.
+10 new backend tests; 276 tests green. Verified live end-to-end in a real
+browser: created a real ferry operator + schedule via the admin API,
+confirmed the ferries page's route/carrier dropdowns picked them up
+dynamically (replacing the fallback), and confirmed a booking still
+submits successfully through the unmodified intake flow. Test fixtures
+(the fictional operator/schedule/booking used for this verification, not
+real business data) were cleaned up afterward — unlike Phase 8's
+Security Approvals configuration, which extended a real existing seeded
+service and was kept.
 
 Make ferries a complete configurable service.
 

@@ -545,6 +545,60 @@ model HomepageSection {
   @@index([sortOrder])
 }
 
+// Platform 3.0 Phase 9 (Ferries/Maritime). The ferry booking intake form
+// (web/src/components/sections/ferry-service-client.tsx) previously
+// hardcoded its route/carrier <select> options in React — these two
+// models let an admin actually manage that directory instead. logoKey
+// mirrors Service/HomepageSection's SiteAsset-derived-key pattern
+// (`ferry-operator-<id>`). No raw-SQL/flight_* entanglement here: unlike
+// flight_inventory, ferries never had an existing table, so this is a
+// clean new model with no legacy migration hazard.
+model FerryOperator {
+  id        String   @id @default(cuid())
+  name      String
+  nameEn    String?
+  logoKey   String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  schedules FerrySchedule[]
+
+  @@index([active])
+  @@index([sortOrder])
+}
+
+// A single sailing an admin publishes (route + date + capacity/price).
+// Deliberately not linked to ContactRequest/Order — a customer's booking
+// intake stays the existing free-text intakeData flow (see
+// contact-requests.service.js), unchanged by this phase; a FerrySchedule
+// is just what customers pick FROM in that form, not a reservation.
+model FerrySchedule {
+  id              String   @id @default(cuid())
+  operatorId      String
+  origin          String
+  destination     String
+  travelDate      DateTime
+  departureTime   String?
+  arrivalTime     String?
+  durationMinutes Int?
+  basePrice       Decimal  @db.Decimal(12, 2)
+  currency        String   @default("SAR")
+  capacity        Int?
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  operator FerryOperator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId])
+  @@index([active])
+  @@index([travelDate])
+  @@index([sortOrder])
+}
+
 // A travel batch for a group Umrah trip. Deliberately thin: it holds the
 // group-level logistics (name/date/airline/hotel/transport) and nothing
 // else — every per-traveler fact (visa/ticket/payment/document readiness)

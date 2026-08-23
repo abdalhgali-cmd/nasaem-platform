@@ -28,6 +28,7 @@ import financeRoutes from "../modules/finance/finance.routes.js";
 import homepageRoutes from "../modules/homepage/homepage.routes.js";
 import themeRoutes from "../modules/theme/theme.routes.js";
 import visaTypeRoutes from "../modules/visa-types/visa-types.routes.js";
+import ferryRoutes from "../modules/ferries/ferries.routes.js";
 
 const router = Router();
 
@@ -67,5 +68,6 @@ router.use("/finance", financeRoutes);
 router.use("/homepage", homepageRoutes);
 router.use("/theme", themeRoutes);
 router.use("/visa-types", visaTypeRoutes);
+router.use("/ferries", ferryRoutes);
 
 export default router;

@@ -8,9 +8,19 @@ import { API_URL } from "@/lib/api-url";
 
 const inputClass = "h-11 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary";
 
+// Same fallback posture as every other public-content fetch in this
+// codebase (getSiteAssetUrls, getPublicHomepage, ...): if no admin has
+// configured ferry operators/routes yet, or the request fails, these are
+// exactly what this form's <select> options hardcoded before Platform
+// 3.0 Phase 9 — so the form keeps working unchanged either way.
+const FALLBACK_ROUTES = ["سواكن → جدة", "جدة → سواكن", "مسار آخر"];
+const FALLBACK_CARRIERS = ["تاركو البحرية", "الجودي", "كنزي", "لا يهم"];
+
 export function FerryServiceClient() {
   const [serviceId, setServiceId] = React.useState("");
-  const [form, setForm] = React.useState({ name: "", phone: "", email: "", route: "سواكن → جدة", travelDate: "", travelers: 1, carrier: "تاركو البحرية", notes: "" });
+  const [routeOptions, setRouteOptions] = React.useState<string[]>(FALLBACK_ROUTES);
+  const [carrierOptions, setCarrierOptions] = React.useState<string[]>(FALLBACK_CARRIERS);
+  const [form, setForm] = React.useState({ name: "", phone: "", email: "", route: FALLBACK_ROUTES[0], travelDate: "", travelers: 1, carrier: FALLBACK_CARRIERS[0], notes: "" });
   const [loading, setLoading] = React.useState(true);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -21,6 +31,29 @@ export function FerryServiceClient() {
       const ferry = (payload?.data?.services ?? []).find((item: any) => item.code === "SVC-FERRY");
       setServiceId(ferry?.id ?? "");
     }).catch(() => setError("تعذر تحميل خدمة العبارات، حاول تحديث الصفحة.")).finally(() => setLoading(false));
+
+    fetch(`${API_URL}/ferries/public`).then((r) => r.json()).then((payload) => {
+      const operators: any[] = payload?.data?.operators ?? [];
+      const schedules: any[] = payload?.data?.schedules ?? [];
+
+      const routes = Array.from(new Set(schedules.map((s) => `${s.origin} → ${s.destination}`)));
+      if (routes.length > 0) {
+        setRouteOptions(routes);
+        setForm((prev) => ({ ...prev, route: routes[0] }));
+      }
+
+      const carriers = operators.map((o) => o.name);
+      if (carriers.length > 0) {
+        setCarrierOptions(carriers);
+        setForm((prev) => ({ ...prev, carrier: carriers[0] }));
+      }
+      // No operators/schedules configured yet: silently keep the fallback
+      // options set at mount — never blank the form.
+    }).catch(() => {
+      // Never blank the form's dropdowns just because this optional
+      // enrichment fetch failed — the fallback options already in state
+      // keep the form fully usable.
+    });
   }, []);
 
   async function submit(event: React.FormEvent) {
@@ -50,8 +83,8 @@ export function FerryServiceClient() {
           <label className="grid gap-2"><span className="text-sm font-bold">الاسم الكامل</span><input className={inputClass} value={form.name} onChange={(e)=>setForm({...form,name:e.target.value})}/></label>
           <label className="grid gap-2"><span className="text-sm font-bold">رقم الهاتف / واتساب</span><input className={inputClass} value={form.phone} onChange={(e)=>setForm({...form,phone:e.target.value})}/></label>
           <label className="grid gap-2"><span className="text-sm font-bold">البريد الإلكتروني</span><input type="email" className={inputClass} value={form.email} onChange={(e)=>setForm({...form,email:e.target.value})}/></label>
-          <label className="grid gap-2"><span className="text-sm font-bold">المسار</span><select className={inputClass} value={form.route} onChange={(e)=>setForm({...form,route:e.target.value})}><option>سواكن → جدة</option><option>جدة → سواكن</option><option>مسار آخر</option></select></label>
-          <label className="grid gap-2"><span className="text-sm font-bold">الناقل المفضل</span><select className={inputClass} value={form.carrier} onChange={(e)=>setForm({...form,carrier:e.target.value})}><option>تاركو البحرية</option><option>الجودي</option><option>كنزي</option><option>لا يهم</option></select></label>
+          <label className="grid gap-2"><span className="text-sm font-bold">المسار</span><select className={inputClass} value={form.route} onChange={(e)=>setForm({...form,route:e.target.value})}>{routeOptions.map((route)=> <option key={route}>{route}</option>)}</select></label>
+          <label className="grid gap-2"><span className="text-sm font-bold">الناقل المفضل</span><select className={inputClass} value={form.carrier} onChange={(e)=>setForm({...form,carrier:e.target.value})}>{carrierOptions.map((carrier)=> <option key={carrier}>{carrier}</option>)}</select></label>
           <label className="grid gap-2"><span className="text-sm font-bold">تاريخ السفر</span><div className="relative"><CalendarDays className="pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground"/><input type="date" min={new Date().toISOString().slice(0,10)} className={`${inputClass} w-full pr-9`} value={form.travelDate} onChange={(e)=>setForm({...form,travelDate:e.target.value})}/></div></label>
           <label className="grid gap-2"><span className="text-sm font-bold">عدد المسافرين</span><div className="relative"><Users className="pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground"/><input type="number" min={1} max={50} className={`${inputClass} w-full pr-9`} value={form.travelers} onChange={(e)=>setForm({...form,travelers:Math.min(50,Math.max(1,Number(e.target.value)||1))})}/></div></label>
         </div>
