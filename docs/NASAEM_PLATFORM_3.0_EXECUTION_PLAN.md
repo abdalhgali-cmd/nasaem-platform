@@ -810,20 +810,87 @@ Evidence:
   direct DB query showing zero leftover rows/settings).
 
 # 18. Phase 15 — RBAC
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE
 
-Reuse existing RBAC.
+Reused existing RBAC rather than duplicating it: OPERATIONS and FINANCE
+were **not** added, because EMPLOYEE and ACCOUNTANT already exist and
+already serve exactly those functions across every operational/financial
+route in the codebase — adding parallel roles for the same purpose would
+have been the duplication the plan's own rules forbid ("if an object/
+model already exists, extend it instead of duplicating it"). The one
+genuinely new role is CONTENT_MANAGER, since no existing role expresses
+"can manage public-facing content but nothing financial or operational."
 
-Possible roles, only if they do not already exist:
-- SUPER_ADMIN;
-- ADMIN;
-- OPERATIONS;
-- FINANCE;
-- CONTENT_MANAGER.
+What was built:
+- `prisma/schema.prisma`: `CONTENT_MANAGER` added to the `UserRole` enum.
+  Migration `20260823204024_add_content_manager_role` — hand-stripped of
+  the usual proposed `DROP TABLE`s for `flight_bank_accounts`/
+  `flight_bookings`/`flight_inventory` (the same recurring raw-SQL-table
+  hazard as every prior phase's migration), leaving only the actual
+  `ALTER TYPE ... ADD VALUE`. Applied via `prisma migrate deploy` (matches
+  Phase 19's own instruction to never use `migrate dev` for anything but
+  local schema authoring) to both the dev and test databases.
+- `backend/src/modules/users/users.validators.js`: `CONTENT_MANAGER` added
+  to `createUserSchema`'s role enum, so SUPER_ADMIN can actually create
+  one.
+- Server-side enforcement — `CONTENT_MANAGER` added to the read/write
+  `requireRole(...)` arrays of exactly the content-configuration routes
+  (mirroring ADMIN's existing scope in each): `homepage.routes.js`,
+  `theme.routes.js`, `site-assets.routes.js`, `services.routes.js`,
+  `visa-types.routes.js`, `airlines.routes.js`, `airports.routes.js`,
+  `ferries.routes.js`. Two things were deliberately left untouched to
+  avoid loosening an existing boundary: the SUPER_ADMIN-only
+  `DELETE /api/services/:id` and `DELETE /api/visa-types/:id` (a stricter
+  gate than plain ADMIN itself has, preserved as-is), and `feature-flags`
+  routes (toggling a flag gates real operational/financial capabilities,
+  so it was intentionally excluded — "Content Manager should not
+  automatically gain financial or operational permissions" applies here
+  even though feature flags aren't literally "content"). No other module
+  (orders, customers, payments, contact-requests, branches, suppliers,
+  users, umrah-groups, flights) was touched — `CONTENT_MANAGER` has no
+  access to any of them, which is what keeps this role out of financial/
+  operational territory.
+- Frontend (`frontend/`): `mgmtCanWrite()` in `admin-management.js`
+  extended with `CONTENT_MANAGER` for exactly the same content entities as
+  the backend (not feature-flags, not branches/suppliers/offers/users/
+  umrah-groups). `canSeeManagement()` in `admin-dashboard.js` now admits
+  `CONTENT_MANAGER` so the Configuration Center is reachable at all. A new
+  `applyMgmtTabVisibilityForRole()` hides the non-content Management
+  sub-tabs for this role (server-side 403s were already correct without
+  this — this only avoids showing a tab that would just error), and
+  `setupTabVisibility()`'s default-landing-tab logic now sends
+  `CONTENT_MANAGER` straight to Management instead of Orders (a tab this
+  role has no access to, which previously caused a needless 403 on
+  login). `ROLE_LABELS_AR` and the `#u-role` user-creation `<select>` both
+  gained a "مدير محتوى" option.
 
-Enforce authorization server-side.
-
-Content Manager should not automatically gain financial or operational permissions.
+Evidence:
+- New `describe("CONTENT_MANAGER role")` block in
+  `backend/tests/rbac.test.js` (12 tests, following the file's existing
+  EMPLOYEE-role RBAC test pattern): creates a real CONTENT_MANAGER user,
+  logs in as them, and asserts both directions — CAN read/update the
+  homepage hero, CAN read/update theme colors, CAN create an airline, CAN
+  list visa types; CANNOT list payments, CANNOT confirm a contact
+  request's payment, CANNOT list orders, CANNOT list customers, CANNOT
+  create a branch, CANNOT toggle a feature flag, CANNOT delete a service
+  (the SUPER_ADMIN-only gate holds even for this role), CANNOT create
+  another user account. All 12 pass.
+- Full backend suite re-run twice (once after the migration, once after
+  the frontend edits): 326/326 passing (314 pre-existing + 12 new RBAC
+  tests), 0 regressions.
+- `prisma migrate status`: "Database schema is up to date!" against the
+  dev DB; the flight_* raw-SQL tables confirmed still present via `\dt`
+  after the migration.
+- Live browser verification (Playwright): logged in as a real
+  CONTENT_MANAGER account created through the actual `/api/users`
+  endpoint. Confirmed — Overview and Payments top-level tabs hidden;
+  Management tab visible and is the default landing tab; within
+  Management, exactly the 8 content sub-tabs (homepage/appearance/
+  site-assets/services/visas/airlines/airports/ferries) are visible and
+  the rest (feature-flags/settings/activity/branches/suppliers/offers/
+  users/contact-requests/umrah-groups) are hidden; the homepage panel
+  loaded real data with zero JavaScript console errors and zero 403s.
+  Test account and its data deleted afterward.
 
 # 19. Phase 16 — Audit Logs
 Status: ⬜ PENDING

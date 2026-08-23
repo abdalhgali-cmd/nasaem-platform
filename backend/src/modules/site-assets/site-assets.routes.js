@@ -25,10 +25,12 @@ function handleUpload(req, res, next) {
 // already served publicly by the route below regardless.
 router.get("/:key/file", getSiteAssetFile);
 router.get("/", getSiteAssets);
+// Platform 3.0 Phase 15: CONTENT_MANAGER added — branding/icon uploads
+// are content configuration, never financial or operational.
 router.post(
   "/:key",
   requireAuth,
-  requireRole("SUPER_ADMIN", "ADMIN"),
+  requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"),
   handleUpload,
   uploadSiteAsset
 );

@@ -41,20 +41,25 @@ const CONTACT_REQUEST_OUTCOMES = ["COMPLETED", "REJECTED", "CANCELLED"];
 
 function mgmtCanWrite(entity) {
   // Mirrors the requireRole(...) checks on each backend POST route.
+  // Platform 3.0 Phase 15: CONTENT_MANAGER is added only to the
+  // content-configuration entities (homepage/appearance/site-assets/
+  // services/visas/airlines/airports/ferries) — never to branches,
+  // suppliers, offers, users, umrah-groups or feature-flags, which are
+  // financial/operational/system permissions this role must not gain.
   const rules = {
     branches: ["SUPER_ADMIN"],
     suppliers: ["SUPER_ADMIN"],
-    services: ["SUPER_ADMIN", "ADMIN"],
+    services: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
     offers: ["SUPER_ADMIN", "ADMIN"],
     users: ["SUPER_ADMIN"],
-    "site-assets": ["SUPER_ADMIN", "ADMIN"],
+    "site-assets": ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
     "umrah-groups": ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"],
-    homepage: ["SUPER_ADMIN", "ADMIN"],
-    appearance: ["SUPER_ADMIN", "ADMIN"],
-    visas: ["SUPER_ADMIN", "ADMIN"],
-    airlines: ["SUPER_ADMIN", "ADMIN"],
-    airports: ["SUPER_ADMIN", "ADMIN"],
-    ferries: ["SUPER_ADMIN", "ADMIN"],
+    homepage: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    appearance: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    visas: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    airlines: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    airports: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    ferries: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
     "feature-flags": ["SUPER_ADMIN", "ADMIN"],
   };
   return (rules[entity] || []).includes(currentUser.role);
@@ -103,7 +108,30 @@ function initManagementTab() {
     if (card) card.classList.toggle("hidden", !mgmtCanWrite(entity));
   });
 
+  applyMgmtTabVisibilityForRole();
+
   loadActiveMgmtSubTab();
+}
+
+// Platform 3.0 Phase 15: a CONTENT_MANAGER only sees the content-
+// configuration sub-tabs — the backend already refuses everything else
+// server-side (see each module's routes.js), this just avoids showing a
+// tab that would only ever answer 403. If the currently-active tab is one
+// being hidden, falls back to "homepage" (the first content tab) instead
+// of leaving an empty panel selected.
+function applyMgmtTabVisibilityForRole() {
+  if (currentUser.role !== "CONTENT_MANAGER") return;
+
+  const contentTabs = new Set(["homepage", "appearance", "site-assets", "services", "visas", "airlines", "airports", "ferries"]);
+  let activeWasHidden = false;
+
+  document.querySelectorAll("#mgmt-tabs button").forEach((btn) => {
+    const visible = contentTabs.has(btn.dataset.mgmt);
+    btn.classList.toggle("hidden", !visible);
+    if (!visible && btn.classList.contains("active")) activeWasHidden = true;
+  });
+
+  if (activeWasHidden) activateMgmtSubTab("homepage");
 }
 
 function wireManagementTabs() {
@@ -428,6 +456,7 @@ const ROLE_LABELS_AR = {
   ADMIN: "مدير",
   EMPLOYEE: "موظف",
   ACCOUNTANT: "محاسب",
+  CONTENT_MANAGER: "مدير محتوى",
 };
 
 async function loadUsers() {

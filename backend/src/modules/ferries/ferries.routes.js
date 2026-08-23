@@ -32,15 +32,17 @@ router.get("/public", getPublic);
 
 router.use(requireAuth);
 
-router.get("/operators", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getOperators);
-router.post("/operators", requireRole("SUPER_ADMIN", "ADMIN"), storeOperator);
-router.patch("/operators/:id", requireRole("SUPER_ADMIN", "ADMIN"), patchOperator);
-router.delete("/operators/:id", requireRole("SUPER_ADMIN", "ADMIN"), destroyOperator);
-router.post("/operators/:id/logo", requireRole("SUPER_ADMIN", "ADMIN"), handleUpload, uploadOperatorLogo);
+// Platform 3.0 Phase 15: CONTENT_MANAGER added — this directory is
+// content configuration, never financial or operational.
+router.get("/operators", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"), getOperators);
+router.post("/operators", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), storeOperator);
+router.patch("/operators/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchOperator);
+router.delete("/operators/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), destroyOperator);
+router.post("/operators/:id/logo", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), handleUpload, uploadOperatorLogo);
 
-router.get("/schedules", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getSchedules);
-router.post("/operators/:operatorId/schedules", requireRole("SUPER_ADMIN", "ADMIN"), storeSchedule);
-router.patch("/schedules/:id", requireRole("SUPER_ADMIN", "ADMIN"), patchSchedule);
-router.delete("/schedules/:id", requireRole("SUPER_ADMIN", "ADMIN"), destroySchedule);
+router.get("/schedules", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"), getSchedules);
+router.post("/operators/:operatorId/schedules", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), storeSchedule);
+router.patch("/schedules/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchSchedule);
+router.delete("/schedules/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), destroySchedule);
 
 export default router;

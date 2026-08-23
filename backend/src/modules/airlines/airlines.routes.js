@@ -27,10 +27,12 @@ router.get("/public", getPublic);
 
 router.use(requireAuth);
 
-router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getAirlines);
-router.post("/", requireRole("SUPER_ADMIN", "ADMIN"), storeAirline);
-router.patch("/:id", requireRole("SUPER_ADMIN", "ADMIN"), patchAirline);
-router.delete("/:id", requireRole("SUPER_ADMIN", "ADMIN"), destroyAirline);
-router.post("/:id/logo", requireRole("SUPER_ADMIN", "ADMIN"), handleUpload, uploadAirlineLogo);
+// Platform 3.0 Phase 15: CONTENT_MANAGER added — this directory is
+// content configuration, never financial or operational.
+router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"), getAirlines);
+router.post("/", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), storeAirline);
+router.patch("/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchAirline);
+router.delete("/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), destroyAirline);
+router.post("/:id/logo", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), handleUpload, uploadAirlineLogo);
 
 export default router;

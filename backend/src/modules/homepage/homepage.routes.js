@@ -28,15 +28,14 @@ router.get("/public", getPublic);
 
 router.use(requireAuth);
 
-// CONTENT_MANAGER is added to these role lists in Batch 5 once the role
-// exists (see docs/PLATFORM-3-AUDIT.md) — SUPER_ADMIN/ADMIN already have
-// full config access today.
-router.get("/hero", requireRole("SUPER_ADMIN", "ADMIN"), getHero);
-router.patch("/hero", requireRole("SUPER_ADMIN", "ADMIN"), patchHero);
-router.get("/sections", requireRole("SUPER_ADMIN", "ADMIN"), getSections);
-router.post("/sections", requireRole("SUPER_ADMIN", "ADMIN"), storeSection);
-router.patch("/sections/:id", requireRole("SUPER_ADMIN", "ADMIN"), patchSection);
-router.delete("/sections/:id", requireRole("SUPER_ADMIN", "ADMIN"), destroySection);
-router.post("/sections/:id/image", requireRole("SUPER_ADMIN", "ADMIN"), handleUpload, uploadSectionImage);
+// Platform 3.0 Phase 15: CONTENT_MANAGER added — this is content
+// configuration, never financial or operational.
+router.get("/hero", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), getHero);
+router.patch("/hero", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchHero);
+router.get("/sections", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), getSections);
+router.post("/sections", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), storeSection);
+router.patch("/sections/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchSection);
+router.delete("/sections/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), destroySection);
+router.post("/sections/:id/image", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), handleUpload, uploadSectionImage);
 
 export default router;

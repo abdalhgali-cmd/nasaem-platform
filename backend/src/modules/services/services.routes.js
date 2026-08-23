@@ -42,18 +42,21 @@ router.get("/:serviceId/requirements/public", getPublicRequirements);
 
 router.use(requireAuth);
 
-router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getServices);
+// Platform 3.0 Phase 15: CONTENT_MANAGER added to the catalog-content
+// routes (read/create/update/reorder/image/requirements) — never to
+// DELETE /:id, which stays SUPER_ADMIN-only exactly as before.
+router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"), getServices);
 // Registered before /:id so "reorder" is never swallowed as an id param.
-router.patch("/reorder", requireRole("SUPER_ADMIN", "ADMIN"), patchReorder);
-router.get("/:id", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getService);
-router.post("/", requireRole("SUPER_ADMIN", "ADMIN"), storeService);
-router.patch("/:id", requireRole("SUPER_ADMIN", "ADMIN"), patchService);
+router.patch("/reorder", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchReorder);
+router.get("/:id", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"), getService);
+router.post("/", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), storeService);
+router.patch("/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchService);
 router.delete("/:id", requireRole("SUPER_ADMIN"), removeService);
-router.post("/:id/image", requireRole("SUPER_ADMIN", "ADMIN"), handleUpload, uploadServiceImage);
+router.post("/:id/image", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), handleUpload, uploadServiceImage);
 
-router.get("/:serviceId/requirements", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getRequirements);
-router.post("/:serviceId/requirements", requireRole("SUPER_ADMIN", "ADMIN"), storeRequirement);
-router.patch("/requirements/:id", requireRole("SUPER_ADMIN", "ADMIN"), patchRequirement);
-router.delete("/requirements/:id", requireRole("SUPER_ADMIN", "ADMIN"), destroyRequirement);
+router.get("/:serviceId/requirements", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"), getRequirements);
+router.post("/:serviceId/requirements", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), storeRequirement);
+router.patch("/requirements/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchRequirement);
+router.delete("/requirements/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), destroyRequirement);
 
 export default router;

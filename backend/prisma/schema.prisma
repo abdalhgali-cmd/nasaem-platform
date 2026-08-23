@@ -12,6 +12,13 @@ enum UserRole {
   ADMIN
   EMPLOYEE
   ACCOUNTANT
+  // Platform 3.0 Phase 15 — a staff member who manages public-facing
+  // content (homepage, theme, service/visa/airline/airport/ferry
+  // directories) and nothing else: never granted financial routes
+  // (payments, invoices, confirm-payment) or operational routes (orders,
+  // customers, contact-request processing, documents review). See each
+  // content module's routes.js for exactly where this role is added.
+  CONTENT_MANAGER
 }
 
 enum UserStatus {

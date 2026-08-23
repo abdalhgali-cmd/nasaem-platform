@@ -11,10 +11,9 @@ router.get("/public", getPublic);
 
 router.use(requireAuth);
 
-// CONTENT_MANAGER is added to these role lists in Batch 5 once the role
-// exists (see docs/PLATFORM-3-AUDIT.md) — SUPER_ADMIN/ADMIN already have
-// full config access today.
-router.get("/", requireRole("SUPER_ADMIN", "ADMIN"), getTheme);
-router.patch("/", requireRole("SUPER_ADMIN", "ADMIN"), patchTheme);
+// Platform 3.0 Phase 15: CONTENT_MANAGER added — this is content
+// configuration, never financial or operational.
+router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), getTheme);
+router.patch("/", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchTheme);
 
 export default router;

@@ -11,9 +11,11 @@ router.get("/search", getSearch);
 
 router.use(requireAuth);
 
-router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getAirports);
-router.post("/", requireRole("SUPER_ADMIN", "ADMIN"), storeAirport);
-router.patch("/:id", requireRole("SUPER_ADMIN", "ADMIN"), patchAirport);
-router.delete("/:id", requireRole("SUPER_ADMIN", "ADMIN"), destroyAirport);
+// Platform 3.0 Phase 15: CONTENT_MANAGER added — this directory is
+// content configuration, never financial or operational.
+router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"), getAirports);
+router.post("/", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), storeAirport);
+router.patch("/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchAirport);
+router.delete("/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), destroyAirport);
 
 export default router;
