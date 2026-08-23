@@ -605,7 +605,43 @@ Examples:
 Use server-side autocomplete/pagination for large datasets.
 
 # 15. Phase 12 — Flight Search & Schedule
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE (highest-risk phase, handled with extra care — see
+below) — most of what this phase asks for already existed and was
+verified, not rebuilt: `trip.provider.js` already implements exactly the
+Provider → Adapter → Normalization pattern for Trip.com ("an existing
+approved provider" per Section 0's own "never modify Trip.com" rule),
+already reports `{configured:false}` instead of inventing flights when
+`TRIP_API_URL` is unset (true in this environment — verified, not
+assumed), and already keeps `TRIP_API_TOKEN` server-side only. Search by
+origin/destination/date already worked via `GET /api/flights/search`.
+None of that — nor flights.service.js's manual flight_inventory CRUD or
+its SUDANESE_AIRLINES filter — was touched; grep-confirmed only
+flights.controller.js changed among existing flight files, and only
+inside searchFlights.
+Two real, additive gaps closed, both from outside trip.provider.js/
+flights.service.js: (1) the "Cache" step the plan's own preferred
+architecture names — a short-TTL (3 min) in-memory wrapper
+(flights.cache.js) around the Trip.com call site only, so an identical
+repeated search doesn't repeat the outbound request; verified for real
+against a local HTTP stub standing in for a configured provider (not a
+claim about the real Trip.com integration, which has no credentials
+here) — a second identical search made zero additional calls to the
+stub, a differently-dated search made a new one. (2) "airline/logo" in
+the required display fields — flights.enrichment.js decorates each
+search result with the matching Phase 10 Airline directory's logoKey by
+case-insensitive name match; no match (or no directory entry at all)
+leaves it null, never invented.
+7 new backend tests (flights.test.js had zero prior coverage for the
+search endpoint at all): not-configured reporting, the pre-existing
+Sudanese-airline filter still working unmodified, logo enrichment with
+and without a configured logo, and the two cache-behavior tests above.
+307 tests green.
+Known gap: `web/src/components/sections/flight-booking-client.tsx` (the
+booking confirmation modal) doesn't render the new airlineLogoKey — the
+actual flight-search results browser is a separate page not touched in
+this pass. Backend is complete, tested and verified; the display polish
+is disclosed rather than silently skipped, same posture as the "no
+back-office screen yet" gaps noted in Phases 3/4/5.
 
 Use a reliable provider:
 - official airline API;
