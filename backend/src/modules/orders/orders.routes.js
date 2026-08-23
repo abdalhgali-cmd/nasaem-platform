@@ -1,7 +1,7 @@
 import { Router } from "express";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
-import { assignOrderAction, changeOrderStatus, getOrder, getOrders, storeOrder } from "./orders.controller.js";
+import { assignOrderAction, changeOrderStatus, getOrder, getOrders, setOrderItemCost, storeOrder } from "./orders.controller.js";
 
 const router = Router();
 
@@ -12,5 +12,6 @@ router.get("/:id", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT")
 router.post("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), storeOrder);
 router.patch("/:id/status", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), changeOrderStatus);
 router.patch("/:id/assign", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), assignOrderAction);
+router.patch("/:id/items/:itemId/cost", requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"), setOrderItemCost);
 
 export default router;

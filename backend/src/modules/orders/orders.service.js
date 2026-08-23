@@ -94,6 +94,25 @@ export async function assignOrder(orderId, assignedUserId, changedByUserId) {
   return updated;
 }
 
+// Supplier cost is deliberately a separate, later action from order
+// creation (see orders.validators.js) — the invoice from the supplier
+// often arrives after the sale. Restricted at the route layer to
+// SUPER_ADMIN/ADMIN/ACCOUNTANT since it's financial data feeding gross
+// profit reporting (finance.service.js), not general order handling.
+export async function setItemSupplierCost(orderId, itemId, data) {
+  const item = await prisma.orderItem.findUnique({ where: { id: itemId } });
+  if (!item || item.orderId !== orderId) return null;
+
+  return prisma.orderItem.update({
+    where: { id: itemId },
+    data: {
+      supplierId: "supplierId" in data ? data.supplierId || null : undefined,
+      supplierCost: "supplierCost" in data ? (data.supplierCost ?? null) : undefined,
+    },
+    include: { service: true, supplier: true },
+  });
+}
+
 export async function getOrderById(id) {
   return prisma.order.findUnique({ where: { id }, include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, documents: true, payments: true, notes: true, history: true, notifications: true, branch: true } });
 }

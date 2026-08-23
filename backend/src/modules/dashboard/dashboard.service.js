@@ -66,9 +66,13 @@ export async function getDashboardSummary() {
     prisma.order.count({ where: { createdAt: { gte: startToday } } }),
     prisma.order.count({ where: { createdAt: { gte: startWeek } } }),
     prisma.order.count({ where: { createdAt: { gte: startMonth } } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startToday }, status: { not: "REFUNDED" } }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startWeek }, status: { not: "REFUNDED" } }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startMonth }, status: { not: "REFUNDED" } }, _sum: { amount: true } }),
+        // Only PAID counts as actually collected — a payment awaiting
+        // review (status stays UNPAID until confirmed, see
+        // payments.service.js) must not inflate "paid" before staff have
+        // actually confirmed it, same fix as recalculateOrderPaymentStatus.
+        prisma.payment.aggregate({ where: { createdAt: { gte: startToday }, status: "PAID" }, _sum: { amount: true } }),
+        prisma.payment.aggregate({ where: { createdAt: { gte: startWeek }, status: "PAID" }, _sum: { amount: true } }),
+        prisma.payment.aggregate({ where: { createdAt: { gte: startMonth }, status: "PAID" }, _sum: { amount: true } }),
     prisma.contactRequest.count({ where: { status: { not: "CLOSED" } } }),
   ]);
   return { periods: { today: { orders: todayOrders, paid: todayPayments._sum.amount || 0 }, last7Days: { orders: weekOrders, paid: weekPayments._sum.amount || 0 }, month: { orders: monthOrders, paid: monthPayments._sum.amount || 0 } }, openContactRequests: openRequests, profit: null, profitNote: "لا يتم احتساب الربح حتى تتوفر تكلفة المورد الفعلية للطلب." };

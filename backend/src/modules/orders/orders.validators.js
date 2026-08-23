@@ -21,6 +21,11 @@ export const assignOrderSchema = z.object({
   assignedUserId: z.string().min(1).nullable(),
 });
 
+export const setItemCostSchema = z.object({
+  supplierId: z.string().min(1).optional().nullable(),
+  supplierCost: z.coerce.number().nonnegative().optional().nullable(),
+});
+
 export const updateOrderStatusSchema = z.object({
   status: z.enum([
     "NEW",
