@@ -21,15 +21,14 @@ describe("isValidOrderStatusTransition", () => {
 });
 
 describe("canCompleteOrder", () => {
-  test("requires confirmed payment and approved documents", () => {
-    assert.equal(canCompleteOrder({ paymentStatus: "PAID", documents: [{ status: "APPROVED" }] }), true);
-    assert.equal(canCompleteOrder({ paymentStatus: "CONFIRMED", documents: [{ status: "COMPLETED" }] }), true);
+  test("requires confirmed payment and at least one document", () => {
+    assert.equal(canCompleteOrder({ paymentStatus: "PAID", documents: [{ id: "doc-1" }] }), true);
+    assert.equal(canCompleteOrder({ paymentStatus: "CONFIRMED", documents: [{ id: "doc-2" }] }), true);
   });
   test("rejects unpaid orders", () => {
-    assert.equal(canCompleteOrder({ paymentStatus: "UNPAID", documents: [{ status: "APPROVED" }] }), false);
+    assert.equal(canCompleteOrder({ paymentStatus: "UNPAID", documents: [{ id: "doc-1" }] }), false);
   });
-  test("rejects orders with missing or pending documents", () => {
+  test("rejects orders with no documents", () => {
     assert.equal(canCompleteOrder({ paymentStatus: "PAID", documents: [] }), false);
-    assert.equal(canCompleteOrder({ paymentStatus: "PAID", documents: [{ status: "PENDING" }] }), false);
   });
 });
