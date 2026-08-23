@@ -10,8 +10,6 @@ function toDecimal(value) {
   return new Prisma.Decimal(Number(value || 0).toFixed(2));
 }
 
-// Allowed forward/back transitions between order statuses. COMPLETED,
-// REJECTED and CANCELLED are terminal — no further transitions from them.
 const ORDER_STATUS_TRANSITIONS = {
   NEW: ["UNDER_REVIEW", "CANCELLED"],
   UNDER_REVIEW: ["WAITING_DOCUMENTS", "PAYMENT_PENDING", "REJECTED", "CANCELLED"],
@@ -46,109 +44,48 @@ async function generateOrderNumber() {
   return `NH-${year}-${String(nextNumber).padStart(6, "0")}`;
 }
 
-// The list view intentionally omits items/payments/history (available on
-// getOrderById) to avoid pulling deeply nested relations for every row on
-// every page load.
 export async function listOrders({ page, limit, skip, status }) {
   const where = status ? { status } : undefined;
-
   const [data, total] = await Promise.all([
-    prisma.order.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-      include: {
-        customer: true,
-        assignedUser: { select: safeUserSelect },
-      },
-    }),
+    prisma.order.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, include: { customer: true, assignedUser: { select: safeUserSelect } } }),
     prisma.order.count({ where }),
   ]);
-
   return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function getOrderById(id) {
-  return prisma.order.findUnique({
-    where: { id },
-    include: {
-      customer: true,
-      assignedUser: { select: safeUserSelect },
-      items: {
-        include: { service: true },
-      },
-      documents: true,
-      payments: true,
-      notes: true,
-      history: true,
-      notifications: true,
-      branch: true,
-    },
-  });
+  return prisma.order.findUnique({ where: { id }, include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, documents: true, payments: true, notes: true, history: true, notifications: true, branch: true } });
 }
 
 export async function createOrder(data, actorUserId = null) {
   const orderNumber = await generateOrderNumber();
   const creatorUserId = actorUserId || data.assignedUserId;
-
-  if (!creatorUserId) {
-    throw new Error("A valid user is required to create an order history entry");
-  }
+  if (!creatorUserId) throw new Error("A valid user is required to create an order history entry");
 
   const items = data.items.map((item) => {
     const quantity = Number(item.quantity || 1);
     const unitPrice = toDecimal(item.unitPrice);
     const discount = toDecimal(item.discount || 0);
-    const total = unitPrice.mul(quantity).minus(discount);
-
-    return {
-      serviceId: item.serviceId,
-      quantity,
-      unitPrice,
-      discount,
-      total,
-    };
+    return { serviceId: item.serviceId, quantity, unitPrice, discount, total: unitPrice.mul(quantity).minus(discount) };
   });
-
   const totalAmount = items.reduce((sum, item) => sum.plus(item.total), new Prisma.Decimal(0));
 
-  return prisma.$transaction(async (tx) => {
-    const order = await tx.order.create({
-      data: {
-        orderNumber,
-        customerId: data.customerId,
-        assignedUserId: data.assignedUserId || null,
-        branchId: data.branchId || null,
-        status: "NEW",
-        paymentStatus: "UNPAID",
-        priority: data.priority || "NORMAL",
-        totalAmount,
-        currency: data.currency || "SAR",
-        items: {
-          create: items,
-        },
-        history: {
-          create: {
-            oldStatus: "NEW",
-            newStatus: "NEW",
-            changedByUserId: creatorUserId,
-            notes: "تم إنشاء الطلب",
-          },
-        },
-      },
-      include: {
-        customer: true,
-        assignedUser: { select: safeUserSelect },
-        items: {
-          include: { service: true },
-        },
-        history: true,
-      },
-    });
-
-    return order;
-  });
+  return prisma.$transaction(async (tx) => tx.order.create({
+    data: {
+      orderNumber,
+      customerId: data.customerId,
+      assignedUserId: data.assignedUserId || null,
+      branchId: data.branchId || null,
+      status: "NEW",
+      paymentStatus: "UNPAID",
+      priority: data.priority || "NORMAL",
+      totalAmount,
+      currency: data.currency || "SAR",
+      items: { create: items },
+      history: { create: { oldStatus: "NEW", newStatus: "NEW", changedByUserId: creatorUserId, notes: "تم إنشاء الطلب" } },
+    },
+    include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, history: true },
+  }));
 }
 
 function customerStatusMessage(order, status) {
@@ -158,105 +95,57 @@ function customerStatusMessage(order, status) {
 
 async function notifyOrderStatusChange(order, oldStatus, newStatus) {
   if (oldStatus === newStatus) return;
-
   const title = `تحديث الطلب ${order.orderNumber}`;
   const message = `تم تغيير حالة الطلب من ${ORDER_STATUS_LABELS[oldStatus] || oldStatus} إلى ${ORDER_STATUS_LABELS[newStatus] || newStatus}.`;
-
-  if (order.assignedUser?.id) {
-    await createNotification({
-      title,
-      message,
-      type: "ORDER_STATUS",
-      userId: order.assignedUser.id,
-      orderId: order.id,
-    });
-  }
-
-  const admins = await prisma.user.findMany({
-    where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" },
-    select: { id: true },
-  });
-
+  if (order.assignedUser?.id) await createNotification({ title, message, type: "ORDER_STATUS", userId: order.assignedUser.id, orderId: order.id });
+  const admins = await prisma.user.findMany({ where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" }, select: { id: true } });
   const uniqueRecipientIds = new Set(admins.map((admin) => admin.id));
   if (order.assignedUser?.id) uniqueRecipientIds.add(order.assignedUser.id);
+  await Promise.all([...uniqueRecipientIds].filter((id) => id !== order.assignedUser?.id).map((userId) => createNotification({ title, message, type: "ORDER_STATUS", userId, orderId: order.id })));
+  if (order.customer?.phone) sendWhatsAppMessage(order.customer.phone, customerStatusMessage(order, newStatus));
+}
 
-  await Promise.all(
-    [...uniqueRecipientIds]
-      .filter((id) => id !== order.assignedUser?.id)
-      .map((userId) =>
-        createNotification({
-          title,
-          message,
-          type: "ORDER_STATUS",
-          userId,
-          orderId: order.id,
-        })
-      )
-  );
+function hasRequiredDocuments(order) {
+  if (!Array.isArray(order.documents) || order.documents.length === 0) return false;
+  return order.documents.every((document) => document.status === "APPROVED" || document.status === "COMPLETED");
+}
 
-  if (order.customer?.phone) {
-    sendWhatsAppMessage(order.customer.phone, customerStatusMessage(order, newStatus));
-  }
+function hasConfirmedPayment(order) {
+  return order.paymentStatus === "PAID" || order.paymentStatus === "CONFIRMED";
+}
+
+export function canCompleteOrder(order) {
+  return hasConfirmedPayment(order) && hasRequiredDocuments(order);
 }
 
 export async function updateOrderStatus(orderId, status, changedByUserId, notes = null) {
-  if (!changedByUserId) {
-    throw new Error("A valid user is required to update order status");
-  }
+  if (!changedByUserId) throw new Error("A valid user is required to update order status");
 
   const updatedOrder = await prisma.$transaction(async (tx) => {
     const currentOrder = await tx.order.findUnique({
       where: { id: orderId },
-      select: { status: true },
+      include: { documents: { select: { id: true, status: true } } },
     });
-
-    if (!currentOrder) {
-      return null;
-    }
-
+    if (!currentOrder) return null;
     if (!isValidOrderStatusTransition(currentOrder.status, status)) {
-      const error = new Error(
-        `Cannot change order status from ${currentOrder.status} to ${status}`
-      );
+      const error = new Error(`Cannot change order status from ${currentOrder.status} to ${status}`);
       error.statusCode = 409;
       throw error;
     }
-
+    if (status === "COMPLETED" && !canCompleteOrder(currentOrder)) {
+      const error = new Error("لا يمكن إغلاق الطلب قبل تأكيد الدفع واكتمال المستندات المطلوبة");
+      error.statusCode = 409;
+      throw error;
+    }
     return tx.order.update({
       where: { id: orderId },
-      data: {
-        status,
-        history: {
-          create: {
-            oldStatus: currentOrder.status,
-            newStatus: status,
-            changedByUserId,
-            notes,
-          },
-        },
-      },
-      include: {
-        customer: true,
-        assignedUser: { select: safeUserSelect },
-        items: {
-          include: { service: true },
-        },
-        history: true,
-      },
+      data: { status, history: { create: { oldStatus: currentOrder.status, newStatus: status, changedByUserId, notes } } },
+      include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, history: true },
     });
   });
 
   if (!updatedOrder) return null;
-
-  const previousStatus = updatedOrder.history.length > 0
-    ? updatedOrder.history[updatedOrder.history.length - 1]?.oldStatus
-    : null;
-
-  if (previousStatus) {
-    // Notification delivery is deliberately outside the transaction so a
-    // slow WhatsApp/API/database failure cannot roll back a valid status change.
-    await notifyOrderStatusChange(updatedOrder, previousStatus, updatedOrder.status);
-  }
-
+  const previousStatus = updatedOrder.history.length > 0 ? updatedOrder.history[updatedOrder.history.length - 1]?.oldStatus : null;
+  if (previousStatus) await notifyOrderStatusChange(updatedOrder, previousStatus, updatedOrder.status);
   return updatedOrder;
 }
