@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Globe2, Hotel, Landmark, Package, Passport, Plane, Ship, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Globe2, Hotel, Landmark, Package, Stamp, Plane, Ship, type LucideIcon } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
@@ -22,7 +22,7 @@ const services: {
     href: "/umrah",
   },
   {
-    icon: Passport,
+        icon: Stamp,
     title: "التأشيرات",
     description: "زيارة عائلية، تأشيرة عمل، أو تأشيرات دولية — نتابع إجراءاتك بدقة وسرعة حتى الاستلام.",
     href: "/visas",
