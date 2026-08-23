@@ -599,6 +599,31 @@ model FerrySchedule {
   @@index([sortOrder])
 }
 
+// Platform 3.0 Phase 10 (Airline Directory). A standalone reference
+// directory — deliberately NOT wired into flight_inventory/flight_bookings
+// (raw-SQL tables with no Prisma model) or flights.service.js's
+// SUDANESE_AIRLINES filter, since the plan explicitly says not to change
+// flight-booking business logic unnecessarily; `airline_name` there stays
+// the free-text field it already is. iataCode/icaoCode are normalized to
+// uppercase at the API layer and unique when set (Postgres unique
+// constraints allow multiple NULLs, so "unknown code" isn't blocked).
+model Airline {
+  id        String   @id @default(cuid())
+  name      String
+  nameEn    String?
+  iataCode  String?  @unique
+  icaoCode  String?  @unique
+  logoKey   String?
+  website   String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@index([sortOrder])
+}
+
 // A travel batch for a group Umrah trip. Deliberately thin: it holds the
 // group-level logistics (name/date/airline/hotel/transport) and nothing
 // else — every per-traveler fact (visa/ticket/payment/document readiness)

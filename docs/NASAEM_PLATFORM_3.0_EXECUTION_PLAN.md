@@ -519,7 +519,28 @@ Where supported:
 Do not break existing ferry functionality.
 
 # 13. Phase 10 — Airline Directory
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — new standalone Airline model (name/nameEn/iataCode/
+icaoCode/logo/website/active/order) — no such directory existed before;
+`airline_name` in the raw-SQL flight_inventory table was, and remains, a
+free-text column. Deliberately NOT wired into flight_inventory/
+flight_bookings or flights.service.js's SUDANESE_AIRLINES filter — this
+phase's own text says not to change flight-booking business logic
+unnecessarily, and grep-confirmed no file under modules/flights or
+modules/flight-bookings was touched. IATA (2 chars) and ICAO (3 chars)
+codes are normalized to uppercase and format-validated at the API layer,
+and unique at the DB level (Postgres unique constraints allow multiple
+NULLs, so an airline without a known code isn't blocked) — the existing
+Prisma-error middleware already turns that violation into a clean 409.
+Logo upload reuses the SiteAsset pipeline.
+9 new backend tests; 285 tests green. Verified live against the dev DB:
+created a real airline (Saudia) with lowercase input codes, confirmed
+they're stored uppercase, confirmed a duplicate IATA code is rejected
+(409), confirmed it appears on the public directory, uploaded and then
+reset its logo, and confirmed an unauthenticated create is rejected
+(401). Kept the real Saudia entry (without the placeholder test logo) as
+genuine reference data, same reasoning as Phase 8's Security Approvals
+config — real airlines relevant to the platform's Sudan-Saudi market, not
+fictional test fixtures.
 
 Create/extend a centralized airline directory:
 - Arabic name;
