@@ -20,6 +20,7 @@ describe("operations center", () => {
       "waitingDocuments",
       "waitingCustomer",
       "readyToDeliver",
+      "stalled",
     ].forEach((key) => assert.equal(typeof res.body.data.queues[key], "number"));
 
     for (const item of res.body.data.items) {
@@ -28,6 +29,8 @@ describe("operations center", () => {
       assert.ok(item.customerName);
       assert.ok(item.nextAction?.key);
       assert.ok(item.nextAction?.label);
+      assert.equal(typeof item.ageHours, "number");
+      assert.ok(item.ageHours >= 0);
       assert.equal("passwordHash" in item, false);
     }
   });
