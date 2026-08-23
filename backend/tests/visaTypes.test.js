@@ -124,3 +124,128 @@ describe("dynamic visa management (Platform 3.0 Phase 4)", () => {
     assert.equal(reorderRes.status, 403);
   });
 });
+
+describe("visa requirements engine (Platform 3.0 Phase 5)", () => {
+  let agent;
+  let visaType;
+
+  before(async () => {
+    agent = await loginAsSuperAdmin();
+    visaType = await createVisaType(agent);
+  });
+
+  test("creates, lists and updates a requirement", async () => {
+    const createRes = await agent.post(`/api/visa-types/${visaType.id}/requirements`).send({
+      name: "صورة شخصية",
+      nameEn: "Photo",
+      required: true,
+      attachmentType: "photo",
+      maxFiles: 2,
+      allowedMimeTypes: ["image/jpeg", "image/png"],
+      maxSizeBytes: 5_000_000,
+      ocrEnabled: false,
+    });
+    assert.equal(createRes.status, 201);
+    const reqId = createRes.body.data.id;
+    assert.equal(createRes.body.data.maxFiles, 2);
+    assert.deepEqual(createRes.body.data.allowedMimeTypes, ["image/jpeg", "image/png"]);
+
+    const listRes = await agent.get(`/api/visa-types/${visaType.id}/requirements`);
+    assert.equal(listRes.status, 200);
+    assert.ok(listRes.body.data.some((r) => r.id === reqId));
+
+    const patchRes = await agent.patch(`/api/visa-types/requirements/${reqId}`).send({ maxFiles: 3, active: false });
+    assert.equal(patchRes.status, 200);
+    assert.equal(patchRes.body.data.maxFiles, 3);
+    assert.equal(patchRes.body.data.active, false);
+  });
+
+  test("404s creating a requirement for a visa type that doesn't exist", async () => {
+    const res = await agent.post("/api/visa-types/does-not-exist/requirements").send({ name: "x" });
+    assert.equal(res.status, 404);
+  });
+
+  test("only active requirements appear on the public checklist, ordered by sortOrder", async () => {
+    const low = await agent
+      .post(`/api/visa-types/${visaType.id}/requirements`)
+      .send({ name: "متطلب أول", sortOrder: 1, active: true });
+    const high = await agent
+      .post(`/api/visa-types/${visaType.id}/requirements`)
+      .send({ name: "متطلب ثانٍ", sortOrder: 2, active: true });
+    const inactive = await agent
+      .post(`/api/visa-types/${visaType.id}/requirements`)
+      .send({ name: "متطلب معطل", active: false });
+
+    const publicRes = await request(app).get(`/api/visa-types/${visaType.id}/requirements/public`);
+    assert.equal(publicRes.status, 200);
+    const ids = publicRes.body.data.map((r) => r.id);
+    assert.ok(!ids.includes(inactive.body.data.id));
+
+    const lowIndex = publicRes.body.data.findIndex((r) => r.id === low.body.data.id);
+    const highIndex = publicRes.body.data.findIndex((r) => r.id === high.body.data.id);
+    assert.ok(lowIndex !== -1 && highIndex !== -1);
+    assert.ok(lowIndex < highIndex);
+  });
+
+  test("deletes a requirement", async () => {
+    const createRes = await agent.post(`/api/visa-types/${visaType.id}/requirements`).send({ name: "متطلب للحذف" });
+    const reqId = createRes.body.data.id;
+
+    const deleteRes = await agent.delete(`/api/visa-types/requirements/${reqId}`);
+    assert.equal(deleteRes.status, 200);
+
+    const listRes = await agent.get(`/api/visa-types/${visaType.id}/requirements`);
+    assert.ok(!listRes.body.data.some((r) => r.id === reqId));
+  });
+
+  test("404s updating/deleting a requirement that doesn't exist", async () => {
+    const patchRes = await agent.patch("/api/visa-types/requirements/does-not-exist").send({ name: "x" });
+    assert.equal(patchRes.status, 404);
+    const deleteRes = await agent.delete("/api/visa-types/requirements/does-not-exist");
+    assert.equal(deleteRes.status, 404);
+  });
+
+  test("EMPLOYEE cannot create or delete requirements, but can read them", async () => {
+    const suffix = uniqueSuffix();
+    const email = `visareq-employee-${suffix}@nasaem-platform.local`;
+    await agent.post("/api/users").send({ fullName: "VisaReq RBAC Employee", email, password: "TestPass@12345", role: "EMPLOYEE" });
+    const employeeAgent = request.agent(app);
+    await employeeAgent.post("/api/auth/login").send({ email, password: "TestPass@12345" });
+
+    const createRes = await employeeAgent.post(`/api/visa-types/${visaType.id}/requirements`).send({ name: "x" });
+    assert.equal(createRes.status, 403);
+    const listRes = await employeeAgent.get(`/api/visa-types/${visaType.id}/requirements`);
+    assert.equal(listRes.status, 200);
+  });
+
+  test("a submitted contact request snapshots the checklist at that moment, unaffected by later edits", async () => {
+    const snapVisaType = await createVisaType(agent);
+    const req1 = await agent
+      .post(`/api/visa-types/${snapVisaType.id}/requirements`)
+      .send({ name: "جواز السفر", attachmentType: "passport", required: true });
+    const reqId = req1.body.data.id;
+
+    const phone = `097${uniqueSuffix()}`;
+    const createRes = await request(app).post("/api/contact-requests").send({
+      name: "Snapshot Test",
+      phone,
+      message: "طلب لاختبار التقاطة المتطلبات",
+      visaTypeId: snapVisaType.id,
+    });
+    assert.equal(createRes.status, 201, JSON.stringify(createRes.body));
+    const contactRequestId = createRes.body.data.id;
+
+    // Now edit the live requirement template after submission.
+    await agent.patch(`/api/visa-types/requirements/${reqId}`).send({ name: "جواز السفر (معدّل)", active: false });
+
+    const listRes = await agent.get("/api/contact-requests?limit=200");
+    const found = listRes.body.data.find((r) => r.id === contactRequestId);
+    assert.ok(found, "expected the created contact request in the staff list");
+    assert.ok(Array.isArray(found.requirementsSnapshot));
+    assert.equal(found.requirementsSnapshot.length, 1);
+    // Snapshot keeps the name as it was AT SUBMISSION TIME, not the
+    // post-submission edit.
+    assert.equal(found.requirementsSnapshot[0].name, "جواز السفر");
+    assert.equal(found.requirementsSnapshot[0].attachmentType, "passport");
+  });
+});

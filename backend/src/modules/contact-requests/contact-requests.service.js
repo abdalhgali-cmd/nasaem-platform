@@ -46,6 +46,30 @@ export async function notifyAdmins({ title, message, type }) {
 export async function createContactRequest(data, req, files = []) {
   const documentLabels = data.documentLabels || [];
 
+  // Platform 3.0 Phase 5: capture the selected visa type's active
+  // requirements checklist AS IT IS RIGHT NOW. This is a point-in-time
+  // copy, not a live reference — an admin editing/deactivating a
+  // requirement later must never change what this specific application's
+  // checklist said at submission time.
+  const requirementsSnapshot = data.visaTypeId
+    ? await prisma.visaRequirement.findMany({
+        where: { visaTypeId: data.visaTypeId, active: true },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          nameEn: true,
+          description: true,
+          required: true,
+          attachmentType: true,
+          maxFiles: true,
+          allowedMimeTypes: true,
+          maxSizeBytes: true,
+          ocrEnabled: true,
+        },
+      })
+    : null;
+
   const contactRequest = await prisma.contactRequest.create({
     data: {
       name: data.name,
@@ -57,6 +81,7 @@ export async function createContactRequest(data, req, files = []) {
       visaTypeId: data.visaTypeId || null,
       travelerCount: data.travelerCount ?? null,
       intakeData: data.intakeData ?? undefined,
+      requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
       message: data.message,
       documents: files.length
         ? {

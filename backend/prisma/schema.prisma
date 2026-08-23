@@ -237,15 +237,15 @@ model Service {
 }
 
 model VisaType {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  name        String
-  country     String
-  description String?
-  basePrice   Decimal  @db.Decimal(12, 2)
-  currency    String   @default("SAR")
-  active      Boolean  @default(true)
-  serviceId   String?
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  country        String
+  description    String?
+  basePrice      Decimal  @db.Decimal(12, 2)
+  currency       String   @default("SAR")
+  active         Boolean  @default(true)
+  serviceId      String?
   // Platform 3.0 Phase 4 (Dynamic Visa Management) — admin-configurable
   // fields extending the existing model in place. `name` stays the
   // existing (Arabic) display name used everywhere already; nameEn is the
@@ -264,10 +264,48 @@ model VisaType {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  service         Service?         @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  service         Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   contactRequests ContactRequest[]
+  requirements    VisaRequirement[]
 
   @@index([country])
+  @@index([active])
+  @@index([sortOrder])
+}
+
+// Platform 3.0 Phase 5 (Visa Requirements Engine) — the checklist
+// template an admin defines per visa type. Deliberately just the
+// requirement's own attributes: no relation to Document/ContactRequest
+// here, because a requirement is a reusable definition, not a per-
+// applicant record. What a specific applicant was actually asked for is
+// captured separately as a point-in-time snapshot on the ContactRequest
+// itself (createContactRequest in contact-requests.service.js) — so
+// editing or deactivating a requirement later never rewrites what an
+// already-submitted application's checklist said at submission time.
+model VisaRequirement {
+  id               String   @id @default(cuid())
+  visaTypeId       String
+  name             String
+  nameEn           String?
+  description      String?
+  required         Boolean  @default(true)
+  // Free text (e.g. "passport_copy", "photo") rather than a fixed enum —
+  // Phase 6 (Attachment Engine) is what actually wires uploads against
+  // this; this phase only defines the checklist.
+  attachmentType   String?
+  maxFiles         Int      @default(1)
+  allowedMimeTypes String[] @default([])
+  maxSizeBytes     Int?
+  reviewRequired   Boolean  @default(true)
+  ocrEnabled       Boolean  @default(false)
+  sortOrder        Int      @default(0)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  visaType VisaType @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
+
+  @@index([visaTypeId])
   @@index([active])
   @@index([sortOrder])
 }
@@ -598,25 +636,30 @@ enum ContactRequestPaymentStatus {
 }
 
 model ContactRequest {
-  id                 String                      @id @default(cuid())
-  name               String
-  phone              String
-  phoneNormalized    String                      @default("")
-  email              String?
-  service            String?
-  serviceId          String?
-  visaTypeId         String?
-  travelerCount      Int?
-  intakeData         Json?
-  message            String
-  status             ContactRequestStatus        @default(NEW)
-  outcome            ContactRequestOutcome?
-  outcomeNote        String?
-  closedAt           DateTime?
-  paymentStatus      ContactRequestPaymentStatus @default(NOT_REQUIRED)
-  paymentConfirmedAt DateTime?
-  createdAt          DateTime                    @default(now())
-  updatedAt          DateTime                    @updatedAt
+  id                   String                      @id @default(cuid())
+  name                 String
+  phone                String
+  phoneNormalized      String                      @default("")
+  email                String?
+  service              String?
+  serviceId            String?
+  visaTypeId           String?
+  travelerCount        Int?
+  intakeData           Json?
+  // Platform 3.0 Phase 5 — a point-in-time copy of the selected visa
+  // type's active VisaRequirement checklist, captured at submission (see
+  // createContactRequest). Later edits to the live requirement templates
+  // must never change what an already-submitted request's checklist says.
+  requirementsSnapshot Json?
+  message              String
+  status               ContactRequestStatus        @default(NEW)
+  outcome              ContactRequestOutcome?
+  outcomeNote          String?
+  closedAt             DateTime?
+  paymentStatus        ContactRequestPaymentStatus @default(NOT_REQUIRED)
+  paymentConfirmedAt   DateTime?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
 
   serviceRef      Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   visaType        VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)

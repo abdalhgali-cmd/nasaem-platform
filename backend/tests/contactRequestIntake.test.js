@@ -60,9 +60,19 @@ describe("service intake — public catalog", () => {
       "VISA-INTERNATIONAL",
       "VISA-EGYPT-CLEARANCE",
     ];
-    assert.deepEqual(visaTypes.map((v) => v.code).sort(), expectedVisaCodes.sort());
+    // Subset, not exact-match: Platform 3.0 Phase 4 made visa types
+    // admin-creatable, so other test files (visaTypes.test.js) legitimately
+    // add more active visa types to this same catalog.
+    const actualCodes = visaTypes.map((v) => v.code);
+    for (const code of expectedVisaCodes) {
+      assert.ok(actualCodes.includes(code), `expected seeded visa ${code} in the public catalog`);
+    }
 
-    for (const visa of visaTypes) {
+    // Only the seeded visa types are guaranteed to be service-linked —
+    // Platform 3.0 Phase 4 made serviceId an optional field on admin-
+    // created visa types, so this can no longer be asserted catalog-wide.
+    const seededVisaTypes = visaTypes.filter((v) => expectedVisaCodes.includes(v.code));
+    for (const visa of seededVisaTypes) {
       assert.ok(visa.id, `expected an id for ${visa.code}`);
       assert.ok(visa.serviceId, `expected ${visa.code} to be linked to a parent service`);
       assert.equal(typeof visa.name, "string");

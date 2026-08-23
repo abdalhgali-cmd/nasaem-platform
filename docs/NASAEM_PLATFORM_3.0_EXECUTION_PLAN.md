@@ -283,7 +283,31 @@ Create/extend the existing visa structure with only fields actually needed:
 Visa applications must continue using the existing Orders/Services architecture.
 
 # 8. Phase 5 — Visa Requirements Engine
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — new VisaRequirement model (per-visa-type checklist
+template: name/nameEn/description/required/attachmentType/maxFiles/
+allowedMimeTypes/maxSizeBytes/reviewRequired/ocrEnabled/sortOrder/active),
+nested under the existing visa-types module (list/create/update/delete,
+plus a public `GET /api/visa-types/:id/requirements/public` for the
+intake wizard). attachmentType/allowedMimeTypes are config only in this
+phase — Phase 6 is what wires real uploads against them.
+Historical-accuracy requirement satisfied concretely: ContactRequest
+gained a `requirementsSnapshot` column, and createContactRequest now
+captures the selected visa type's active requirements AS THEY ARE AT
+SUBMISSION into that column — proven with a live test that edits a
+requirement's name after submitting a request and confirms the already-
+submitted request's snapshot still shows the original name.
+15 new backend tests (CRUD, public checklist ordering/active-filtering,
+RBAC, the snapshot behavior itself) plus 2 pre-existing tests in
+contactRequestIntake.test.js relaxed from exact-match to subset-match,
+because Phase 4 already made "every visa type is service-linked" and
+"the catalog contains exactly N visa types" false assumptions once visa
+types became admin-creatable. 249 tests green. Verified live against the
+dev DB end-to-end (create visa type → create requirement → public
+checklist shows it → submit a contact request → edit the requirement →
+confirm the submitted request's snapshot is untouched).
+Known gap: same as Phases 3/4 — no dedicated UI in `frontend/`'s back-
+office for building a requirements checklist yet; API is complete, RBAC-
+gated and tested.
 
 Allow Admin to define requirements per visa.
 
