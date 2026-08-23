@@ -1,3 +1,5 @@
+import { normalizePhone } from "./phone.js";
+
 const GRAPH_API_VERSION = "v21.0";
 
 function isConfigured() {
@@ -18,6 +20,18 @@ function isConfigured() {
 export async function sendWhatsAppMessage(to, body) {
   if (!isConfigured() || !to) return;
 
+  // Normalized here rather than trusted from the caller: the
+  // ContactRequest flow already normalizes before calling this (it stores
+  // phoneNormalized), but Order-related callers (orders.service.js,
+  // payments.controller.js) pass Customer.phone as staff typed it —
+  // whatever format that turns out to be (a leading 0, spaces, a leading
+  // +, ...) — and Meta's API silently rejects anything that isn't
+  // digits-only E.164 without the +. Normalizing centrally here means
+  // every current and future caller gets this for free instead of each
+  // one needing to remember to do it.
+  const recipient = normalizePhone(to);
+  if (!recipient) return;
+
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = process.env.WHATSAPP_API_TOKEN;
   const templateName = process.env.WHATSAPP_TEMPLATE_NAME;
@@ -25,7 +39,7 @@ export async function sendWhatsAppMessage(to, body) {
   const payload = templateName
     ? {
         messaging_product: "whatsapp",
-        to,
+        to: recipient,
         type: "template",
         template: {
           name: templateName,
@@ -35,7 +49,7 @@ export async function sendWhatsAppMessage(to, body) {
       }
     : {
         messaging_product: "whatsapp",
-        to,
+        to: recipient,
         type: "text",
         text: { body },
       };
