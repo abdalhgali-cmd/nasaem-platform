@@ -352,6 +352,26 @@ tbody tr:hover {
   font-weight: 600;
 }
 
+/* Platform 3.0 Phase 14 — a non-clickable label marking the start of a
+   group of tabs in #mgmt-tabs, so the configuration center reads as
+   organized sections instead of one long flat list. */
+.mgmt-tab-group {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mgmt-tab-group:not(:first-child) {
+  margin-inline-start: 10px;
+  padding-inline-start: 10px;
+  border-inline-start: 1px solid var(--color-border);
+}
+
 .stat-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

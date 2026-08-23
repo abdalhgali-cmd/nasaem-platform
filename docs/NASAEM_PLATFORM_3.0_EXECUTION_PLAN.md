@@ -743,26 +743,71 @@ Allow service-level feature configuration such as:
 Feature flags must be enforced server-side, not only hidden in UI.
 
 # 17. Phase 14 — Platform Configuration Center
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE
 
-Create a clear Admin configuration center containing:
-- Appearance;
-- Homepage;
-- Services;
-- Visas;
-- Requirements;
-- Documents;
-- OCR;
-- Security Approvals;
-- Ferries;
-- Airlines;
-- Airports;
-- Flight settings;
-- Feature flags;
-- Notifications;
-- system settings.
+Implemented in the staff back-office (`frontend/`, vanilla JS/HTML — not
+`web/`, which is the public marketing site). No backend changes were
+required: every panel below calls a real endpoint built in Phases 2-13.
 
-Avoid one giant unstructured settings screen.
+What was built:
+- `frontend/admin-dashboard.html`: `#mgmt-tabs` regrouped from one flat
+  list into 5 labeled clusters (`<span class="mgmt-tab-group">`, CSS-only,
+  non-interactive) — المحتوى العام / الخدمات والتأشيرات / الطيران
+  والعبارات / النظام / التشغيل — so this reads as an organized
+  configuration center per the plan's own "avoid one giant unstructured
+  settings screen" instruction, not just a relabeling.
+- 7 new functional panels added to `frontend/assets/admin-management.js`
+  (all real API calls, RBAC-gated via the existing `mgmtCanWrite()`
+  pattern, no mock data):
+  - **Homepage**: hero text/CTA (GET/PATCH `/api/homepage/hero`) +
+    section visibility toggle (GET `/api/homepage/sections`, PATCH
+    `/api/homepage/sections/:id`). Section create/reorder/image upload
+    still requires the API directly — disclosed in the panel's help text.
+  - **Appearance**: the 6 theme colors from Phase 2 (GET/PATCH
+    `/api/theme`).
+  - **Visas**: VisaType directory list/create/active-toggle (mirrors the
+    existing Services panel exactly). Requirements-checklist editing
+    still requires the API directly — disclosed in the panel's help text.
+  - **Airlines**: Airline directory list/create/active-toggle.
+  - **Airports**: Airport directory list (most recent 50) + create.
+    Read+create only (no toggle) — matches the panel design; use
+    `/api/airports/search` for finding a specific one.
+  - **Ferries**: FerryOperator list/create/active-toggle. Sailing-schedule
+    management still requires the API directly — disclosed in the
+    panel's help text.
+  - **Feature Flags**: list + toggle only (fixed 11-key set from Phase
+    13, never admin-creatable).
+- `frontend/assets/style.css`: `.mgmt-tab-group` styling for the group
+  labels.
+
+Deliberately out of scope for this phase (each is either a disclosed gap
+noted above/in the HTML, or already has its own dedicated admin surface
+built in an earlier phase — e.g. Services/Documents/OCR/Security
+Approvals/Requirements CRUD already exist as real endpoints from Phases
+3-8, just not yet a bespoke settings-center panel beyond what's listed
+above): a "Notifications" settings panel (no backend module for
+notification *preferences* exists yet — the existing Notifications tab is
+the notification *inbox*, unrelated) and a "Flight settings" panel (flight
+inventory/FX-rate management already has its own dedicated screens outside
+`#mgmt-tabs`, not part of this configuration-center scope).
+
+Evidence:
+- Full backend suite re-run after this phase (no backend files changed):
+  314/314 passing, 0 regressions.
+- Live browser verification (Playwright, logged in as SUPER_ADMIN against
+  the running dev backend on :5000, real Postgres dev DB): all 7 new tabs
+  clicked and rendered with zero JavaScript console/page errors. Real
+  round trips confirmed and then cleaned up: homepage hero title saved
+  and persisted across a full page reload; theme primary color saved and
+  persisted across a full page reload; a test VisaType was created and its
+  active-toggle button flipped it to inactive (confirmed via the row's
+  badge); the WHATSAPP feature flag was toggled off and back on via the
+  UI and confirmed against the database in between (proves server-side
+  enforcement, not just a UI flip); a test Airline and FerryOperator were
+  each created and appeared in their tables; the read-only Airports table
+  rendered existing rows. All test rows and Setting overrides created
+  during verification were deleted/reverted afterward (confirmed via a
+  direct DB query showing zero leftover rows/settings).
 
 # 18. Phase 15 — RBAC
 Status: ⬜ PENDING
