@@ -105,9 +105,11 @@ async function notifyOrderStatusChange(order, oldStatus, newStatus) {
   if (order.customer?.phone) sendWhatsAppMessage(order.customer.phone, customerStatusMessage(order, newStatus));
 }
 
+// The current Document model does not carry an approval status. Until the
+// required-document workflow is introduced, a non-empty document set is the
+// strongest safe readiness signal available without inventing schema fields.
 function hasRequiredDocuments(order) {
-  if (!Array.isArray(order.documents) || order.documents.length === 0) return false;
-  return order.documents.every((document) => document.status === "APPROVED" || document.status === "COMPLETED");
+  return Array.isArray(order.documents) && order.documents.length > 0;
 }
 
 function hasConfirmedPayment(order) {
@@ -124,7 +126,7 @@ export async function updateOrderStatus(orderId, status, changedByUserId, notes 
   const updatedOrder = await prisma.$transaction(async (tx) => {
     const currentOrder = await tx.order.findUnique({
       where: { id: orderId },
-      include: { documents: { select: { id: true, status: true } } },
+      include: { documents: { select: { id: true } } },
     });
     if (!currentOrder) return null;
     if (!isValidOrderStatusTransition(currentOrder.status, status)) {
@@ -133,7 +135,7 @@ export async function updateOrderStatus(orderId, status, changedByUserId, notes 
       throw error;
     }
     if (status === "COMPLETED" && !canCompleteOrder(currentOrder)) {
-      const error = new Error("لا يمكن إغلاق الطلب قبل تأكيد الدفع واكتمال المستندات المطلوبة");
+      const error = new Error("لا يمكن إغلاق الطلب قبل تأكيد الدفع وإرفاق المستندات المطلوبة");
       error.statusCode = 409;
       throw error;
     }
