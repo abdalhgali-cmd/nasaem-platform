@@ -48,9 +48,6 @@ describe("contact request tracking (customer WhatsApp-OTP login)", () => {
     assert.ok(requestRes.body.debugCode, "expected debugCode in NODE_ENV=test");
 
     const agent = request.agent(app);
-
-    // A phone typed differently (with +249 instead of the leading 0) must
-    // still verify against the same code, proving normalization matches.
     const normalizedPhone = `+249${localPhone.slice(1)}`;
 
     const wrongCodeRes = await agent
@@ -72,6 +69,8 @@ describe("contact request tracking (customer WhatsApp-OTP login)", () => {
 
     const trackedRequest = listRes.body.data.find((r) => r.id === contactRequestId);
     assert.equal(trackedRequest.statusLabel, "تم استلام طلبك وهو قيد المراجعة");
+    assert.ok(Array.isArray(trackedRequest.paymentAccounts));
+    assert.equal(trackedRequest.paymentCurrency, null);
 
     const logoutRes = await agent.post("/api/tracking/logout");
     assert.equal(logoutRes.status, 200);
@@ -141,11 +140,7 @@ describe("contact request tracking (customer WhatsApp-OTP login)", () => {
     assert.equal(listRes.status, 200);
     assert.ok(listRes.body.data.every((r) => r.id !== undefined));
     assert.ok(listRes.body.data.some((r) => r.id === idA));
-    assert.equal(
-      listRes.body.data.length,
-      1,
-      "should only see the request submitted with this exact phone"
-    );
+    assert.equal(listRes.body.data.length, 1, "should only see the request submitted with this exact phone");
   });
 
   test("validation rejects a malformed code", async () => {
