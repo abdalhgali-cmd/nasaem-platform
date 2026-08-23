@@ -72,3 +72,33 @@ staff back-office API's public `/contact-requests` endpoint (see
 `../backend`). Set `NEXT_PUBLIC_API_URL` (see `.env.example`) to that API's
 base URL — defaults to `http://localhost:5000/api` for local dev. The
 backend must allow this site's origin via its own `CORS_ORIGIN` env var.
+
+## Mobile-viewport E2E tests (`e2e/`)
+
+Playwright regression tests for the staff surfaces most likely to be used
+from a phone: Operations Center and Payment Review (this app), plus the
+staff order/document intake flow (`../frontend/request.html`, served by the
+backend). They drive real browsers against a real backend + database and
+assert (a) no horizontal page overflow at a mobile viewport, (b) key
+interactive elements meet a reasonable touch-target size, and (c) the core
+flow (search/filter, confirm-payment button layout, create-order +
+upload-document) actually works at that width.
+
+Prerequisites — same as `backend/`'s own test suite, but against a
+non-disposable database (these tests read real UI state, not just hit the
+API): a migrated + seeded Postgres reachable at `DATABASE_URL`, with
+`SEED_ADMIN_PASSWORD` set to the password that admin account was seeded
+with (see `../backend/README.md`'s Testing section).
+
+```bash
+# from web/, with backend/ pointed at a migrated+seeded database
+SEED_ADMIN_PASSWORD=... DATABASE_URL=... npm run test:e2e
+```
+
+`playwright.config.ts` starts both `next dev` (this app) and the backend's
+`npm run start` automatically if they aren't already running. Not wired
+into CI yet — `.github/workflows/ci.yml` only runs the backend test suite
+today; running this suite in CI would need a Postgres service (like the
+backend job already has) plus a migrate+seed step before the Playwright
+run, which is a deliberate follow-up rather than something bundled into
+this change.
