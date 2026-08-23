@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Suspense, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { OperationsDeliverablePanel } from "@/components/sections/operations-deliverable-panel";
 
 function DeliveryContent() {
