@@ -91,14 +91,22 @@ export default defineConfig({
       cwd: __dirname,
       url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
+      // 60s wasn't enough on a cold GitHub Actions runner — `next dev`'s
+      // first compile is slower there than on a warm local machine or
+      // this dev sandbox (found running Phase 20's CI wiring: the e2e job
+      // failed with "Timed out waiting 60000ms from config.webServer").
+      timeout: 120_000,
+      stdout: "pipe",
+      stderr: "pipe",
     },
     {
       command: "npm run start",
       cwd: "../backend",
       url: "http://localhost:5000/api/health",
       reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
+      timeout: 120_000,
+      stdout: "pipe",
+      stderr: "pipe",
     },
   ],
 });
