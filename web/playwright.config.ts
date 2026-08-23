@@ -43,6 +43,17 @@ export default defineConfig({
       use: { ...devices["Pixel 5"], baseURL: "http://localhost:3000" },
     },
     {
+      // Platform 3.0 Phase 18's required E2E scenarios (admin change on
+      // one surface → public site reflects it) — desktop viewport, since
+      // these aren't mobile-regression tests like the others in this
+      // file, they're data-flow tests. baseURL is the public site;
+      // backend/admin calls go through page.request with an absolute
+      // localhost:5000 URL, same pattern as web.spec.ts already uses.
+      name: "platform3",
+      testMatch: /platform3\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"], baseURL: "http://localhost:3000" },
+    },
+    {
       name: "mobile-frontend",
       testMatch: /frontend\.spec\.ts/,
       // Deliberately not devices["iPhone 12"]/any Apple preset — those
