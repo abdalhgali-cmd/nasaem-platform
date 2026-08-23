@@ -137,7 +137,11 @@ Record what exists, what is reusable, what is missing, schema/migration risks, s
 Do not modify blindly.
 
 # 4. Phase 1 — Site Builder / Homepage
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — HomepageSection model + hero Setting/SiteAsset keys,
+full admin CRUD + public endpoint, RBAC-gated, 11 backend tests, verified
+live in a real browser (hero text/CTA/image and section rename/reorder/
+hide all reflect on the public homepage). Commit: "feat: make homepage
+hero and service cards admin-controlled (Platform 3.0 Phase 1)".
 
 Make homepage content configurable from Admin.
 
@@ -169,7 +173,23 @@ Definition of Done:
 - tests cover admin CRUD and public retrieval.
 
 # 5. Phase 2 — Central Theme / Appearance
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — 6 color tokens (primary/secondary/accent/background/
+text/button) reuse the Setting table via a new `theme` module, #RRGGBB-only
+validation, RBAC-gated read/write + public endpoint, 6 backend tests.
+Frontend injects a `:root` CSS-variable override in the root layout (only
+for colors an admin actually set; unset ones keep the globals.css
+defaults) and a new `--color-button` token was wired into the primary
+Button variant so "button color" is a real, distinct, working control.
+Favicon (already an admin-uploadable SiteAsset since Phase 1) is now
+actually served publicly via a dynamic `app/icon.tsx` route that proxies
+the uploaded image and falls back to the bundled default. Verified live
+in a real browser: an invalid hex value is rejected (400), an
+unauthenticated PATCH is rejected (401), and after a fresh page load the
+computed `--color-primary`/`--color-button` reflect the admin's PATCH
+while unset tokens (e.g. secondary) keep their default — plus a
+byte-for-byte favicon swap confirmed via direct HTTP fetch before/after
+uploading a replacement image. Commit: "feat: make theme colors and
+favicon admin-controlled (Platform 3.0 Phase 2)".
 
 Create Admin appearance settings for:
 - primary color;
@@ -755,7 +775,9 @@ Do not claim READY without evidence.
 Update this section during execution:
 
 Batch 1 — Homepage/Theme:
-`⬜ PENDING`
+`🟢 COMPLETE` — Phase 1 (Site Builder/Homepage) and Phase 2 (Central
+Theme/Appearance) both done, tested and verified live; see their status
+notes above.
 
 Batch 2 — Services/Visas/Requirements/Attachments/OCR:
 `⬜ PENDING`
