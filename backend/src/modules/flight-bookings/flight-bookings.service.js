@@ -21,4 +21,21 @@ export async function confirmPayment(id, userId, note) { const booking = await g
 export async function issueFinalTicket(id, file) { const booking = await getFlightBooking(id); if (!booking) throw new Error("Booking not found"); if (booking.status !== "PAYMENT_CONFIRMED") throw badRequest("Payment must be confirmed before final ticket issuance"); const saved = await saveFile(file, booking.booking_number, "final-ticket"); await prisma.$executeRawUnsafe(`UPDATE flight_bookings SET status='FINAL_TICKET_ISSUED', final_ticket_path=$2, final_ticket_name=$3, final_ticket_uploaded_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=$1`, booking.id, saved.path, saved.name); await prisma.order.update({ where: { id: booking.order_id }, data: { status: "COMPLETED" } }); return getFlightBooking(booking.id); }
 export async function getBankAccounts() { return prisma.$queryRawUnsafe(`SELECT id,key,label,account_number,bank_name,active FROM flight_bank_accounts WHERE active=true ORDER BY label`); }
 export async function upsertBankAccount(input) { if (!input.key || !input.label || !input.accountNumber) throw badRequest("key, label and accountNumber are required"); const id = input.id || crypto.randomUUID(); await prisma.$executeRawUnsafe(`INSERT INTO flight_bank_accounts (id,key,label,account_number,bank_name,active) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (key) DO UPDATE SET label=EXCLUDED.label,account_number=EXCLUDED.account_number,bank_name=EXCLUDED.bank_name,active=EXCLUDED.active,updated_at=CURRENT_TIMESTAMP`, id, input.key, input.label, input.accountNumber, input.bankName || null, input.active !== false); return (await prisma.$queryRawUnsafe(`SELECT id,key,label,account_number,bank_name,active FROM flight_bank_accounts WHERE key=$1 LIMIT 1`, input.key))[0]; }
-export async function getBookingFile(idOrNumber, kind) { const booking = await getFlightBooking(idOrNumber); if (!booking) throw new Error("Booking not found"); const field = kind === "provisional" ? "provisional_ticket_path" : kind === "receipt" ? "payment_receipt_path" : kind === "final" ? "final_ticket_path" : null; if (!field || !booking[field]) throw new Error("File not available"); const absolute = path.resolve(process.cwd(), booking[field]); if (!absolute.startsWith(UPLOAD_DIR)) throw new Error("Invalid file path"); return { path: absolute, name: booking[field.replace("_path", "_name")] || path.basename(absolute) }; }
+// `requirePhoneMatch: true` is the customer-facing path (this booking's own
+// documents only, verified the same way getPublicFlightBooking/
+// submitPaymentReceipt already verify ownership); staff callers (the admin
+// route, already behind requireAuth+role) pass false since they're allowed
+// to see any booking's files.
+export async function getBookingFile(idOrNumber, kind, { phone, requirePhoneMatch } = {}) {
+  const booking = await getFlightBooking(idOrNumber);
+  if (!booking) throw new Error("Booking not found");
+  if (requirePhoneMatch) {
+    const notFound = Object.assign(new Error("Booking not found"), { statusCode: 404 });
+    if (!phone || normalizePhone(phone) !== normalizePhone(booking.customer_phone)) throw notFound;
+  }
+  const field = kind === "provisional" ? "provisional_ticket_path" : kind === "receipt" ? "payment_receipt_path" : kind === "final" ? "final_ticket_path" : null;
+  if (!field || !booking[field]) throw new Error("File not available");
+  const absolute = path.resolve(process.cwd(), booking[field]);
+  if (!absolute.startsWith(UPLOAD_DIR)) throw new Error("Invalid file path");
+  return { path: absolute, name: booking[field.replace("_path", "_name")] || path.basename(absolute) };
+}
