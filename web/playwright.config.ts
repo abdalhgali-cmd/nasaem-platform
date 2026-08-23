@@ -1,18 +1,23 @@
+import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
 // Mobile-viewport regression coverage for the staff-facing surfaces most
 // likely to be used from a phone in the field: the Operations Center and
 // Payment Review pages (web/, Next.js) and the customer-facing document
 // upload flow (frontend/request.html, served by the Express backend).
+// Also the Platform 3.0 "platform3" project (see below) covering the
+// plan's required E2E scenarios.
 //
 // Requires a migrated + seeded database (see backend/README.md's Testing
 // section) reachable at the DATABASE_URL the backend picks up, and
 // SEED_ADMIN_PASSWORD set to the password that account was seeded with —
 // same prerequisites as `npm test` in backend/, just pointed at a
 // non-disposable dev-style database since these tests read real UI state
-// rather than hitting the API directly. Not wired into CI yet (CI only
-// runs the backend test suite — see .github/workflows/ci.yml); run
-// `npm run test:e2e` locally after `npm run dev` prerequisites are met.
+// rather than hitting the API directly. Wired into CI as of Phase 20 —
+// see .github/workflows/ci.yml's `e2e` job; run `npm run test:e2e`
+// locally after `npm run dev` prerequisites are met.
+const SANDBOX_CHROMIUM_PATH = "/opt/pw-browsers/chromium";
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -26,11 +31,16 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     trace: "retain-on-failure",
-    // Matches this environment's pre-installed Chromium regardless of
-    // which @playwright/test version resolves — see AGENTS.md/session notes
-    // on PLAYWRIGHT_BROWSERS_PATH.
+    // Matches this development sandbox's pre-installed Chromium regardless
+    // of which @playwright/test version resolves — see AGENTS.md/session
+    // notes on PLAYWRIGHT_BROWSERS_PATH. Only applied when that sandbox
+    // path actually exists (or PLAYWRIGHT_CHROMIUM_PATH names a real one)
+    // — a real CI runner (GitHub Actions) has no /opt/pw-browsers at all,
+    // so there `executablePath` is left undefined and Playwright resolves
+    // whatever `npx playwright install` put in its own default location
+    // instead of pointing at a path that doesn't exist there.
     launchOptions: {
-      executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || "/opt/pw-browsers/chromium",
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || (existsSync(SANDBOX_CHROMIUM_PATH) ? SANDBOX_CHROMIUM_PATH : undefined),
       // Required to launch Chromium as root (this environment's containers
       // commonly run as root); harmless in a real, isolated CI/dev sandbox.
       args: process.env.PLAYWRIGHT_NO_SANDBOX === "0" ? [] : ["--no-sandbox"],
