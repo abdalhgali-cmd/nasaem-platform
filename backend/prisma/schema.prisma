@@ -191,8 +191,9 @@ model Customer {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  orders    Order[]
-  documents Document[]
+  orders           Order[]
+  documents        Document[]
+  umrahGroupMember UmrahGroupMember[]
 
   @@index([customerNo])
   @@index([passportNo])
@@ -272,15 +273,16 @@ model Order {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  customer      Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  assignedUser  User?                @relation("AssignedOrders", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  branch        Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  items         OrderItem[]
-  documents     Document[]
-  payments      Payment[]
-  notes         Note[]
-  history       OrderStatusHistory[]
-  notifications Notification[]
+  customer         Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignedUser     User?                @relation("AssignedOrders", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  branch           Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  items            OrderItem[]
+  documents        Document[]
+  payments         Payment[]
+  notes            Note[]
+  history          OrderStatusHistory[]
+  notifications    Notification[]
+  umrahGroupMember UmrahGroupMember[]
 
   @@index([customerId])
   @@index([assignedUserId])
@@ -419,6 +421,51 @@ model Offer {
   updatedAt   DateTime    @updatedAt
 
   @@index([status])
+}
+
+// A travel batch for a group Umrah trip. Deliberately thin: it holds the
+// group-level logistics (name/date/airline/hotel/transport) and nothing
+// else — every per-traveler fact (visa/ticket/payment/document readiness)
+// is read live off that member's existing Customer/Order rows instead of
+// being duplicated here, so a group is a view over Orders/Customers, not a
+// parallel system (see UmrahGroupMember and umrah-groups.service.js).
+model UmrahGroup {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  name       String
+  travelDate DateTime?
+  airline    String?
+  hotel      String?
+  transport  String?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  members UmrahGroupMember[]
+
+  @@index([travelDate])
+}
+
+model UmrahGroupMember {
+  id         String   @id @default(cuid())
+  groupId    String
+  customerId String
+  // The Umrah order this member's readiness (payment/documents/visa/ticket)
+  // is read from. Nullable: a customer can be added to a group before an
+  // order exists for them yet — they simply show as not ready until linked.
+  orderId    String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  group    UmrahGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  customer Customer   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order    Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([groupId, customerId])
+  @@index([groupId])
+  @@index([customerId])
+  @@index([orderId])
 }
 
 model ActivityLog {

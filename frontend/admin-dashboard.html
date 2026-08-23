@@ -104,6 +104,7 @@
         <button type="button" data-mgmt="settings">الإعدادات</button>
         <button type="button" data-mgmt="activity">سجل النشاط</button>
         <button type="button" data-mgmt="contact-requests">طلبات التواصل</button>
+        <button type="button" data-mgmt="umrah-groups">أفواج العمرة</button>
         <button type="button" data-mgmt="site-assets">الهوية والأيقونات</button>
       </div>
 
@@ -276,6 +277,26 @@
             <tbody id="contact-requests-body"></tbody>
           </table>
           <div class="pagination" id="contact-requests-pagination"></div>
+        </div>
+      </div>
+
+      <!-- Umrah Groups -->
+      <div id="mgmt-umrah-groups" class="hidden">
+        <div class="card hidden" id="umrah-group-create-card">
+          <h2>فوج عمرة جديد</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="ug-name">اسم الفوج *</label><input id="ug-name" /></div>
+            <div class="field"><label for="ug-travelDate">تاريخ السفر</label><input id="ug-travelDate" type="date" /></div>
+            <div class="field"><label for="ug-airline">شركة الطيران</label><input id="ug-airline" /></div>
+            <div class="field"><label for="ug-hotel">الفندق</label><input id="ug-hotel" /></div>
+            <div class="field"><label for="ug-transport">النقل</label><input id="ug-transport" /></div>
+          </div>
+          <button type="button" class="btn" id="umrah-group-create-btn">إضافة فوج</button>
+        </div>
+        <div class="card">
+          <h2>أفواج العمرة</h2>
+          <p class="muted">الجاهزية تُحسب مباشرة من الطلب المرتبط بكل عضو (الدفع، المستندات، التأشيرة، التذكرة) — وليست بيانات منفصلة.</p>
+          <div id="umrah-groups-body"></div>
         </div>
       </div>
 
