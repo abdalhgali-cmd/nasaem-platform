@@ -2,6 +2,10 @@ import { z } from "zod";
 
 export const uploadContactRequestDocumentSchema = z.object({
   label: z.string().trim().min(2, "يرجى تحديد نوع المستند").max(120),
+  // Platform 3.0 Phase 6 — optional link to the VisaRequirement checklist
+  // item this upload satisfies. Omitted entirely for uploads that aren't
+  // tied to a formal checklist (kept working exactly as before).
+  requirementId: z.string().trim().min(1).optional(),
 });
 
 export const reviewContactRequestDocumentSchema = z

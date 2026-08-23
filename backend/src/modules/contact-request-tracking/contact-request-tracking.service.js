@@ -97,10 +97,10 @@ async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
   });
 }
 
-export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file }) {
+export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file, requirementId }) {
   const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
   if (!contactRequest) return { error: "NOT_FOUND" };
-  return createContactRequestDocument(contactRequestId, { label, file });
+  return createContactRequestDocument(contactRequestId, { label, file, requirementId });
 }
 
 export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, file) {

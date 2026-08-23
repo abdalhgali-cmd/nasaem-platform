@@ -331,7 +331,35 @@ A selected visa must generate the correct checklist for future applications.
 Where historical accuracy matters, snapshot requirements onto submitted applications rather than allowing later edits to rewrite history.
 
 # 9. Phase 6 — Attachment Engine
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — ContactRequestDocument gained an optional
+`requirementId` link (onDelete: SetNull) to the VisaRequirement it
+satisfies. Both upload paths (tracking-portal re-upload and the Service
+Intake wizard's initial multi-file submission) now validate a tagged
+upload against that specific requirement's own allowedMimeTypes/
+maxSizeBytes/maxFiles rules — on top of the pre-existing generic global
+MIME/size filter (JPEG/PNG/WEBP/PDF, 10MB) every upload already went
+through. A submission with a bad file is rejected atomically (nothing is
+created) with a clear error naming which rule failed.
+Cross-customer access, path traversal and unauthorized downloads were
+already correctly handled before this phase (ownership checked via
+phoneNormalized on every tracking read/write, randomized on-disk
+filenames, a dedicated pre-existing regression test — "a customer can't
+act on another customer's documents") — verified this is still true
+rather than re-implementing it. "review required"/"OCR enabled" stay
+config-only in this phase (Phase 7 wires OCR; a skip-review workflow
+would change existing staff review behavior, which the plan's Section 0
+rules say not to do without a verified need). "customer/staff upload
+permission" doesn't apply yet: today only customers can upload
+ContactRequestDocuments at all (staff only download/review them, or
+upload separate "deliverables" through an unrelated flow) — no staff
+upload path exists to gate, so nothing was invented here.
+12 new backend tests (valid upload, wrong visa type, bad MIME, oversized,
+maxFiles reached, intake-wizard validation) across both upload paths; 255
+tests green. Verified live against the dev DB end-to-end: a real upload
+satisfying the rules succeeds and is linked to the requirement, a second
+upload against a maxFiles:1 requirement is rejected, and a PDF against an
+image/png-only requirement is rejected — both with the specific error
+code and rule that failed.
 
 Move from document-name-only requirements to real upload rules:
 - type;

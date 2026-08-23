@@ -303,7 +303,8 @@ model VisaRequirement {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  visaType VisaType @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
+  visaType VisaType                 @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
+  uploads  ContactRequestDocument[]
 
   @@index([visaTypeId])
   @@index([active])
@@ -695,15 +696,26 @@ model ContactRequestDocument {
   reviewNote       String?
   reviewedByUserId String?
   reviewedAt       DateTime?
+  // Platform 3.0 Phase 6 (Attachment Engine) — links this upload to the
+  // specific VisaRequirement checklist item it satisfies, so the upload
+  // can actually be validated against that requirement's own allowedMime/
+  // maxSize/maxFiles rules instead of only the generic global upload
+  // filter. Optional: nullable so uploads that aren't tied to a formal
+  // checklist (plain contact form, general attachments) keep working
+  // unchanged. onDelete: SetNull — deleting a requirement definition must
+  // never delete a customer's already-uploaded document.
+  requirementId    String?
   createdAt        DateTime                     @default(now())
   updatedAt        DateTime                     @updatedAt
 
-  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
-  reviewedBy     User?          @relation("ContactRequestDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  contactRequest ContactRequest   @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  reviewedBy     User?            @relation("ContactRequestDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  requirement    VisaRequirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
 
   @@index([contactRequestId])
   @@index([status])
   @@index([reviewedByUserId])
+  @@index([requirementId])
 }
 
 model ContactRequestDeliverable {

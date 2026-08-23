@@ -7,7 +7,38 @@ import { describeRequest, notifyAdmins } from "../contact-requests/contact-reque
 
 const UPLOAD_ROOT = path.resolve("uploads");
 
-export async function createContactRequestDocument(contactRequestId, { label, file }) {
+// Platform 3.0 Phase 6 (Attachment Engine) — when an upload is tied to a
+// specific VisaRequirement, validates it against that requirement's own
+// allowedMimeTypes/maxSizeBytes/maxFiles rules (on top of the generic
+// global MIME/size filter multer already applies to every upload).
+// Returns an error code the controller maps to a clean 400, or null if
+// the upload is fine to proceed.
+async function validateRequirementUpload(contactRequest, requirementId, file) {
+  const requirement = await prisma.visaRequirement.findUnique({ where: { id: requirementId } });
+
+  if (!requirement || requirement.visaTypeId !== contactRequest.visaTypeId) {
+    return { code: "REQUIREMENT_NOT_FOUND" };
+  }
+
+  if (requirement.allowedMimeTypes.length > 0 && !requirement.allowedMimeTypes.includes(file.mimetype)) {
+    return { code: "INVALID_MIME", allowedMimeTypes: requirement.allowedMimeTypes };
+  }
+
+  if (requirement.maxSizeBytes && file.size > requirement.maxSizeBytes) {
+    return { code: "FILE_TOO_LARGE", maxSizeBytes: requirement.maxSizeBytes };
+  }
+
+  const existingCount = await prisma.contactRequestDocument.count({
+    where: { contactRequestId: contactRequest.id, requirementId },
+  });
+  if (existingCount >= requirement.maxFiles) {
+    return { code: "MAX_FILES_REACHED", maxFiles: requirement.maxFiles };
+  }
+
+  return null;
+}
+
+export async function createContactRequestDocument(contactRequestId, { label, file, requirementId }) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
   });
@@ -16,10 +47,16 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
     return { error: "NOT_FOUND" };
   }
 
+  if (requirementId) {
+    const validationError = await validateRequirementUpload(contactRequest, requirementId, file);
+    if (validationError) return { error: validationError.code, details: validationError };
+  }
+
   const document = await prisma.contactRequestDocument.create({
     data: {
       contactRequestId,
       label,
+      requirementId: requirementId || null,
       fileName: file.originalname,
       // Relative to the uploads root, not the absolute server path — same
       // convention as documents.controller.js, so API responses never leak

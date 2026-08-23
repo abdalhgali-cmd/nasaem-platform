@@ -45,6 +45,7 @@ export async function notifyAdmins({ title, message, type }) {
 // left without the documents the customer attached to it.
 export async function createContactRequest(data, req, files = []) {
   const documentLabels = data.documentLabels || [];
+  const documentRequirementIds = data.documentRequirementIds || [];
 
   // Platform 3.0 Phase 5: capture the selected visa type's active
   // requirements checklist AS IT IS RIGHT NOW. This is a point-in-time
@@ -70,6 +71,38 @@ export async function createContactRequest(data, req, files = []) {
       })
     : null;
 
+  // Platform 3.0 Phase 6: validate each file tagged with a requirementId
+  // against that requirement's own rules — reusing the snapshot just
+  // fetched above rather than a second query per file. Rejects the whole
+  // submission (nothing is created) rather than silently dropping/
+  // mislabeling a file that doesn't satisfy its requirement.
+  if (documentRequirementIds.some(Boolean)) {
+    const requirementsById = new Map((requirementsSnapshot || []).map((r) => [r.id, r]));
+    const countByRequirement = new Map();
+
+    for (let i = 0; i < files.length; i += 1) {
+      const requirementId = documentRequirementIds[i];
+      if (!requirementId) continue;
+
+      const requirement = requirementsById.get(requirementId);
+      if (!requirement) return { error: "REQUIREMENT_NOT_FOUND" };
+
+      const file = files[i];
+      if (requirement.allowedMimeTypes.length > 0 && !requirement.allowedMimeTypes.includes(file.mimetype)) {
+        return { error: "INVALID_MIME", details: { requirementId, allowedMimeTypes: requirement.allowedMimeTypes } };
+      }
+      if (requirement.maxSizeBytes && file.size > requirement.maxSizeBytes) {
+        return { error: "FILE_TOO_LARGE", details: { requirementId, maxSizeBytes: requirement.maxSizeBytes } };
+      }
+
+      const seenCount = (countByRequirement.get(requirementId) || 0) + 1;
+      countByRequirement.set(requirementId, seenCount);
+      if (seenCount > requirement.maxFiles) {
+        return { error: "MAX_FILES_REACHED", details: { requirementId, maxFiles: requirement.maxFiles } };
+      }
+    }
+  }
+
   const contactRequest = await prisma.contactRequest.create({
     data: {
       name: data.name,
@@ -87,6 +120,7 @@ export async function createContactRequest(data, req, files = []) {
         ? {
             create: files.map((file, index) => ({
               label: documentLabels[index] || file.originalname,
+              requirementId: documentRequirementIds[index] || null,
               fileName: file.originalname,
               storagePath: path.join("contact-request-documents", file.filename),
               mimeType: file.mimetype,
