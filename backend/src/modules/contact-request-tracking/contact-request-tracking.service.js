@@ -19,7 +19,10 @@ export async function requestLoginCode(rawPhone) {
   const phone = normalizePhone(rawPhone);
   const code = String(randomInt(0, 1000000)).padStart(6, "0");
   const expiresAt = new Date(Date.now() + CODE_TTL_MS);
-  await prisma.contactRequestLoginCode.updateMany({ where: { phone, consumedAt: null }, data: { consumedAt: new Date() } });
+  await prisma.contactRequestLoginCode.updateMany({
+    where: { phone, consumedAt: null },
+    data: { consumedAt: new Date() },
+  });
   await prisma.contactRequestLoginCode.create({ data: { phone, code, expiresAt } });
   sendWhatsAppMessage(phone, `رمز التحقق الخاص بك لتتبع طلبك: ${code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.`);
   return { debugCode: process.env.NODE_ENV === "test" ? code : undefined };
@@ -35,7 +38,10 @@ export async function verifyLoginCode(rawPhone, code) {
   if (loginCode.code !== code) {
     const attempts = loginCode.attempts + 1;
     const exhausted = attempts >= MAX_ATTEMPTS;
-    await prisma.contactRequestLoginCode.update({ where: { id: loginCode.id }, data: { attempts, ...(exhausted ? { consumedAt: new Date() } : {}) } });
+    await prisma.contactRequestLoginCode.update({
+      where: { id: loginCode.id },
+      data: { attempts, ...(exhausted ? { consumedAt: new Date() } : {}) },
+    });
     return { success: false, message: exhausted ? "تم تجاوز عدد المحاولات المسموح، يرجى طلب رمز جديد" : "رمز التحقق غير صحيح" };
   }
   await prisma.contactRequestLoginCode.update({ where: { id: loginCode.id }, data: { consumedAt: new Date() } });
@@ -44,21 +50,51 @@ export async function verifyLoginCode(rawPhone, code) {
 
 export async function listContactRequestsForPhone(phoneNormalized) {
   const requests = await prisma.contactRequest.findMany({
-    where: { phoneNormalized }, orderBy: { createdAt: "desc" },
+    where: { phoneNormalized },
+    orderBy: { createdAt: "desc" },
     include: {
       invoice: true,
       documents: { orderBy: { createdAt: "desc" } },
-      offers: { orderBy: { createdAt: "desc" } },
       deliverables: { orderBy: { createdAt: "desc" } },
+      offers: { orderBy: { createdAt: "desc" } },
       serviceRef: { select: { id: true, name: true, category: true } },
       visaType: { select: { id: true, name: true, country: true } },
     },
   });
-  return requests.map((request) => ({ ...request, statusLabel: deriveTrackingStatusLabel(request) }));
+
+  const currencies = [...new Set(
+    requests
+      .map((request) => request.invoice?.currency || request.offers.find((offer) => offer.id === request.selectedOfferId)?.currency)
+      .filter(Boolean)
+  )];
+
+  const paymentAccounts = currencies.length
+    ? await prisma.paymentAccount.findMany({
+        where: { active: true, currency: { in: currencies } },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: { id: true, name: true, bankName: true, accountName: true, accountNumber: true, iban: true, currency: true },
+      })
+    : [];
+
+  return requests.map((request) => {
+    const selectedOffer = request.offers.find((offer) => offer.id === request.selectedOfferId);
+    const paymentCurrency = request.invoice?.currency || selectedOffer?.currency || null;
+    return {
+      ...request,
+      statusLabel: deriveTrackingStatusLabel(request),
+      paymentCurrency,
+      paymentAccounts: paymentCurrency
+        ? paymentAccounts.filter((account) => account.currency === paymentCurrency)
+        : [],
+    };
+  });
 }
 
 async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
-  return prisma.contactRequest.findFirst({ where: { id: contactRequestId, phoneNormalized }, include: { invoice: true, offers: true } });
+  return prisma.contactRequest.findFirst({
+    where: { id: contactRequestId, phoneNormalized },
+    include: { invoice: true, offers: true },
+  });
 }
 
 export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file }) {
@@ -77,13 +113,13 @@ export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, fi
     file,
   });
 
+  logActivity({ action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED", entity: "ContactRequest", entityId: contactRequestId });
   await notifyAdmins({
     title: "رفع إشعار دفع جديد",
     message: `رفع ${contactRequest.name} إشعار الدفع لطلبه، بانتظار المراجعة`,
     type: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED",
   });
 
-  logActivity({ action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED", entity: "ContactRequest", entityId: contactRequestId });
   return result;
 }
 
@@ -124,7 +160,8 @@ export async function rejectInvoice(phoneNormalized, contactRequestId) {
 
 export async function selectOffer(phoneNormalized, contactRequestId, offerId) {
   const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
-  if (!contactRequest || contactRequest.selectedOfferId) return { error: contactRequest ? "INVALID_STATE" : "NOT_FOUND" };
+  if (!contactRequest) return { error: "NOT_FOUND" };
+  if (contactRequest.selectedOfferId) return { error: "INVALID_STATE" };
   const offer = contactRequest.offers.find((candidate) => candidate.id === offerId);
   if (!offer) return { error: "NOT_FOUND" };
   await prisma.contactRequest.update({ where: { id: contactRequestId }, data: { selectedOfferId: offerId, paymentStatus: "AWAITING_TRANSFER" } });
