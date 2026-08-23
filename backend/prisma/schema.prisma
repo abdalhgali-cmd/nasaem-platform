@@ -624,6 +624,34 @@ model Airline {
   @@index([sortOrder])
 }
 
+// Platform 3.0 Phase 11 (Global Airport Directory). Standalone reference
+// data, same posture as Airline: not wired into flight_inventory/
+// flight_bookings. No sortOrder — unlike the small hand-curated
+// directories elsewhere in this schema, an airport directory is meant to
+// hold a large dataset searched by name/city/code (see
+// airports.service.js's searchAirports), not manually drag-reordered.
+// lat/lng are optional (@db.DoublePrecision — plain floating point is
+// precise enough for a map pin or a "nearest airport" hint; this isn't a
+// GIS system computing routes).
+model Airport {
+  id        String   @id @default(cuid())
+  nameAr    String
+  nameEn    String?
+  cityAr    String
+  cityEn    String?
+  countryAr String
+  countryEn String?
+  iataCode  String?  @unique
+  icaoCode  String?  @unique
+  latitude  Float?
+  longitude Float?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+}
+
 // A travel batch for a group Umrah trip. Deliberately thin: it holds the
 // group-level logistics (name/date/airline/hotel/transport) and nothing
 // else — every per-traveler fact (visa/ticket/payment/document readiness)

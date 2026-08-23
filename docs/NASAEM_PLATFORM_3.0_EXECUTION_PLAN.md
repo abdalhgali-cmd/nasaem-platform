@@ -556,7 +556,31 @@ Normalize and prevent duplicate codes.
 Do not change flight-booking business logic unnecessarily.
 
 # 14. Phase 11 — Global Airport Directory
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE — new standalone Airport model (nameAr/nameEn/cityAr/
+cityEn/countryAr/countryEn/IATA/ICAO/latitude/longitude/active), same
+posture as Airline: not wired into flight_inventory/flight_bookings.
+No sortOrder — an airport directory is meant to hold a large searched
+dataset, not be manually drag-reordered like the small hand-curated
+directories elsewhere. `GET /api/airports/search?q=` does true
+server-side autocomplete: case-insensitive partial match across
+nameAr/nameEn/cityAr/cityEn plus an exact match against IATA/ICAO,
+active-only, capped at a small limit — paired with `GET /api/airports`
+(paginated, admin-only, via the existing parsePagination/
+buildPaginationMeta utilities) for full-directory management. IATA
+(3 letters)/ICAO (4 letters) codes normalized to uppercase and unique,
+same pattern as Phase 10.
+15 new backend tests, including one test per the plan's own literal
+examples (جدة, Jeddah, King Abdulaziz, JED, OEJN) each independently
+proven to find the same seeded Jeddah/King Abdulaziz airport row — this
+is the real functional proof the search actually works the way the plan
+describes, not just that the endpoint returns 200. 300 tests green.
+Verified live against the dev DB: created the real Khartoum International
+Airport, confirmed it's findable by both its Arabic and English city
+name. Kept as genuine reference data (Khartoum being the single most
+relevant airport to this platform's Sudan-Saudi Umrah business) — the
+Jeddah/King Abdulaziz row used to prove the plan's literal search
+examples lives only in the automated test run against the separate test
+database, not the dev DB.
 
 Support:
 - Arabic airport/city name;
