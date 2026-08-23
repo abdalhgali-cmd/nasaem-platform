@@ -39,11 +39,17 @@ const PUBLIC_VISA_TYPE_SELECT = {
   id: true,
   code: true,
   name: true,
+  nameEn: true,
   country: true,
   description: true,
   basePrice: true,
   currency: true,
   serviceId: true,
+  type: true,
+  processingTime: true,
+  stayDuration: true,
+  validity: true,
+  entryType: true,
 };
 
 export async function listPublicCatalog() {
@@ -55,7 +61,7 @@ export async function listPublicCatalog() {
     }),
     prisma.visaType.findMany({
       where: { active: true },
-      orderBy: { name: "asc" },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: PUBLIC_VISA_TYPE_SELECT,
     }),
   ]);

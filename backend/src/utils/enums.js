@@ -4,6 +4,8 @@
 
 export const ORDER_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"];
 
+export const VISA_ENTRY_TYPES = ["SINGLE", "MULTIPLE"];
+
 // Currencies relevant to the routes this platform actually serves (Saudi
 // Arabia / Egypt / Sudan travel services, per frontend/assets/services-data.js).
 export const SUPPORTED_CURRENCIES = ["SAR", "USD", "EUR", "EGP", "SDG", "AED", "GBP"];

@@ -246,14 +246,30 @@ model VisaType {
   currency    String   @default("SAR")
   active      Boolean  @default(true)
   serviceId   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // Platform 3.0 Phase 4 (Dynamic Visa Management) — admin-configurable
+  // fields extending the existing model in place. `name` stays the
+  // existing (Arabic) display name used everywhere already; nameEn is the
+  // new optional English counterpart. type/processingTime/stayDuration/
+  // validity are free text (wording varies too much per country/embassy
+  // to force a fixed shape); entryType is validated against a small enum
+  // at the API layer only (utils/enums.js), same pattern as `category`
+  // elsewhere in this schema — avoids a migration if the set ever grows.
+  nameEn         String?
+  type           String?
+  processingTime String?
+  stayDuration   String?
+  validity       String?
+  entryType      String?
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   service         Service?         @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   contactRequests ContactRequest[]
 
   @@index([country])
   @@index([active])
+  @@index([sortOrder])
 }
 
 model Workflow {

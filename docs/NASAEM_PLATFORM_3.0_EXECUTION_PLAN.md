@@ -245,7 +245,27 @@ Do not duplicate the existing service model.
 Only active/published services should appear publicly.
 
 # 7. Phase 4 — Dynamic Visa Management
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE (API) — extended the existing VisaType model in place
+(nameEn/type/processingTime/stayDuration/validity/entryType/sortOrder;
+country/name/description/basePrice/currency/active/serviceId already
+existed). Built the first admin CRUD for visa types (there was none
+before — only read-only exposure via the public catalog): new
+`visa-types` module with list/get/create/update/delete/reorder, RBAC-
+gated the same way as services (SUPER_ADMIN/ADMIN write, SUPER_ADMIN-only
+delete). Deleting a visa type already referenced by a contact request
+deactivates it instead (same historical-integrity posture as services).
+entryType is validated against a small enum at the API layer only (no
+migration needed if it grows); type/processingTime/stayDuration/validity
+stay free text since wording varies too much per country/embassy to force
+a fixed shape. Public catalog (`GET /api/services/public`) now also
+orders visa types by sortOrder and returns the new fields. 8 new backend
+tests; 242 tests green. Verified live against the dev DB: created a visa
+type with every new field, confirmed it appears correctly on the public
+catalog, an invalid entryType is rejected (400), and an unauthenticated
+create is rejected (401).
+Known gap: same as Phase 3 — no dedicated visa-types screen in
+`frontend/`'s back-office yet (there wasn't one before this phase
+either); the API is complete, RBAC-gated and tested.
 
 Create/extend the existing visa structure with only fields actually needed:
 - country;
