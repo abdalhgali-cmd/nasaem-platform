@@ -7,6 +7,7 @@ import {
   approveMyInvoice,
   downloadMyDeliverableFile,
   downloadMyDocumentFile,
+  getMyPaymentAccounts,
   getMyRequests,
   logout,
   markMyTransferSent,
@@ -22,9 +23,7 @@ const router = Router();
 
 function handleUpload(req, res, next) {
   uploadContactRequestDocument(req, res, (error) => {
-    if (error) {
-      return res.status(400).json({ success: false, message: error.message || "File upload failed" });
-    }
+    if (error) return res.status(400).json({ success: false, message: error.message || "File upload failed" });
     next();
   });
 }
@@ -35,6 +34,7 @@ const verifyCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, stand
 router.post("/request-code", requestCodeLimiter, requestCode);
 router.post("/verify-code", verifyCodeLimiter, verifyCode);
 router.get("/requests", requireTrackingAuth, getMyRequests);
+router.get("/payment-accounts", requireTrackingAuth, getMyPaymentAccounts);
 router.post("/requests/:id/invoice/approve", requireTrackingAuth, approveMyInvoice);
 router.post("/requests/:id/invoice/reject", requireTrackingAuth, rejectMyInvoice);
 router.post("/requests/:id/offers/:offerId/select", requireTrackingAuth, selectMyOffer);
