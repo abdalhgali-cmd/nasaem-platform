@@ -40,6 +40,43 @@ describe("sendWhatsAppMessage", () => {
     assert.equal(fetchCalls.length, 0);
   });
 
+  // Regression: Order-related callers (orders.service.js, payments.
+  // controller.js) pass Customer.phone exactly as staff typed it — a
+  // leading 0, spaces/dashes, a leading + — while the ContactRequest flow
+  // already normalizes before calling this. Meta's API silently rejects
+  // anything that isn't digits-only E.164 without the +, so an
+  // un-normalized number here used to fail the send with no visible error
+  // (best-effort — see the try/catch below). Normalizing centrally in
+  // sendWhatsAppMessage fixes every caller at once.
+  test("normalizes a locally-formatted recipient number before sending", async () => {
+    process.env.WHATSAPP_API_TOKEN = "test-token";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "12345";
+
+    await sendWhatsAppMessage("0911 234-567", "hello");
+
+    assert.equal(fetchCalls.length, 1);
+    const body = JSON.parse(fetchCalls[0].options.body);
+    assert.equal(body.to, "249911234567");
+  });
+
+  test("normalizes a +-prefixed international recipient number before sending", async () => {
+    process.env.WHATSAPP_API_TOKEN = "test-token";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "12345";
+
+    await sendWhatsAppMessage("+249 91 123 4567", "hello");
+
+    const body = JSON.parse(fetchCalls[0].options.body);
+    assert.equal(body.to, "249911234567");
+  });
+
+  test("does nothing when the recipient normalizes to nothing", async () => {
+    process.env.WHATSAPP_API_TOKEN = "test-token";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "12345";
+
+    await sendWhatsAppMessage("not-a-phone-number", "hello");
+    assert.equal(fetchCalls.length, 0);
+  });
+
   test("sends a free-form text message when no template is configured", async () => {
     process.env.WHATSAPP_API_TOKEN = "test-token";
     process.env.WHATSAPP_PHONE_NUMBER_ID = "12345";

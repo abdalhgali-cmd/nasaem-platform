@@ -14,7 +14,10 @@ function flightStatusBadge(status) {
 }
 
 function flightFileUrl(id, kind) {
-  return `/api/flight-bookings/${encodeURIComponent(id)}/file/${kind}`;
+  // Staff-only path (requires the logged-in staff session cookie) — the
+  // plain /file/:kind route now requires the customer's phone number to
+  // prevent one customer from downloading another customer's documents.
+  return `/api/flight-bookings/${encodeURIComponent(id)}/staff-file/${kind}`;
 }
 
 function flightFormData(file) {

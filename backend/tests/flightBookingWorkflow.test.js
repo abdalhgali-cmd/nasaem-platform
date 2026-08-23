@@ -66,4 +66,57 @@ describe("flight booking workflow", () => {
     const res = await request(app).get(`/api/flight-bookings/public/${booking.booking_number}`).query({ phone: "249000000000" });
     assert.equal(res.status, 404);
   });
+
+  describe("document download isolation", () => {
+    let ownerPhone;
+    let ownedBooking;
+
+    before(async () => {
+      ownerPhone = `24993${uniqueSuffix().slice(-7)}`;
+      const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "File Isolation Test", phone: ownerPhone }, passengers: [{ firstName: "FILE", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }] });
+      ownedBooking = createRes.body.booking;
+      const provisionalRes = await admin.post(`/api/flight-bookings/${ownedBooking.id}/provisional-ticket`).attach("file", Buffer.from("provisional ticket contents"), "provisional.txt");
+      assert.equal(provisionalRes.status, 200);
+    });
+
+    // Regression: GET /:id/file/:kind used to hand back any booking's
+    // documents to anyone who knew (or guessed) the booking id/number, with
+    // no verification at all — a customer-document IDOR.
+    test("rejects a document download without the booking's phone number", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`);
+      assert.equal(res.status, 404);
+    });
+
+    test("rejects a document download with someone else's phone number", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).query({ phone: "249111111111" });
+      assert.equal(res.status, 404);
+    });
+
+    test("allows the document download with the matching phone number", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).query({ phone: ownerPhone });
+      assert.equal(res.status, 200);
+      assert.equal(res.text, "provisional ticket contents");
+    });
+
+    // Regression: GET /:id used to return full booking details (name,
+    // phone, amount, passengers) to anyone, unauthenticated.
+    test("requires staff auth to fetch a booking by id directly", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}`);
+      assert.equal(res.status, 401);
+    });
+
+    test("staff can fetch a booking by id and download its files via the staff-only routes", async () => {
+      const getRes = await admin.get(`/api/flight-bookings/${ownedBooking.id}`);
+      assert.equal(getRes.status, 200);
+      assert.equal(getRes.body.booking.id, ownedBooking.id);
+
+      const fileRes = await admin.get(`/api/flight-bookings/${ownedBooking.id}/staff-file/provisional`);
+      assert.equal(fileRes.status, 200);
+    });
+
+    test("EMPLOYEE cannot download staff files without authentication", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/staff-file/provisional`);
+      assert.equal(res.status, 401);
+    });
+  });
 });

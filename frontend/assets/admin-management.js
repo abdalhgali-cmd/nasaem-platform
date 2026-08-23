@@ -48,6 +48,7 @@ function mgmtCanWrite(entity) {
     offers: ["SUPER_ADMIN", "ADMIN"],
     users: ["SUPER_ADMIN"],
     "site-assets": ["SUPER_ADMIN", "ADMIN"],
+    "umrah-groups": ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"],
   };
   return (rules[entity] || []).includes(currentUser.role);
 }
@@ -84,6 +85,7 @@ function initManagementTab() {
     service: "services",
     offer: "offers",
     user: "users",
+    "umrah-group": "umrah-groups",
   };
   Object.entries(createCardEntities).forEach(([prefix, entity]) => {
     const card = el(`${prefix}-create-card`);
@@ -118,13 +120,15 @@ function wireManagementTabs() {
     loadContactRequests();
   });
   el("site-assets-grid").addEventListener("change", handleSiteAssetFileChange);
+  el("umrah-group-create-btn").addEventListener("click", createUmrahGroup);
+  el("umrah-groups-body").addEventListener("click", handleUmrahGroupsClick);
 }
 
 function activateMgmtSubTab(key) {
   document.querySelectorAll("#mgmt-tabs button").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.mgmt === key);
   });
-  ["branches", "suppliers", "services", "offers", "users", "settings", "activity", "contact-requests", "site-assets"].forEach((k) => {
+  ["branches", "suppliers", "services", "offers", "users", "settings", "activity", "contact-requests", "umrah-groups", "site-assets"].forEach((k) => {
     el(`mgmt-${k}`).classList.toggle("hidden", k !== key);
   });
   loadActiveMgmtSubTab();
@@ -145,6 +149,7 @@ function loadActiveMgmtSubTab() {
   if (tab === "settings") loadSettings();
   if (tab === "activity") loadActivityLogs();
   if (tab === "contact-requests") loadContactRequests();
+  if (tab === "umrah-groups") loadUmrahGroups();
   if (tab === "site-assets") loadSiteAssets();
 }
 
@@ -974,4 +979,239 @@ function handleSiteAssetFileChange(e) {
       showAlert(mgmtAlert(), error.message);
       input.disabled = false;
     });
+}
+
+// --- Umrah Groups ---
+//
+// A group is a thin wrapper around existing Customers/Orders: readiness
+// (visa/ticket/payment/documents) is computed server-side from each
+// member's linked Order and is never stored here, so it can't drift from
+// the order's real state. See umrah-groups.service.js.
+
+const umrahGroupsState = { groups: [], details: {}, expanded: new Set(), lookup: {} };
+
+async function loadUmrahGroups() {
+  try {
+    const { data } = await api.get("/umrah-groups");
+    umrahGroupsState.groups = data;
+    renderUmrahGroups();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function createUmrahGroup() {
+  showAlert(mgmtAlert(), "");
+  const name = el("ug-name").value.trim();
+  if (!name) return showAlert(mgmtAlert(), "اسم الفوج مطلوب.");
+
+  try {
+    await api.post("/umrah-groups", {
+      name,
+      travelDate: el("ug-travelDate").value || undefined,
+      airline: el("ug-airline").value.trim() || undefined,
+      hotel: el("ug-hotel").value.trim() || undefined,
+      transport: el("ug-transport").value.trim() || undefined,
+    });
+    el("ug-name").value = "";
+    el("ug-travelDate").value = "";
+    el("ug-airline").value = "";
+    el("ug-hotel").value = "";
+    el("ug-transport").value = "";
+    loadUmrahGroups();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function readinessBadge(ok, label) {
+  return `<span class="badge ${ok ? "status-ACTIVE" : "status-INACTIVE"}">${label}: ${ok ? "جاهز" : "غير جاهز"}</span>`;
+}
+
+function renderUmrahGroups() {
+  const groups = umrahGroupsState.groups || [];
+  if (!groups.length) {
+    el("umrah-groups-body").innerHTML = '<p class="muted">لا توجد أفواج عمرة بعد.</p>';
+    return;
+  }
+  el("umrah-groups-body").innerHTML = groups.map(renderUmrahGroupCard).join("");
+}
+
+function renderUmrahGroupCard(group) {
+  const s = group.summary;
+  const expanded = umrahGroupsState.expanded.has(group.id);
+  return `
+    <div class="card" style="margin-bottom: 14px">
+      <div class="stack" style="justify-content: space-between; flex-wrap: wrap">
+        <div>
+          <div style="font-weight: 700">${group.name} <span class="muted">(${group.code})</span></div>
+          <div class="muted" style="font-size: 12px">
+            ${group.travelDate ? `السفر: ${formatDate(group.travelDate)}` : "بلا تاريخ سفر محدد"}
+            ${group.airline ? ` · ${group.airline}` : ""}${group.hotel ? ` · ${group.hotel}` : ""}${group.transport ? ` · ${group.transport}` : ""}
+          </div>
+        </div>
+        <button type="button" class="btn secondary" data-toggle-group="${group.id}">${expanded ? "إخفاء الأعضاء" : "عرض الأعضاء"}</button>
+      </div>
+      <div class="grid cols-3" style="margin-top: 12px">
+        <div class="muted" style="font-size: 12px">إجمالي الأعضاء: <b>${s.totalMembers}</b></div>
+        <div class="muted" style="font-size: 12px">تأشيرة جاهزة: <b>${s.visaReady}</b></div>
+        <div class="muted" style="font-size: 12px">تذكرة جاهزة: <b>${s.ticketReady}</b></div>
+        <div class="muted" style="font-size: 12px">دفع مكتمل: <b>${s.paymentComplete}</b></div>
+        <div class="muted" style="font-size: 12px">مستندات مكتملة: <b>${s.documentsComplete}</b></div>
+        <div class="muted" style="font-size: 12px">جاهز بالكامل: <b>${s.fullyReady}</b></div>
+      </div>
+      ${expanded ? renderUmrahGroupDetail(group.id) : ""}
+    </div>`;
+}
+
+function renderUmrahGroupDetail(groupId) {
+  const detail = umrahGroupsState.details[groupId];
+  if (!detail) return '<p class="muted" style="margin-top:12px">جاري التحميل...</p>';
+
+  const lookup = umrahGroupsState.lookup[groupId];
+
+  return `
+    <div style="margin-top: 14px; border-top: 1px solid var(--border, #e5e7eb); padding-top: 14px">
+      <table>
+        <thead><tr><th>العميل</th><th>الجواز</th><th>الطلب</th><th>التأشيرة</th><th>التذكرة</th><th>الدفع</th><th>المستندات</th><th></th></tr></thead>
+        <tbody>
+          ${
+            detail.members.length
+              ? detail.members
+                  .map(
+                    (m) => `
+              <tr>
+                <td>${m.customer.fullName}</td>
+                <td dir="ltr">${m.customer.passportNo}</td>
+                <td>${m.order ? m.order.orderNumber : '<span class="muted">بلا طلب مرتبط</span>'}</td>
+                <td>${readinessBadge(m.readiness.visaReady, "")}</td>
+                <td>${readinessBadge(m.readiness.ticketReady, "")}</td>
+                <td>${readinessBadge(m.readiness.paymentReady, "")}</td>
+                <td>${readinessBadge(m.readiness.documentsReady, "")}</td>
+                <td>${mgmtCanWrite("umrah-groups") ? `<button type="button" class="btn secondary" data-remove-member="${groupId}:${m.id}">إزالة</button>` : ""}</td>
+              </tr>`
+                  )
+                  .join("")
+              : `<tr><td colspan="8" class="muted">لا يوجد أعضاء في هذا الفوج بعد.</td></tr>`
+          }
+        </tbody>
+      </table>
+      ${
+        mgmtCanWrite("umrah-groups")
+          ? `
+      <div class="stack" style="margin-top: 14px; flex-wrap: wrap">
+        <input placeholder="رقم جواز العميل" data-lookup-passport="${groupId}" style="max-width: 200px" />
+        <button type="button" class="btn secondary" data-lookup-btn="${groupId}">بحث عن عميل</button>
+      </div>
+      ${lookup ? renderUmrahLookupResult(groupId, lookup) : ""}
+      `
+          : ""
+      }
+    </div>`;
+}
+
+function renderUmrahLookupResult(groupId, lookup) {
+  if (lookup === "NOT_FOUND") return '<p class="muted" style="margin-top: 10px">لم يتم العثور على عميل بهذا الجواز.</p>';
+
+  const orderOptions = (lookup.orders || [])
+    .map((o) => `<option value="${o.id}">${o.orderNumber} — ${o.items?.[0]?.service?.name || "طلب"}</option>`)
+    .join("");
+
+  return `
+    <div class="card" style="margin-top: 10px; background: #f9fafb">
+      <div style="font-weight: 700">${lookup.fullName}</div>
+      <div class="muted" style="font-size: 12px">رقم الجواز: ${lookup.passportNo}</div>
+      <div class="grid cols-2" style="margin-top: 10px">
+        <div class="field">
+          <label>ربط بطلب (اختياري)</label>
+          <select data-member-order="${groupId}">
+            <option value="">بدون ربط بطلب</option>
+            ${orderOptions}
+          </select>
+        </div>
+      </div>
+      <button type="button" class="btn" style="margin-top: 10px" data-add-member="${groupId}:${lookup.id}">إضافة للفوج</button>
+    </div>`;
+}
+
+async function toggleUmrahGroup(groupId) {
+  if (umrahGroupsState.expanded.has(groupId)) {
+    umrahGroupsState.expanded.delete(groupId);
+    renderUmrahGroups();
+    return;
+  }
+  umrahGroupsState.expanded.add(groupId);
+  renderUmrahGroups();
+
+  try {
+    const { data } = await api.get(`/umrah-groups/${groupId}`);
+    umrahGroupsState.details[groupId] = data;
+    renderUmrahGroups();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function lookupUmrahCustomer(groupId) {
+  const input = document.querySelector(`[data-lookup-passport="${groupId}"]`);
+  const passportNo = input ? input.value.trim() : "";
+  if (!passportNo) return;
+
+  try {
+    const { data } = await api.get(`/customers/lookup?passportNo=${encodeURIComponent(passportNo)}`);
+    umrahGroupsState.lookup[groupId] = data || "NOT_FOUND";
+    renderUmrahGroups();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function addUmrahGroupMember(groupId, customerId) {
+  const select = document.querySelector(`[data-member-order="${groupId}"]`);
+  const orderId = select ? select.value : "";
+
+  try {
+    await api.post(`/umrah-groups/${groupId}/members`, { customerId, orderId: orderId || undefined });
+    delete umrahGroupsState.lookup[groupId];
+    const { data } = await api.get(`/umrah-groups/${groupId}`);
+    umrahGroupsState.details[groupId] = data;
+    await loadUmrahGroups();
+    umrahGroupsState.expanded.add(groupId);
+    renderUmrahGroups();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function removeUmrahGroupMember(groupId, memberId) {
+  try {
+    await api.delete(`/umrah-groups/${groupId}/members/${memberId}`);
+    const { data } = await api.get(`/umrah-groups/${groupId}`);
+    umrahGroupsState.details[groupId] = data;
+    await loadUmrahGroups();
+    umrahGroupsState.expanded.add(groupId);
+    renderUmrahGroups();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleUmrahGroupsClick(e) {
+  const toggleBtn = e.target.closest("[data-toggle-group]");
+  if (toggleBtn) return toggleUmrahGroup(toggleBtn.dataset.toggleGroup);
+
+  const lookupBtn = e.target.closest("[data-lookup-btn]");
+  if (lookupBtn) return lookupUmrahCustomer(lookupBtn.dataset.lookupBtn);
+
+  const addBtn = e.target.closest("[data-add-member]");
+  if (addBtn) {
+    const [groupId, customerId] = addBtn.dataset.addMember.split(":");
+    return addUmrahGroupMember(groupId, customerId);
+  }
+
+  const removeBtn = e.target.closest("[data-remove-member]");
+  if (removeBtn) {
+    const [groupId, memberId] = removeBtn.dataset.removeMember.split(":");
+    return removeUmrahGroupMember(groupId, memberId);
+  }
 }

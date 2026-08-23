@@ -1,4 +1,5 @@
-import { extractPassportData } from "./passport-ocr.service.js";
+import { comparePassportDataToCustomer, extractPassportData } from "./passport-ocr.service.js";
+import prisma from "../../config/database.js";
 
 export async function scanPassport(req, res, next) {
   try {
@@ -19,7 +20,19 @@ export async function scanPassport(req, res, next) {
       });
     }
 
-    return res.status(200).json({ success: true, data });
+    // Optional: compare against an existing customer's record (e.g. staff
+    // re-scanning a passport already on file) so a mismatched document is
+    // visible immediately rather than silently overwriting good data.
+    let comparison = null;
+    if (req.body?.customerId) {
+      const customer = await prisma.customer.findUnique({ where: { id: req.body.customerId } });
+      if (!customer) {
+        return res.status(404).json({ success: false, message: "Customer not found" });
+      }
+      comparison = comparePassportDataToCustomer(data, customer);
+    }
+
+    return res.status(200).json({ success: true, data, comparison });
   } catch (error) {
     next(error);
   }
