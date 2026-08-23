@@ -41,12 +41,18 @@ export async function upsertSiteAsset(key, file, req) {
     await fs.unlink(path.join(UPLOAD_ROOT, existing.storagePath)).catch(() => {});
   }
 
+  // fileName/storagePath/mimeType/sizeBytes are metadata, never the file's
+  // actual bytes — safe to record per Phase 16's "never log passport image
+  // bytes" rule (the same posture as every other upload in this file: only
+  // ever a path on disk, not the file content, is written anywhere).
   logActivity({
     userId: req.user?.id,
     action: "SITE_ASSET_UPDATED",
     entity: "SiteAsset",
     entityId: asset.id,
     req,
+    oldValue: existing,
+    newValue: asset,
   });
 
   return asset;

@@ -712,6 +712,13 @@ model ActivityLog {
   entityId  String?
   ipAddress String?
   userAgent String?
+  // Platform 3.0 Phase 16 — the entity's state before/after this action,
+  // where safe to record. Populated only by logActivity()'s redactSensitive()
+  // path (backend/src/utils/activityLog.js), which strips password/token/
+  // secret/passport-image fields before anything reaches this column —
+  // never write here directly.
+  oldValue  Json?
+  newValue  Json?
   createdAt DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)

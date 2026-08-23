@@ -25,8 +25,9 @@ export async function patchTheme(req, res, next) {
     const parsed = updateThemeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
+    const before = await getThemeColors();
     const data = await updateThemeColors(parsed.data);
-    logActivity({ userId: req.user?.id, action: "THEME_UPDATED", entity: "Theme", entityId: "theme", req });
+    logActivity({ userId: req.user?.id, action: "THEME_UPDATED", entity: "Theme", entityId: "theme", req, oldValue: before, newValue: data });
     return res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

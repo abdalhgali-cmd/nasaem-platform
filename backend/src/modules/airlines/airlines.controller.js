@@ -36,7 +36,7 @@ export async function storeAirline(req, res, next) {
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
     const airline = await createAirline(parsed.data);
-    logActivity({ userId: req.user?.id, action: "AIRLINE_CREATED", entity: "Airline", entityId: airline.id, req });
+    logActivity({ userId: req.user?.id, action: "AIRLINE_CREATED", entity: "Airline", entityId: airline.id, req, newValue: airline });
     return res.status(201).json({ success: true, data: airline });
   } catch (error) {
     next(error);
@@ -48,10 +48,11 @@ export async function patchAirline(req, res, next) {
     const parsed = updateAirlineSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
+    const before = await prisma.airline.findUnique({ where: { id: req.params.id } });
     const airline = await updateAirline(req.params.id, parsed.data);
     if (!airline) return res.status(404).json({ success: false, message: "Airline not found" });
 
-    logActivity({ userId: req.user?.id, action: "AIRLINE_UPDATED", entity: "Airline", entityId: airline.id, req });
+    logActivity({ userId: req.user?.id, action: "AIRLINE_UPDATED", entity: "Airline", entityId: airline.id, req, oldValue: before, newValue: airline });
     return res.status(200).json({ success: true, data: airline });
   } catch (error) {
     next(error);
@@ -63,7 +64,7 @@ export async function destroyAirline(req, res, next) {
     const airline = await deleteAirline(req.params.id);
     if (!airline) return res.status(404).json({ success: false, message: "Airline not found" });
 
-    logActivity({ userId: req.user?.id, action: "AIRLINE_DELETED", entity: "Airline", entityId: airline.id, req });
+    logActivity({ userId: req.user?.id, action: "AIRLINE_DELETED", entity: "Airline", entityId: airline.id, req, oldValue: airline });
     return res.status(200).json({ success: true, message: "Airline removed" });
   } catch (error) {
     next(error);

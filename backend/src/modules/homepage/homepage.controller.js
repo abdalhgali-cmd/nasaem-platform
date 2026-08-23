@@ -37,8 +37,9 @@ export async function patchHero(req, res, next) {
     const parsed = updateHeroSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
+    const before = await getHeroContent();
     const data = await updateHeroContent(parsed.data);
-    logActivity({ userId: req.user?.id, action: "HOMEPAGE_HERO_UPDATED", entity: "Homepage", entityId: "hero", req });
+    logActivity({ userId: req.user?.id, action: "HOMEPAGE_HERO_UPDATED", entity: "Homepage", entityId: "hero", req, oldValue: before, newValue: data });
     return res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
@@ -60,7 +61,7 @@ export async function storeSection(req, res, next) {
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
     const section = await createSection(parsed.data);
-    logActivity({ userId: req.user?.id, action: "HOMEPAGE_SECTION_CREATED", entity: "HomepageSection", entityId: section.id, req });
+    logActivity({ userId: req.user?.id, action: "HOMEPAGE_SECTION_CREATED", entity: "HomepageSection", entityId: section.id, req, newValue: section });
     return res.status(201).json({ success: true, data: section });
   } catch (error) {
     next(error);
@@ -72,10 +73,11 @@ export async function patchSection(req, res, next) {
     const parsed = updateSectionSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
+    const before = await prisma.homepageSection.findUnique({ where: { id: req.params.id } });
     const section = await updateSection(req.params.id, parsed.data);
     if (!section) return res.status(404).json({ success: false, message: "Section not found" });
 
-    logActivity({ userId: req.user?.id, action: "HOMEPAGE_SECTION_UPDATED", entity: "HomepageSection", entityId: section.id, req });
+    logActivity({ userId: req.user?.id, action: "HOMEPAGE_SECTION_UPDATED", entity: "HomepageSection", entityId: section.id, req, oldValue: before, newValue: section });
     return res.status(200).json({ success: true, data: section });
   } catch (error) {
     next(error);
@@ -87,7 +89,7 @@ export async function destroySection(req, res, next) {
     const section = await deleteSection(req.params.id);
     if (!section) return res.status(404).json({ success: false, message: "Section not found" });
 
-    logActivity({ userId: req.user?.id, action: "HOMEPAGE_SECTION_DELETED", entity: "HomepageSection", entityId: section.id, req });
+    logActivity({ userId: req.user?.id, action: "HOMEPAGE_SECTION_DELETED", entity: "HomepageSection", entityId: section.id, req, oldValue: section });
     return res.status(200).json({ success: true, message: "Section deleted" });
   } catch (error) {
     next(error);

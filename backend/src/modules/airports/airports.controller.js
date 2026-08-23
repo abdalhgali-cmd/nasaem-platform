@@ -2,6 +2,7 @@ import { createAirportSchema, searchAirportsSchema, updateAirportSchema } from "
 import { createAirport, deleteAirport, listAirports, searchAirports, updateAirport } from "./airports.service.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { parsePagination } from "../../utils/pagination.js";
+import prisma from "../../config/database.js";
 
 // Public: powers flight-search origin/destination typeahead (this phase
 // and, later, Phase 12) with no staff session available — same posture
@@ -33,7 +34,7 @@ export async function storeAirport(req, res, next) {
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
     const airport = await createAirport(parsed.data);
-    logActivity({ userId: req.user?.id, action: "AIRPORT_CREATED", entity: "Airport", entityId: airport.id, req });
+    logActivity({ userId: req.user?.id, action: "AIRPORT_CREATED", entity: "Airport", entityId: airport.id, req, newValue: airport });
     return res.status(201).json({ success: true, data: airport });
   } catch (error) {
     next(error);
@@ -45,10 +46,11 @@ export async function patchAirport(req, res, next) {
     const parsed = updateAirportSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
+    const before = await prisma.airport.findUnique({ where: { id: req.params.id } });
     const airport = await updateAirport(req.params.id, parsed.data);
     if (!airport) return res.status(404).json({ success: false, message: "Airport not found" });
 
-    logActivity({ userId: req.user?.id, action: "AIRPORT_UPDATED", entity: "Airport", entityId: airport.id, req });
+    logActivity({ userId: req.user?.id, action: "AIRPORT_UPDATED", entity: "Airport", entityId: airport.id, req, oldValue: before, newValue: airport });
     return res.status(200).json({ success: true, data: airport });
   } catch (error) {
     next(error);
@@ -60,7 +62,7 @@ export async function destroyAirport(req, res, next) {
     const airport = await deleteAirport(req.params.id);
     if (!airport) return res.status(404).json({ success: false, message: "Airport not found" });
 
-    logActivity({ userId: req.user?.id, action: "AIRPORT_DELETED", entity: "Airport", entityId: airport.id, req });
+    logActivity({ userId: req.user?.id, action: "AIRPORT_DELETED", entity: "Airport", entityId: airport.id, req, oldValue: airport });
     return res.status(200).json({ success: true, message: "Airport removed" });
   } catch (error) {
     next(error);

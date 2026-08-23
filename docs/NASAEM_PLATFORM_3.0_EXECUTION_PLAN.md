@@ -893,18 +893,88 @@ Evidence:
   Test account and its data deleted afterward.
 
 # 19. Phase 16 — Audit Logs
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE
 
-Sensitive configuration changes should record:
-- actor;
-- action;
-- entity;
-- entity ID;
-- timestamp;
-- old value where safe;
-- new value where safe.
+Extended the existing `ActivityLog` model/`logActivity()` helper (used
+throughout the codebase since before Platform 3.0) rather than building a
+second logging mechanism — actor/action/entity/entityId/timestamp were
+already recorded on every write in scope; what was missing was old/new
+value capture.
 
-Never log passwords, tokens, payment secrets or passport image bytes.
+What was built:
+- `prisma/schema.prisma`: `ActivityLog.oldValue Json?` /
+  `newValue Json?` added. Migration
+  `20260823205352_audit_log_old_new_values` — hand-stripped of the usual
+  proposed flight_* table drops, same recurring raw-SQL-table hazard as
+  every prior migration. Applied via `prisma migrate deploy` to both the
+  dev and test databases.
+- `backend/src/utils/activityLog.js`: `logActivity()` now accepts
+  optional `oldValue`/`newValue`, both passed through a new
+  `redactSensitive()` function before being stored — a structural
+  guarantee, not just caller discipline, for the plan's "never log
+  passwords, tokens, payment secrets or passport image bytes" rule.
+  `redactSensitive()` recursively walks the object (arrays included, with
+  a circular-reference guard) and replaces any key matching
+  `password|passwordHash|token|secret|apiKey|accountNumber|iban|
+  cardNumber|cvv|<passport/image/file>*<data/bytes/base64/buffer>` with
+  `"[REDACTED]"`, case-insensitively, at any depth.
+- Wired real `oldValue`/`newValue` into every existing `logActivity` call
+  in the Platform 3.0 Configuration Center modules: `homepage`
+  (hero + sections), `theme`, `site-assets` (upsert — file *metadata*
+  only: fileName/storagePath/mimeType/sizeBytes, never the file's actual
+  bytes), `services`, `visa-types`, `airlines`, `airports`, `ferries`
+  (operators + schedules), `feature-flags`. For CREATE actions,
+  `newValue` is the created record and `oldValue` is omitted (nothing
+  existed before). For DELETE, `oldValue` is the deleted record (already
+  returned by each `deleteX()` service function) and `newValue` is
+  omitted. For UPDATE, a `before` snapshot is fetched (one extra
+  read-only query per write — no service-layer business logic touched)
+  and paired with the already-returned updated record.
+- Also closed a genuine pre-existing gap found while doing this:
+  `services.controller.js`'s `storeService`/`patchService`/
+  `removeService` had **no** activity logging at all before this phase
+  (unlike every sibling content module) — `SERVICE_CREATED`/
+  `SERVICE_UPDATED`/`SERVICE_DELETED` now log the same way as the rest.
+- Disclosed, deliberate scope boundaries (not silently missing):
+  - `services.service.js`'s `deleteService` and `visa-types.service.js`'s
+    `deleteVisaType`/`ferries.service.js`'s `deleteOperator` all
+    soft-deactivate (set `active: false`) instead of hard-deleting when
+    the record is still referenced elsewhere (pre-existing business
+    logic, untouched). In that branch the "oldValue" logged for the
+    `*_DELETED` action is actually the already-deactivated record, not
+    a true pre-change snapshot — a minor audit-trail imprecision inherited
+    from that existing soft-delete behavior, not something this phase
+    changed.
+  - Old/new value capture was added only to the Configuration Center
+    modules above. `orders`, `payments`, `users`, `contact-requests`, and
+    `umrah-groups` already call `logActivity()` (pre-existing, from
+    before Platform 3.0) for actor/action/entity/entityId/timestamp, and
+    were deliberately left untouched — enriching them with before/after
+    snapshots would mean auditing order/payment business logic outside
+    this plan's stated scope. `branches`, `suppliers`, and `offers` have
+    no activity logging at all (a pre-existing gap, not a Phase 16
+    regression) — also left as a disclosed gap rather than expanded into
+    silently.
+
+Evidence:
+- New `backend/tests/activityLog.test.js` (5 tests): unit-tests
+  `redactSensitive()` directly — confirms password/passwordHash/
+  accessToken/apiKey/cardNumber/cvv/iban/token are stripped to
+  `"[REDACTED]"` at any nesting depth (object and array) while unrelated
+  fields pass through untouched, confirms passport-image-byte-shaped keys
+  are stripped, and confirms null/undefined/primitives pass through
+  unchanged. Two integration tests against the running API: `PATCH
+  /api/theme` followed by `GET /api/activity-logs` confirms the
+  `THEME_UPDATED` entry's `newValue.primary` matches the value just set
+  and `oldValue` is a genuine "before" snapshot (not equal to the new
+  value); creating then deleting a real airline confirms
+  `AIRLINE_CREATED`'s `newValue.name` matches and `oldValue` is `null`,
+  and `AIRLINE_DELETED`'s `oldValue.name` matches and `newValue` is
+  `null`. All 5 pass.
+- Full backend suite re-run: 331/331 passing (326 pre-existing + 5 new),
+  0 regressions.
+- `prisma migrate deploy` applied cleanly to both databases; flight_*
+  raw-SQL tables confirmed still present via `\dt` afterward.
 
 # 20. Phase 17 — Performance & Security
 Status: ⬜ PENDING
