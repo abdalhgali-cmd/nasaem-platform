@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useSearchParams } from "next/navigation";
 import { OperationsDeliverablePanel } from "@/components/sections/operations-deliverable-panel";
 
-export default function DeliveryPage() {
+function DeliveryContent() {
   const params = useSearchParams();
   const requestId = params.get("requestId") || "";
   const reference = params.get("reference") || requestId;
@@ -30,5 +30,22 @@ export default function DeliveryPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function DeliveryPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-section p-8">
+          <div className="mx-auto max-w-3xl rounded-3xl border bg-card p-8 text-center">
+            <h1 className="text-2xl font-black">التسليم النهائي</h1>
+            <p className="mt-3 text-sm text-muted-foreground">جاري تحميل الطلب...</p>
+          </div>
+        </main>
+      }
+    >
+      <DeliveryContent />
+    </Suspense>
   );
 }
