@@ -1446,6 +1446,60 @@ items, documents, payment) deleted afterward — confirmed via a direct
 DB query showing zero leftovers. Full backend suite re-run clean after:
 332/332.
 
+# Phase 22 — Close the two disclosed integration gaps: Requirements Engine → Public Visa Intake Wizard, Airline/Airport Directories → Public Flight Search
+
+`🟢 COMPLETE` — The two gaps Phase 18's E2E work disclosed (this session's
+own finding, not something papered over) are now closed:
+
+- `web/src/components/sections/service-intake-wizard.tsx` no longer uses
+  the hardcoded `UMRAH_DOCUMENTS`/`PACKAGE_DOCUMENTS`/
+  `VISA_DOCUMENTS_BY_CODE` maps. It fetches the live checklist from
+  `GET /api/{visa-types,services}/:id/requirements/public` for whichever
+  visa type/service is selected, and tags each upload with
+  `documentRequirementIds` — a field `contact-requests.service.js`
+  already validated (per-requirement MIME/size/max-files, OCR gating)
+  but the public wizard never actually sent, so that validation path was
+  dead code from the customer-facing form's side until now.
+  `backend/prisma/seed.js` seeds `VisaRequirement` rows that mirror the
+  old hardcoded checklists verbatim (idempotent — checked, not upserted,
+  since `VisaRequirement` has no natural unique key), so first-deploy
+  behavior for the existing 5 visa types + 7 services is unchanged.
+- `web/src/components/sections/flight-search-client.tsx` replaced its
+  free-text origin/destination inputs with a real autocomplete against
+  `GET /api/airports/search` (Arabic/English/city/IATA/ICAO); selecting a
+  suggestion fills the field with the airport's IATA code to match
+  `flights.service.js`'s exact-match route lookup (`LOWER(origin_code) =
+  LOWER($from)`) — free-text typing still works unchanged. Each result
+  card now also renders the matched airline's logo (`airlineLogoKey`,
+  already computed server-side by `flights.enrichment.js`'s
+  `attachAirlineLogos`). No flight matching, pricing, or Trip.com logic
+  was touched.
+
+Evidence: backend suite 335/335 (332 + 3 new regression tests in
+`contactRequestRequirementLinking.test.js` proving the
+`documentRequirementIds` link, MIME rejection, and max-files rejection
+now actually engage from a real caller); `web` typecheck and
+`next build` both clean; full Playwright E2E suite 17/17 (extended
+`platform3.spec.ts` to drive the real public UI for both features, not
+just assert the backend contract); `npx prisma migrate status` — schema
+up to date, no new migration needed (no `schema.prisma` changes, only
+`seed.js` data and application code); GitHub Actions CI green on the
+final commit (run
+[32703449005](https://github.com/abdalhgali-cmd/nasaem-platform/actions/runs/32703449005)).
+One real bug was found and fixed during this pass — not in the
+application, but in the new E2E test itself: an early version asserted
+`getByText(name, { exact: true })`, which never matched because the
+component renders the requirement name and its `*`/`(اختياري)` marker
+inside one `<span>`; fixed to a regex substring match (commit
+`2bbbd2b`), consistent with every other name assertion already in that
+file, and confirmed via an isolated rerun before committing.
+
+Pull request opened: `feature/platform-3-admin-controlled` → `main`
+(PR #32). Production deployment (Railway/Vercel) was deliberately not
+attempted — this session has no deployment credentials or access, and
+the plan's own rules forbid unrequested production actions; see the
+Final Report below.
+
 # 25. Final Acceptance Checklist
 
 The release is NOT complete until the following are evidenced.
