@@ -1,5 +1,5 @@
-import { loginSchema } from "./auth.validators.js";
-import { getCurrentUser, loginUser } from "./auth.service.js";
+import { changePasswordSchema, loginSchema } from "./auth.validators.js";
+import { changePassword, getCurrentUser, loginUser } from "./auth.service.js";
 import { getAccessTokenMaxAgeMs } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 
@@ -77,6 +77,51 @@ export async function logout(req, res, next) {
     return res.status(200).json({
       success: true,
       message: "Logout successful",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function changeMyPassword(req, res, next) {
+  try {
+    const parsed = changePasswordSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const result = await changePassword(req.user.id, parsed.data);
+
+    if (result === "invalid_current") {
+      return res.status(400).json({
+        success: false,
+        message: "Current password is incorrect",
+      });
+    }
+
+    if (result === "not_found") {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    logActivity({
+      userId: req.user.id,
+      action: "CHANGE_PASSWORD",
+      entity: "User",
+      entityId: req.user.id,
+      req,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Password changed successfully",
     });
   } catch (error) {
     next(error);

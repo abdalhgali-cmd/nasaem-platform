@@ -1,5 +1,5 @@
 import prisma from "../../config/database.js";
-import { comparePassword } from "../../utils/password.js";
+import { comparePassword, hashPassword } from "../../utils/password.js";
 import { signAccessToken } from "../../utils/jwt.js";
 
 function sanitizeUser(user) {
@@ -39,6 +39,21 @@ export async function loginUser({ email, password }) {
     token,
     user: sanitizeUser(user),
   };
+}
+
+// Returns "invalid_current" when currentPassword doesn't match the stored
+// hash, otherwise updates passwordHash and returns "success".
+export async function changePassword(userId, { currentPassword, newPassword }) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return "not_found";
+
+  const isCurrentValid = await comparePassword(currentPassword, user.passwordHash);
+  if (!isCurrentValid) return "invalid_current";
+
+  const passwordHash = await hashPassword(newPassword);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+
+  return "success";
 }
 
 export async function getCurrentUser(userId) {

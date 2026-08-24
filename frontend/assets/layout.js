@@ -5,6 +5,7 @@ function renderHeader(user, activePage) {
   const links = [
     { href: "/admin-dashboard.html", label: "لوحة التحكم", key: "dashboard" },
     { href: "/request.html", label: "طلب جديد", key: "request" },
+    { href: "/change-password.html", label: "تغيير كلمة المرور", key: "change-password" },
   ];
 
   const navHtml = links
