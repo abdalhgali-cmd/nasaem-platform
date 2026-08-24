@@ -1289,14 +1289,96 @@ Status: 🟢 COMPLETE
   clean `npm test` runs (331/331 each) after the fix.
 
 # 23. Phase 20 — CI/CD
-Status: ⬜ PENDING
+Status: 🟢 COMPLETE
 
-Before merge:
-- backend tests pass;
-- frontend typecheck passes;
-- frontend production build passes;
-- relevant E2E passes;
-- migration integrity passes.
+`.github/workflows/ci.yml` previously ran only the backend test suite.
+Extended with two new jobs so every item on this phase's own checklist is
+enforced automatically on every push/PR: `web` (frontend typecheck +
+production build) and `e2e` (the full Playwright suite — the two
+pre-existing mobile-regression specs plus Phase 18's `platform3`
+project). `backend`'s existing job already runs `npm test`, which
+includes `migrationIntegrity.test.js` (re-verified in Phase 19) — so
+"migration integrity passes" was already covered and needed no new job.
+
+This was not a paper exercise: the workflow was pushed and watched
+through **five real GitHub Actions runs** on the actual branch, each
+failure diagnosed from real job logs and fixed for real before the next
+push — the same reproduce → fix → regression-test → continue posture as
+every other bug found this session, just against CI instead of a local
+test run:
+
+1. **Run 1** (`push 662f8b5`): `e2e` failed — `Timed out waiting 60000ms
+   from config.webServer`. Also caught in this same push, without needing
+   a failing run: `playwright.config.ts` hardcoded
+   `launchOptions.executablePath` to this session's dev sandbox's
+   Chromium path (`/opt/pw-browsers/chromium`), which doesn't exist on a
+   real GitHub Actions runner — would have failed every e2e test at
+   browser launch regardless. Fixed proactively before the first push by
+   only applying that path when it (or an explicit
+   `PLAYWRIGHT_CHROMIUM_PATH`) actually exists on disk.
+2. **Run 2** (`push 4cad925`): raised both `webServer` timeouts to 120s
+   and added `stdout`/`stderr` piping (previously silent) — still failed,
+   same symptom, now with real diagnostic content.
+3. **Run 3** (`push f4e5f12`): the piped output showed the actual cause —
+   `next dev` was listening on port **5000**, not 3000. The `e2e` job set
+   `PORT: 5000` at the job level meaning only for the backend
+   (`node src/server.js`, which already defaults to 5000 without it) —
+   but `next dev` also reads `PORT` and bound to it too, leaving nothing
+   on port 3000. Removed the redundant/harmful env var.
+4. **Run 4** (`push 6f14f42`): web/'s dev server then started on the
+   right port but crashed immediately: *"Turbopack is not supported on
+   this platform (linux/x64) because native bindings are not available.
+   Only WebAssembly (WASM) bindings were loaded."* A fresh `npm install`
+   on the GitHub Actions Ubuntu image doesn't resolve a working native
+   SWC binary for this project; `next build` tolerates the WASM fallback
+   fine (the `web` job passed in every run), but `next dev`'s Turbopack
+   refuses to. Fixed by scoping `next dev --webpack` to just the
+   Playwright-driven dev server (the flag Next's own error message
+   names) — the real `npm run dev` script developers use locally is
+   untouched, since Turbopack works fine in every environment this was
+   actually tested in.
+5. **Run 5** (`push 26717c7`): `web` and `backend` passed; `e2e` got
+   13/14 tests green — real, substantial progress — but the new
+   "hero image" homepage E2E test hung for the full 180s test timeout.
+   The webServer output revealed a second, unrelated real bug found
+   along the way: `Failed to write activity log:
+   PrismaClientValidationError` on `VISA_TYPE_CREATED`/`_DELETED` and
+   `FERRY_SCHEDULE_CREATED`/`_DELETED`. `redactSensitive()`
+   (`backend/src/utils/activityLog.js`, Phase 16) didn't know about
+   Prisma `Decimal` fields (`VisaType.basePrice` etc.) — it walked one as
+   a generic object, serializing its internal `{constructor, s, e, d}`
+   shape instead of the value, which Prisma's `Json` column then
+   rejected. `logActivity()` swallows errors by design (a logging failure
+   must never break the real operation), so this had been failing
+   silently since Phase 16 until this exact CI run's piped output
+   surfaced it. Fixed by special-casing `Prisma.Decimal` (stored as a
+   string, preserving exact precision) with a new regression test. The
+   hero-image test's own hang was a second, independent bug: its
+   `pollByReloading()` helper gave each `check()` attempt no bounded
+   timeout, so a locator that didn't match on the very first navigation
+   hung the *entire* poll (Playwright locator methods default to the
+   test's overall timeout, not a short per-call one) instead of retrying
+   via a fresh reload. Fixed by giving each attempt its own 5s timeout
+   and catching/retrying instead of propagating the error.
+6. **Run 6** (`push 26717c7`'s fix, run 32670028142): all three jobs —
+   `backend`, `web`, `e2e` — passed. `Playwright E2E`: 14/14 (10
+   `platform3` + 2 `mobile-web` + 2 `mobile-frontend`). Confirmed via
+   `mcp__github__actions_list`/`get_workflow_run` against the real GitHub
+   Actions API, not assumed from a green checkmark alone. Also re-run
+   locally: 10/10 `platform3` tests passing standalone.
+
+Also: the current branch was added to the `push` trigger's branch list
+(previously only `main` and an older feature branch triggered CI on
+direct pushes; a PR always would have via `pull_request`'s unfiltered
+trigger, but none exists yet) — this is what made watching real runs on
+this branch possible in the first place.
+
+Two real bugs survive in the codebase from before this phase and were
+fixed as a direct result of building this CI pipeline (not found any
+other way this session): the Decimal-serialization audit-log bug above,
+and the `pollByReloading` polling bug in `platform3.spec.ts` itself. Both
+are now covered by regression tests/fixed behavior, not just papered
+over to get CI green.
 
 Avoid unnecessary Vercel deployments. If rate limited, stop deployment attempts and continue code/test work.
 
