@@ -41,14 +41,26 @@ const CONTACT_REQUEST_OUTCOMES = ["COMPLETED", "REJECTED", "CANCELLED"];
 
 function mgmtCanWrite(entity) {
   // Mirrors the requireRole(...) checks on each backend POST route.
+  // Platform 3.0 Phase 15: CONTENT_MANAGER is added only to the
+  // content-configuration entities (homepage/appearance/site-assets/
+  // services/visas/airlines/airports/ferries) — never to branches,
+  // suppliers, offers, users, umrah-groups or feature-flags, which are
+  // financial/operational/system permissions this role must not gain.
   const rules = {
     branches: ["SUPER_ADMIN"],
     suppliers: ["SUPER_ADMIN"],
-    services: ["SUPER_ADMIN", "ADMIN"],
+    services: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
     offers: ["SUPER_ADMIN", "ADMIN"],
     users: ["SUPER_ADMIN"],
-    "site-assets": ["SUPER_ADMIN", "ADMIN"],
+    "site-assets": ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
     "umrah-groups": ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"],
+    homepage: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    appearance: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    visas: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    airlines: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    airports: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    ferries: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
+    "feature-flags": ["SUPER_ADMIN", "ADMIN"],
   };
   return (rules[entity] || []).includes(currentUser.role);
 }
@@ -86,13 +98,40 @@ function initManagementTab() {
     offer: "offers",
     user: "users",
     "umrah-group": "umrah-groups",
+    visa: "visas",
+    airline: "airlines",
+    airport: "airports",
+    "ferry-operator": "ferries",
   };
   Object.entries(createCardEntities).forEach(([prefix, entity]) => {
     const card = el(`${prefix}-create-card`);
     if (card) card.classList.toggle("hidden", !mgmtCanWrite(entity));
   });
 
+  applyMgmtTabVisibilityForRole();
+
   loadActiveMgmtSubTab();
+}
+
+// Platform 3.0 Phase 15: a CONTENT_MANAGER only sees the content-
+// configuration sub-tabs — the backend already refuses everything else
+// server-side (see each module's routes.js), this just avoids showing a
+// tab that would only ever answer 403. If the currently-active tab is one
+// being hidden, falls back to "homepage" (the first content tab) instead
+// of leaving an empty panel selected.
+function applyMgmtTabVisibilityForRole() {
+  if (currentUser.role !== "CONTENT_MANAGER") return;
+
+  const contentTabs = new Set(["homepage", "appearance", "site-assets", "services", "visas", "airlines", "airports", "ferries"]);
+  let activeWasHidden = false;
+
+  document.querySelectorAll("#mgmt-tabs button").forEach((btn) => {
+    const visible = contentTabs.has(btn.dataset.mgmt);
+    btn.classList.toggle("hidden", !visible);
+    if (!visible && btn.classList.contains("active")) activeWasHidden = true;
+  });
+
+  if (activeWasHidden) activateMgmtSubTab("homepage");
 }
 
 function wireManagementTabs() {
@@ -122,13 +161,44 @@ function wireManagementTabs() {
   el("site-assets-grid").addEventListener("change", handleSiteAssetFileChange);
   el("umrah-group-create-btn").addEventListener("click", createUmrahGroup);
   el("umrah-groups-body").addEventListener("click", handleUmrahGroupsClick);
+
+  // Platform 3.0 Phase 14
+  el("hp-hero-save-btn").addEventListener("click", saveHomepageHero);
+  el("homepage-sections-body").addEventListener("click", handleHomepageSectionToggle);
+  el("theme-save-btn").addEventListener("click", saveTheme);
+  el("visa-create-btn").addEventListener("click", createVisaType);
+  el("visas-body").addEventListener("click", handleVisaTypeRowClick);
+  el("airline-create-btn").addEventListener("click", createAirline);
+  el("airlines-body").addEventListener("click", handleAirlineRowClick);
+  el("airport-create-btn").addEventListener("click", createAirport);
+  el("ferry-operator-create-btn").addEventListener("click", createFerryOperator);
+  el("ferry-operators-body").addEventListener("click", handleFerryOperatorRowClick);
+  el("feature-flags-body").addEventListener("click", handleFeatureFlagToggle);
 }
 
 function activateMgmtSubTab(key) {
   document.querySelectorAll("#mgmt-tabs button").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.mgmt === key);
   });
-  ["branches", "suppliers", "services", "offers", "users", "settings", "activity", "contact-requests", "umrah-groups", "site-assets"].forEach((k) => {
+  [
+    "branches",
+    "suppliers",
+    "services",
+    "offers",
+    "users",
+    "settings",
+    "activity",
+    "contact-requests",
+    "umrah-groups",
+    "site-assets",
+    "homepage",
+    "appearance",
+    "visas",
+    "airlines",
+    "airports",
+    "ferries",
+    "feature-flags",
+  ].forEach((k) => {
     el(`mgmt-${k}`).classList.toggle("hidden", k !== key);
   });
   loadActiveMgmtSubTab();
@@ -151,6 +221,16 @@ function loadActiveMgmtSubTab() {
   if (tab === "contact-requests") loadContactRequests();
   if (tab === "umrah-groups") loadUmrahGroups();
   if (tab === "site-assets") loadSiteAssets();
+  if (tab === "homepage") {
+    loadHomepageHero();
+    loadHomepageSections();
+  }
+  if (tab === "appearance") loadTheme();
+  if (tab === "visas") loadVisaTypes();
+  if (tab === "airlines") loadAirlines();
+  if (tab === "airports") loadAirports();
+  if (tab === "ferries") loadFerryOperators();
+  if (tab === "feature-flags") loadFeatureFlags();
 }
 
 const mgmtAlert = () => el("mgmt-alert");
@@ -376,6 +456,7 @@ const ROLE_LABELS_AR = {
   ADMIN: "مدير",
   EMPLOYEE: "موظف",
   ACCOUNTANT: "محاسب",
+  CONTENT_MANAGER: "مدير محتوى",
 };
 
 async function loadUsers() {
@@ -1214,4 +1295,349 @@ function handleUmrahGroupsClick(e) {
     const [groupId, memberId] = removeBtn.dataset.removeMember.split(":");
     return removeUmrahGroupMember(groupId, memberId);
   }
+}
+
+// --- Platform 3.0 Phase 14: Configuration Center ---
+// Homepage / Appearance / Visas / Airlines / Airports / Ferries /
+// Feature Flags admin panels for the modules built in Phases 2-13, which
+// previously had no admin UI at all (API-only). Sections still lacking a
+// dedicated control here (homepage section create/reorder/image, ferry
+// schedules, visa requirement checklists) are disclosed directly in the
+// panel's help text in admin-dashboard.html rather than silently missing.
+
+// --- Homepage ---
+
+async function loadHomepageHero() {
+  try {
+    const { data } = await api.get("/homepage/hero");
+    el("hp-title").value = data.title || "";
+    el("hp-ctaLabel").value = data.ctaLabel || "";
+    el("hp-description").value = data.description || "";
+    el("hp-ctaTarget").value = data.ctaTarget || "";
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function saveHomepageHero() {
+  showAlert(mgmtAlert(), "");
+  try {
+    await api.patch("/homepage/hero", {
+      title: el("hp-title").value.trim() || null,
+      ctaLabel: el("hp-ctaLabel").value.trim() || null,
+      description: el("hp-description").value.trim() || null,
+      ctaTarget: el("hp-ctaTarget").value.trim() || null,
+    });
+    loadHomepageHero();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function loadHomepageSections() {
+  try {
+    const { data } = await api.get("/homepage/sections");
+    const canWrite = mgmtCanWrite("homepage");
+    el("homepage-sections-body").innerHTML = data
+      .map(
+        (s) => `
+        <tr>
+          <td>${s.key}</td>
+          <td>${s.title}</td>
+          <td>${s.sortOrder}</td>
+          <td>${s.visible ? '<span class="badge status-ACTIVE">ظاهر</span>' : '<span class="badge status-INACTIVE">مخفي</span>'}</td>
+          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-section="${s.id}" data-visible="${s.visible}">${s.visible ? "إخفاء" : "إظهار"}</button>` : ""}</td>
+        </tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleHomepageSectionToggle(e) {
+  const btn = e.target.closest("[data-toggle-section]");
+  if (!btn) return;
+  const visible = btn.dataset.visible === "true";
+  api
+    .patch(`/homepage/sections/${btn.dataset.toggleSection}`, { visible: !visible })
+    .then(loadHomepageSections)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Appearance / Theme ---
+
+async function loadTheme() {
+  try {
+    const { data } = await api.get("/theme");
+    el("th-primary").value = data.primary || "";
+    el("th-secondary").value = data.secondary || "";
+    el("th-accent").value = data.accent || "";
+    el("th-background").value = data.background || "";
+    el("th-text").value = data.text || "";
+    el("th-button").value = data.button || "";
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function saveTheme() {
+  showAlert(mgmtAlert(), "");
+  try {
+    await api.patch("/theme", {
+      primary: el("th-primary").value.trim() || null,
+      secondary: el("th-secondary").value.trim() || null,
+      accent: el("th-accent").value.trim() || null,
+      background: el("th-background").value.trim() || null,
+      text: el("th-text").value.trim() || null,
+      button: el("th-button").value.trim() || null,
+    });
+    loadTheme();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+// --- Visas (VisaType directory) ---
+
+async function loadVisaTypes() {
+  try {
+    const { data } = await api.get("/visa-types?limit=100");
+    const canWrite = mgmtCanWrite("visas");
+    el("visas-body").innerHTML = data
+      .map(
+        (vt) => `
+        <tr>
+          <td>${vt.code}</td>
+          <td>${vt.name}</td>
+          <td>${vt.country}</td>
+          <td>${formatMoney(vt.basePrice, vt.currency)}</td>
+          <td>${vt.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
+          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-visa="${vt.id}" data-active="${vt.active}">${vt.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+        </tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function createVisaType() {
+  showAlert(mgmtAlert(), "");
+  const code = el("vt-code").value.trim();
+  const name = el("vt-name").value.trim();
+  const country = el("vt-country").value.trim();
+  if (!code || !name || !country) return showAlert(mgmtAlert(), "الرمز والاسم والدولة مطلوبة.");
+
+  try {
+    await api.post("/visa-types", {
+      code,
+      name,
+      country,
+      basePrice: Number(el("vt-basePrice").value) || 0,
+    });
+    el("vt-code").value = "";
+    el("vt-name").value = "";
+    el("vt-country").value = "";
+    el("vt-basePrice").value = "0";
+    loadVisaTypes();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleVisaTypeRowClick(e) {
+  const btn = e.target.closest("[data-toggle-visa]");
+  if (!btn) return;
+  const active = btn.dataset.active === "true";
+  api
+    .patch(`/visa-types/${btn.dataset.toggleVisa}`, { active: !active })
+    .then(loadVisaTypes)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Airlines (Airline directory) ---
+
+async function loadAirlines() {
+  try {
+    const { data } = await api.get("/airlines");
+    const canWrite = mgmtCanWrite("airlines");
+    el("airlines-body").innerHTML = data
+      .map(
+        (a) => `
+        <tr>
+          <td>${a.name}</td>
+          <td dir="ltr">${a.iataCode || "-"}</td>
+          <td dir="ltr">${a.icaoCode || "-"}</td>
+          <td>${a.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
+          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-airline="${a.id}" data-active="${a.active}">${a.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+        </tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function createAirline() {
+  showAlert(mgmtAlert(), "");
+  const name = el("al-name").value.trim();
+  if (!name) return showAlert(mgmtAlert(), "الاسم مطلوب.");
+
+  try {
+    await api.post("/airlines", {
+      name,
+      iataCode: el("al-iata").value.trim() || undefined,
+      icaoCode: el("al-icao").value.trim() || undefined,
+    });
+    el("al-name").value = "";
+    el("al-iata").value = "";
+    el("al-icao").value = "";
+    loadAirlines();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleAirlineRowClick(e) {
+  const btn = e.target.closest("[data-toggle-airline]");
+  if (!btn) return;
+  const active = btn.dataset.active === "true";
+  api
+    .patch(`/airlines/${btn.dataset.toggleAirline}`, { active: !active })
+    .then(loadAirlines)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Airports (Airport directory) ---
+// A large, searched dataset (see admin-dashboard.html's disclosure) — this
+// lists only the most recent page rather than offering full pagination
+// here; use GET /api/airports/search for finding a specific one.
+
+async function loadAirports() {
+  try {
+    const { data } = await api.get("/airports?limit=50");
+    el("airports-body").innerHTML = data
+      .map(
+        (ap) => `
+        <tr>
+          <td>${ap.nameAr}${ap.nameEn ? `<div class="muted" style="font-size: 11px">${ap.nameEn}</div>` : ""}</td>
+          <td>${ap.cityAr}${ap.cityEn ? `<div class="muted" style="font-size: 11px">${ap.cityEn}</div>` : ""}</td>
+          <td>${ap.countryAr}</td>
+          <td dir="ltr">${ap.iataCode || "-"}</td>
+          <td dir="ltr">${ap.icaoCode || "-"}</td>
+        </tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function createAirport() {
+  showAlert(mgmtAlert(), "");
+  const nameAr = el("ap-nameAr").value.trim();
+  const cityAr = el("ap-cityAr").value.trim();
+  const countryAr = el("ap-countryAr").value.trim();
+  if (!nameAr || !cityAr || !countryAr) return showAlert(mgmtAlert(), "اسم المطار والمدينة والدولة (عربي) مطلوبة.");
+
+  try {
+    await api.post("/airports", {
+      nameAr,
+      cityAr,
+      countryAr,
+      nameEn: el("ap-nameEn").value.trim() || undefined,
+      cityEn: el("ap-cityEn").value.trim() || undefined,
+      iataCode: el("ap-iata").value.trim() || undefined,
+    });
+    el("ap-nameAr").value = "";
+    el("ap-cityAr").value = "";
+    el("ap-countryAr").value = "";
+    el("ap-nameEn").value = "";
+    el("ap-cityEn").value = "";
+    el("ap-iata").value = "";
+    loadAirports();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+// --- Ferries (FerryOperator directory) ---
+
+async function loadFerryOperators() {
+  try {
+    const { data } = await api.get("/ferries/operators");
+    const canWrite = mgmtCanWrite("ferries");
+    el("ferry-operators-body").innerHTML = data
+      .map(
+        (fo) => `
+        <tr>
+          <td>${fo.name}</td>
+          <td>${fo.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
+          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-ferry-operator="${fo.id}" data-active="${fo.active}">${fo.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+        </tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function createFerryOperator() {
+  showAlert(mgmtAlert(), "");
+  const name = el("fo-name").value.trim();
+  if (!name) return showAlert(mgmtAlert(), "الاسم مطلوب.");
+
+  try {
+    await api.post("/ferries/operators", { name });
+    el("fo-name").value = "";
+    loadFerryOperators();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleFerryOperatorRowClick(e) {
+  const btn = e.target.closest("[data-toggle-ferry-operator]");
+  if (!btn) return;
+  const active = btn.dataset.active === "true";
+  api
+    .patch(`/ferries/operators/${btn.dataset.toggleFerryOperator}`, { active: !active })
+    .then(loadFerryOperators)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Feature Flags ---
+// Fixed key set (FEATURE_FLAG_KEYS, backend/src/modules/feature-flags) —
+// toggle-only, never admin-creatable, since each key corresponds to a
+// specific server-side enforcement point wired into real routes.
+
+async function loadFeatureFlags() {
+  try {
+    const { data } = await api.get("/feature-flags");
+    const canWrite = mgmtCanWrite("feature-flags");
+    el("feature-flags-body").innerHTML = data
+      .map(
+        (f) => `
+        <tr>
+          <td>${f.key}</td>
+          <td class="muted" style="font-size: 12px">${f.description || "-"}</td>
+          <td>${f.enabled ? '<span class="badge status-ACTIVE">مفعّلة</span>' : '<span class="badge status-INACTIVE">معطّلة</span>'}</td>
+          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-flag="${f.key}" data-enabled="${f.enabled}">${f.enabled ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+        </tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleFeatureFlagToggle(e) {
+  const btn = e.target.closest("[data-toggle-flag]");
+  if (!btn) return;
+  const enabled = btn.dataset.enabled === "true";
+  api
+    .patch(`/feature-flags/${btn.dataset.toggleFlag}`, { enabled: !enabled })
+    .then(loadFeatureFlags)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
 }

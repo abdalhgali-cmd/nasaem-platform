@@ -95,17 +95,37 @@
     </section>
 
     <section id="tab-management" class="hidden">
+      <!-- Platform 3.0 Phase 14 — grouped into a clear configuration
+           center instead of one flat, unstructured tab list. Groups are
+           visual only (a non-clickable label between clusters); the
+           tab-switching logic below is unchanged. -->
       <div class="tabs" id="mgmt-tabs">
-        <button type="button" data-mgmt="branches" class="active">الفروع</button>
-        <button type="button" data-mgmt="suppliers">الموردون</button>
+        <span class="mgmt-tab-group">المحتوى العام</span>
+        <button type="button" data-mgmt="homepage" class="active">الرئيسية</button>
+        <button type="button" data-mgmt="appearance">المظهر</button>
+        <button type="button" data-mgmt="site-assets">الهوية والأيقونات</button>
+
+        <span class="mgmt-tab-group">الخدمات والتأشيرات</span>
         <button type="button" data-mgmt="services">الخدمات</button>
-        <button type="button" data-mgmt="offers">العروض</button>
-        <button type="button" data-mgmt="users">المستخدمون</button>
+        <button type="button" data-mgmt="visas">التأشيرات</button>
+
+        <span class="mgmt-tab-group">الطيران والعبارات</span>
+        <button type="button" data-mgmt="airlines">شركات الطيران</button>
+        <button type="button" data-mgmt="airports">المطارات</button>
+        <button type="button" data-mgmt="ferries">العبارات</button>
+
+        <span class="mgmt-tab-group">النظام</span>
+        <button type="button" data-mgmt="feature-flags">الميزات</button>
         <button type="button" data-mgmt="settings">الإعدادات</button>
         <button type="button" data-mgmt="activity">سجل النشاط</button>
+
+        <span class="mgmt-tab-group">التشغيل</span>
+        <button type="button" data-mgmt="branches">الفروع</button>
+        <button type="button" data-mgmt="suppliers">الموردون</button>
+        <button type="button" data-mgmt="offers">العروض</button>
+        <button type="button" data-mgmt="users">المستخدمون</button>
         <button type="button" data-mgmt="contact-requests">طلبات التواصل</button>
         <button type="button" data-mgmt="umrah-groups">أفواج العمرة</button>
-        <button type="button" data-mgmt="site-assets">الهوية والأيقونات</button>
       </div>
 
       <div id="mgmt-alert"></div>
@@ -212,6 +232,7 @@
               <select id="u-role">
                 <option value="EMPLOYEE">موظف</option>
                 <option value="ACCOUNTANT">محاسب</option>
+                <option value="CONTENT_MANAGER">مدير محتوى</option>
                 <option value="ADMIN">مدير</option>
                 <option value="SUPER_ADMIN">مدير عام</option>
               </select>
@@ -310,6 +331,153 @@
             هذه الصور تظهر مباشرة في الموقع العام (الشعار وأيقونات الخدمات). رفع صورة جديدة يستبدل الحالية على الموقع خلال دقيقة تقريبًا دون الحاجة لأي تدخل تقني.
           </p>
           <div class="grid cols-3" id="site-assets-grid"></div>
+        </div>
+      </div>
+
+      <!-- Platform 3.0 Phase 14 — the panels below give the "Platform
+           Configuration Center" real functional access to every backend
+           module built in Phases 1-13 that had no admin UI yet. -->
+
+      <!-- Homepage: hero text/CTA + section visibility. Section
+           create/reorder/image upload still requires the API directly —
+           a disclosed gap, not silently missing. -->
+      <div id="mgmt-homepage">
+        <div class="card">
+          <h2>محتوى الصفحة الرئيسية (الغلاف)</h2>
+          <p class="muted">ترك أي حقل فارغًا يعيده للنص الافتراضي المبرمج في الموقع.</p>
+          <div class="grid cols-2">
+            <div class="field"><label for="hp-title">العنوان الرئيسي</label><input id="hp-title" /></div>
+            <div class="field"><label for="hp-ctaLabel">نص زر الدعوة للعمل</label><input id="hp-ctaLabel" /></div>
+            <div class="field"><label for="hp-description">الوصف</label><input id="hp-description" /></div>
+            <div class="field"><label for="hp-ctaTarget">رابط زر الدعوة للعمل (مسار داخلي مثل /packages)</label><input id="hp-ctaTarget" /></div>
+          </div>
+          <button type="button" class="btn" id="hp-hero-save-btn">حفظ الغلاف</button>
+        </div>
+        <div class="card">
+          <h2>أقسام الصفحة الرئيسية</h2>
+          <p class="muted">إظهار/إخفاء قسم يؤثر مباشرة على الموقع العام. إضافة قسم جديد أو تغيير ترتيبه أو صورته يتطلب حاليًا استخدام واجهة البرمجة مباشرة.</p>
+          <table>
+            <thead><tr><th>المفتاح</th><th>العنوان</th><th>الترتيب</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="homepage-sections-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Appearance / Theme: the 6 color tokens from Phase 2. Leaving a
+           field blank clears it back to the site's built-in default. -->
+      <div id="mgmt-appearance" class="hidden">
+        <div class="card">
+          <h2>ألوان الموقع</h2>
+          <p class="muted">القيم بصيغة #RRGGBB. ترك أي لون فارغًا يعيده للون الافتراضي المبرمج في الموقع.</p>
+          <div class="grid cols-3">
+            <div class="field"><label for="th-primary">اللون الأساسي</label><input id="th-primary" type="text" placeholder="#0B3D91" /></div>
+            <div class="field"><label for="th-secondary">اللون الثانوي</label><input id="th-secondary" type="text" placeholder="#1E88E5" /></div>
+            <div class="field"><label for="th-accent">لون التمييز</label><input id="th-accent" type="text" placeholder="#D4AF37" /></div>
+            <div class="field"><label for="th-background">لون الخلفية</label><input id="th-background" type="text" placeholder="#FFFFFF" /></div>
+            <div class="field"><label for="th-text">لون النص</label><input id="th-text" type="text" placeholder="#1F2937" /></div>
+            <div class="field"><label for="th-button">لون الأزرار</label><input id="th-button" type="text" placeholder="#0B3D91" /></div>
+          </div>
+          <button type="button" class="btn" id="theme-save-btn">حفظ الألوان</button>
+        </div>
+      </div>
+
+      <!-- Visas: VisaType directory (Phase 4). Requirements checklists
+           per visa still require the API directly — a disclosed gap. -->
+      <div id="mgmt-visas" class="hidden">
+        <div class="card hidden" id="visa-create-card">
+          <h2>تأشيرة جديدة</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="vt-code">الرمز *</label><input id="vt-code" /></div>
+            <div class="field"><label for="vt-name">الاسم *</label><input id="vt-name" /></div>
+            <div class="field"><label for="vt-country">الدولة *</label><input id="vt-country" /></div>
+            <div class="field"><label for="vt-basePrice">السعر الأساسي</label><input id="vt-basePrice" type="number" min="0" step="0.01" value="0" /></div>
+          </div>
+          <button type="button" class="btn" id="visa-create-btn">إضافة تأشيرة</button>
+        </div>
+        <div class="card">
+          <h2>التأشيرات</h2>
+          <table>
+            <thead><tr><th>الرمز</th><th>الاسم</th><th>الدولة</th><th>السعر الأساسي</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="visas-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Airlines: Airline directory (Phase 10). -->
+      <div id="mgmt-airlines" class="hidden">
+        <div class="card hidden" id="airline-create-card">
+          <h2>شركة طيران جديدة</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="al-name">الاسم *</label><input id="al-name" /></div>
+            <div class="field"><label for="al-iata">رمز IATA</label><input id="al-iata" maxlength="2" style="text-transform: uppercase" /></div>
+            <div class="field"><label for="al-icao">رمز ICAO</label><input id="al-icao" maxlength="3" style="text-transform: uppercase" /></div>
+          </div>
+          <button type="button" class="btn" id="airline-create-btn">إضافة شركة طيران</button>
+        </div>
+        <div class="card">
+          <h2>شركات الطيران</h2>
+          <table>
+            <thead><tr><th>الاسم</th><th>IATA</th><th>ICAO</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="airlines-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Airports: Airport directory (Phase 11) — a large, searched
+           dataset, so this lists the most recent 50 rather than every
+           row; use the public /api/airports/search endpoint to find a
+           specific one. -->
+      <div id="mgmt-airports" class="hidden">
+        <div class="card hidden" id="airport-create-card">
+          <h2>مطار جديد</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="ap-nameAr">اسم المطار (عربي) *</label><input id="ap-nameAr" /></div>
+            <div class="field"><label for="ap-cityAr">المدينة (عربي) *</label><input id="ap-cityAr" /></div>
+            <div class="field"><label for="ap-countryAr">الدولة (عربي) *</label><input id="ap-countryAr" /></div>
+            <div class="field"><label for="ap-nameEn">اسم المطار (إنجليزي)</label><input id="ap-nameEn" /></div>
+            <div class="field"><label for="ap-cityEn">المدينة (إنجليزي)</label><input id="ap-cityEn" /></div>
+            <div class="field"><label for="ap-iata">رمز IATA</label><input id="ap-iata" maxlength="3" style="text-transform: uppercase" /></div>
+          </div>
+          <button type="button" class="btn" id="airport-create-btn">إضافة مطار</button>
+        </div>
+        <div class="card">
+          <h2>المطارات</h2>
+          <table>
+            <thead><tr><th>الاسم</th><th>المدينة</th><th>الدولة</th><th>IATA</th><th>ICAO</th></tr></thead>
+            <tbody id="airports-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Ferries: FerryOperator directory (Phase 9). Sailing schedules
+           per operator still require the API directly — a disclosed
+           gap. -->
+      <div id="mgmt-ferries" class="hidden">
+        <div class="card hidden" id="ferry-operator-create-card">
+          <h2>شركة ملاحة جديدة</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="fo-name">الاسم *</label><input id="fo-name" /></div>
+          </div>
+          <button type="button" class="btn" id="ferry-operator-create-btn">إضافة شركة ملاحة</button>
+        </div>
+        <div class="card">
+          <h2>شركات الملاحة</h2>
+          <table>
+            <thead><tr><th>الاسم</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="ferry-operators-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Feature Flags: server-side-enforced toggles (Phase 13). -->
+      <div id="mgmt-feature-flags" class="hidden">
+        <div class="card">
+          <h2>الميزات</h2>
+          <p class="muted">تعطيل ميزة يمنعها فعليًا من الخادم فورًا، وليس فقط إخفاءها من الواجهة.</p>
+          <table>
+            <thead><tr><th>الميزة</th><th>الوصف</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="feature-flags-body"></tbody>
+          </table>
         </div>
       </div>
     </section>

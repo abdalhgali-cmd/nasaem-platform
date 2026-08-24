@@ -43,30 +43,41 @@ type Traveler = {
   nationality: string;
 };
 
+// A checklist item from the Requirements Engine (Platform 3.0 Phase 5/8,
+// GET /api/visa-types/:id/requirements/public and
+// GET /api/services/:id/requirements/public) — admin-configured per visa
+// type or service, replacing what used to be a static, hand-maintained
+// document list here.
+type PublicRequirement = {
+  id: string;
+  name: string;
+  nameEn: string | null;
+  description: string | null;
+  required: boolean;
+  attachmentType: string | null;
+  maxFiles: number;
+  allowedMimeTypes: string[];
+  maxSizeBytes: number | null;
+  ocrEnabled: boolean;
+};
+
 type DocumentSlot = {
-  label: string;
-  file: File | null;
+  requirement: PublicRequirement;
+  files: File[];
 };
 
-// The document checklist per service shown on the marketing pages
-// (umrah/page.tsx, visas/page.tsx) — kept in sync here so the wizard asks
-// for exactly what those pages already promise. Visa checklists are keyed
-// by VisaType.code (seeded in prisma/seed.js).
-const UMRAH_DOCUMENTS = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
+// Same MIME allowlist the backend's upload middleware enforces for every
+// contact-request document (backend/src/middleware/upload.middleware.js) —
+// used only as the fallback `accept` hint when a requirement doesn't
+// configure its own allowedMimeTypes.
+const DEFAULT_ATTACHMENT_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
 
-const PACKAGE_DOCUMENTS = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
-
-const VISA_DOCUMENTS_BY_CODE: Record<string, string[]> = {
-  "VISA-UMRAH": ["صورة الجواز", "الصورة الشخصية", "صورة إقامة الضامن", "رقم الضامن (أبشر)"],
-  "VISA-FAMILY-VISIT": [
-    "صورة الجواز والصورة الشخصية",
-    "مستند الزيارة (الدعوة)",
-    "صورة إقامة مرسل الزيارة (من أبشر)",
-  ],
-  "VISA-WORK": ["عقد العمل", "صورة الجواز", "الصورة الشخصية"],
-  "VISA-INTERNATIONAL": ["صورة الجواز", "الصورة الشخصية"],
-  "VISA-EGYPT-CLEARANCE": ["صورة الجواز", "تذكرة الطيران أو طلب الحجز"],
-};
+// Matches createContactRequestSchema's `documents`/documentLabels/
+// documentRequirementIds arrays (backend/src/modules/contact-requests/
+// contact-requests.validators.js), each capped at 6 — enforced here too so
+// the wizard never lets a customer assemble a submission the API would
+// reject outright.
+const MAX_TOTAL_DOCUMENTS = 6;
 
 const SERVICE_TITLES: Record<IntakeServiceKind, string> = {
   umrah: "العمرة",
@@ -159,11 +170,17 @@ export function ServiceIntakeWizard({
   ]);
   const [notes, setNotes] = React.useState("");
 
-  // Documents (step "documents") — keyed by document label rather than a
-  // list, so the required-documents list (which depends on the selected
-  // visa type) can be recomputed on every render without losing files the
-  // customer already attached under a label that's still relevant.
-  const [documentFiles, setDocumentFiles] = React.useState<Record<string, File | null>>({});
+  // Documents (step "documents") — the live checklist fetched from the
+  // Requirements Engine for whichever service/visa type is selected, and
+  // the files attached against each checklist item's id (keyed by
+  // requirement id rather than label, so switching selection cleanly
+  // drops files that no longer apply instead of silently keeping them
+  // under a stale label).
+  const [requirements, setRequirements] = React.useState<PublicRequirement[]>([]);
+  const [loadingRequirements, setLoadingRequirements] = React.useState(false);
+  const [documentFilesByRequirement, setDocumentFilesByRequirement] = React.useState<
+    Record<string, File[]>
+  >({});
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState("");
@@ -222,19 +239,70 @@ export function ServiceIntakeWizard({
   const selectedPackage = packageServices.find((p) => p.id === effectiveServiceId);
   const selectedVisaType = visaTypes.find((v) => v.id === effectiveVisaTypeId);
 
-  const requiredDocuments = React.useMemo(() => {
-    if (service === "umrah") return UMRAH_DOCUMENTS;
-    if (service === "package") return PACKAGE_DOCUMENTS;
-    if (service === "visa" && selectedVisaType) {
-      return VISA_DOCUMENTS_BY_CODE[selectedVisaType.code] ?? ["صورة الجواز", "الصورة الشخصية"];
-    }
-    return [];
-  }, [service, selectedVisaType]);
+  // Umrah and Package are Services; Visa uses the selected VisaType — each
+  // has its own Requirements Engine endpoint (both backed by the same
+  // checklist model, see backend/src/modules/requirements). Only the id
+  // changing re-triggers the fetch, so typing in later steps doesn't
+  // refetch the same checklist.
+  const requirementsEndpoint =
+    service === "visa"
+      ? effectiveVisaTypeId
+        ? `visa-types/${effectiveVisaTypeId}`
+        : null
+      : effectiveServiceId
+        ? `services/${effectiveServiceId}`
+        : null;
 
-  const documentSlots: DocumentSlot[] = requiredDocuments.map((label) => ({
-    label,
-    file: documentFiles[label] ?? null,
+  React.useEffect(() => {
+    let ignore = false;
+
+    if (!requirementsEndpoint) {
+      setRequirements([]);
+      setDocumentFilesByRequirement({});
+      return;
+    }
+
+    setLoadingRequirements(true);
+    setDocumentFilesByRequirement({});
+
+    fetch(`${API_URL}/${requirementsEndpoint}/requirements/public`)
+      .then((res) => res.json())
+      .then((payload) => {
+        if (ignore) return;
+        setRequirements(Array.isArray(payload?.data) ? payload.data : []);
+      })
+      .catch(() => {
+        if (!ignore) setRequirements([]);
+      })
+      .finally(() => {
+        if (!ignore) setLoadingRequirements(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [requirementsEndpoint]);
+
+  const documentSlots: DocumentSlot[] = requirements.map((requirement) => ({
+    requirement,
+    files: documentFilesByRequirement[requirement.id] ?? [],
   }));
+
+  const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
+
+  function addDocumentFile(requirementId: string, file: File) {
+    setDocumentFilesByRequirement((prev) => ({
+      ...prev,
+      [requirementId]: [...(prev[requirementId] ?? []), file],
+    }));
+  }
+
+  function removeDocumentFile(requirementId: string, index: number) {
+    setDocumentFilesByRequirement((prev) => ({
+      ...prev,
+      [requirementId]: (prev[requirementId] ?? []).filter((_, i) => i !== index),
+    }));
+  }
 
   // "select" step only applies to visa/package (Umrah has no sub-type to
   // choose in this phase — see the auto-select effect above).
@@ -315,11 +383,23 @@ export function ServiceIntakeWizard({
         })
       );
 
-      const filledDocuments = documentSlots.filter((slot) => slot.file);
-      formData.append("documentLabels", JSON.stringify(filledDocuments.map((s) => s.label)));
-      filledDocuments.forEach((slot) => {
-        if (slot.file) formData.append("documents", slot.file);
-      });
+      // Parallel arrays, same order as the `documents` files — the
+      // requirement id lets the backend apply that requirement's own
+      // MIME/size/max-files rules and (when configured) run passport OCR
+      // against the right file, instead of the upload being unlabeled.
+      const documentLabels: string[] = [];
+      const documentRequirementIds: string[] = [];
+      const documentFilesToSend: File[] = [];
+      for (const slot of documentSlots) {
+        for (const file of slot.files) {
+          documentLabels.push(slot.requirement.name);
+          documentRequirementIds.push(slot.requirement.id);
+          documentFilesToSend.push(file);
+        }
+      }
+      formData.append("documentLabels", JSON.stringify(documentLabels));
+      formData.append("documentRequirementIds", JSON.stringify(documentRequirementIds));
+      documentFilesToSend.forEach((file) => formData.append("documents", file));
 
       const response = await fetch(`${API_URL}/contact-requests`, {
         method: "POST",
@@ -552,25 +632,75 @@ export function ServiceIntakeWizard({
           description="يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."
         >
           <div className="flex flex-col gap-3">
-            {documentSlots.map((slot) => (
-              <div key={slot.label} className="flex flex-col gap-1.5 rounded-xl border border-border/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-                <span className="text-sm font-semibold text-foreground">{slot.label}</span>
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                  <Upload className="size-4" />
-                  {slot.file ? slot.file.name : "اختر ملفًا"}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,application/pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      setDocumentFiles((prev) => ({ ...prev, [slot.label]: file }));
-                    }}
-                  />
-                </label>
+            {loadingRequirements ? (
+              <div className="flex justify-center py-6">
+                <Loader2 className="size-6 animate-spin text-primary" />
               </div>
-            ))}
-            {documentSlots.length === 0 ? (
+            ) : (
+              documentSlots.map((slot) => {
+                const remainingSlots = Math.max(
+                  0,
+                  Math.min(
+                    slot.requirement.maxFiles - slot.files.length,
+                    MAX_TOTAL_DOCUMENTS - totalAttachedDocuments
+                  )
+                );
+                const accept = slot.requirement.allowedMimeTypes.length
+                  ? slot.requirement.allowedMimeTypes.join(",")
+                  : DEFAULT_ATTACHMENT_ACCEPT;
+
+                return (
+                  <div key={slot.requirement.id} className="flex flex-col gap-2 rounded-xl border border-border/70 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-foreground">
+                        {slot.requirement.name}
+                        {slot.requirement.required ? (
+                          <span className="ms-1 text-xs font-bold text-destructive">*</span>
+                        ) : (
+                          <span className="ms-1 text-xs font-normal text-muted-foreground">(اختياري)</span>
+                        )}
+                      </span>
+                      {remainingSlots > 0 ? (
+                        <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                          <Upload className="size-4" />
+                          اختر ملفًا
+                          <input
+                            type="file"
+                            accept={accept}
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] ?? null;
+                              if (file) addDocumentFile(slot.requirement.id, file);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                    {slot.requirement.description ? (
+                      <p className="text-xs text-muted-foreground">{slot.requirement.description}</p>
+                    ) : null}
+                    {slot.files.length > 0 ? (
+                      <ul className="flex flex-col gap-1">
+                        {slot.files.map((file, index) => (
+                          <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 text-xs text-foreground">
+                            <span className="truncate">{file.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeDocumentFile(slot.requirement.id, index)}
+                              className="font-bold text-destructive"
+                            >
+                              إزالة
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
+            {!loadingRequirements && documentSlots.length === 0 ? (
               <p className="text-sm text-muted-foreground">لا توجد مستندات مطلوبة مسبقًا لهذه الخدمة.</p>
             ) : null}
           </div>
@@ -611,8 +741,8 @@ export function ServiceIntakeWizard({
                   <span>لا توجد مستندات</span>
                 ) : (
                   documentSlots.map((slot) => (
-                    <span key={slot.label}>
-                      {slot.label}: {slot.file ? "تم الإرفاق" : "لم يُرفق بعد"}
+                    <span key={slot.requirement.id}>
+                      {slot.requirement.name}: {slot.files.length > 0 ? `تم إرفاق ${slot.files.length}` : "لم يُرفق بعد"}
                     </span>
                   ))
                 )}

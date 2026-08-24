@@ -1,13 +1,19 @@
-import { createServiceSchema, updateServiceSchema } from "./services.validators.js";
+import { createServiceSchema, reorderServicesSchema, updateServiceSchema } from "./services.validators.js";
 import {
   createService,
   deleteService,
   getServiceById,
   listPublicCatalog,
   listServices,
+  reorderServices,
+  setServiceImageKey,
   updateService,
 } from "./services.service.js";
+import { serviceImageKey } from "./services.constants.js";
+import { upsertSiteAsset } from "../site-assets/site-assets.service.js";
+import { logActivity } from "../../utils/activityLog.js";
 import { parsePagination } from "../../utils/pagination.js";
+import prisma from "../../config/database.js";
 
 export async function getPublicCatalog(req, res, next) {
   try {
@@ -70,6 +76,7 @@ export async function storeService(req, res, next) {
     }
 
     const service = await createService(parsed.data);
+    logActivity({ userId: req.user?.id, action: "SERVICE_CREATED", entity: "Service", entityId: service.id, req, newValue: service });
 
     return res.status(201).json({
       success: true,
@@ -94,6 +101,7 @@ export async function patchService(req, res, next) {
       });
     }
 
+    const before = await getServiceById(id);
     const service = await updateService(id, parsed.data);
 
     if (!service) {
@@ -102,6 +110,8 @@ export async function patchService(req, res, next) {
         message: "Service not found",
       });
     }
+
+    logActivity({ userId: req.user?.id, action: "SERVICE_UPDATED", entity: "Service", entityId: service.id, req, oldValue: before, newValue: service });
 
     return res.status(200).json({
       success: true,
@@ -125,10 +135,46 @@ export async function removeService(req, res, next) {
       });
     }
 
+    logActivity({ userId: req.user?.id, action: "SERVICE_DELETED", entity: "Service", entityId: service.id, req, oldValue: service });
+
     return res.status(200).json({
       success: true,
       message: "Service removed successfully",
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function patchReorder(req, res, next) {
+  try {
+    const parsed = reorderServicesSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+
+    const services = await reorderServices(parsed.data.order);
+    if (!services) return res.status(400).json({ success: false, message: "order must contain exactly the ids of existing services" });
+
+    logActivity({ userId: req.user?.id, action: "SERVICES_REORDERED", entity: "Service", entityId: "bulk", req, newValue: { order: parsed.data.order } });
+    return res.status(200).json({ success: true, data: services });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function uploadServiceImage(req, res, next) {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: "No image uploaded" });
+
+    const exists = await prisma.service.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!exists) return res.status(404).json({ success: false, message: "Service not found" });
+
+    const key = serviceImageKey(req.params.id);
+    // upsertSiteAsset stores the image + logs its own SITE_ASSET_UPDATED
+    // activity entry.
+    await upsertSiteAsset(key, req.file, req);
+    const service = await setServiceImageKey(req.params.id, key);
+
+    return res.status(200).json({ success: true, data: service });
   } catch (error) {
     next(error);
   }

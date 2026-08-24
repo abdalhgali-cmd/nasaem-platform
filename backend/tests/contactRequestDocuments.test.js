@@ -188,3 +188,139 @@ describe("contact request documents (customer upload + staff review)", () => {
     assert.equal(res.status, 404);
   });
 });
+
+describe("attachment engine — requirement-linked uploads (Platform 3.0 Phase 6)", () => {
+  let superAdminAgent;
+  let visaType;
+  let requirement; // maxFiles: 1, allowedMimeTypes: ["image/png"], maxSizeBytes: 1000
+  let phone;
+  let contactRequestId;
+  let customerAgent;
+
+  before(async () => {
+    superAdminAgent = await loginAsSuperAdmin();
+
+    const suffix = uniqueSuffix();
+    const visaTypeRes = await superAdminAgent.post("/api/visa-types").send({
+      code: `VISA-ATT-${suffix}`,
+      name: "تأشيرة اختبار المرفقات",
+      country: "QA-Attachment-Test",
+      basePrice: 10,
+    });
+    assert.equal(visaTypeRes.status, 201);
+    visaType = visaTypeRes.body.data;
+
+    const requirementRes = await superAdminAgent.post(`/api/visa-types/${visaType.id}/requirements`).send({
+      name: "صورة جواز السفر",
+      attachmentType: "passport",
+      maxFiles: 1,
+      allowedMimeTypes: ["image/png"],
+      maxSizeBytes: 1000,
+    });
+    assert.equal(requirementRes.status, 201);
+    requirement = requirementRes.body.data;
+
+    phone = `0962${uniqueSuffix()}`;
+    const createRes = await request(app).post("/api/contact-requests").send({
+      name: "Attachment Engine Test",
+      phone,
+      message: "اختبار محرك المرفقات",
+      visaTypeId: visaType.id,
+    });
+    assert.equal(createRes.status, 201, JSON.stringify(createRes.body));
+    contactRequestId = createRes.body.data.id;
+
+    customerAgent = await loginTrackingAgent(phone);
+  });
+
+  test("accepts an upload that satisfies the requirement's own MIME/size rules", async () => {
+    const res = await attachPng(
+      customerAgent
+        .post(`/api/tracking/requests/${contactRequestId}/documents`)
+        .field("label", "جواز السفر")
+        .field("requirementId", requirement.id)
+    );
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.data.requirementId, requirement.id);
+  });
+
+  test("rejects a requirement id that belongs to a different visa type", async () => {
+    const otherVisaTypeRes = await superAdminAgent.post("/api/visa-types").send({
+      code: `VISA-ATT-OTHER-${uniqueSuffix()}`,
+      name: "تأشيرة أخرى",
+      country: "QA-Attachment-Test",
+      basePrice: 10,
+    });
+    const otherRequirementRes = await superAdminAgent
+      .post(`/api/visa-types/${otherVisaTypeRes.body.data.id}/requirements`)
+      .send({ name: "متطلب من تأشيرة أخرى" });
+
+    const res = await attachPng(
+      customerAgent
+        .post(`/api/tracking/requests/${contactRequestId}/documents`)
+        .field("label", "مستند خاطئ")
+        .field("requirementId", otherRequirementRes.body.data.id)
+    );
+    assert.equal(res.status, 400);
+  });
+
+  test("rejects a file whose MIME type isn't in the requirement's allow-list", async () => {
+    const res = await customerAgent
+      .post(`/api/tracking/requests/${contactRequestId}/documents`)
+      .field("label", "جواز السفر")
+      .field("requirementId", requirement.id)
+      .attach("file", Buffer.from("%PDF-1.4 fake"), { filename: "passport.pdf", contentType: "application/pdf" });
+    assert.equal(res.status, 400);
+  });
+
+  test("rejects a file larger than the requirement's maxSizeBytes", async () => {
+    const bigBuffer = Buffer.alloc(2000, 0x89);
+    const res = await customerAgent
+      .post(`/api/tracking/requests/${contactRequestId}/documents`)
+      .field("label", "جواز السفر")
+      .field("requirementId", requirement.id)
+      .attach("file", bigBuffer, { filename: "big.png", contentType: "image/png" });
+    assert.equal(res.status, 400);
+  });
+
+  test("rejects an upload once the requirement's maxFiles is already reached", async () => {
+    // The first test in this describe block already used up this
+    // requirement's maxFiles: 1 slot for this contact request.
+    const res = await attachPng(
+      customerAgent
+        .post(`/api/tracking/requests/${contactRequestId}/documents`)
+        .field("label", "جواز السفر - نسخة ثانية")
+        .field("requirementId", requirement.id)
+    );
+    assert.equal(res.status, 400);
+  });
+
+  test("Service Intake submission validates documentRequirementIds the same way", async () => {
+    const suffix = uniqueSuffix();
+    const badRes = await request(app)
+      .post("/api/contact-requests")
+      .field("name", "Intake Attachment Test")
+      .field("phone", `0963${suffix}`)
+      .field("message", "اختبار المرفقات عبر معالج الطلب")
+      .field("visaTypeId", visaType.id)
+      .field("documentLabels", JSON.stringify(["جواز السفر"]))
+      .field("documentRequirementIds", JSON.stringify([requirement.id]))
+      .attach("documents", Buffer.from("%PDF-1.4 fake"), { filename: "passport.pdf", contentType: "application/pdf" });
+    assert.equal(badRes.status, 400, JSON.stringify(badRes.body));
+
+    const goodRes = await request(app)
+      .post("/api/contact-requests")
+      .field("name", "Intake Attachment Test")
+      .field("phone", `0964${suffix}`)
+      .field("message", "اختبار المرفقات عبر معالج الطلب")
+      .field("visaTypeId", visaType.id)
+      .field("documentLabels", JSON.stringify(["جواز السفر"]))
+      .field("documentRequirementIds", JSON.stringify([requirement.id]))
+      .attach("documents", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "passport.png", contentType: "image/png" });
+    assert.equal(goodRes.status, 201, JSON.stringify(goodRes.body));
+
+    const listRes = await superAdminAgent.get("/api/contact-requests?limit=50");
+    const found = listRes.body.data.find((r) => r.id === goodRes.body.data.id);
+    assert.equal(found.documents[0].requirementId, requirement.id);
+  });
+});

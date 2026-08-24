@@ -5,7 +5,7 @@ export const createUserSchema = z.object({
   email: z.string().email("Valid email is required"),
   phone: z.string().optional().nullable().or(z.literal("")),
   password: z.string().min(8, "Password must be at least 8 characters"),
-  role: z.enum(["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"]).default("EMPLOYEE"),
+  role: z.enum(["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"]).default("EMPLOYEE"),
   status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED"]).default("ACTIVE"),
   branchId: z.string().optional().nullable(),
 });

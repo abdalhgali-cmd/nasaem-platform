@@ -9,6 +9,10 @@ import {
   OUTCOME_LABELS,
   STATUS_LABELS,
 } from "../contact-request-tracking/contact-request-tracking.status.js";
+import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
+import { getPublicChecklist } from "../requirements/requirements.service.js";
+import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
+import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 
 // Short, consistent "which request is this about" prefix for every
 // customer-facing WhatsApp notification below — reuses the same `service`
@@ -45,6 +49,72 @@ export async function notifyAdmins({ title, message, type }) {
 // left without the documents the customer attached to it.
 export async function createContactRequest(data, req, files = []) {
   const documentLabels = data.documentLabels || [];
+  const documentRequirementIds = data.documentRequirementIds || [];
+
+  // Platform 3.0 Phase 13: HOTEL_SEARCH/SECURITY_APPROVAL gate intake for
+  // the specific, real Service categories that already exist for those
+  // capabilities (seeded in Phase 3/8: "hotel", "egypt_clearance") — not
+  // a guessed/invented rule for what else might count as one. See
+  // SERVICE_CATEGORY_FEATURE_FLAGS's own comment for this disclosed
+  // boundary.
+  if (data.serviceId) {
+    const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true } });
+    const flagKey = service ? SERVICE_CATEGORY_FEATURE_FLAGS[service.category] : null;
+    if (flagKey && !(await isFeatureEnabled(flagKey))) {
+      return { error: "FEATURE_DISABLED" };
+    }
+  }
+
+  // Platform 3.0 Phase 5: capture the selected visa type's (or, since
+  // Phase 8, service's — e.g. Security Approvals) active requirements
+  // checklist AS IT IS RIGHT NOW. This is a point-in-time copy, not a
+  // live reference — an admin editing/deactivating a requirement later
+  // must never change what this specific application's checklist said at
+  // submission time.
+  const requirementsSnapshot = data.visaTypeId
+    ? await getPublicChecklist({ visaTypeId: data.visaTypeId })
+    : data.serviceId
+      ? await getPublicChecklist({ serviceId: data.serviceId })
+      : null;
+
+  // Platform 3.0 Phase 6: validate each file tagged with a requirementId
+  // against that requirement's own rules — reusing the snapshot just
+  // fetched above rather than a second query per file. Rejects the whole
+  // submission (nothing is created) rather than silently dropping/
+  // mislabeling a file that doesn't satisfy its requirement.
+  // Platform 3.0 Phase 7: OCR result per file index, populated only for
+  // files tagged with a requirementId whose ocrEnabled is set (see the
+  // validation loop below, which also builds requirementsById).
+  const ocrResults = new Array(files.length).fill(null);
+
+  if (documentRequirementIds.some(Boolean)) {
+    const requirementsById = new Map((requirementsSnapshot || []).map((r) => [r.id, r]));
+    const countByRequirement = new Map();
+
+    for (let i = 0; i < files.length; i += 1) {
+      const requirementId = documentRequirementIds[i];
+      if (!requirementId) continue;
+
+      const requirement = requirementsById.get(requirementId);
+      if (!requirement) return { error: "REQUIREMENT_NOT_FOUND" };
+
+      const file = files[i];
+      if (requirement.allowedMimeTypes.length > 0 && !requirement.allowedMimeTypes.includes(file.mimetype)) {
+        return { error: "INVALID_MIME", details: { requirementId, allowedMimeTypes: requirement.allowedMimeTypes } };
+      }
+      if (requirement.maxSizeBytes && file.size > requirement.maxSizeBytes) {
+        return { error: "FILE_TOO_LARGE", details: { requirementId, maxSizeBytes: requirement.maxSizeBytes } };
+      }
+
+      const seenCount = (countByRequirement.get(requirementId) || 0) + 1;
+      countByRequirement.set(requirementId, seenCount);
+      if (seenCount > requirement.maxFiles) {
+        return { error: "MAX_FILES_REACHED", details: { requirementId, maxFiles: requirement.maxFiles } };
+      }
+
+      ocrResults[i] = await maybeRunPassportOcr(requirement, file);
+    }
+  }
 
   const contactRequest = await prisma.contactRequest.create({
     data: {
@@ -57,11 +127,14 @@ export async function createContactRequest(data, req, files = []) {
       visaTypeId: data.visaTypeId || null,
       travelerCount: data.travelerCount ?? null,
       intakeData: data.intakeData ?? undefined,
+      requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
       message: data.message,
       documents: files.length
         ? {
             create: files.map((file, index) => ({
               label: documentLabels[index] || file.originalname,
+              requirementId: documentRequirementIds[index] || null,
+              ocrResult: ocrResults[index] ?? undefined,
               fileName: file.originalname,
               storagePath: path.join("contact-request-documents", file.filename),
               mimeType: file.mimetype,

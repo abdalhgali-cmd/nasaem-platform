@@ -1,5 +1,5 @@
 import path from "path";
-import { siteAssetKeyParamSchema } from "./site-assets.validators.js";
+import { siteAssetFileKeyParamSchema, siteAssetKeyParamSchema } from "./site-assets.validators.js";
 import { getSiteAssetByKey, listSiteAssets, upsertSiteAsset } from "./site-assets.service.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
@@ -17,7 +17,7 @@ export async function getSiteAssets(req, res, next) {
 // point at directly, so it must not require the staff session cookie.
 export async function getSiteAssetFile(req, res, next) {
   try {
-    const parsed = siteAssetKeyParamSchema.safeParse(req.params);
+    const parsed = siteAssetFileKeyParamSchema.safeParse(req.params);
 
     if (!parsed.success) {
       return res.status(404).json({ success: false, message: "Unknown asset key" });

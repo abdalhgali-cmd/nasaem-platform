@@ -3,7 +3,11 @@ import { ArrowLeft, Globe2, Hotel, Landmark, Package, Stamp, Plane, Ship, type L
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
-const services: {
+import { getPublicHomepage } from "@/lib/homepage";
+import { resolveHomepageIcon } from "@/lib/homepage-icons";
+import { getSiteAssetUrls } from "@/lib/site-assets";
+
+const fallbackServices: {
   icon: LucideIcon;
   title: string;
   description: string;
@@ -54,6 +58,23 @@ const services: {
 ];
 
 export async function Services() {
+  const [{ sections }, assetUrls] = await Promise.all([getPublicHomepage(), getSiteAssetUrls()]);
+
+  // Falls back to the bundled defaults when nothing's configured yet (a
+  // fresh deploy before an admin — or the seed script — has populated any
+  // HomepageSection rows), same resilience posture as site-assets/logo.tsx.
+  const displayServices =
+    sections.length > 0
+      ? sections.map((section) => ({
+          key: section.id,
+          icon: resolveHomepageIcon(section.iconKey),
+          title: section.title,
+          description: section.description ?? "",
+          href: section.href ?? "#",
+          imageUrl: section.imageKey ? assetUrls[section.imageKey] : undefined,
+        }))
+      : fallbackServices.map((service) => ({ key: service.title, icon: service.icon, title: service.title, description: service.description, href: service.href, imageUrl: undefined }));
+
   return (
     <section className="bg-section py-24">
       <Container>
@@ -64,17 +85,22 @@ export async function Services() {
         />
 
         <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {services.map((service, index) => {
+          {displayServices.map((service, index) => {
             const ServiceIcon = service.icon;
             return (
-            <FadeIn key={service.title} delay={index * 0.05} className="h-full">
+            <FadeIn key={service.key} delay={index * 0.05} className="h-full">
               <Link
                 href={service.href}
                 className="group flex h-full flex-col rounded-3xl border border-border bg-card p-7 shadow-sm transition-all duration-300 hover:-translate-y-1.5 hover:border-primary/30 hover:shadow-xl hover:shadow-primary/10"
               >
-                <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-secondary/10 transition-transform duration-300 group-hover:scale-105">
-                  <ServiceIcon className="size-10 stroke-[1.7] text-primary" aria-hidden="true" />
-                </span>
+                {service.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- backend-hosted, dynamic key, not in next.config's remotePatterns (same reasoning as logo.tsx).
+                  <img src={service.imageUrl} alt="" className="h-32 w-full rounded-2xl object-cover" />
+                ) : (
+                  <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-secondary/10 transition-transform duration-300 group-hover:scale-105">
+                    <ServiceIcon className="size-10 stroke-[1.7] text-primary" aria-hidden="true" />
+                  </span>
+                )}
                 <h3 className="mt-5 text-lg font-bold text-foreground">
                   {service.title}
                 </h3>

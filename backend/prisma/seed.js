@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import prisma from "../src/config/database.js";
 import { nextSequence } from "../src/utils/sequence.js";
+import { FEATURE_FLAG_DESCRIPTIONS, FEATURE_FLAG_KEYS } from "../src/modules/feature-flags/feature-flags.constants.js";
 
 const SERVICE_CATEGORIES = [
   { code: "SVC-FLIGHT", name: "تذاكر الطيران", category: "flight" },
@@ -117,11 +118,135 @@ async function seedVisaTypes() {
   console.log(`Seeded ${VISA_TYPES.length} visa types.`);
 }
 
+// Mirrors the cards previously hardcoded in
+// web/src/components/sections/services.tsx, so switching that section over
+// to admin-controlled data (Platform 3.0 Phase 1) doesn't blank the public
+// homepage on first deploy — an admin can then edit/reorder/hide from here.
+const HOMEPAGE_SECTIONS = [
+  { key: "ferries", title: "حجز البواخر", description: "احجز رحلتك البحرية بين سواكن وجدة، وحدد التاريخ وعدد المسافرين والناقل المفضل ليتابع فريقنا التوفر والإجراءات.", href: "/ferries", iconKey: "ship", sortOrder: 0 },
+  { key: "umrah", title: "باقات العمرة", description: "تأشيرة فقط أو باقة متكاملة تشمل الطيران والفنادق والنقل — بإشراف كامل من الإدارة حتى العودة.", href: "/umrah", iconKey: "landmark", sortOrder: 1 },
+  { key: "visas", title: "التأشيرات", description: "زيارة عائلية، تأشيرة عمل، أو تأشيرات دولية — نتابع إجراءاتك بدقة وسرعة حتى الاستلام.", href: "/visas", iconKey: "stamp", sortOrder: 2 },
+  { key: "flights", title: "حجز الطيران", description: "أفضل أسعار تذاكر الطيران الداخلي والدولي على أشهر شركات الطيران، برحلة ذهاب أو ذهاب وعودة.", href: "/flights", iconKey: "plane", sortOrder: 3 },
+  { key: "hotels", title: "حجز الفنادق", description: "فنادق قريبة من الحرمين الشريفين وفي كل الوجهات، بمستويات مختلفة تناسب كل ميزانية.", href: "/hotels", iconKey: "hotel", sortOrder: 4 },
+  { key: "intl-visas", title: "التأشيرات الدولية", description: "الصين، بالي، ودول أفريقيا — نوضح لك المستندات المطلوبة قبل بدء الإجراءات.", href: "/visas", iconKey: "globe", sortOrder: 5 },
+  { key: "packages", title: "باقات السفر الشاملة", description: "برامج سياحية جاهزة تجمع الطيران والإقامة والجولات في باقة واحدة بسعر مريح.", href: "/packages", iconKey: "package", sortOrder: 6 },
+];
+
+async function seedHomepageSections() {
+  for (const section of HOMEPAGE_SECTIONS) {
+    await prisma.homepageSection.upsert({
+      where: { key: section.key },
+      update: {},
+      create: section,
+    });
+  }
+  console.log(`Seeded ${HOMEPAGE_SECTIONS.length} homepage sections.`);
+}
+
+// Platform 3.0 "wire the Requirements Engine into the Public Visa Intake
+// Wizard": these mirror, verbatim, what used to be hardcoded in
+// web/src/components/sections/service-intake-wizard.tsx
+// (UMRAH_DOCUMENTS/PACKAGE_DOCUMENTS/VISA_DOCUMENTS_BY_CODE) before the
+// wizard was switched to fetch its checklist from
+// GET /api/{visa-types,services}/:id/requirements/public. Seeding the
+// same checklist items into VisaRequirement (the same admin-editable model
+// every other requirements checklist already uses) keeps the customer-
+// facing prompt identical on first deploy — an admin can then edit it from
+// the existing Requirements Engine admin UI instead of a code change.
+const ATTACHMENT_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // matches upload.middleware.js's global limit
+
+const UMRAH_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
+const PACKAGE_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
+const VISA_REQUIREMENT_NAMES_BY_CODE = {
+  "VISA-UMRAH": ["صورة الجواز", "الصورة الشخصية", "صورة إقامة الضامن", "رقم الضامن (أبشر)"],
+  "VISA-FAMILY-VISIT": [
+    "صورة الجواز والصورة الشخصية",
+    "مستند الزيارة (الدعوة)",
+    "صورة إقامة مرسل الزيارة (من أبشر)",
+  ],
+  "VISA-WORK": ["عقد العمل", "صورة الجواز", "الصورة الشخصية"],
+  "VISA-INTERNATIONAL": ["صورة الجواز", "الصورة الشخصية"],
+  "VISA-EGYPT-CLEARANCE": ["صورة الجواز", "تذكرة الطيران أو طلب الحجز"],
+};
+
+// No unique constraint ties a VisaRequirement to its (scope, name) pair —
+// checked instead of upserted, same idempotency guarantee as every upsert
+// elsewhere in this file (a rerun never duplicates rows).
+async function seedRequirementsForScope(scope, names) {
+  let created = 0;
+  for (let index = 0; index < names.length; index += 1) {
+    const name = names[index];
+    const existing = await prisma.visaRequirement.findFirst({ where: { ...scope, name } });
+    if (existing) continue;
+
+    await prisma.visaRequirement.create({
+      data: {
+        ...scope,
+        name,
+        required: true,
+        maxFiles: 1,
+        allowedMimeTypes: ATTACHMENT_MIME_TYPES,
+        maxSizeBytes: MAX_ATTACHMENT_SIZE_BYTES,
+        reviewRequired: true,
+        ocrEnabled: false,
+        sortOrder: index,
+        active: true,
+      },
+    });
+    created += 1;
+  }
+  return created;
+}
+
+async function seedVisaRequirements() {
+  let created = 0;
+
+  const umrahService = await prisma.service.findUnique({ where: { code: "SVC-UMRAH" } });
+  if (umrahService) {
+    created += await seedRequirementsForScope({ serviceId: umrahService.id }, UMRAH_REQUIREMENT_NAMES);
+  }
+
+  for (const pkg of PACKAGE_SERVICES) {
+    const service = await prisma.service.findUnique({ where: { code: pkg.code } });
+    if (service) {
+      created += await seedRequirementsForScope({ serviceId: service.id }, PACKAGE_REQUIREMENT_NAMES);
+    }
+  }
+
+  for (const visa of VISA_TYPES) {
+    const names = VISA_REQUIREMENT_NAMES_BY_CODE[visa.code];
+    if (!names) continue;
+    const visaType = await prisma.visaType.findUnique({ where: { code: visa.code } });
+    if (visaType) {
+      created += await seedRequirementsForScope({ visaTypeId: visaType.id }, names);
+    }
+  }
+
+  console.log(`Seeded ${created} visa/service document requirements.`);
+}
+
+async function seedFeatureFlags() {
+  for (const key of FEATURE_FLAG_KEYS) {
+    await prisma.featureFlag.upsert({
+      where: { key },
+      // Update only the description, never `enabled` — an admin's
+      // deliberate toggle must survive a reseed unchanged.
+      update: { description: FEATURE_FLAG_DESCRIPTIONS[key] ?? null },
+      create: { key, enabled: true, description: FEATURE_FLAG_DESCRIPTIONS[key] ?? null },
+    });
+  }
+  console.log(`Seeded ${FEATURE_FLAG_KEYS.length} feature flags.`);
+}
+
 async function main() {
   await seedSuperAdmin();
   await seedServiceCategories();
   await seedPackageServices();
   await seedVisaTypes();
+  await seedVisaRequirements();
+  await seedHomepageSections();
+  await seedFeatureFlags();
 }
 
 main()

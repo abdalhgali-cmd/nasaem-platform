@@ -25,6 +25,13 @@ import paymentAccountRoutes from "../modules/payment-accounts/payment-accounts.r
 import paymentAccountPublicRoutes from "../modules/payment-accounts/payment-accounts.public.routes.js";
 import umrahGroupRoutes from "../modules/umrah-groups/umrah-groups.routes.js";
 import financeRoutes from "../modules/finance/finance.routes.js";
+import homepageRoutes from "../modules/homepage/homepage.routes.js";
+import themeRoutes from "../modules/theme/theme.routes.js";
+import visaTypeRoutes from "../modules/visa-types/visa-types.routes.js";
+import ferryRoutes from "../modules/ferries/ferries.routes.js";
+import airlineRoutes from "../modules/airlines/airlines.routes.js";
+import airportRoutes from "../modules/airports/airports.routes.js";
+import featureFlagRoutes from "../modules/feature-flags/feature-flags.routes.js";
 
 const router = Router();
 
@@ -61,5 +68,12 @@ router.use("/flights", flightRoutes);
 router.use("/flight-bookings", flightBookingRoutes);
 router.use("/umrah-groups", umrahGroupRoutes);
 router.use("/finance", financeRoutes);
+router.use("/homepage", homepageRoutes);
+router.use("/theme", themeRoutes);
+router.use("/visa-types", visaTypeRoutes);
+router.use("/ferries", ferryRoutes);
+router.use("/airlines", airlineRoutes);
+router.use("/airports", airportRoutes);
+router.use("/feature-flags", featureFlagRoutes);
 
 export default router;

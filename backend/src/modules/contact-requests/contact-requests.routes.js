@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
+import { requireFeatureEnabled } from "../feature-flags/feature-flags.middleware.js";
 import {
   uploadContactRequestDeliverable,
   uploadContactRequestIntakeDocuments,
@@ -79,18 +80,21 @@ router.post(
   "/:id/pricing-preview",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireFeatureEnabled("QUOTES"),
   previewPricing
 );
 router.post(
   "/:id/pricing-invoice",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireFeatureEnabled("QUOTES"),
   storeInvoiceFromPricing
 );
 router.post(
   "/:id/pricing-offer",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireFeatureEnabled("QUOTES"),
   storeOfferFromPricing
 );
 router.post(
@@ -109,6 +113,7 @@ router.post(
   "/:id/confirm-payment",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"),
+  requireFeatureEnabled("PAYMENTS"),
   confirmPayment
 );
 router.get(
@@ -121,12 +126,14 @@ router.patch(
   "/:id/documents/:documentId/status",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireFeatureEnabled("STAFF_REVIEW"),
   reviewDocument
 );
 router.post(
   "/:id/deliverables",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireFeatureEnabled("DOCUMENTS"),
   handleDeliverableUpload,
   storeDeliverable
 );

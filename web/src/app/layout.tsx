@@ -7,6 +7,7 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { WhatsAppButton } from "@/components/layout/whatsapp-button";
 import { siteConfig } from "@/lib/site-config";
 import { getSiteAssetUrls } from "@/lib/site-assets";
+import { buildThemeOverrideCss, getPublicTheme } from "@/lib/theme";
 
 const cairo = Cairo({
   subsets: ["arabic", "latin"],
@@ -69,8 +70,9 @@ export const viewport: Viewport = {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const assetUrls = await getSiteAssetUrls();
+  const [assetUrls, theme] = await Promise.all([getSiteAssetUrls(), getPublicTheme()]);
   const logoUrls = { light: assetUrls.logo, dark: assetUrls["logo-dark"] };
+  const themeOverrideCss = buildThemeOverrideCss(theme);
 
   return (
     <html
@@ -81,6 +83,10 @@ export default async function RootLayout({
       className={`${cairo.variable} ${inter.variable}`}
     >
       <body className="flex min-h-screen flex-col bg-background text-foreground antialiased">
+        {/* Admin-configured colors (Theme settings) override the
+            globals.css defaults declared above; every value was already
+            validated as #RRGGBB server-side and re-checked in theme.ts. */}
+        {themeOverrideCss && <style dangerouslySetInnerHTML={{ __html: themeOverrideCss }} />}
         <ThemeProvider>
           <a
             href="#main-content"
