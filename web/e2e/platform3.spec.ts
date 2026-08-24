@@ -45,23 +45,15 @@ async function pollByReloading<T>(page: Page, check: (timeoutMs: number) => Prom
 // package) actually reflects those changes, which nothing else in this
 // repo verifies.
 //
-// Two scenarios in the plan's list — "airline/logo → flight display
-// resolves it" and "airport → search finds it" — have real, tested
-// backend capability (flights.enrichment.js's attachAirlineLogos,
-// airports.service.js's searchAirports) but the public flight-search UI
-// (flight-search-client.tsx) never actually renders an airline logo or
-// offers airport-search autocomplete; both origin/destination fields are
-// plain free-text inputs. This is a genuine, disclosed gap found during
-// this review, not something these tests paper over — see the two tests
-// below that verify the backend contract directly and say so.
-//
-// Similarly, "admin adds requirement → application checklist changes" is
-// verified against the real backend contract
-// (GET /api/visa-types/:id/requirements/public) — the marketing site's
-// intake wizard (service-intake-wizard.tsx) still uses a hardcoded
-// VISA_DOCUMENTS_BY_CODE map for its document checklist and never fetches
-// this endpoint, so a newly admin-added requirement does not yet change
-// what a real customer sees there. Also a genuine, disclosed gap.
+// Follow-up pass ("wire the Requirements Engine / Airline Directory /
+// Airport Search into the public UI"): the three gaps this file's header
+// used to document here — the intake wizard's hardcoded document checklist,
+// and the flight-search UI never rendering an airline logo or offering
+// airport autocomplete — are now closed (service-intake-wizard.tsx fetches
+// GET /api/{visa-types,services}/:id/requirements/public;
+// flight-search-client.tsx renders airlineLogoKey and calls
+// GET /api/airports/search for its AirportField). The tests below drive
+// the real public UI end to end for each, not just the backend contract.
 
 test.describe("Homepage — admin change reflects publicly", () => {
   test("changing the hero title updates the public homepage", async ({ page }) => {
@@ -174,7 +166,7 @@ test.describe("Visa — admin creates a visa type, it's reachable publicly by co
     }
   });
 
-  test("adding a requirement changes the public requirements-checklist API contract (backend only — see file header)", async ({ page }) => {
+  test("adding a requirement changes the public requirements-checklist API contract", async ({ page }) => {
     const admin = await loginAsSeededAdmin(page).then(() => page.request);
     const code = `E2E-REQ-${Date.now()}`;
 
@@ -196,6 +188,83 @@ test.describe("Visa — admin creates a visa type, it's reachable publicly by co
       const after = (await afterRes.json()).data;
       expect(after).toHaveLength(1);
       expect(after[0].name).toBe("مستند اختبار E2E");
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/visa-types/${visaType.id}`);
+    }
+  });
+
+  test("the intake wizard's document step shows the visa type's real, admin-configured checklist and submits it linked to the right requirement", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const code = `E2E-WIZARD-REQ-${Date.now()}`;
+    const visaName = `تأشيرة معالج E2E ${Date.now()}`;
+
+    const createRes = await admin.post(`${BACKEND_URL}/api/visa-types`, {
+      data: { code, name: visaName, country: "دولة اختبار", basePrice: 100, active: true },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const visaType = (await createRes.json()).data;
+
+    // Distinctive names, chosen to never collide with any string that used
+    // to be hardcoded in service-intake-wizard.tsx (e.g. "صورة الجواز") —
+    // seeing exactly these two, and nothing else, is unambiguous proof the
+    // checklist came from the API, not a leftover static map.
+    const requiredName = `مستند إلزامي E2E ${Date.now()}`;
+    const optionalName = `مستند اختياري E2E ${Date.now()}`;
+    const req1Res = await admin.post(`${BACKEND_URL}/api/visa-types/${visaType.id}/requirements`, {
+      data: { name: requiredName, required: true, sortOrder: 0 },
+    });
+    const req2Res = await admin.post(`${BACKEND_URL}/api/visa-types/${visaType.id}/requirements`, {
+      data: { name: optionalName, required: false, sortOrder: 1 },
+    });
+    expect(req1Res.ok(), await req1Res.text()).toBeTruthy();
+    expect(req2Res.ok(), await req2Res.text()).toBeTruthy();
+    const requirement1 = (await req1Res.json()).data;
+
+    const phone = `2499${Date.now().toString().slice(-8)}`;
+
+    try {
+      await page.goto(`/visas?visaType=${code}#book`);
+      await page.getByRole("button", { name: new RegExp(visaName) }).click();
+      await page.getByRole("button", { name: "التالي" }).click();
+
+      await page.getByPlaceholder("اسمك الكامل").fill("عميل اختبار المعالج");
+      await page.getByPlaceholder("+249 9XX XXX XXX").fill(phone);
+      await page.getByRole("button", { name: "التالي" }).click();
+
+      // "details" step has no required fields — advance straight through.
+      await page.getByRole("button", { name: "التالي" }).click();
+
+      // Documents step: both checklist items must be visible verbatim,
+      // fetched live from GET /api/visa-types/:id/requirements/public —
+      // not any hardcoded fallback.
+      await expect(page.getByText(requiredName, { exact: true })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(optionalName, { exact: true })).toBeVisible();
+
+      // .first() = the required item's slot (sortOrder 0, rendered first),
+      // matching requirement1 asserted against below.
+      await page
+        .locator('input[type="file"]')
+        .first()
+        .setInputFiles(path.join(__dirname, "fixtures", "sample-document.png"));
+
+      await page.getByRole("button", { name: "التالي" }).click();
+      await page.getByRole("button", { name: "إرسال الطلب" }).click();
+      await expect(page.getByText("تم استلام طلبك")).toBeVisible({ timeout: 15_000 });
+
+      // The submission must have reached the backend tagged with the real
+      // requirement id — proving the wizard now sends
+      // documentRequirementIds (previously always empty, which meant the
+      // backend's own MIME/size/max-files checks and OCR gating for
+      // documentRequirementIds — already implemented and tested server-side
+      // — were dead code as far as this public form was concerned).
+      const listRes = await admin.get(`${BACKEND_URL}/api/contact-requests?limit=200`);
+      const created = (await listRes.json()).data.find((r: { phone: string }) => r.phone === phone);
+      expect(created, "the contact request should have been created").toBeTruthy();
+      expect(created.documents).toHaveLength(1);
+      expect(created.documents[0].requirementId).toBe(requirement1.id);
+      expect(created.documents[0].label).toBe(requiredName);
+
+      await admin.delete(`${BACKEND_URL}/api/contact-requests/${created.id}`).catch(() => {});
     } finally {
       await admin.delete(`${BACKEND_URL}/api/visa-types/${visaType.id}`);
     }
@@ -244,7 +313,7 @@ function letterSuffix(length: number): string {
   return out;
 }
 
-test.describe("Airports — backend search contract (see file header for the UI gap)", () => {
+test.describe("Airports — backend search contract", () => {
   test("a newly added airport is found by Arabic, English, IATA and ICAO search", async ({ page }) => {
     const admin = await loginAsSeededAdmin(page).then(() => page.request);
     const suffix = Date.now().toString().slice(-4);
@@ -272,9 +341,44 @@ test.describe("Airports — backend search contract (see file header for the UI 
       await admin.delete(`${BACKEND_URL}/api/airports/${airport.id}`);
     }
   });
+
+  test("the public flight-search form's airport autocomplete suggests a real, newly added airport and fills its IATA code", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now().toString().slice(-4);
+    const nameAr = `مطار الودجت E2E ${suffix}`;
+    const createRes = await admin.post(`${BACKEND_URL}/api/airports`, {
+      data: {
+        nameAr,
+        nameEn: `E2E Widget Airport ${suffix}`,
+        cityAr: "مدينة الودجت",
+        cityEn: "Widget City",
+        countryAr: "دولة الاختبار",
+        iataCode: letterSuffix(3),
+        icaoCode: letterSuffix(4),
+      },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const airport = (await createRes.json()).data;
+
+    try {
+      await page.goto("/flights");
+      const fromInput = page.getByPlaceholder("المدينة أو رمز المطار").first();
+      // Typed as a substring of the Arabic name — the same "contains,
+      // case-insensitive" match airports.service.js's searchAirports uses.
+      await fromInput.fill(nameAr.slice(0, 12));
+
+      const suggestion = page.getByRole("button", { name: new RegExp(nameAr) });
+      await expect(suggestion).toBeVisible({ timeout: 15_000 });
+      await suggestion.click();
+
+      await expect(fromInput).toHaveValue(airport.iataCode);
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/airports/${airport.id}`);
+    }
+  });
 });
 
-test.describe("Airlines — backend logo-enrichment contract (see file header for the UI gap)", () => {
+test.describe("Airlines — backend logo-enrichment contract", () => {
   test("a newly added airline with a logo is resolved onto a matching flight search result", async ({ page }) => {
     const admin = await loginAsSeededAdmin(page).then(() => page.request);
     // searchManualFlights() filters results to isSudaneseAirline() matches
@@ -325,6 +429,58 @@ test.describe("Airlines — backend logo-enrichment contract (see file header fo
       expect(match, "the created flight should appear in search results").toBeTruthy();
       expect(match.airlineLogoKey, "attachAirlineLogos should resolve the logo key by matching airline name").toBe(airlineWithLogo.logoKey);
       expect(match.airlineLogoKey).toBeTruthy();
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/flights/${flight.id}`);
+      await admin.delete(`${BACKEND_URL}/api/airlines/${airline.id}`);
+    }
+  });
+
+  test("a matched airline's logo actually renders on the public flight-search result card", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const airlineName = `BADR AIRLINES UI E2E ${Date.now()}`;
+
+    const createRes = await admin.post(`${BACKEND_URL}/api/airlines`, { data: { name: airlineName } });
+    const airline = (await createRes.json()).data;
+
+    const logoRes = await admin.post(`${BACKEND_URL}/api/airlines/${airline.id}/logo`, {
+      multipart: { image: { name: "logo.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+    });
+    expect(logoRes.ok(), await logoRes.text()).toBeTruthy();
+    const airlineWithLogo = (await logoRes.json()).data;
+
+    const departureDate = "2027-03-20";
+    const flightRes = await admin.post(`${BACKEND_URL}/api/flights`, {
+      data: {
+        airline: airlineName,
+        flightNumber: `E2${Date.now().toString().slice(-4)}`,
+        originCode: "PZU",
+        originName: "Port Sudan",
+        destinationCode: "JED",
+        destinationName: "Jeddah",
+        departureAt: `${departureDate}T08:00:00+02:00`,
+        arrivalAt: `${departureDate}T11:00:00+02:00`,
+        stops: 0,
+        cabin: "Economy",
+        price: 100,
+        currency: "USD",
+        availableSeats: 5,
+      },
+    });
+    const flight = (await flightRes.json()).data;
+
+    try {
+      await page.goto("/flights");
+      await page.getByPlaceholder("المدينة أو رمز المطار").first().fill("PZU");
+      await page.getByPlaceholder("المدينة أو رمز المطار").nth(1).fill("JED");
+      await page.locator('input[type="date"]').first().fill(departureDate);
+      await page.getByRole("button", { name: "بحث عن الرحلات" }).click();
+
+      const card = page.locator("article", { hasText: flight.flightNumber });
+      await expect(card).toBeVisible({ timeout: 15_000 });
+      await expect(card.locator("img")).toHaveAttribute(
+        "src",
+        new RegExp(`/site-assets/${airlineWithLogo.logoKey}/file`)
+      );
     } finally {
       await admin.delete(`${BACKEND_URL}/api/flights/${flight.id}`);
       await admin.delete(`${BACKEND_URL}/api/airlines/${airline.id}`);

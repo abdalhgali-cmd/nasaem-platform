@@ -143,6 +143,89 @@ async function seedHomepageSections() {
   console.log(`Seeded ${HOMEPAGE_SECTIONS.length} homepage sections.`);
 }
 
+// Platform 3.0 "wire the Requirements Engine into the Public Visa Intake
+// Wizard": these mirror, verbatim, what used to be hardcoded in
+// web/src/components/sections/service-intake-wizard.tsx
+// (UMRAH_DOCUMENTS/PACKAGE_DOCUMENTS/VISA_DOCUMENTS_BY_CODE) before the
+// wizard was switched to fetch its checklist from
+// GET /api/{visa-types,services}/:id/requirements/public. Seeding the
+// same checklist items into VisaRequirement (the same admin-editable model
+// every other requirements checklist already uses) keeps the customer-
+// facing prompt identical on first deploy — an admin can then edit it from
+// the existing Requirements Engine admin UI instead of a code change.
+const ATTACHMENT_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // matches upload.middleware.js's global limit
+
+const UMRAH_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
+const PACKAGE_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
+const VISA_REQUIREMENT_NAMES_BY_CODE = {
+  "VISA-UMRAH": ["صورة الجواز", "الصورة الشخصية", "صورة إقامة الضامن", "رقم الضامن (أبشر)"],
+  "VISA-FAMILY-VISIT": [
+    "صورة الجواز والصورة الشخصية",
+    "مستند الزيارة (الدعوة)",
+    "صورة إقامة مرسل الزيارة (من أبشر)",
+  ],
+  "VISA-WORK": ["عقد العمل", "صورة الجواز", "الصورة الشخصية"],
+  "VISA-INTERNATIONAL": ["صورة الجواز", "الصورة الشخصية"],
+  "VISA-EGYPT-CLEARANCE": ["صورة الجواز", "تذكرة الطيران أو طلب الحجز"],
+};
+
+// No unique constraint ties a VisaRequirement to its (scope, name) pair —
+// checked instead of upserted, same idempotency guarantee as every upsert
+// elsewhere in this file (a rerun never duplicates rows).
+async function seedRequirementsForScope(scope, names) {
+  let created = 0;
+  for (let index = 0; index < names.length; index += 1) {
+    const name = names[index];
+    const existing = await prisma.visaRequirement.findFirst({ where: { ...scope, name } });
+    if (existing) continue;
+
+    await prisma.visaRequirement.create({
+      data: {
+        ...scope,
+        name,
+        required: true,
+        maxFiles: 1,
+        allowedMimeTypes: ATTACHMENT_MIME_TYPES,
+        maxSizeBytes: MAX_ATTACHMENT_SIZE_BYTES,
+        reviewRequired: true,
+        ocrEnabled: false,
+        sortOrder: index,
+        active: true,
+      },
+    });
+    created += 1;
+  }
+  return created;
+}
+
+async function seedVisaRequirements() {
+  let created = 0;
+
+  const umrahService = await prisma.service.findUnique({ where: { code: "SVC-UMRAH" } });
+  if (umrahService) {
+    created += await seedRequirementsForScope({ serviceId: umrahService.id }, UMRAH_REQUIREMENT_NAMES);
+  }
+
+  for (const pkg of PACKAGE_SERVICES) {
+    const service = await prisma.service.findUnique({ where: { code: pkg.code } });
+    if (service) {
+      created += await seedRequirementsForScope({ serviceId: service.id }, PACKAGE_REQUIREMENT_NAMES);
+    }
+  }
+
+  for (const visa of VISA_TYPES) {
+    const names = VISA_REQUIREMENT_NAMES_BY_CODE[visa.code];
+    if (!names) continue;
+    const visaType = await prisma.visaType.findUnique({ where: { code: visa.code } });
+    if (visaType) {
+      created += await seedRequirementsForScope({ visaTypeId: visaType.id }, names);
+    }
+  }
+
+  console.log(`Seeded ${created} visa/service document requirements.`);
+}
+
 async function seedFeatureFlags() {
   for (const key of FEATURE_FLAG_KEYS) {
     await prisma.featureFlag.upsert({
@@ -161,6 +244,7 @@ async function main() {
   await seedServiceCategories();
   await seedPackageServices();
   await seedVisaTypes();
+  await seedVisaRequirements();
   await seedHomepageSections();
   await seedFeatureFlags();
 }
