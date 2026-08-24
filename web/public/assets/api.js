@@ -1,4 +1,12 @@
-const API_BASE = "/api";
+// This copy of api.js is served by the Vercel-hosted marketing site
+// (web/), which has no backend of its own — unlike frontend/assets/api.js,
+// which the Express backend serves same-origin alongside its own API (see
+// backend/src/app.js's static-serving comment), a relative "/api" here
+// resolves against Vercel itself and 404s. There's no build-time env
+// injection into files under web/public (Next.js serves them verbatim,
+// unprocessed — NEXT_PUBLIC_API_URL only reaches code bundled from
+// web/src), so the deployed backend's URL is hardcoded here instead.
+const API_BASE = "https://nasaem-platform-production.up.railway.app/api";
 
 class ApiError extends Error {
   constructor(message, status, errors) {
