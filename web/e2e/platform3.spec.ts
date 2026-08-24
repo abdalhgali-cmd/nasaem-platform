@@ -236,9 +236,11 @@ test.describe("Visa — admin creates a visa type, it's reachable publicly by co
 
       // Documents step: both checklist items must be visible verbatim,
       // fetched live from GET /api/visa-types/:id/requirements/public —
-      // not any hardcoded fallback.
-      await expect(page.getByText(requiredName, { exact: true })).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByText(optionalName, { exact: true })).toBeVisible();
+      // not any hardcoded fallback. Regex, not exact text: the rendered
+      // <span> holds the name plus its "*"/"(اختياري)" marker as one text
+      // node, so no element's full text is ever exactly the bare name.
+      await expect(page.getByText(new RegExp(requiredName))).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(new RegExp(optionalName))).toBeVisible();
 
       // .first() = the required item's slot (sortOrder 0, rendered first),
       // matching requirement1 asserted against below.
