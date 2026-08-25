@@ -1,5 +1,6 @@
 import path from "path";
 import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -11,6 +12,17 @@ import rateLimit from "express-rate-limit";
 import apiRouter from "./routes/index.js";
 import notFoundMiddleware from "./middleware/notFound.middleware.js";
 import errorMiddleware from "./middleware/error.middleware.js";
+
+// Must run before the cors() call below reads process.env.CORS_ORIGIN.
+// server.js used to be the only place calling dotenv.config(), before its
+// own `import app from "./app.js"` — but ES module imports are resolved
+// and evaluated before the importing file's own top-level statements run,
+// so app.js (and this module-scope cors() call) actually executed first,
+// always seeing CORS_ORIGIN as undefined. That silently forced `origin:
+// false` (deny-all) no matter what CORS_ORIGIN was set to, undetected
+// because the app's only real deployment target was itself same-origin
+// (see the static-serving comment below), which needs no CORS headers.
+dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // backend/src/app.js -> repo root/frontend
