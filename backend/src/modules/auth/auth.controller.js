@@ -3,10 +3,21 @@ import { getCurrentUser, loginUser } from "./auth.service.js";
 import { getAccessTokenMaxAgeMs } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 
+// Production now also serves a legitimate cross-site caller (the Vercel-hosted
+// marketing site's static admin pages, calling the Railway-hosted API) on top
+// of the same-origin Express-served frontend/ back-office. SameSite=Lax
+// cookies aren't sent on cross-site fetch/XHR (only top-level navigation),
+// which broke exactly that case — proven by reproducing it locally with two
+// distinct hostnames: login succeeded (200) but the session cookie never
+// reached the browser's next request. SameSite=None fixes it, but browsers
+// reject a None cookie that isn't also Secure — safe to require in
+// production (both origins are HTTPS there) but not in local dev over HTTP,
+// where this instead falls back to the original same-site Lax behavior.
+const isProduction = process.env.NODE_ENV === "production";
 const AUTH_COOKIE_OPTIONS = {
-  httpOnly: true,
-  sameSite: "lax",
-  secure: process.env.NODE_ENV === "production",
+    httpOnly: true,
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
 };
 
 function sendAuthCookie(res, token) {
