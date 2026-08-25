@@ -51,9 +51,16 @@ const PUBLIC_VISA_TYPE_SELECT = {
   stayDuration: true,
   validity: true,
   entryType: true,
+  category: true,
 };
 
-export async function listPublicCatalog() {
+// visaCategory (VISA_TYPE_CATEGORIES — INTERNATIONAL/UMRAH/FAMILY_VISIT/
+// OTHER) narrows the visaTypes half of the catalog server-side, e.g. the
+// public "International Visas" section requests only
+// ?visaCategory=INTERNATIONAL so Umrah/Family Visit visa types are never
+// present in the response to begin with — no frontend filtering involved.
+// `services` is unaffected; it has its own, unrelated `category` field.
+export async function listPublicCatalog({ visaCategory } = {}) {
   const [services, visaTypes] = await Promise.all([
     prisma.service.findMany({
       where: { active: true },
@@ -61,7 +68,7 @@ export async function listPublicCatalog() {
       select: PUBLIC_SERVICE_SELECT,
     }),
     prisma.visaType.findMany({
-      where: { active: true },
+      where: { active: true, ...(visaCategory ? { category: visaCategory } : {}) },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: PUBLIC_VISA_TYPE_SELECT,
     }),

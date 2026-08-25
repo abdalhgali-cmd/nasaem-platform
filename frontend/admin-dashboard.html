@@ -391,13 +391,22 @@
             <div class="field"><label for="vt-name">الاسم *</label><input id="vt-name" /></div>
             <div class="field"><label for="vt-country">الدولة *</label><input id="vt-country" /></div>
             <div class="field"><label for="vt-basePrice">السعر الأساسي</label><input id="vt-basePrice" type="number" min="0" step="0.01" value="0" /></div>
+            <div class="field">
+              <label for="vt-category">القسم العام *</label>
+              <select id="vt-category">
+                <option value="INTERNATIONAL">التأشيرات الدولية</option>
+                <option value="UMRAH">العمرة</option>
+                <option value="FAMILY_VISIT">الزيارة العائلية</option>
+                <option value="OTHER" selected>أخرى (عمل، تصاريح، ...)</option>
+              </select>
+            </div>
           </div>
           <button type="button" class="btn" id="visa-create-btn">إضافة تأشيرة</button>
         </div>
         <div class="card">
           <h2>التأشيرات</h2>
           <table>
-            <thead><tr><th>الرمز</th><th>الاسم</th><th>الدولة</th><th>السعر الأساسي</th><th>الحالة</th><th></th></tr></thead>
+            <thead><tr><th>الرمز</th><th>الاسم</th><th>الدولة</th><th>القسم</th><th>السعر الأساسي</th><th>الحالة</th><th></th></tr></thead>
             <tbody id="visas-body"></tbody>
           </table>
         </div>

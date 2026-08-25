@@ -91,12 +91,16 @@ async function seedPackageServices() {
   console.log(`Seeded ${PACKAGE_SERVICES.length} package services.`);
 }
 
+// category matches VISA_TYPE_CATEGORIES (backend/src/utils/enums.js) — the
+// authoritative classification GET /api/services/public?visaCategory=
+// filters on, so this is what actually keeps Umrah/Family Visit out of the
+// public International Visas section (not any frontend exclusion list).
 const VISA_TYPES = [
-  { code: "VISA-UMRAH", name: "تأشيرة العمرة", country: "السعودية", serviceCode: "SVC-UMRAH" },
-  { code: "VISA-FAMILY-VISIT", name: "الزيارة العائلية", country: "السعودية", serviceCode: "SVC-FAMILY-VISIT" },
-  { code: "VISA-WORK", name: "تأشيرة العمل", country: "السعودية", serviceCode: "SVC-WORK-VISA" },
-  { code: "VISA-INTERNATIONAL", name: "التأشيرات الدولية", country: "دولي", serviceCode: "SVC-INTL-VISA" },
-  { code: "VISA-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", country: "مصر", serviceCode: "SVC-EGYPT-CLEARANCE" },
+  { code: "VISA-UMRAH", name: "تأشيرة العمرة", country: "السعودية", serviceCode: "SVC-UMRAH", category: "UMRAH" },
+  { code: "VISA-FAMILY-VISIT", name: "الزيارة العائلية", country: "السعودية", serviceCode: "SVC-FAMILY-VISIT", category: "FAMILY_VISIT" },
+  { code: "VISA-WORK", name: "تأشيرة العمل", country: "السعودية", serviceCode: "SVC-WORK-VISA", category: "OTHER" },
+  { code: "VISA-INTERNATIONAL", name: "التأشيرات الدولية", country: "دولي", serviceCode: "SVC-INTL-VISA", category: "INTERNATIONAL" },
+  { code: "VISA-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", country: "مصر", serviceCode: "SVC-EGYPT-CLEARANCE", category: "OTHER" },
 ];
 
 async function seedVisaTypes() {
@@ -104,7 +108,7 @@ async function seedVisaTypes() {
     const service = await prisma.service.findUnique({ where: { code: visa.serviceCode } });
     await prisma.visaType.upsert({
       where: { code: visa.code },
-      update: {},
+      update: { category: visa.category },
       create: {
         code: visa.code,
         name: visa.name,
@@ -112,6 +116,7 @@ async function seedVisaTypes() {
         basePrice: 0,
         currency: "SAR",
         serviceId: service?.id ?? null,
+        category: visa.category,
       },
     });
   }
@@ -128,7 +133,7 @@ const HOMEPAGE_SECTIONS = [
   { key: "visas", title: "التأشيرات", description: "زيارة عائلية، تأشيرة عمل، أو تأشيرات دولية — نتابع إجراءاتك بدقة وسرعة حتى الاستلام.", href: "/visas", iconKey: "stamp", sortOrder: 2 },
   { key: "flights", title: "حجز الطيران", description: "أفضل أسعار تذاكر الطيران الداخلي والدولي على أشهر شركات الطيران، برحلة ذهاب أو ذهاب وعودة.", href: "/flights", iconKey: "plane", sortOrder: 3 },
   { key: "hotels", title: "حجز الفنادق", description: "فنادق قريبة من الحرمين الشريفين وفي كل الوجهات، بمستويات مختلفة تناسب كل ميزانية.", href: "/hotels", iconKey: "hotel", sortOrder: 4 },
-  { key: "intl-visas", title: "التأشيرات الدولية", description: "الصين، بالي، ودول أفريقيا — نوضح لك المستندات المطلوبة قبل بدء الإجراءات.", href: "/visas", iconKey: "globe", sortOrder: 5 },
+  { key: "intl-visas", title: "التأشيرات الدولية", description: "الصين، بالي، ودول أفريقيا — نوضح لك المستندات المطلوبة قبل بدء الإجراءات.", href: "/visas?visaCategory=INTERNATIONAL#book", iconKey: "globe", sortOrder: 5 },
   { key: "packages", title: "باقات السفر الشاملة", description: "برامج سياحية جاهزة تجمع الطيران والإقامة والجولات في باقة واحدة بسعر مريح.", href: "/packages", iconKey: "package", sortOrder: 6 },
 ];
 

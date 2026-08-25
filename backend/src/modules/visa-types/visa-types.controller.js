@@ -3,10 +3,15 @@ import { createVisaType, deleteVisaType, getVisaTypeById, listVisaTypes, reorder
 import { makeRequirementsController } from "../requirements/requirements.controller.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { parsePagination } from "../../utils/pagination.js";
+import { VISA_TYPE_CATEGORIES } from "../../utils/enums.js";
 
 export async function getVisaTypes(req, res, next) {
   try {
-    const { data, meta } = await listVisaTypes(parsePagination(req.query));
+    // Optional ?category= filter (admin catalog management) — an unknown
+    // value is ignored rather than 400ing, since this is a list-narrowing
+    // convenience, not a write.
+    const category = VISA_TYPE_CATEGORIES.includes(req.query.category) ? req.query.category : undefined;
+    const { data, meta } = await listVisaTypes(parsePagination(req.query), { category });
     return res.status(200).json({ success: true, data, meta });
   } catch (error) {
     next(error);

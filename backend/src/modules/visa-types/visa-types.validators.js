@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SUPPORTED_CURRENCIES, VISA_ENTRY_TYPES } from "../../utils/enums.js";
+import { SUPPORTED_CURRENCIES, VISA_ENTRY_TYPES, VISA_TYPE_CATEGORIES } from "../../utils/enums.js";
 
 export const createVisaTypeSchema = z.object({
   code: z.string().min(1, "Visa code is required"),
@@ -16,6 +16,7 @@ export const createVisaTypeSchema = z.object({
   stayDuration: z.string().trim().max(100).optional().nullable(),
   validity: z.string().trim().max(100).optional().nullable(),
   entryType: z.enum(VISA_ENTRY_TYPES).optional().nullable(),
+  category: z.enum(VISA_TYPE_CATEGORIES).default("OTHER"),
   sortOrder: z.coerce.number().int().optional(),
 });
 

@@ -166,6 +166,42 @@ test.describe("Visa — admin creates a visa type, it's reachable publicly by co
     }
   });
 
+  // Regression test for the "International Visas must never show Family
+  // Visit or Umrah" bug: the "قدّم الآن" CTA on the "التأشيرات الدولية"
+  // card links to /visas?visaCategory=INTERNATIONAL#book, which the wizard
+  // uses to call GET /services/public?visaCategory=INTERNATIONAL — proving
+  // the exclusion happens in the real, rendered public UI (driven by the
+  // backend-authoritative VisaType.category), not just at the API layer.
+  test("the International Visas CTA never shows Umrah or Family Visit as selectable options", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now();
+    const intlName = `تأشيرة دولية E2E ${suffix}`;
+    const umrahName = `تأشيرة عمرة E2E ${suffix}`;
+    const familyName = `تأشيرة زيارة عائلية E2E ${suffix}`;
+
+    const created: string[] = [];
+    async function makeVisa(code: string, name: string, category: string) {
+      const res = await admin.post(`${BACKEND_URL}/api/visa-types`, {
+        data: { code, name, country: "دولة اختبار", basePrice: 100, active: true, category },
+      });
+      expect(res.ok(), await res.text()).toBeTruthy();
+      created.push((await res.json()).data.id);
+    }
+
+    try {
+      await makeVisa(`E2E-INTL-${suffix}`, intlName, "INTERNATIONAL");
+      await makeVisa(`E2E-UMRAH-${suffix}`, umrahName, "UMRAH");
+      await makeVisa(`E2E-FAMILY-${suffix}`, familyName, "FAMILY_VISIT");
+
+      await page.goto("/visas?visaCategory=INTERNATIONAL#book");
+      await expect(page.getByRole("button", { name: new RegExp(intlName) })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("button", { name: new RegExp(umrahName) })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: new RegExp(familyName) })).toHaveCount(0);
+    } finally {
+      for (const id of created) await admin.delete(`${BACKEND_URL}/api/visa-types/${id}`);
+    }
+  });
+
   test("adding a requirement changes the public requirements-checklist API contract", async ({ page }) => {
     const admin = await loginAsSeededAdmin(page).then(() => page.request);
     const code = `E2E-REQ-${Date.now()}`;

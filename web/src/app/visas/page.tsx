@@ -16,7 +16,12 @@ export const metadata: Metadata = {
 
 // visaTypeCode matches VisaType.code seeded in backend/prisma/seed.js — lets
 // each card's CTA deep-link straight into the intake wizard with this type
-// pre-selected instead of just a generic "start" link.
+// pre-selected instead of just a generic "start" link. category matches
+// VisaType.category (VISA_TYPE_CATEGORIES, backend/src/utils/enums.js) — the
+// backend-authoritative classification passed to the wizard so its "اختر
+// نوع التأشيرة" step only ever lists visa types from the same public
+// section (e.g. clicking "التأشيرات الدولية" can never surface Umrah or
+// Family Visit options).
 const visaCategories = [
   {
     icon: Stamp,
@@ -25,6 +30,7 @@ const visaCategories = [
     description: "استخراج تأشيرة عمرة فردية أو جماعية بالتنسيق المباشر مع الجهات المعتمدة.",
     requirements: ["صورة الجواز", "الصورة الشخصية", "صورة إقامة الضامن", "رقم الضامن (أبشر)"],
     visaTypeCode: "VISA-UMRAH",
+    category: "UMRAH",
   },
   {
     icon: Users2,
@@ -38,6 +44,7 @@ const visaCategories = [
       "مستندات إضافية حسب صلة القرابة",
     ],
     visaTypeCode: "VISA-FAMILY-VISIT",
+    category: "FAMILY_VISIT",
   },
   {
     icon: Briefcase,
@@ -46,6 +53,7 @@ const visaCategories = [
     description: "استكمال إجراءات عقد العمل، الفحص الطبي، واستخراج الفيش الجنائي.",
     requirements: ["رقم المكتب المفوَّض", "عقد العمل", "صورة الجواز", "الصورة الشخصية"],
     visaTypeCode: "VISA-WORK",
+    category: "OTHER",
   },
   {
     icon: Globe2,
@@ -54,6 +62,7 @@ const visaCategories = [
     description: "الصين، بالي، ودول أفريقيا — نراجع طلبك ونوضح أي مستند إضافي مطلوب.",
     requirements: ["صورة الجواز", "الصورة الشخصية", "دعوة أو حجز الطيران والفندق (حسب الدولة)"],
     visaTypeCode: "VISA-INTERNATIONAL",
+    category: "INTERNATIONAL",
   },
   {
     icon: Plane,
@@ -62,15 +71,16 @@ const visaCategories = [
     description: "خطوتك الأولى للسفر إلى مصر عبر الطيران أو أحد المعابر البرية.",
     requirements: ["صورة الجواز", "تذكرة الطيران أو طلب الحجز (أو تحديد اسم المعبر البري)"],
     visaTypeCode: "VISA-EGYPT-CLEARANCE",
+    category: "OTHER",
   },
 ];
 
 export default async function VisasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ visaType?: string }>;
+  searchParams: Promise<{ visaType?: string; visaCategory?: string }>;
 }) {
-  const { visaType } = await searchParams;
+  const { visaType, visaCategory } = await searchParams;
 
   return (
     <>
@@ -116,7 +126,7 @@ export default async function VisasPage({
                     </ul>
                   </div>
                   <Button asChild variant="primary" size="sm" className="mt-5 w-full">
-                    <a href={`?visaType=${visa.visaTypeCode}#book`}>قدّم الآن</a>
+                    <a href={`?visaType=${visa.visaTypeCode}&visaCategory=${visa.category}#book`}>قدّم الآن</a>
                   </Button>
                 </div>
               </FadeIn>
@@ -129,7 +139,7 @@ export default async function VisasPage({
         <Container>
           <SectionHeading eyebrow="التقديم" title="ابدأ طلب التأشيرة" />
           <div className="mt-12">
-            <ServiceIntakeWizard service="visa" initialServiceCode={visaType} />
+            <ServiceIntakeWizard service="visa" initialServiceCode={visaType} visaCategory={visaCategory} />
           </div>
         </Container>
       </section>

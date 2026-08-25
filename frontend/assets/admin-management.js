@@ -1400,6 +1400,16 @@ async function saveTheme() {
 
 // --- Visas (VisaType directory) ---
 
+// Labels for VisaType.category (VISA_TYPE_CATEGORIES, backend/src/utils/enums.js)
+// — the field that determines which public section (International Visas /
+// Umrah / Family Visit) a visa type appears under.
+const VISA_TYPE_CATEGORY_LABELS = {
+  INTERNATIONAL: "التأشيرات الدولية",
+  UMRAH: "العمرة",
+  FAMILY_VISIT: "الزيارة العائلية",
+  OTHER: "أخرى",
+};
+
 async function loadVisaTypes() {
   try {
     const { data } = await api.get("/visa-types?limit=100");
@@ -1411,6 +1421,7 @@ async function loadVisaTypes() {
           <td>${vt.code}</td>
           <td>${vt.name}</td>
           <td>${vt.country}</td>
+          <td>${VISA_TYPE_CATEGORY_LABELS[vt.category] || vt.category || "—"}</td>
           <td>${formatMoney(vt.basePrice, vt.currency)}</td>
           <td>${vt.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
           <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-visa="${vt.id}" data-active="${vt.active}">${vt.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
@@ -1427,6 +1438,7 @@ async function createVisaType() {
   const code = el("vt-code").value.trim();
   const name = el("vt-name").value.trim();
   const country = el("vt-country").value.trim();
+  const category = el("vt-category").value;
   if (!code || !name || !country) return showAlert(mgmtAlert(), "الرمز والاسم والدولة مطلوبة.");
 
   try {
@@ -1434,12 +1446,14 @@ async function createVisaType() {
       code,
       name,
       country,
+      category,
       basePrice: Number(el("vt-basePrice").value) || 0,
     });
     el("vt-code").value = "";
     el("vt-name").value = "";
     el("vt-country").value = "";
     el("vt-basePrice").value = "0";
+    el("vt-category").value = "OTHER";
     loadVisaTypes();
   } catch (error) {
     showAlert(mgmtAlert(), error.message);
