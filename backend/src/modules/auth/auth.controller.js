@@ -15,9 +15,9 @@ import { logActivity } from "../../utils/activityLog.js";
 // where this instead falls back to the original same-site Lax behavior.
 const isProduction = process.env.NODE_ENV === "production";
 const AUTH_COOKIE_OPTIONS = {
-    httpOnly: true,
-    sameSite: isProduction ? "none" : "lax",
-    secure: isProduction,
+  httpOnly: true,
+  sameSite: isProduction ? "none" : "lax",
+  secure: isProduction,
 };
 
 function sendAuthCookie(res, token) {
