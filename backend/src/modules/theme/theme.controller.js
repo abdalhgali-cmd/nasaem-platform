@@ -27,7 +27,12 @@ export async function patchTheme(req, res, next) {
 
     const before = await getThemeColors();
     const data = await updateThemeColors(parsed.data);
-    logActivity({ userId: req.user?.id, action: "THEME_UPDATED", entity: "Theme", entityId: "theme", req, oldValue: before, newValue: data });
+    // Awaited (unlike this codebase's usual fire-and-forget logActivity
+    // calls) because activityLog.test.js reads the log back immediately
+    // via GET /api/activity-logs right after this response — without
+    // awaiting, that read could race the write and intermittently find
+    // no THEME_UPDATED entry yet.
+    await logActivity({ userId: req.user?.id, action: "THEME_UPDATED", entity: "Theme", entityId: "theme", req, oldValue: before, newValue: data });
     return res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
