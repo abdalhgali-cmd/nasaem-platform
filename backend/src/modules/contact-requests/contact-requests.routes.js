@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
+import { attachOptionalCustomer } from "../customer-auth/customer-auth.middleware.js";
 import { requireFeatureEnabled } from "../feature-flags/feature-flags.middleware.js";
 import {
   uploadContactRequestDeliverable,
@@ -62,7 +63,7 @@ const publicContactLimiter = rateLimit({
   },
 });
 
-router.post("/", publicContactLimiter, handleIntakeDocumentsUpload, storeContactRequest);
+router.post("/", publicContactLimiter, attachOptionalCustomer, handleIntakeDocumentsUpload, storeContactRequest);
 
 router.get(
   "/",

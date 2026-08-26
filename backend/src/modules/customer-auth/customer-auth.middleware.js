@@ -6,6 +6,22 @@ import { verifyCustomerToken } from "../../utils/jwt.js";
 // the Customer row rather than trusting the JWT payload alone, so a
 // password change or an account that gets deleted takes effect immediately
 // instead of only once the token expires.
+export async function attachOptionalCustomer(req, res, next) {
+  try {
+    const token = req.cookies?.customerAccessToken;
+    if (!token) return next();
+    const payload = verifyCustomerToken(token);
+    const customer = await prisma.customer.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, passwordHash: true },
+    });
+    if (customer?.passwordHash) req.customer = { id: customer.id };
+  } catch {
+    // Anonymous public submissions remain valid when an optional cookie is invalid.
+  }
+  return next();
+}
+
 export async function requireCustomerAuth(req, res, next) {
   try {
     const token = req.cookies?.customerAccessToken;

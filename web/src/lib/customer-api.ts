@@ -40,3 +40,11 @@ export async function customerApi<T = unknown>(
 
   return payload.data as T;
 }
+
+export async function customerUpload<T = unknown>(path: string, formData: FormData): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, { method: "POST", credentials: "include", body: formData });
+  let payload: { success?: boolean; message?: string; data?: T; errors?: unknown } | null = null;
+  try { payload = await response.json(); } catch { payload = null; }
+  if (!response.ok || !payload?.success) throw new CustomerApiError(payload?.message || "تعذر رفع الملف", response.status, payload?.errors);
+  return payload.data as T;
+}
