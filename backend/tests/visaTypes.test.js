@@ -123,6 +123,154 @@ describe("dynamic visa management (Platform 3.0 Phase 4)", () => {
     const reorderRes = await employeeAgent.patch("/api/visa-types/reorder").send({ order: ["x"] });
     assert.equal(reorderRes.status, 403);
   });
+
+  test("category defaults to OTHER and rejects an invalid value", async () => {
+    const noCategory = await createVisaType(agent);
+    assert.equal(noCategory.category, "OTHER");
+
+    const bad = await agent.post("/api/visa-types").send({
+      code: `VISA-${uniqueSuffix()}`,
+      name: "Bad Category",
+      country: TEST_COUNTRY,
+      basePrice: 1,
+      category: "NOT_A_REAL_CATEGORY",
+    });
+    assert.equal(bad.status, 400);
+  });
+
+  test("category can be set on create and changed via PATCH", async () => {
+    const visa = await createVisaType(agent, { category: "INTERNATIONAL" });
+    assert.equal(visa.category, "INTERNATIONAL");
+
+    const patchRes = await agent.patch(`/api/visa-types/${visa.id}`).send({ category: "FAMILY_VISIT" });
+    assert.equal(patchRes.status, 200);
+    assert.equal(patchRes.body.data.category, "FAMILY_VISIT");
+  });
+
+  test("admin listing supports ?category= filtering", async () => {
+    const suffix = uniqueSuffix();
+    const intl = await createVisaType(agent, { code: `VISA-INTLQ-${suffix}`, category: "INTERNATIONAL" });
+    const umrah = await createVisaType(agent, { code: `VISA-UMQ-${suffix}`, category: "UMRAH" });
+
+    const res = await agent.get("/api/visa-types?category=INTERNATIONAL&limit=100");
+    assert.equal(res.status, 200);
+    const ids = res.body.data.map((v) => v.id);
+    assert.ok(ids.includes(intl.id));
+    assert.ok(!ids.includes(umrah.id));
+  });
+});
+
+// Regression coverage for the "التأشيرات الدولية" (International Visas)
+// categorization bug: Family Visit and Umrah visa types must never appear
+// in a category-filtered public catalog request, and the filtering must
+// happen server-side (GET /api/services/public?visaCategory=...) rather
+// than being a frontend exclusion list — so these assertions hit the raw
+// public API directly, exactly as the frontend and any direct API
+// consumer would.
+describe("visa type categorization (public catalog filtering)", () => {
+  let agent;
+  let intlVisa;
+  let umrahVisa;
+  let familyVisitVisa;
+  let otherVisa;
+
+  before(async () => {
+    agent = await loginAsSuperAdmin();
+    const suffix = uniqueSuffix();
+    intlVisa = await createVisaType(agent, { code: `VISA-CAT-INTL-${suffix}`, category: "INTERNATIONAL", active: true });
+    umrahVisa = await createVisaType(agent, { code: `VISA-CAT-UMRAH-${suffix}`, category: "UMRAH", active: true });
+    familyVisitVisa = await createVisaType(agent, { code: `VISA-CAT-FAMILY-${suffix}`, category: "FAMILY_VISIT", active: true });
+    otherVisa = await createVisaType(agent, { code: `VISA-CAT-OTHER-${suffix}`, category: "OTHER", active: true });
+  });
+
+  test("?visaCategory=INTERNATIONAL never includes Umrah or Family Visit visa types", async () => {
+    const res = await request(app).get("/api/services/public?visaCategory=INTERNATIONAL");
+    assert.equal(res.status, 200);
+    const ids = res.body.data.visaTypes.map((v) => v.id);
+
+    assert.ok(ids.includes(intlVisa.id), "expected the INTERNATIONAL visa type to be present");
+    assert.ok(!ids.includes(umrahVisa.id), "Umrah visa type leaked into the International Visas category");
+    assert.ok(!ids.includes(familyVisitVisa.id), "Family Visit visa type leaked into the International Visas category");
+    assert.ok(!ids.includes(otherVisa.id), "OTHER-category visa type leaked into the International Visas category");
+  });
+
+  test("?visaCategory=UMRAH never includes International or Family Visit visa types", async () => {
+    const res = await request(app).get("/api/services/public?visaCategory=UMRAH");
+    assert.equal(res.status, 200);
+    const ids = res.body.data.visaTypes.map((v) => v.id);
+
+    assert.ok(ids.includes(umrahVisa.id));
+    assert.ok(!ids.includes(intlVisa.id));
+    assert.ok(!ids.includes(familyVisitVisa.id));
+  });
+
+  test("?visaCategory=FAMILY_VISIT never includes International or Umrah visa types", async () => {
+    const res = await request(app).get("/api/services/public?visaCategory=FAMILY_VISIT");
+    assert.equal(res.status, 200);
+    const ids = res.body.data.visaTypes.map((v) => v.id);
+
+    assert.ok(ids.includes(familyVisitVisa.id));
+    assert.ok(!ids.includes(intlVisa.id));
+    assert.ok(!ids.includes(umrahVisa.id));
+  });
+
+  test("every returned visa type carries the category that was requested", async () => {
+    const res = await request(app).get("/api/services/public?visaCategory=INTERNATIONAL");
+    assert.ok(res.body.data.visaTypes.length > 0);
+    assert.ok(res.body.data.visaTypes.every((v) => v.category === "INTERNATIONAL"));
+  });
+
+  test("an unrecognized visaCategory value falls back to the unfiltered catalog instead of erroring", async () => {
+    const res = await request(app).get("/api/services/public?visaCategory=NOT_A_REAL_CATEGORY");
+    assert.equal(res.status, 200);
+    const ids = res.body.data.visaTypes.map((v) => v.id);
+    assert.ok(ids.includes(intlVisa.id));
+    assert.ok(ids.includes(umrahVisa.id));
+    assert.ok(ids.includes(familyVisitVisa.id));
+  });
+
+  test("no visaCategory param returns every active category, unfiltered", async () => {
+    const res = await request(app).get("/api/services/public");
+    assert.equal(res.status, 200);
+    const ids = res.body.data.visaTypes.map((v) => v.id);
+    assert.ok(ids.includes(intlVisa.id));
+    assert.ok(ids.includes(umrahVisa.id));
+    assert.ok(ids.includes(familyVisitVisa.id));
+    assert.ok(ids.includes(otherVisa.id));
+  });
+
+  test("an inactive visa type stays excluded even when its category is requested", async () => {
+    const suffix = uniqueSuffix();
+    const inactiveIntl = await createVisaType(agent, {
+      code: `VISA-CAT-INTL-INACTIVE-${suffix}`,
+      category: "INTERNATIONAL",
+      active: false,
+    });
+
+    const res = await request(app).get("/api/services/public?visaCategory=INTERNATIONAL");
+    const ids = res.body.data.visaTypes.map((v) => v.id);
+    assert.ok(!ids.includes(inactiveIntl.id));
+  });
+
+  test("pagination on the admin listing works together with category filtering", async () => {
+    const suffix = uniqueSuffix();
+    const a = await createVisaType(agent, { code: `VISA-PG-A-${suffix}`, category: "INTERNATIONAL" });
+    const b = await createVisaType(agent, { code: `VISA-PG-B-${suffix}`, category: "INTERNATIONAL" });
+
+    const res = await agent.get("/api/visa-types?category=INTERNATIONAL&limit=1&page=1");
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.length, 1);
+    assert.equal(res.body.meta.limit, 1);
+    assert.ok(res.body.meta.total >= 2);
+
+    const ids = new Set();
+    for (let page = 1; page <= res.body.meta.totalPages; page += 1) {
+      const pageRes = await agent.get(`/api/visa-types?category=INTERNATIONAL&limit=1&page=${page}`);
+      pageRes.body.data.forEach((v) => ids.add(v.id));
+    }
+    assert.ok(ids.has(a.id));
+    assert.ok(ids.has(b.id));
+  });
 });
 
 describe("visa requirements engine (Platform 3.0 Phase 5)", () => {

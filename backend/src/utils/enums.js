@@ -6,6 +6,14 @@ export const ORDER_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"];
 
 export const VISA_ENTRY_TYPES = ["SINGLE", "MULTIPLE"];
 
+// Which public section a VisaType belongs to — the authoritative
+// classification GET /api/services/public filters visaTypes on, so
+// Umrah/Family Visit visa types can never leak into the International
+// Visas section (or vice versa) regardless of what the frontend does.
+// OTHER covers every visa type that isn't one of the three named public
+// sections (work visas, Egypt security clearance, ...).
+export const VISA_TYPE_CATEGORIES = ["INTERNATIONAL", "UMRAH", "FAMILY_VISIT", "OTHER"];
+
 // Currencies relevant to the routes this platform actually serves (Saudi
 // Arabia / Egypt / Sudan travel services, per frontend/assets/services-data.js).
 export const SUPPORTED_CURRENCIES = ["SAR", "USD", "EUR", "EGP", "SDG", "AED", "GBP"];

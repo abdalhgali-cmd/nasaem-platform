@@ -1,14 +1,17 @@
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 
-export async function listVisaTypes({ page, limit, skip }) {
+export async function listVisaTypes({ page, limit, skip }, { category } = {}) {
+  const where = category ? { category } : {};
+
   const [data, total] = await Promise.all([
     prisma.visaType.findMany({
+      where,
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
       skip,
       take: limit,
     }),
-    prisma.visaType.count(),
+    prisma.visaType.count({ where }),
   ]);
 
   return { data, meta: buildPaginationMeta(page, limit, total) };
@@ -35,6 +38,7 @@ export async function createVisaType(data) {
       stayDuration: data.stayDuration || null,
       validity: data.validity || null,
       entryType: data.entryType || null,
+      category: data.category || "OTHER",
       sortOrder: data.sortOrder ?? 0,
     },
   });

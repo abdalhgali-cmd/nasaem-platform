@@ -1,13 +1,17 @@
 import { z } from "zod";
 import { HOMEPAGE_ICON_KEYS } from "./homepage.constants.js";
 
-// Sections link to internal routes only (/umrah, /flights, ...) — an
-// absolute URL here would let a section CTA point anywhere, which is more
-// than "where can this card link to" needs to allow.
+// Sections link to internal routes only (/umrah, /flights, ...), optionally
+// with a query string / hash (e.g. /visas?visaCategory=INTERNATIONAL#book,
+// deep-linking the International Visas homepage card straight into that
+// category) — an absolute or protocol-relative URL here would let a
+// section CTA point anywhere, which is more than "where can this card
+// link to" needs to allow, so the leading "/" may never be followed by a
+// second "/".
 const internalHref = z
   .string()
   .trim()
-  .regex(/^\/[a-zA-Z0-9\-/_]*$/, "href must be an internal path starting with /")
+  .regex(/^\/(?!\/)[a-zA-Z0-9\-/_?=&#]*$/, "href must be an internal path starting with /")
   .max(200);
 
 export const createSectionSchema = z.object({

@@ -35,6 +35,7 @@ type PublicVisaType = {
   basePrice: string;
   currency: string;
   serviceId: string | null;
+  category: string;
 };
 
 type Traveler = {
@@ -140,10 +141,19 @@ function StepNav({
 export function ServiceIntakeWizard({
   service,
   initialServiceCode,
+  visaCategory,
 }: {
   service: IntakeServiceKind;
   /** Deep-link into a specific package/visa type by its Service/VisaType code (e.g. from a package card's CTA). */
   initialServiceCode?: string;
+  /**
+   * Restricts the "اختر نوع التأشيرة" step to one VisaType.category
+   * (INTERNATIONAL/UMRAH/FAMILY_VISIT/OTHER — see backend/src/utils/enums.js).
+   * Filtered server-side via GET /services/public?visaCategory=... — this is
+   * what actually keeps Umrah/Family Visit visa types out of the
+   * International Visas flow, not a client-side exclusion list.
+   */
+  visaCategory?: string;
 }) {
   const [step, setStep] = React.useState(0);
   const [loadingCatalog, setLoadingCatalog] = React.useState(true);
@@ -189,7 +199,9 @@ export function ServiceIntakeWizard({
   React.useEffect(() => {
     let ignore = false;
 
-    fetch(`${API_URL}/services/public`)
+    const query = visaCategory ? `?visaCategory=${encodeURIComponent(visaCategory)}` : "";
+
+    fetch(`${API_URL}/services/public${query}`)
       .then((res) => res.json())
       .then((payload) => {
         if (ignore) return;
@@ -206,7 +218,7 @@ export function ServiceIntakeWizard({
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [visaCategory]);
 
   const packageServices = React.useMemo(
     () => services.filter((s) => s.category === "package"),
@@ -502,8 +514,8 @@ export function ServiceIntakeWizard({
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-bold text-foreground">{item.name}</span>
-                    {"country" in item ? (
-                      <span className="text-xs text-muted-foreground">{item.country}</span>
+                    {service !== "package" ? (
+                      <span className="text-xs text-muted-foreground">{(item as PublicVisaType).country}</span>
                     ) : null}
                   </div>
                   {Number(item.basePrice) > 0 ? (

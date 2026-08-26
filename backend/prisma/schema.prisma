@@ -273,6 +273,15 @@ model VisaType {
   validity       String?
   entryType      String?
   sortOrder      Int      @default(0)
+  // Platform 3.0 (Visa Categorization) — which top-level public section
+  // this visa type belongs to (INTERNATIONAL / UMRAH / FAMILY_VISIT /
+  // OTHER for everything else, e.g. work visas, Egypt clearance).
+  // Validated against VISA_TYPE_CATEGORIES at the API layer only (same
+  // plain-String + Zod-enum pattern as `entryType` above and `category`
+  // on Service) so the category set can grow without a migration. This is
+  // the authoritative classification the public API filters on — it must
+  // never be inferred/hidden in the frontend.
+  category       String   @default("OTHER")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -283,6 +292,7 @@ model VisaType {
   @@index([country])
   @@index([active])
   @@index([sortOrder])
+  @@index([category])
 }
 
 // Platform 3.0 Phase 5 (Visa Requirements Engine) — the checklist

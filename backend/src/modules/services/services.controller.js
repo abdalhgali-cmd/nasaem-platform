@@ -13,11 +13,17 @@ import { serviceImageKey } from "./services.constants.js";
 import { upsertSiteAsset } from "../site-assets/site-assets.service.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { parsePagination } from "../../utils/pagination.js";
+import { VISA_TYPE_CATEGORIES } from "../../utils/enums.js";
 import prisma from "../../config/database.js";
 
 export async function getPublicCatalog(req, res, next) {
   try {
-    const { services, visaTypes } = await listPublicCatalog();
+    // Optional ?visaCategory= narrows visaTypes to one public section
+    // (INTERNATIONAL/UMRAH/FAMILY_VISIT/OTHER) server-side. An unrecognized
+    // value is ignored (falls back to the unfiltered catalog) rather than
+    // erroring, since this is a read-only convenience param.
+    const visaCategory = VISA_TYPE_CATEGORIES.includes(req.query.visaCategory) ? req.query.visaCategory : undefined;
+    const { services, visaTypes } = await listPublicCatalog({ visaCategory });
 
     return res.status(200).json({
       success: true,

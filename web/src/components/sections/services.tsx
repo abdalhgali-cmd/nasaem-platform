@@ -47,7 +47,7 @@ const fallbackServices: {
     icon: Globe2,
     title: "التأشيرات الدولية",
     description: "الصين، بالي، ودول أفريقيا — نوضح لك المستندات المطلوبة قبل بدء الإجراءات.",
-    href: "/visas",
+    href: "/visas?visaCategory=INTERNATIONAL#book",
   },
   {
     icon: Package,
