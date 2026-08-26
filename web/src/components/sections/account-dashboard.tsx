@@ -4,7 +4,9 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   BadgePercent,
+  Check,
   CheckCircle2,
+  Copy,
   ClipboardList,
   FileText,
   Loader2,
@@ -12,9 +14,11 @@ import {
   Package,
   Tag,
   User,
+  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { customerApi, CustomerApiError } from "@/lib/customer-api";
+import { siteConfig } from "@/lib/site-config";
 
 type CustomerProfile = {
   id: string;
@@ -251,16 +255,55 @@ function OverviewTab({ onGoToTab }: { onGoToTab: (tab: TabKey) => void }) {
   );
 }
 
+function getOrderNextAction(order: OrderSummary) {
+  if (order.status === "WAITING_DOCUMENTS") return "ارفع المستندات المطلوبة لإكمال طلبك.";
+  if (order.status === "PAYMENT_PENDING" || order.paymentStatus === "AWAITING_TRANSFER") {
+    return "أكمل الدفع عند ظهور تعليماته في طلبك.";
+  }
+  if (order.status === "REJECTED") return "راجع سبب الرفض وتواصل معنا إذا احتجت إلى مساعدة.";
+  if (order.status === "CANCELLED") return "لا يوجد إجراء مطلوب منك حاليًا. يمكنك التواصل معنا عند الحاجة.";
+  if (order.status === "COMPLETED") return "لا يوجد إجراء مطلوب منك حاليًا. طلبك مكتمل.";
+  return "لا يوجد إجراء مطلوب منك حاليًا. سنخبرك عند الحاجة.";
+}
+
 function OrderCard({ order }: { order: OrderSummary }) {
+  const [copied, setCopied] = React.useState(false);
+
+  async function copyOrderNumber() {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(order.orderNumber);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2200);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   return (
     <li className="rounded-xl border border-border bg-background p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm font-bold text-foreground" dir="ltr">
-          {order.orderNumber}
-        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-sm font-bold text-foreground" dir="ltr">
+            {order.orderNumber}
+          </span>
+          <button
+            type="button"
+            onClick={copyOrderNumber}
+            className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-primary outline-none transition hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label={`نسخ رقم الطلب ${order.orderNumber}`}
+          >
+            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            <span aria-live="polite">{copied ? "تم النسخ" : "نسخ"}</span>
+          </button>
+        </div>
         <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary dark:text-secondary">
           {ORDER_STATUS_LABELS[order.status] || order.status}
         </span>
+      </div>
+      <div className="mt-3 rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm text-foreground">
+        <span className="font-bold">الخطوة التالية</span>
+        <p className="mt-1 text-muted-foreground">{getOrderNextAction(order)}</p>
       </div>
       <p className="mt-2 text-sm text-muted-foreground">
         {order.items.map((item) => item.service.name).join("، ") || "طلب"}
@@ -284,9 +327,20 @@ function OrderCard({ order }: { order: OrderSummary }) {
           </span>
         )}
       </div>
-      <p className="mt-2 text-xs text-muted-foreground" dir="ltr">
-        {formatDate(order.createdAt)}
-      </p>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground" dir="ltr">
+          {formatDate(order.createdAt)}
+        </p>
+        <a
+          href={`https://wa.me/${siteConfig.whatsapp}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-muted-foreground outline-none transition hover:bg-primary/5 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <MessageCircle className="size-4" />
+          تواصل مع الدعم
+        </a>
+      </div>
     </li>
   );
 }
@@ -375,7 +429,10 @@ function NewOrderPanel() {
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-      <h3 className="mb-3 text-sm font-bold text-foreground">طلب خدمة جديدة</h3>
+      <h3 className="mb-1 text-sm font-bold text-foreground">طلب خدمة جديدة</h3>
+      <p className="mb-3 text-xs text-muted-foreground">
+        هذا المسار ينشئ طلبًا داخل حسابك لمتابعته من لوحة العميل. إذا بدأت من نموذج الخدمة العام، فستتابع طلبك من صفحة التتبع.
+      </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <label htmlFor="new-order-service" className="text-sm font-semibold text-foreground">
