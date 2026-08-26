@@ -3,11 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import {
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Loader2,
   Send,
+  Copy,
+  MessageCircle,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -195,6 +198,7 @@ export function ServiceIntakeWizard({
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState("");
   const [result, setResult] = React.useState<{ id: string } | null>(null);
+  const [copiedRequestNumber, setCopiedRequestNumber] = React.useState(false);
 
   React.useEffect(() => {
     let ignore = false;
@@ -354,6 +358,17 @@ export function ServiceIntakeWizard({
     return true;
   }
 
+  async function handleCopyRequestNumber() {
+    if (!result?.id || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(result.id);
+      setCopiedRequestNumber(true);
+      window.setTimeout(() => setCopiedRequestNumber(false), 2200);
+    } catch {
+      setCopiedRequestNumber(false);
+    }
+  }
+
   async function handleSubmit() {
     setSubmitting(true);
     setSubmitError("");
@@ -438,27 +453,50 @@ export function ServiceIntakeWizard({
         <CheckCircle2 className="mx-auto size-14 text-success" />
         <h3 className="mt-4 text-xl font-bold text-foreground">تم استلام طلبك</h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          شكرًا لك، سيقوم فريقنا بمراجعة طلبك والتواصل معك قريبًا.
+          شكرًا لك، أرسلت طلب خدمة إلى فريق نسائم الحرمين. سيقوم فريقنا بمراجعته والتواصل معك.
         </p>
         <div className="mt-6 rounded-2xl border border-border bg-card p-5 text-start">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">رقم الطلب</span>
-            <span dir="ltr" className="font-mono font-bold text-foreground">
-              {result.id}
-            </span>
-          </div>
-          <div className="mt-2 flex items-center justify-between text-sm">
             <span className="text-muted-foreground">الخدمة</span>
             <span className="font-semibold text-foreground">{SERVICE_TITLES[service]}</span>
           </div>
-          <div className="mt-2 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">الحالة</span>
-            <span className="font-semibold text-amber-600 dark:text-amber-400">جديد</span>
+          <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+            <span className="text-muted-foreground">رقم الطلب</span>
+            <div className="flex items-center gap-2" dir="ltr">
+              <span className="font-mono font-bold text-foreground">{result.id}</span>
+              <button
+                type="button"
+                onClick={handleCopyRequestNumber}
+                className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-primary outline-none transition hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary"
+                aria-label="نسخ رقم الطلب"
+              >
+                {copiedRequestNumber ? <Check className="size-4" /> : <Copy className="size-4" />}
+                <span aria-live="polite">{copiedRequestNumber ? "تم النسخ" : "نسخ"}</span>
+              </button>
+            </div>
           </div>
+        </div>
+        <div className="mt-4 rounded-2xl border border-border bg-background p-5 text-start">
+          <h3 className="text-sm font-bold text-foreground">ماذا سيحدث الآن؟</h3>
+          <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+            <li><span className="font-semibold text-foreground">1.</span> سنراجع بيانات طلبك والمستندات المرفقة.</li>
+            <li><span className="font-semibold text-foreground">2.</span> سيتواصل معك فريقنا عند الحاجة إلى معلومة أو مستند إضافي.</li>
+            <li><span className="font-semibold text-foreground">3.</span> يمكنك متابعة الحالة باستخدام رقم الطلب من صفحة التتبع.</li>
+          </ol>
+          <p className="mt-3 text-xs text-muted-foreground">هذا طلب خدمة أولي، وليس عملية دفع أو طلبًا مؤكدًا داخل حساب العميل.</p>
         </div>
         <Button asChild variant="gold" size="lg" className="mt-6 w-full">
           <Link href="/track">تابع طلبك من هنا</Link>
         </Button>
+        <a
+          href={`https://wa.me/${siteConfig.whatsapp}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-muted-foreground outline-none transition hover:bg-primary/5 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <MessageCircle className="size-4" />
+          تحتاج مساعدة؟ تواصل معنا عبر واتساب
+        </a>
       </div>
     );
   }
