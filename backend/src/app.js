@@ -12,6 +12,7 @@ import rateLimit from "express-rate-limit";
 import apiRouter from "./routes/index.js";
 import notFoundMiddleware from "./middleware/notFound.middleware.js";
 import errorMiddleware from "./middleware/error.middleware.js";
+import { trustProxyHops } from "./utils/trustProxy.js";
 
 // Must run before the cors() call below reads process.env.CORS_ORIGIN.
 // server.js used to be the only place calling dotenv.config(), before its
@@ -29,6 +30,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 
 const app = express();
+
+// Must be set before any middleware that reads req.ip (cors below doesn't,
+// but the rate limiters mounted throughout this app do) — see
+// utils/trustProxy.js for why this is a hop count, not `true`/`false`.
+app.set("trust proxy", trustProxyHops(process.env.NODE_ENV));
 
 // Platform 3.0 Phase 17: fails closed, not open. `cors`'s `origin: true`
 // reflects whatever Origin header the request sends — combined with
