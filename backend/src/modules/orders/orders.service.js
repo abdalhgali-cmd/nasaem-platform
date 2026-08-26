@@ -1,10 +1,13 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../../config/database.js";
 import { nextSequence } from "../../utils/sequence.js";
-import { safeUserSelect } from "../../utils/safeSelects.js";
+import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { applyCouponToOrder, COUPON_ERROR_MESSAGES } from "../coupons/coupons.service.js";
+
+const ORDER_INCLUDE = { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, history: true };
 
 function toDecimal(value) {
   return new Prisma.Decimal(Number(value || 0).toFixed(2));
@@ -63,7 +66,7 @@ export async function listOrders({ page, limit, skip, status, paymentStatus, ass
       : {}),
   };
   const [data, total] = await Promise.all([
-    prisma.order.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } } } }),
+    prisma.order.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } } } }),
     prisma.order.count({ where }),
   ]);
   return { data, meta: buildPaginationMeta(page, limit, total) };
@@ -78,7 +81,7 @@ export async function assignOrder(orderId, assignedUserId, changedByUserId) {
   const updated = await prisma.order.update({
     where: { id: orderId },
     data: { assignedUserId: assignedUserId || null },
-    include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } } },
+    include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } } },
   });
 
   if (updated.assignedUserId && updated.assignedUserId !== changedByUserId) {
@@ -114,7 +117,58 @@ export async function setItemSupplierCost(orderId, itemId, data) {
 }
 
 export async function getOrderById(id) {
-  return prisma.order.findUnique({ where: { id }, include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, documents: true, payments: true, notes: true, history: true, notifications: true, branch: true } });
+  return prisma.order.findUnique({ where: { id }, include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, documents: true, payments: true, notes: true, history: true, notifications: true, branch: true } });
+}
+
+// Coupon application (Phase 6 of the customer-accounts/coupons plan). A
+// coupon can only ever change what's charged for a NEW order at the
+// moment it's created — never retroactively, and never editable
+// afterwards through this or any other function — so "apply a coupon to
+// an existing order" deliberately doesn't exist as an operation. Runs
+// inside the same transaction as the order row itself: creates the order
+// at its pre-discount total first (so CouponUsage.orderId — required,
+// unique — has a real order to point at), then, only if the coupon is
+// still valid under a row lock (see applyCouponToOrder), updates that
+// same order to the discounted total and stamps the coupon snapshot
+// fields. Any failure (invalid/expired/exhausted coupon) throws, which
+// rolls back the whole transaction — the order is never left half-created
+// with a coupon that didn't actually apply.
+async function createOrderWithOptionalCoupon(tx, { orderData, couponCode, customerId, serviceId, visaTypeId, originalAmount, creatorUserId }) {
+  const order = await tx.order.create({
+    data: { ...orderData, history: { create: { oldStatus: "NEW", newStatus: "NEW", changedByUserId: creatorUserId, notes: "تم إنشاء الطلب" } } },
+    include: ORDER_INCLUDE,
+  });
+
+  if (!couponCode) return order;
+
+  const result = await applyCouponToOrder(tx, {
+    code: couponCode,
+    customerId,
+    orderId: order.id,
+    serviceId,
+    visaTypeId,
+    orderAmount: Number(originalAmount),
+  });
+
+  if (!result.valid) {
+    const error = new Error(COUPON_ERROR_MESSAGES[result.error] || "تعذر تطبيق الكوبون");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return tx.order.update({
+    where: { id: order.id },
+    data: {
+      couponId: result.coupon.id,
+      couponCode: result.coupon.code,
+      discountType: result.coupon.discountType,
+      discountValue: result.coupon.discountValue,
+      originalAmount: toDecimal(result.originalAmount),
+      discountAmount: toDecimal(result.discountAmount),
+      totalAmount: toDecimal(result.finalAmount),
+    },
+    include: ORDER_INCLUDE,
+  });
 }
 
 export async function createOrder(data, actorUserId = null) {
@@ -130,22 +184,35 @@ export async function createOrder(data, actorUserId = null) {
   });
   const totalAmount = items.reduce((sum, item) => sum.plus(item.total), new Prisma.Decimal(0));
 
-  return prisma.$transaction(async (tx) => tx.order.create({
-    data: {
-      orderNumber,
+  return prisma.$transaction((tx) =>
+    createOrderWithOptionalCoupon(tx, {
+      orderData: {
+        orderNumber,
+        customerId: data.customerId,
+        assignedUserId: data.assignedUserId || null,
+        branchId: data.branchId || null,
+        status: "NEW",
+        paymentStatus: "UNPAID",
+        priority: data.priority || "NORMAL",
+        totalAmount,
+        currency: data.currency || "SAR",
+        items: { create: items },
+      },
+      couponCode: data.couponCode || null,
       customerId: data.customerId,
-      assignedUserId: data.assignedUserId || null,
-      branchId: data.branchId || null,
-      status: "NEW",
-      paymentStatus: "UNPAID",
-      priority: data.priority || "NORMAL",
-      totalAmount,
-      currency: data.currency || "SAR",
-      items: { create: items },
-      history: { create: { oldStatus: "NEW", newStatus: "NEW", changedByUserId: creatorUserId, notes: "تم إنشاء الطلب" } },
-    },
-    include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, history: true },
-  }));
+      // Coupon eligibility is matched against the first line item's
+      // service — the common case (a single-service order, which is the
+      // only shape the customer self-checkout endpoint ever produces).
+      // A staff-created multi-service order's coupon (if any) is matched
+      // against its first item only; this is a disclosed, deliberate
+      // simplification rather than modeling per-item coupon eligibility,
+      // which nothing today needs.
+      serviceId: items[0]?.serviceId || null,
+      visaTypeId: data.visaTypeId || null,
+      originalAmount: totalAmount,
+      creatorUserId,
+    })
+  );
 }
 
 function customerStatusMessage(order, status) {
@@ -237,7 +304,7 @@ export async function updateOrderStatus(orderId, status, changedByUserId, notes 
     return tx.order.update({
       where: { id: orderId },
       data: { status, history: { create: { oldStatus: currentOrder.status, newStatus: status, changedByUserId, notes } } },
-      include: { customer: true, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, history: true },
+      include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, history: true },
     });
   });
 

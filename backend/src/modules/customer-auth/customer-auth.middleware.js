@@ -1,0 +1,51 @@
+import prisma from "../../config/database.js";
+import { verifyCustomerToken } from "../../utils/jwt.js";
+
+// Mirrors requireAuth (staff) / requireTrackingAuth (phone tracking): its
+// own cookie, its own token scope, and — critically — it always re-fetches
+// the Customer row rather than trusting the JWT payload alone, so a
+// password change or an account that gets deleted takes effect immediately
+// instead of only once the token expires.
+export async function requireCustomerAuth(req, res, next) {
+  try {
+    const token = req.cookies?.customerAccessToken;
+
+    if (!token) {
+      return res.status(401).json({ success: false, message: "تسجيل الدخول مطلوب" });
+    }
+
+    const payload = verifyCustomerToken(token);
+    const customerId = payload.sub;
+
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        customerNo: true,
+        fullName: true,
+        phone: true,
+        email: true,
+        passportNo: true,
+        nationality: true,
+        country: true,
+        city: true,
+        address: true,
+        passwordHash: true,
+        createdAt: true,
+      },
+    });
+
+    // passwordHash === null means this Customer row was never turned into
+    // an account (or had its account removed) — the session must not
+    // survive that, even though the token itself is still validly signed.
+    if (!customer || !customer.passwordHash) {
+      return res.status(401).json({ success: false, message: "الجلسة غير صالحة" });
+    }
+
+    const { passwordHash, ...safeCustomer } = customer;
+    req.customer = safeCustomer;
+    next();
+  } catch (error) {
+    return res.status(401).json({ success: false, message: "الجلسة منتهية، يرجى تسجيل الدخول مجددًا" });
+  }
+}

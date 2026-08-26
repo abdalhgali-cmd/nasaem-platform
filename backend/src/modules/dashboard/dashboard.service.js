@@ -1,4 +1,5 @@
 import prisma from "../../config/database.js";
+import { safeCustomerSelect } from "../../utils/safeSelects.js";
 
 export async function getDashboardStats() {
   const [customers, orders, payments, offers, documents, users] = await Promise.all([
@@ -8,7 +9,7 @@ export async function getDashboardStats() {
     prisma.order.groupBy({ by: ["currency"], _sum: { totalAmount: true }, _count: { _all: true } }),
     prisma.payment.groupBy({ by: ["currency", "status"], where: { status: { not: "REFUNDED" } }, _sum: { amount: true }, _count: { _all: true } }),
     prisma.orderItem.groupBy({ by: ["serviceId"], _sum: { total: true }, _count: { _all: true } }),
-    prisma.order.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { customer: true } }),
+    prisma.order.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { customer: { select: safeCustomerSelect } } }),
   ]);
   const serviceIds = serviceSales.map((row) => row.serviceId);
   const services = serviceIds.length ? await prisma.service.findMany({ where: { id: { in: serviceIds } }, select: { id: true, code: true, name: true, category: true } }) : [];

@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import prisma from "../../config/database.js";
-import { safeUserSelect } from "../../utils/safeSelects.js";
+import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
@@ -12,7 +12,7 @@ export async function listDocuments({ page, limit, skip }) {
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
-      include: { order: true, customer: true, uploadedBy: { select: safeUserSelect } },
+      include: { order: true, customer: { select: safeCustomerSelect }, uploadedBy: { select: safeUserSelect } },
     }),
     prisma.document.count(),
   ]);
@@ -22,7 +22,7 @@ export async function listDocuments({ page, limit, skip }) {
 export async function getDocumentById(id) {
   return prisma.document.findUnique({
     where: { id },
-    include: { order: true, customer: true, uploadedBy: { select: safeUserSelect } },
+    include: { order: true, customer: { select: safeCustomerSelect }, uploadedBy: { select: safeUserSelect } },
   });
 }
 
@@ -47,7 +47,7 @@ export async function createDocument(data) {
       mimeType: data.mimeType || null,
       sizeBytes: data.sizeBytes || null,
     },
-    include: { order: true, customer: true, uploadedBy: { select: safeUserSelect } },
+    include: { order: true, customer: { select: safeCustomerSelect }, uploadedBy: { select: safeUserSelect } },
   });
 }
 

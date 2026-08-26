@@ -1,7 +1,7 @@
 import prisma from "../../config/database.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { getRequiredDocumentTypes } from "../orders/orders.service.js";
-import { safeUserSelect } from "../../utils/safeSelects.js";
+import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 
 async function generateGroupCode() {
   const year = new Date().getFullYear();
@@ -10,7 +10,7 @@ async function generateGroupCode() {
 }
 
 const memberInclude = {
-  customer: true,
+  customer: { select: safeCustomerSelect },
   order: {
     include: {
       items: { include: { service: { select: { category: true } } } },

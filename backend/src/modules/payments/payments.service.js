@@ -1,14 +1,14 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
-import { safeUserSelect } from "../../utils/safeSelects.js";
+import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 
 function toDecimal(value) {
   return new Prisma.Decimal(Number(value || 0).toFixed(2));
 }
 
 const paymentInclude = {
-  order: { include: { customer: true } },
+  order: { include: { customer: { select: safeCustomerSelect } } },
   reviewedBy: { select: safeUserSelect },
 };
 
@@ -76,7 +76,7 @@ export async function getPaymentById(id) {
     where: { id },
     include: {
       order: {
-        include: { customer: true, items: { include: { service: true } } },
+        include: { customer: { select: safeCustomerSelect }, items: { include: { service: true } } },
       },
       reviewedBy: { select: safeUserSelect },
     },
