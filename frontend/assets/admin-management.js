@@ -51,6 +51,7 @@ function mgmtCanWrite(entity) {
     suppliers: ["SUPER_ADMIN"],
     services: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
     offers: ["SUPER_ADMIN", "ADMIN"],
+    coupons: ["SUPER_ADMIN", "ADMIN"],
     users: ["SUPER_ADMIN"],
     "site-assets": ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
     "umrah-groups": ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"],
@@ -96,6 +97,7 @@ function initManagementTab() {
     supplier: "suppliers",
     service: "services",
     offer: "offers",
+    coupon: "coupons",
     user: "users",
     "umrah-group": "umrah-groups",
     visa: "visas",
@@ -174,6 +176,8 @@ function wireManagementTabs() {
   el("ferry-operator-create-btn").addEventListener("click", createFerryOperator);
   el("ferry-operators-body").addEventListener("click", handleFerryOperatorRowClick);
   el("feature-flags-body").addEventListener("click", handleFeatureFlagToggle);
+  el("coupon-create-btn").addEventListener("click", createCoupon);
+  el("coupons-body").addEventListener("click", handleCouponRowClick);
 }
 
 function activateMgmtSubTab(key) {
@@ -185,6 +189,7 @@ function activateMgmtSubTab(key) {
     "suppliers",
     "services",
     "offers",
+    "coupons",
     "users",
     "settings",
     "activity",
@@ -215,6 +220,7 @@ function loadActiveMgmtSubTab() {
   if (tab === "suppliers") loadSuppliers();
   if (tab === "services") loadServices();
   if (tab === "offers") loadOffers();
+  if (tab === "coupons") loadCoupons();
   if (tab === "users") loadUsers();
   if (tab === "settings") loadSettings();
   if (tab === "activity") loadActivityLogs();
@@ -447,6 +453,159 @@ function handleOfferStatusChange(e) {
     .patch(`/offers/${select.dataset.offerStatus}`, { status: select.value })
     .then(loadOffers)
     .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Coupons (customer accounts + coupons feature) ---
+
+const COUPON_DISCOUNT_LABELS = { PERCENTAGE: "%", FIXED: "" };
+
+// Populates the service/visa-type restriction dropdowns each time the tab
+// loads — a plain, low-traffic admin form, so re-fetching both lists on
+// every load is simpler than caching them and keeping that cache fresh
+// across the Services/Visas tabs' own CRUD actions.
+async function populateCouponScopeDropdowns() {
+  try {
+    const [{ data: services }, { data: visaTypes }] = await Promise.all([
+      api.get("/services?limit=100"),
+      api.get("/visa-types?limit=100"),
+    ]);
+    el("cp-serviceId").innerHTML =
+      '<option value="">كل الخدمات</option>' + services.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("");
+    el("cp-visaTypeId").innerHTML =
+      '<option value="">كل الفئات</option>' + visaTypes.map((v) => `<option value="${v.id}">${escapeHtml(v.name)} — ${escapeHtml(v.country)}</option>`).join("");
+  } catch (error) {
+    // Non-fatal: the create form still works with "all services/types".
+  }
+}
+
+function couponDiscountLabel(coupon) {
+  return `${Number(coupon.discountValue)}${COUPON_DISCOUNT_LABELS[coupon.discountType]}`;
+}
+
+async function loadCoupons() {
+  try {
+    await populateCouponScopeDropdowns();
+    const { data } = await api.get("/coupons?limit=100");
+    const canWrite = mgmtCanWrite("coupons");
+    el("coupons-body").innerHTML = data
+      .map((cp) => {
+        const usageLimitLabel = cp.usageLimit ? `${cp._count.usages}/${cp.usageLimit}` : `${cp._count.usages}/∞`;
+        const statusBadgeHtml = cp.archived
+          ? '<span class="badge status-CANCELLED">مؤرشف</span>'
+          : cp.active
+            ? '<span class="badge status-ACTIVE">مفعّل</span>'
+            : '<span class="badge status-INACTIVE">معطّل</span>';
+        return `
+        <tr>
+          <td dir="ltr">${escapeHtml(cp.code)}</td>
+          <td>${couponDiscountLabel(cp)}</td>
+          <td>${formatDate(cp.expiryDate)}</td>
+          <td>${usageLimitLabel}</td>
+          <td>${cp.service ? escapeHtml(cp.service.name) : "الكل"}</td>
+          <td>${statusBadgeHtml}</td>
+          <td>
+            <button type="button" class="btn secondary" data-coupon-usages="${cp.id}">سجل الاستخدام</button>
+            ${
+              canWrite && !cp.archived
+                ? `<button type="button" class="btn secondary" data-toggle-coupon="${cp.id}" data-active="${cp.active}">${cp.active ? "تعطيل" : "تفعيل"}</button>
+                   <button type="button" class="btn secondary" data-archive-coupon="${cp.id}">أرشفة</button>`
+                : ""
+            }
+          </td>
+        </tr>`;
+      })
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function createCoupon() {
+  showAlert(mgmtAlert(), "");
+  const code = el("cp-code").value.trim();
+  const discountValue = el("cp-discountValue").value;
+  if (!code || !discountValue) return showAlert(mgmtAlert(), "الرمز وقيمة الخصم مطلوبان.");
+
+  try {
+    await api.post("/coupons", {
+      code,
+      discountType: el("cp-discountType").value,
+      discountValue: Number(discountValue),
+      startDate: el("cp-startDate").value || null,
+      expiryDate: el("cp-expiryDate").value || null,
+      minOrderAmount: el("cp-minOrderAmount").value ? Number(el("cp-minOrderAmount").value) : null,
+      usageLimit: el("cp-usageLimit").value ? Number(el("cp-usageLimit").value) : null,
+      usageLimitPerCustomer: el("cp-usageLimitPerCustomer").value ? Number(el("cp-usageLimitPerCustomer").value) : null,
+      serviceId: el("cp-serviceId").value || null,
+      visaTypeId: el("cp-visaTypeId").value || null,
+      newCustomersOnly: el("cp-newCustomersOnly").value === "true",
+    });
+    el("cp-code").value = "";
+    el("cp-discountValue").value = "";
+    el("cp-startDate").value = "";
+    el("cp-expiryDate").value = "";
+    el("cp-minOrderAmount").value = "";
+    el("cp-usageLimit").value = "";
+    el("cp-usageLimitPerCustomer").value = "1";
+    el("cp-newCustomersOnly").value = "false";
+    loadCoupons();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function showCouponUsageHistory(couponId) {
+  const card = el("coupon-usage-card");
+  try {
+    const { data } = await api.get(`/coupons/${couponId}/usages?limit=50`);
+    card.classList.remove("hidden");
+    card.innerHTML = `
+      <h2>سجل استخدام الكوبون</h2>
+      <table>
+        <thead><tr><th>العميل</th><th>الطلب</th><th>قيمة الخصم</th><th>التاريخ</th></tr></thead>
+        <tbody>
+          ${
+            data.length
+              ? data
+                  .map(
+                    (u) => `<tr>
+                <td>${escapeHtml(u.customer.fullName)} (${escapeHtml(u.customer.customerNo)})</td>
+                <td>${escapeHtml(u.order.orderNumber)}</td>
+                <td>${formatMoney(u.discountAmount, u.order.currency)}</td>
+                <td>${formatDate(u.createdAt)}</td>
+              </tr>`
+                  )
+                  .join("")
+              : '<tr><td colspan="4">لا يوجد استخدام لهذا الكوبون بعد</td></tr>'
+          }
+        </tbody>
+      </table>`;
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleCouponRowClick(e) {
+  const usagesBtn = e.target.closest("[data-coupon-usages]");
+  if (usagesBtn) return showCouponUsageHistory(usagesBtn.dataset.couponUsages);
+
+  const toggleBtn = e.target.closest("[data-toggle-coupon]");
+  if (toggleBtn) {
+    const active = toggleBtn.dataset.active === "true";
+    return api
+      .patch(`/coupons/${toggleBtn.dataset.toggleCoupon}/${active ? "deactivate" : "activate"}`)
+      .then(loadCoupons)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+  }
+
+  const archiveBtn = e.target.closest("[data-archive-coupon]");
+  if (archiveBtn) {
+    if (!confirm("هل أنت متأكد من أرشفة هذا الكوبون؟ لن يكون بإمكان العملاء استخدامه بعد الآن.")) return;
+    return api
+      .patch(`/coupons/${archiveBtn.dataset.archiveCoupon}/archive`)
+      .then(loadCoupons)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+  }
 }
 
 // --- Users ---

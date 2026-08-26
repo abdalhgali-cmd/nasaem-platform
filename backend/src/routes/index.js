@@ -2,6 +2,9 @@ import { Router } from "express";
 
 import prisma from "../config/database.js";
 import authRoutes from "../modules/auth/auth.routes.js";
+import customerAuthRoutes from "../modules/customer-auth/customer-auth.routes.js";
+import customerPortalRoutes from "../modules/customer-portal/customer-portal.routes.js";
+import couponRoutes from "../modules/coupons/coupons.routes.js";
 import customerRoutes from "../modules/customers/customers.routes.js";
 import orderRoutes from "../modules/orders/orders.routes.js";
 import paymentRoutes from "../modules/payments/payments.routes.js";
@@ -45,6 +48,9 @@ router.get("/health", async (req, res) => {
 });
 
 router.use("/auth", authRoutes);
+router.use("/customer-auth", customerAuthRoutes);
+router.use("/customer", customerPortalRoutes);
+router.use("/coupons", couponRoutes);
 router.use("/users", userRoutes);
 router.use("/customers", customerRoutes);
 router.use("/orders", orderRoutes);

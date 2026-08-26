@@ -79,6 +79,11 @@ enum OfferStatus {
   ARCHIVED
 }
 
+enum CouponDiscountType {
+  PERCENTAGE
+  FIXED
+}
+
 model Branch {
   id        String   @id @default(cuid())
   code      String   @unique
@@ -177,6 +182,7 @@ model User {
   reviewedContactRequestDocuments    ContactRequestDocument[]    @relation("ContactRequestDocumentReviewedBy")
   contactRequestOffersCreated        ContactRequestOffer[]       @relation("ContactRequestOfferCreatedBy")
   contactRequestDeliverablesUploaded ContactRequestDeliverable[] @relation("ContactRequestDeliverableUploadedBy")
+  couponsCreated                     Coupon[]                    @relation("CouponCreatedBy")
 
   @@index([role])
   @@index([status])
@@ -184,25 +190,49 @@ model User {
 }
 
 model Customer {
-  id          String    @id @default(cuid())
-  customerNo  String    @unique
-  fullName    String
-  passportNo  String    @unique
-  nationality String
-  birthDate   DateTime?
-  gender      Gender?
-  phone       String?
-  email       String?
-  country     String?
-  city        String?
-  address     String?
-  notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                     String    @id @default(cuid())
+  customerNo             String    @unique
+  fullName               String
+  // Nullable (was required+unique) so a customer can self-register an
+  // account before staff have ever recorded their passport — CRM-created
+  // rows keep the value they already have; the unique index still rejects
+  // a duplicate non-null passport number.
+  passportNo             String?   @unique
+  nationality            String?
+  birthDate              DateTime?
+  gender                 Gender?
+  // Deliberately NOT @unique at the DB level: pre-existing CRM data may
+  // already contain duplicate/shared phone numbers (e.g. a family member
+  // booking on someone else's behalf). Registration instead enforces "no
+  // other account already claims this phone" at the application layer
+  // (customer-auth.service.js), scoped to rows that already have a
+  // passwordHash — so it never conflicts with historical CRM data.
+  phone                  String?
+  email                  String?
+  country                String?
+  city                   String?
+  address                String?
+  notes                  String?
+  // Self-service Customer Account (see backend/src/modules/customer-auth).
+  // Null passwordHash means "CRM record only, no online account" — the
+  // pre-existing behavior for every customer created by staff. Reuses the
+  // same bcrypt hashing (utils/password.js) and JWT-cookie pattern already
+  // used for staff auth/tracking auth, just under its own token scope, so
+  // this is not a second authentication *mechanism* — it's the same one,
+  // applied to a different principal (Customer instead of User).
+  passwordHash           String?
+  passwordResetCode      String?
+  passwordResetExpiresAt DateTime?
+  passwordResetAttempts  Int       @default(0)
+  lastLoginAt            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   orders           Order[]
   documents        Document[]
   umrahGroupMember UmrahGroupMember[]
+  coupons          Coupon[]           @relation("CouponCustomerRestriction")
+  couponUsages     CouponUsage[]
 
   @@index([customerNo])
   @@index([passportNo])
@@ -242,6 +272,7 @@ model Service {
   visaTypes       VisaType[]
   contactRequests ContactRequest[]
   requirements    VisaRequirement[]
+  coupons         Coupon[]
 
   @@index([category])
   @@index([active])
@@ -288,6 +319,7 @@ model VisaType {
   service         Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   contactRequests ContactRequest[]
   requirements    VisaRequirement[]
+  coupons         Coupon[]
 
   @@index([country])
   @@index([active])
@@ -361,22 +393,39 @@ model Workflow {
 }
 
 model Order {
-  id             String        @id @default(cuid())
-  orderNumber    String        @unique
+  id             String              @id @default(cuid())
+  orderNumber    String              @unique
   customerId     String
   assignedUserId String?
   branchId       String?
-  status         OrderStatus   @default(NEW)
-  paymentStatus  PaymentStatus @default(UNPAID)
-  priority       String        @default("NORMAL")
-  totalAmount    Decimal       @db.Decimal(12, 2)
-  currency       String        @default("SAR")
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  status         OrderStatus         @default(NEW)
+  paymentStatus  PaymentStatus       @default(UNPAID)
+  priority       String              @default("NORMAL")
+  totalAmount    Decimal             @db.Decimal(12, 2)
+  currency       String              @default("SAR")
+  // Coupon system (see backend/src/modules/coupons). All nullable and set
+  // exactly once, at order-creation time, by applyCouponToOrder() —
+  // never edited afterwards. These are a point-in-time SNAPSHOT of the
+  // coupon's terms, deliberately duplicated off the live Coupon row so
+  // that editing or deleting a Coupon later can never change what an
+  // already-placed order's receipt says (couponId itself is onDelete:
+  // SetNull for the same reason: losing the live link must not lose the
+  // historical facts). totalAmount keeps its existing meaning (the actual
+  // amount owed/charged); originalAmount is the pre-discount subtotal —
+  // absent (null) on every order that never used a coupon.
+  couponId       String?
+  couponCode     String?
+  discountType   CouponDiscountType?
+  discountValue  Decimal?            @db.Decimal(12, 2)
+  originalAmount Decimal?            @db.Decimal(12, 2)
+  discountAmount Decimal?            @db.Decimal(12, 2)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   customer         Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
   assignedUser     User?                @relation("AssignedOrders", fields: [assignedUserId], references: [id], onDelete: SetNull)
   branch           Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  coupon           Coupon?              @relation(fields: [couponId], references: [id], onDelete: SetNull)
   items            OrderItem[]
   documents        Document[]
   payments         Payment[]
@@ -384,6 +433,7 @@ model Order {
   history          OrderStatusHistory[]
   notifications    Notification[]
   umrahGroupMember UmrahGroupMember[]
+  couponUsage      CouponUsage?
 
   @@index([customerId])
   @@index([assignedUserId])
@@ -391,6 +441,77 @@ model Order {
   @@index([status])
   @@index([paymentStatus])
   @@index([createdAt])
+  @@index([couponId])
+}
+
+// A discount code an admin creates and a customer redeems on an Order.
+// Deliberately holds only the coupon's *rules* — actual redemption facts
+// (who, which order, how much) live on CouponUsage so a Coupon can be
+// edited/archived without rewriting history, and so total/per-customer
+// usage counts are a simple query rather than a maintained counter that
+// could drift. serviceId/visaTypeId scope eligibility (null = applies to
+// everything); customerId restricts the coupon to one specific customer
+// (null = public, subject to the other rules). Kept intentionally flat —
+// no separate "campaign" or "rule" tables — because nothing here needs its
+// own identity or ordering beyond what a single row already expresses.
+model Coupon {
+  id                    String             @id @default(cuid())
+  code                  String             @unique
+  description           String?
+  discountType          CouponDiscountType
+  discountValue         Decimal            @db.Decimal(12, 2)
+  startDate             DateTime?
+  expiryDate            DateTime?
+  active                Boolean            @default(true)
+  archived              Boolean            @default(false)
+  // null = unlimited.
+  usageLimit            Int?
+  // null = unlimited; defaults to 1 (the common "one redemption per
+  // customer" case) rather than null, so an admin must deliberately widen it.
+  usageLimitPerCustomer Int?               @default(1)
+  minOrderAmount        Decimal?           @db.Decimal(12, 2)
+  serviceId             String?
+  visaTypeId            String?
+  newCustomersOnly      Boolean            @default(false)
+  customerId            String?
+  createdByUserId       String
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  service      Service?      @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  visaType     VisaType?     @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
+  restrictedTo Customer?     @relation("CouponCustomerRestriction", fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy    User          @relation("CouponCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  orders       Order[]
+  usages       CouponUsage[]
+
+  @@index([code])
+  @@index([active])
+  @@index([expiryDate])
+  @@index([serviceId])
+  @@index([visaTypeId])
+  @@index([customerId])
+}
+
+// One row per successful redemption. The @@unique on orderId is the
+// database-level guarantee that a single order can never carry two coupon
+// redemptions (Phase 6's "prevent double application") — application code
+// enforces every other rule, but this one is enforced even against a bug
+// or a concurrent request.
+model CouponUsage {
+  id             String   @id @default(cuid())
+  couponId       String
+  customerId     String
+  orderId        String   @unique
+  discountAmount Decimal  @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+
+  coupon   Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([couponId])
+  @@index([customerId])
 }
 
 model OrderItem {

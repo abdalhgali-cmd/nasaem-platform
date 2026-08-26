@@ -32,3 +32,24 @@ export async function loginAsSuperAdmin() {
 export function uniqueSuffix() {
   return `${Date.now()}${Math.floor(Math.random() * 10000)}`;
 }
+
+// Registers a brand-new Customer Account and returns both the logged-in
+// agent (its cookie jar carries the customerAccessToken) and the created
+// customer record, so tests can assert on customer.id without a second
+// round trip.
+export async function registerCustomer(overrides = {}) {
+  const suffix = uniqueSuffix();
+  const agent = request.agent(app);
+  const res = await agent.post("/api/customer-auth/register").send({
+    fullName: `Test Customer ${suffix}`,
+    phone: `249${suffix}`,
+    password: "Test@12345",
+    ...overrides,
+  });
+
+  if (res.status !== 201) {
+    throw new Error(`Failed to register test customer (status ${res.status}): ${JSON.stringify(res.body)}`);
+  }
+
+  return { agent, customer: res.body.data.customer };
+}

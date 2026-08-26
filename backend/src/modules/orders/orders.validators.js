@@ -15,6 +15,11 @@ export const createOrderSchema = z.object({
   currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
   priority: z.enum(ORDER_PRIORITIES).default("NORMAL"),
   items: z.array(orderItemSchema).min(1, "At least one order item is required"),
+  // Optional coupon system integration (see coupons module). visaTypeId is
+  // used only to check a coupon's visa-category eligibility at creation
+  // time — Order/OrderItem have no visaTypeId column to persist it on.
+  couponCode: z.string().trim().min(1).optional().nullable(),
+  visaTypeId: z.string().min(1).optional().nullable(),
 });
 
 export const assignOrderSchema = z.object({
