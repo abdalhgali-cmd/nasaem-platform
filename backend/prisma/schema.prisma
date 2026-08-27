@@ -229,6 +229,8 @@ model Customer {
   updatedAt              DateTime  @updatedAt
 
   orders           Order[]
+  contactRequests  ContactRequest[]
+  notifications    Notification[]
   documents        Document[]
   umrahGroupMember UmrahGroupMember[]
   coupons          Coupon[]           @relation("CouponCustomerRestriction")
@@ -625,15 +627,18 @@ model Notification {
   message   String
   type      String
   userId    String?
+  customerId String?
   orderId   String?
   readAt    DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   user  User?  @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([customerId])
   @@index([orderId])
   @@index([type])
 }
@@ -943,8 +948,10 @@ model ContactRequest {
   createdAt            DateTime                    @default(now())
   updatedAt            DateTime                    @updatedAt
 
+  customerId            String?
   serviceRef      Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   visaType        VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
+  customer        Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   invoice         Invoice?
   documents       ContactRequestDocument[]
   deliverables    ContactRequestDeliverable[]
@@ -955,6 +962,7 @@ model ContactRequest {
   @@index([status])
   @@index([createdAt])
   @@index([phoneNormalized])
+  @@index([customerId])
   @@index([serviceId])
   @@index([visaTypeId])
 }

@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   BadgePercent,
+  Bell,
   Check,
   CheckCircle2,
   Copy,
@@ -17,7 +18,8 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { customerApi, CustomerApiError } from "@/lib/customer-api";
+import { customerApi, customerUpload, CustomerApiError } from "@/lib/customer-api";
+import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
 
 type CustomerProfile = {
@@ -49,12 +51,39 @@ type OrderSummary = {
   items: OrderItem[];
 };
 
+type RequestDocument = { id: string; label: string; fileName: string; status: string; reviewNote: string | null; createdAt: string };
+type RequestOffer = { id: string; carrier: string; description: string | null; amount: string; currency: string; createdAt: string };
+type CustomerRequest = {
+  id: string;
+  requestNumber: string;
+  service: { id: string; name: string; category: string } | null;
+  visaType: { id: string; name: string; country: string } | null;
+  status: string;
+  outcome: string | null;
+  paymentStatus: string;
+  createdAt: string;
+  updatedAt: string;
+  latestUpdateAt: string;
+  nextAction: string;
+  notes: string | null;
+  invoice: { id: string; amount: string; currency: string; description: string | null; status: string; createdAt: string; decidedAt: string | null } | null;
+  offers: RequestOffer[];
+  selectedOfferId: string | null;
+  documents: RequestDocument[];
+  deliverables: { id: string; label: string; fileName: string; mimeType: string; sizeBytes: number; createdAt: string }[];
+  timeline?: { action: string; createdAt: string }[];
+};
+
+type CustomerNotification = { id: string; title: string; message: string; type: string; orderId: string | null; readAt: string | null; createdAt: string };
+
 type Overview = {
+  activeRequestsCount: number;
   activeOrdersCount: number;
   recentOrders: OrderSummary[];
   documentsCount: number;
   ordersNeedingAttention: number;
   availableCouponsCount: number;
+  latestUpdateAt: string | null;
 };
 
 type DocumentSummary = {
@@ -95,12 +124,19 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
 const TABS = [
   { key: "overview", label: "نظرة عامة", icon: ClipboardList },
   { key: "orders", label: "طلباتي", icon: Package },
+  { key: "requests", label: "طلباتي العامة", icon: FileText },
+  { key: "notifications", label: "الإشعارات", icon: Bell },
+  { key: "payments", label: "المدفوعات", icon: BadgePercent },
+  { key: "offers", label: "العروض", icon: Tag },
+  { key: "deliverables", label: "الملفات النهائية", icon: FileText },
   { key: "documents", label: "المستندات", icon: FileText },
   { key: "coupons", label: "الكوبونات", icon: Tag },
   { key: "profile", label: "الملف الشخصي", icon: User },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
+type SummaryMode = "payments" | "offers" | "deliverables";
+type SummaryRow = { key: string; title: string; detail: string; href: string | null };
 
 function formatMoney(amount: string | number | null, currency: string) {
   if (amount === null) return "-";
@@ -191,6 +227,11 @@ export function AccountDashboard() {
 
       {tab === "overview" ? <OverviewTab onGoToTab={setTab} /> : null}
       {tab === "orders" ? <OrdersTab /> : null}
+      {tab === "requests" ? <RequestsTab /> : null}
+      {tab === "notifications" ? <NotificationsTab /> : null}
+      {tab === "payments" ? <CustomerDataSummaryTab mode="payments" /> : null}
+      {tab === "offers" ? <CustomerDataSummaryTab mode="offers" /> : null}
+      {tab === "deliverables" ? <CustomerDataSummaryTab mode="deliverables" /> : null}
       {tab === "documents" ? <DocumentsTab /> : null}
       {tab === "coupons" ? <CouponsTab /> : null}
       {tab === "profile" ? <ProfileTab profile={profile} onUpdated={setProfile} /> : null}
@@ -229,12 +270,14 @@ function OverviewTab({ onGoToTab }: { onGoToTab: (tab: TabKey) => void }) {
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="طلبات نشطة" value={overview.activeOrdersCount} />
+        <StatTile label="طلبات عامة نشطة" value={overview.activeRequestsCount} />
+        <StatTile label="طلبات حساب نشطة" value={overview.activeOrdersCount} />
         <StatTile label="بحاجة لمتابعة" value={overview.ordersNeedingAttention} />
         <StatTile label="المستندات" value={overview.documentsCount} />
         <button type="button" onClick={() => onGoToTab("coupons")} className="contents">
           <StatTile label="كوبونات متاحة" value={overview.availableCouponsCount} />
         </button>
+        <p className="col-span-2 text-xs text-muted-foreground sm:col-span-4">آخر تحديث: {formatDate(overview.latestUpdateAt)}</p>
       </div>
 
       <NewOrderPanel />
@@ -544,6 +587,129 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   RECEIPT: "إيصال الدفع",
   OTHER: "أخرى",
 };
+
+function CustomerDataSummaryTab({ mode }: { mode: SummaryMode }) {
+  const [requests, setRequests] = React.useState<CustomerRequest[] | null>(null);
+  const [orders, setOrders] = React.useState<OrderSummary[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => { Promise.all([customerApi<CustomerRequest[]>("/customer/requests"), customerApi<OrderSummary[]>("/customer/orders")]).then(([requestData, orderData]) => { setRequests(requestData); setOrders(orderData); }).catch((err) => setError(err instanceof CustomerApiError ? err.message : "تعذر تحميل البيانات")); }, []);
+  if (error) return <p className="text-sm text-red-600 dark:text-red-400">{error}</p>;
+  if (!requests || !orders) return <div className="flex justify-center py-10"><Loader2 className="size-5 animate-spin text-primary" /></div>;
+  const title = mode === "payments" ? "المدفوعات والفواتير" : mode === "offers" ? "العروض المتاحة" : "الملفات النهائية";
+  const empty = mode === "payments" ? "لا توجد مدفوعات أو فواتير بعد." : mode === "offers" ? "لا توجد عروض مرتبطة بطلباتك بعد." : "لا توجد ملفات نهائية متاحة بعد.";
+  const rows: SummaryRow[] = requests.flatMap<SummaryRow>((request) => {
+    if (mode === "payments") {
+      return request.invoice ? [{ key: request.invoice.id, title: request.service?.name || "فاتورة طلب", detail: `${formatMoney(request.invoice.amount, request.invoice.currency)} — ${request.invoice.status}`, href: null }] : [];
+    }
+    if (mode === "offers") {
+      return request.offers.map((offer) => ({ key: offer.id, title: `${offer.carrier} — ${request.service?.name || "طلب"}`, detail: `${formatMoney(offer.amount, offer.currency)}${offer.description ? ` — ${offer.description}` : ""}`, href: null }));
+    }
+    return request.deliverables.map((file) => ({ key: file.id, title: file.label || file.fileName, detail: request.service?.name || "طلب خدمة", href: `${API_URL}/customer/requests/${encodeURIComponent(request.id)}/deliverables/${encodeURIComponent(file.id)}/file` }));
+  });
+  const orderRows: SummaryRow[] = mode === "payments" ? orders.map((order) => ({ key: order.id, title: order.orderNumber, detail: `${formatMoney(order.totalAmount, order.currency)} — ${order.paymentStatus}`, href: null })) : [];
+  const allRows = [...rows, ...orderRows];
+  return <div className="rounded-2xl border border-border bg-card p-5 shadow-sm"><h3 className="text-sm font-bold text-foreground">{title}</h3>{allRows.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">{empty}</p> : <div className="mt-4 grid gap-3">{allRows.map((row) => row.href ? <a key={row.key} href={row.href} className="rounded-xl border border-border bg-background p-4 text-sm text-primary hover:underline">{row.title}<span className="mt-1 block text-xs text-muted-foreground">{row.detail}</span></a> : <div key={row.key} className="rounded-xl border border-border bg-background p-4 text-sm"><span className="font-semibold text-foreground">{row.title}</span><span className="mt-1 block text-xs text-muted-foreground">{row.detail}</span></div>)}</div>}</div>;
+}
+
+function NotificationsTab() {
+  const [notifications, setNotifications] = React.useState<CustomerNotification[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function load() {
+    try { setNotifications(await customerApi<CustomerNotification[]>("/customer/notifications")); }
+    catch (err) { setError(err instanceof CustomerApiError ? err.message : "تعذر تحميل الإشعارات"); }
+  }
+  React.useEffect(() => { load(); }, []);
+  async function markRead(id: string) {
+    try { await customerApi(`/customer/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH" }); setNotifications((items) => items?.map((item) => item.id === id ? { ...item, readAt: new Date().toISOString() } : item) || null); }
+    catch { /* keep current state */ }
+  }
+  if (error) return <p className="text-sm text-red-600 dark:text-red-400">{error}</p>;
+  if (!notifications) return <div className="flex justify-center py-10"><Loader2 className="size-5 animate-spin text-primary" /></div>;
+  if (!notifications.length) return <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">لا توجد إشعارات جديدة.</div>;
+  return <div className="rounded-2xl border border-border bg-card p-5 shadow-sm"><div className="flex flex-col gap-3">{notifications.map((notification) => <button key={notification.id} type="button" onClick={() => !notification.readAt && markRead(notification.id)} className={`rounded-xl border p-4 text-start outline-none transition focus-visible:ring-2 focus-visible:ring-primary ${notification.readAt ? "border-border bg-background" : "border-primary/30 bg-primary/5"}`}><div className="flex items-center justify-between gap-3"><span className="font-bold text-foreground">{notification.title}</span><span className="text-xs text-muted-foreground" dir="ltr">{formatDate(notification.createdAt)}</span></div><p className="mt-2 text-sm text-muted-foreground">{notification.message}</p>{notification.readAt ? null : <span className="mt-2 inline-block text-xs font-semibold text-primary">اضغط لتحديده كمقروء</span>}</button>)}</div></div>;
+}
+
+function RequestsTab() {
+  const [requests, setRequests] = React.useState<CustomerRequest[] | null>(null);
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [detail, setDetail] = React.useState<CustomerRequest | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+
+  React.useEffect(() => {
+    customerApi<CustomerRequest[]>("/customer/requests")
+      .then(setRequests)
+      .catch((err) => setError(err instanceof CustomerApiError ? err.message : "تعذر تحميل الطلبات"));
+  }, []);
+
+  async function openRequest(id: string) {
+    setSelectedId(id);
+    try {
+      setDetail(await customerApi<CustomerRequest>(`/customer/requests/${encodeURIComponent(id)}`));
+    } catch (err) {
+      setError(err instanceof CustomerApiError ? err.message : "تعذر تحميل تفاصيل الطلب");
+    }
+  }
+
+  async function uploadDocument(requestId: string, file: File) {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("label", file.name);
+      form.append("file", file);
+      await customerUpload(`/customer/requests/${encodeURIComponent(requestId)}/documents`, form);
+      await openRequest(requestId);
+    } catch (err) {
+      setError(err instanceof CustomerApiError ? err.message : "تعذر رفع المستند");
+    } finally { setUploading(false); }
+  }
+
+  if (error) return <p className="text-sm text-red-600 dark:text-red-400">{error}</p>;
+  if (!requests) return <div className="flex justify-center py-10"><Loader2 className="size-5 animate-spin text-primary" /></div>;
+  if (requests.length === 0) return <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">لا توجد طلبات عامة مرتبطة بحسابك بعد. الطلبات التي بدأت من نموذج الخدمة العام ستظهر هنا بعد تسجيل الدخول.</div>;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <h3 className="text-sm font-bold text-foreground">طلباتي العامة</h3>
+        <p className="mt-1 text-xs text-muted-foreground">هذه الطلبات منفصلة عن طلبات الحساب، ويمكنك متابعة تفاصيلها من هنا أو عبر التتبع العام.</p>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {requests.map((request) => (
+          <button key={request.id} type="button" onClick={() => openRequest(request.id)} className="rounded-2xl border border-border bg-card p-5 text-start shadow-sm outline-none transition hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-bold text-primary" dir="ltr">{request.requestNumber}</span>
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{request.status}</span>
+            </div>
+            <p className="mt-3 text-sm font-bold text-foreground">{request.service?.name || "طلب خدمة"}</p>
+            <p className="mt-1 text-xs text-muted-foreground">آخر تحديث: {formatDate(request.latestUpdateAt)}</p>
+            <div className="mt-3 rounded-xl border border-accent/30 bg-accent/5 p-3 text-xs text-foreground"><strong>الخطوة التالية:</strong> {request.nextAction}</div>
+          </button>
+        ))}
+      </div>
+      {selectedId && detail ? (
+        <div className="rounded-2xl border border-primary/30 bg-card p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><p className="text-xs text-muted-foreground">تفاصيل الطلب</p><h3 className="text-lg font-bold text-foreground">{detail.service?.name || "طلب خدمة"}</h3></div>
+            <span className="text-sm font-bold text-primary" dir="ltr">{detail.requestNumber}</span>
+          </div>
+          <div className="mt-4 rounded-xl border border-accent/30 bg-accent/5 p-4 text-sm"><strong>الخطوة التالية:</strong><p className="mt-1 text-muted-foreground">{detail.nextAction}</p></div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-border p-4"><p className="text-xs text-muted-foreground">الحالة</p><p className="mt-1 font-semibold">{detail.status}</p><p className="mt-2 text-xs text-muted-foreground">الدفع: {detail.paymentStatus}</p></div>
+            <div className="rounded-xl border border-border p-4"><p className="text-xs text-muted-foreground">تاريخ الإنشاء</p><p className="mt-1 font-semibold">{formatDate(detail.createdAt)}</p><p className="mt-2 text-xs text-muted-foreground">آخر تحديث: {formatDate(detail.updatedAt)}</p></div>
+          </div>
+          {detail.notes ? <p className="mt-4 rounded-xl bg-background p-4 text-sm text-muted-foreground">{detail.notes}</p> : null}
+          {detail.invoice ? <div className="mt-4 rounded-xl border border-border p-4 text-sm"><p className="font-bold">الفاتورة</p><p className="mt-2">{formatMoney(detail.invoice.amount, detail.invoice.currency)} — {detail.invoice.status}</p></div> : null}
+          {detail.offers.length ? <div className="mt-4 rounded-xl border border-border p-4"><p className="font-bold">العروض</p><div className="mt-3 grid gap-2">{detail.offers.map((offer) => <div key={offer.id} className="rounded-lg bg-background p-3 text-sm"><div className="flex justify-between gap-2"><span>{offer.carrier}</span><strong dir="ltr">{formatMoney(offer.amount, offer.currency)}</strong></div>{offer.description ? <p className="mt-1 text-xs text-muted-foreground">{offer.description}</p> : null}</div>)}</div></div> : null}
+          <div className="mt-4 rounded-xl border border-border p-4"><p className="font-bold">المستندات</p>{detail.documents.length ? <div className="mt-3 grid gap-2">{detail.documents.map((doc) => <div key={doc.id} className="rounded-lg bg-background p-3 text-sm"><div className="flex justify-between gap-2"><span>{doc.label || doc.fileName}</span><span className="text-xs text-muted-foreground">{doc.status}</span></div>{doc.reviewNote ? <p className="mt-1 text-xs text-red-600 dark:text-red-400">{doc.reviewNote}</p> : null}</div>)}</div> : <p className="mt-2 text-xs text-muted-foreground">لم تُرفع مستندات بعد.</p>}<label className="mt-4 inline-flex cursor-pointer items-center justify-center rounded-lg border border-primary/30 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">{uploading ? "جارٍ الرفع..." : "رفع أو إعادة رفع مستند"}<input type="file" className="sr-only" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadDocument(detail.id, file); event.currentTarget.value = ""; }} /></label></div>
+          {detail.deliverables.length ? <div className="mt-4 rounded-xl border border-border p-4"><p className="font-bold">الملفات النهائية</p><div className="mt-3 grid gap-2">{detail.deliverables.map((file) => <a key={file.id} href={`${API_URL}/customer/requests/${encodeURIComponent(detail.id)}/deliverables/${encodeURIComponent(file.id)}/file`} className="rounded-lg bg-background p-3 text-sm text-primary hover:underline">{file.label || file.fileName}</a>)}</div></div> : null}
+          {detail.timeline?.length ? <div className="mt-4 rounded-xl border border-border p-4"><p className="font-bold">الخط الزمني</p><ol className="mt-3 flex flex-col gap-2">{detail.timeline.map((entry, index) => <li key={`${entry.createdAt}-${index}`} className="flex justify-between gap-3 text-xs"><span>{entry.action}</span><span className="text-muted-foreground" dir="ltr">{formatDate(entry.createdAt)}</span></li>)}</ol></div> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function DocumentsTab() {
   const [documents, setDocuments] = React.useState<DocumentSummary[] | null>(null);

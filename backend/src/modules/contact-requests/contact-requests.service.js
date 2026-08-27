@@ -129,6 +129,7 @@ export async function createContactRequest(data, req, files = []) {
       intakeData: data.intakeData ?? undefined,
       requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
       message: data.message,
+      customerId: req.customer?.id || null,
       documents: files.length
         ? {
             create: files.map((file, index) => ({
@@ -150,6 +151,13 @@ export async function createContactRequest(data, req, files = []) {
     entity: "ContactRequest",
     entityId: contactRequest.id,
     req,
+  });
+
+  await createNotification({
+    customerId: req.customer?.id,
+    title: "تم استلام طلبك",
+    message: `تم استلام طلب الخدمة رقم ${contactRequest.id} وسيتم التواصل معك عند وجود تحديث.`,
+    type: "CONTACT_REQUEST_RECEIVED",
   });
 
   await notifyAdmins({
