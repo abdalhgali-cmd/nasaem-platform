@@ -1,6 +1,7 @@
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { FadeIn } from "@/components/motion/fade-in";
+import { LegalDisclosure } from "@/components/legal-disclosure";
 import {
   Accordion,
   AccordionContent,
@@ -8,57 +9,42 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 
-const faqs = [
-  {
-    question: "ما هي المدة اللازمة لاستخراج تأشيرة العمرة؟",
-    answer:
-      "عادة ما تستغرق تأشيرة العمرة من ٣ إلى ٧ أيام عمل بعد استكمال المستندات المطلوبة كاملة. قد تختلف المدة في مواسم الذروة مثل رمضان.",
-  },
-  {
-    question: "ما طرق الدفع المتاحة؟",
-    answer:
-      "نوفر الدفع النقدي في مكاتبنا، التحويل البنكي، وخيارات دفع إلكترونية. كما يمكن ترتيب الدفع على دفعات لبعض الباقات حسب الاتفاق.",
-  },
-  {
-    question: "هل يمكن إلغاء الحجز أو تعديله؟",
-    answer:
-      "نعم، يمكن تعديل أو إلغاء معظم الحجوزات وفق سياسة كل خدمة (طيران، فندق، تأشيرة). يُرجى التواصل معنا فور الحاجة لأي تعديل لتقليل أي رسوم محتملة.",
-  },
-  {
-    question: "هل تقدمون خدماتكم لمجموعات وشركات؟",
-    answer:
-      "بالتأكيد، لدينا برامج مخصصة للمجموعات والأفواج وكذلك اتفاقيات خاصة للشركات الراغبة في تنظيم رحلات عمل أو عمرة لموظفيها.",
-  },
-  {
-    question: "ما المستندات المطلوبة لتأشيرة الزيارة العائلية؟",
-    answer:
-      "تختلف المستندات حسب صلة القرابة (الأم، الأب، الزوجة...) — يشمل ذلك عادة صورة الجواز، الصورة الشخصية، ومستند الدعوة. يمكن التواصل معنا لمعرفة القائمة الدقيقة لحالتك.",
-  },
-  {
-    question: "كيف أتابع حالة طلبي بعد التقديم؟",
-    answer:
-      "بمجرد استلام طلبك، سيتواصل معك فريقنا بشكل دوري عبر الهاتف أو الواتساب لتحديثك بكل مستجدات الطلب حتى إنجازه بالكامل.",
-  },
-];
+export type FaqItem = {
+  id: string;
+  question: string;
+  answer: string;
+  sortOrder: number;
+};
 
-export function Faq() {
+export function Faq({ items }: { items: FaqItem[] }) {
   return (
     <section className="bg-section py-24">
       <Container className="max-w-3xl">
         <SectionHeading
           eyebrow="الأسئلة الشائعة"
-          title="إجابات على أكثر الأسئلة تكرارًا"
+          title="معلومات واضحة قبل بدء الطلب"
+          description={items.length ? "إجابات معتمدة ومحدثة حسب المحتوى المنشور من الإدارة." : "نعمل على إعداد إجابات معتمدة ومحدثة لكل خدمة."}
         />
 
-        <FadeIn className="mt-12 rounded-3xl border border-border bg-card px-6 shadow-sm sm:px-8">
-          <Accordion type="single" collapsible>
-            {faqs.map((faq) => (
-              <AccordionItem key={faq.question} value={faq.question}>
-                <AccordionTrigger>{faq.question}</AccordionTrigger>
-                <AccordionContent>{faq.answer}</AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+        <FadeIn className="mt-12 rounded-3xl border border-border bg-card px-6 py-7 shadow-sm sm:px-8">
+          {items.length ? (
+            <Accordion type="single" collapsible>
+              {items.map((item) => (
+                <AccordionItem key={item.id} value={item.id}>
+                  <AccordionTrigger>{item.question}</AccordionTrigger>
+                  <AccordionContent>{item.answer}</AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          ) : (
+            <div className="rounded-2xl border border-accent/30 bg-accent/5 p-5 text-sm leading-7 text-foreground">
+              <h2 className="font-black">المحتوى التفصيلي بانتظار الاعتماد</h2>
+              <p className="mt-2 text-muted-foreground">
+                تختلف المستندات والتكلفة والتوفر والخطوات التالية حسب نوع الخدمة وحالة الطلب. سيعرض الفريق التفاصيل المناسبة بعد مراجعة البيانات، ولا تمثل هذه الصفحة سياسة دفع أو إلغاء أو استرداد نافذة قبل اعتماد النصوص الرسمية.
+              </p>
+              <LegalDisclosure />
+            </div>
+          )}
         </FadeIn>
       </Container>
     </section>

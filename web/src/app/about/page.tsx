@@ -1,30 +1,28 @@
 import type { Metadata } from "next";
-import { Award, HeartHandshake, MapPin, ShieldCheck, Sparkles, Target } from "lucide-react";
+import { ClipboardCheck, FileText, HeartHandshake, MapPin, MessageCircle, ShieldCheck, Sparkles, Target } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
-import { CountUp } from "@/components/motion/count-up";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { siteConfig } from "@/lib/site-config";
 
 export const metadata: Metadata = {
   title: "من نحن",
-  description:
-    "تعرّف على نسائم الحرمين للسفر والسياحة — قصتنا، قيمنا، وسبب ثقة أكثر من 15,000 عميل بنا على مدار أكثر من عقد من الخدمة.",
+  description: "تعرّف على طريقة عمل نسائم الحرمين في تنظيم طلبات السفر والتأشيرات والعمرة بوضوح ومتابعة مباشرة.",
 };
 
 const values = [
-  { icon: ShieldCheck, title: "الأمانة", description: "شفافية كاملة في الأسعار والإجراءات دون أي رسوم مخفية." },
-  { icon: Target, title: "الدقة", description: "متابعة كل طلب لحظة بلحظة حتى إنجازه بالكامل." },
-  { icon: HeartHandshake, title: "الاهتمام بالعميل", description: "فريق داعم يتعامل مع كل عميل كأنه ضيف عزيز." },
-  { icon: Sparkles, title: "الجودة", description: "شراكات مختارة بعناية مع أفضل الفنادق وشركات الطيران." },
+  { icon: ShieldCheck, title: "وضوح الإجراءات", description: "نوضح الخطوات والمستندات والتكلفة المنشورة قبل بدء الطلب." },
+  { icon: Target, title: "مراجعة دقيقة", description: "يراجع الفريق تفاصيل الطلب والتوفر قبل تقديم عرض أو متابعة الإجراء." },
+  { icon: HeartHandshake, title: "تواصل مباشر", description: "يمكنك متابعة طلبك والتواصل مع فريق الدعم عبر القنوات المتاحة." },
+  { icon: Sparkles, title: "تنظيم المتابعة", description: "يظهر لكل طلب مرجع وحالة وخطوة تالية كلما توفرت معلومات جديدة." },
 ];
 
-const milestones = [
-  { year: "البداية", title: "انطلاقة الحلم", description: "تأسست نسائم الحرمين في كسلا برؤية واضحة: خدمة صادقة وأسعار عادلة لكل عميل." },
-  { year: "النمو", title: "توسّع الخدمات", description: "أضفنا خدمات التأشيرات وحجوزات الطيران والفنادق لتغطية رحلة العميل كاملة." },
-  { year: "الثقة", title: "بناء قاعدة عملاء", description: "كسبنا ثقة عملائنا عبر الالتزام بالمواعيد والشفافية الكاملة في كل تعامل." },
-  { year: "اليوم", title: "استمرار الرحلة", description: "نواصل تطوير خدماتنا لنبقى الخيار الأول لعملائنا في كسلا وما حولها." },
+const workflow = [
+  { icon: FileText, step: "١", title: "تقديم الطلب", description: "أرسل بيانات الخدمة أو الوجهة والمعلومات اللازمة لمراجعة أولية." },
+  { icon: ClipboardCheck, step: "٢", title: "مراجعة التوفر", description: "يتحقق الفريق من التفاصيل والتوفر قبل إعداد عرض مناسب للحالة." },
+  { icon: MessageCircle, step: "٣", title: "العرض والتأكيد", description: "يصلك العرض أو التحديث عبر قنوات التواصل، ثم تحدد الإجراء التالي." },
+  { icon: HeartHandshake, step: "٤", title: "المتابعة والتسليم", description: "تستمر المتابعة حتى إكمال المعالجة وتسليم المستندات أو النتائج المتاحة." },
 ];
 
 export default function AboutPage() {
@@ -33,8 +31,8 @@ export default function AboutPage() {
       <PageHero
         eyebrow="من نحن"
         breadcrumb="من نحن"
-        title="أكثر من عقد من الثقة والخبرة"
-        description={`${siteConfig.name} — شريكك الموثوق في كل رحلة، من العمرة إلى أي وجهة حول العالم.`}
+        title="خدمات سفر منظمة وواضحة"
+        description={`${siteConfig.name} تساعدك على تقديم طلبات السفر والتأشيرات والعمرة ومتابعتها من خلال مسار واضح وتواصل مباشر.`}
       />
 
       <section className="py-24">
@@ -42,25 +40,21 @@ export default function AboutPage() {
           <FadeIn>
             <SectionHeading
               align="start"
-              eyebrow="قصتنا"
-              title="بدأنا بحلم، ووصلنا بثقة عملائنا"
-              description="انطلقت نسائم الحرمين للسفر والسياحة من مدينة كسلا برؤية واضحة: تسهيل رحلة العمرة والسفر على كل عميل، بأسعار عادلة وخدمة صادقة. نفخر بخدمة عملائنا من فرعنا في كسلا، ونواصل التزامنا بنفس القيم التي بدأنا بها."
+              eyebrow="طريقة عملنا"
+              title="نعمل معك خطوة بخطوة"
+              description="يبدأ التعامل بطلب واضح، ثم مراجعة للتفاصيل والتوفر، ثم عرض أو تحديث مناسب للحالة. لا نعرض توفرًا حيًا أو تأكيدًا تلقائيًا إلا إذا كان مدعومًا من النظام ومصدر الخدمة. يمكنك استخدام رقم الطلب أو حسابك لمتابعة الحالة ومعرفة الخطوة التالية."
             />
           </FadeIn>
 
           <Stagger className="grid grid-cols-2 gap-5">
-            {[
-              { value: 15000, suffix: "+", label: "عميل سعيد" },
-              { value: 22000, suffix: "+", label: "رحلة مُنجزة" },
-              { value: 10, suffix: "+", label: "سنوات خبرة" },
-              { value: 1, suffix: "", label: "فرع نشط في كسلا" },
-            ].map((stat, index) => (
-              <FadeIn key={stat.label} delay={index * 0.06}>
+            {workflow.map((item, index) => (
+              <FadeIn key={item.step} delay={index * 0.06}>
                 <div className="rounded-3xl border border-border bg-card p-6 text-center shadow-sm">
-                  <p className="text-3xl font-extrabold text-primary dark:text-secondary">
-                    <CountUp value={stat.value} suffix={stat.suffix} />
-                  </p>
-                  <span className="mt-1 block text-xs text-muted-foreground">{stat.label}</span>
+                  <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-primary text-xs font-extrabold text-primary-foreground">
+                    {item.step}
+                  </span>
+                  <h3 className="mt-4 text-sm font-bold text-foreground">{item.title}</h3>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{item.description}</p>
                 </div>
               </FadeIn>
             ))}
@@ -70,7 +64,7 @@ export default function AboutPage() {
 
       <section className="bg-section py-24">
         <Container>
-          <SectionHeading eyebrow="قيمنا" title="ما الذي يميزنا؟" />
+          <SectionHeading eyebrow="قيم الخدمة" title="ما الذي نحرص عليه؟" />
           <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {values.map((value, index) => (
               <FadeIn key={value.title} delay={index * 0.06}>
@@ -87,45 +81,12 @@ export default function AboutPage() {
         </Container>
       </section>
 
-      <section className="py-24">
+      <section className="py-16">
         <Container>
-          <SectionHeading eyebrow="مسيرتنا" title="محطات في رحلتنا" />
-          <div className="relative mt-16">
-            <div className="absolute inset-y-0 start-1/2 hidden w-px -translate-x-1/2 bg-border lg:block" />
-            <Stagger className="grid gap-8 lg:grid-cols-4">
-              {milestones.map((milestone, index) => (
-                <FadeIn key={milestone.year} delay={index * 0.08}>
-                  <div className="relative rounded-3xl border border-border bg-card p-6 text-center shadow-sm">
-                    <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-primary text-xs font-extrabold text-primary-foreground">
-                      {milestone.year}
-                    </span>
-                    <h3 className="mt-4 text-sm font-bold text-foreground">{milestone.title}</h3>
-                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                      {milestone.description}
-                    </p>
-                  </div>
-                </FadeIn>
-              ))}
-            </Stagger>
-          </div>
-        </Container>
-      </section>
-
-      <section className="bg-section py-16">
-        <Container>
-          <FadeIn className="flex flex-wrap items-center justify-center gap-8">
-            {siteConfig.branches.map((branch) => (
-              <div key={branch} className="flex items-center gap-2 text-sm font-bold text-foreground">
-                <span className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary dark:text-secondary">
-                  <MapPin className="size-4" />
-                </span>
-                فرع {branch}
-              </div>
-            ))}
-            <div className="flex items-center gap-2 text-sm font-bold text-accent-foreground/80 dark:text-accent">
-              <Award className="size-4" />
-              خبرة تمتد لأكثر من ١٠ سنوات
-            </div>
+          <FadeIn className="mx-auto max-w-3xl rounded-3xl border border-border bg-card p-7 text-center shadow-sm">
+            <MapPin className="mx-auto size-7 text-primary dark:text-secondary" />
+            <h2 className="mt-4 text-xl font-black">تحتاج إلى مساعدة؟</h2>
+            <p className="mt-2 text-sm leading-7 text-muted-foreground">تواصل معنا قبل إرسال بياناتك إذا كنت تحتاج إلى معرفة المستندات أو الخطوة المناسبة لطلبك.</p>
           </FadeIn>
         </Container>
       </section>

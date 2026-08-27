@@ -258,3 +258,21 @@ npm test
 **Deploy:** ممنوع ضمن هذه المهمة.  
 **Production migrations:** ممنوعة ضمن هذه المهمة.  
 **Final decision:** `NOT READY FOR PRODUCTION` حتى إغلاق أو قبول P0 بقرار controlled launch موثق.
+
+## Finalization Addendum
+
+تمت معالجة آخر مصادر claims غير الموثقة في الواجهة العامة. أزيلت أرقام الإحصاءات من Homepage وAbout واستُبدلت بخطوات تشغيلية أو محتوى محايد. أزيلت عبارات الثقة والخبرة والشراكات غير المثبتة من About، مع إبقاء الصفحة مفيدة عبر شرح مسار الطلب والمراجعة والعرض والمتابعة.
+
+أصبح قسم FAQ يستخدم `HomepageSection` الموجود أصلًا: مفاتيح `faq:category:slug` تعرض السؤال من `title` والإجابة من `description` بعد التفعيل والترتيب عبر Content Manager. عند غياب محتوى معتمد يعرض القسم empty state صريحة بدل إجابات تجارية ثابتة. كما يدعم قسم الإبرازات مفاتيح `stat:slug` عبر المصدر نفسه، لكنه لا يعرض أرقامًا إلا إذا بنيت لها بنية بيانات معتمدة مستقبلًا؛ fallback الحالي خطوات تشغيلية غير رقمية.
+
+أضيفت إرشادات داخل Content Manager لاستخدام مفاتيح FAQ وStat الآمنة، مع تنبيه بعدم إدخال أرقام أو claims غير موثقة. لم تتم إضافة schema أو migration أو نموذج CMS موازٍ.
+
+### Updated Verification
+
+نجحت مجددًا الاختبارات الموجهة، وlint للملفات المعدلة، و`npx tsc --noEmit`، و`npm run build` بعد هذه الإضافات. يبقى CI الكامل معيار القبول النهائي بعد رفع commit الجديد إلى PR #42.
+
+### Final Decision
+
+`APPLICATION READY FOR CONTROLLED STAGING / OWNER REVIEW`
+
+هذا لا يعني `READY FOR PUBLIC PRODUCTION`. بوابات المالك الخارجية، القانونية، والبنية التحتية والدفع والموردين ما زالت مطلوبة قبل الإطلاق العام.
