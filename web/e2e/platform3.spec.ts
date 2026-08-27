@@ -660,3 +660,72 @@ test.describe("Security approvals — full lifecycle through the real customer-f
 // a real, valid image file — the pixel content itself is never asserted on.
 const HERO_TEST_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+
+test.describe("Umrah Packages — admin data reflects publicly", () => {
+  test("creates, edits, orders, and deactivates a real UMRAH_PACKAGE", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now();
+    const firstCode = `E2E-UMRAH-FIRST-${suffix}`;
+    const secondCode = `E2E-UMRAH-SECOND-${suffix}`;
+    const firstName = `باقة عمرة أولى E2E ${suffix}`;
+    const secondName = `باقة عمرة ثانية E2E ${suffix}`;
+    const updatedName = `باقة عمرة محدثة E2E ${suffix}`;
+    const created: string[] = [];
+
+    async function createPackage(code: string, name: string, sortOrder: number) {
+      const response = await admin.post(`${BACKEND_URL}/api/services`, {
+        data: {
+          code,
+          name,
+          category: "UMRAH_PACKAGE",
+          description: "باقة اختبار ديناميكية",
+          basePrice: 1900,
+          currency: "SAR",
+          active: true,
+          sortOrder,
+          features: ["DURATION: 10 أيام", "INCLUDED: النقل"],
+        },
+      });
+      expect(response.ok(), await response.text()).toBeTruthy();
+      const item = (await response.json()).data;
+      created.push(item.id);
+      return item;
+    }
+
+    try {
+      await createPackage(firstCode, firstName, 10);
+      await createPackage(secondCode, secondName, 20);
+
+      await page.goto("/packages", { waitUntil: "networkidle" });
+      await expect(page.getByRole("heading", { name: firstName })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("heading", { name: secondName })).toBeVisible({ timeout: 15_000 });
+      const initialCards = await page.locator("article h3").allTextContents();
+      expect(initialCards.indexOf(firstName)).toBeGreaterThanOrEqual(0);
+      expect(initialCards.indexOf(firstName)).toBeLessThan(initialCards.indexOf(secondName));
+
+      const listResponse = await admin.get(`${BACKEND_URL}/api/services?limit=100`);
+      const listPayload = await listResponse.json();
+      const firstItem = listPayload.data.find((item: { code: string }) => item.code === firstCode);
+      expect(firstItem).toBeTruthy();
+      const updateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, {
+        data: { name: updatedName, description: "وصف باقة محدث", basePrice: 2400, active: true, sortOrder: 5 },
+      });
+      expect(updateResponse.ok(), await updateResponse.text()).toBeTruthy();
+
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByRole("heading", { name: updatedName })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("heading", { name: firstName })).toHaveCount(0);
+      const updatedCards = await page.locator("article h3").allTextContents();
+      expect(updatedCards.indexOf(updatedName)).toBeLessThan(updatedCards.indexOf(secondName));
+
+      const deactivateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, { data: { active: false } });
+      expect(deactivateResponse.ok(), await deactivateResponse.text()).toBeTruthy();
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByRole("heading", { name: updatedName })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: secondName })).toBeVisible({ timeout: 15_000 });
+    } finally {
+      for (const id of created) await admin.delete(`${BACKEND_URL}/api/services/${id}`);
+    }
+  });
+});

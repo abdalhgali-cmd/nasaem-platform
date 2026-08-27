@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+
+/* eslint-disable react-hooks/set-state-in-effect -- checklist state synchronizes with the selected API-backed service. */
 import Link from "next/link";
 import {
   Check,
@@ -225,7 +227,7 @@ export function ServiceIntakeWizard({
   }, [visaCategory]);
 
   const packageServices = React.useMemo(
-    () => services.filter((s) => s.category === "package"),
+    () => services.filter((s) => s.category === "UMRAH_PACKAGE"),
     [services]
   );
   const umrahService = React.useMemo(
