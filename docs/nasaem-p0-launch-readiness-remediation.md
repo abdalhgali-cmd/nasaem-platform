@@ -276,3 +276,7 @@ npm test
 `APPLICATION READY FOR CONTROLLED STAGING / OWNER REVIEW`
 
 هذا لا يعني `READY FOR PUBLIC PRODUCTION`. بوابات المالك الخارجية، القانونية، والبنية التحتية والدفع والموردين ما زالت مطلوبة قبل الإطلاق العام.
+
+## Release Documentation Added
+
+أضيفت وثائق `docs/STAGING_READINESS_CHECKLIST.md` و`docs/PRODUCTION_READINESS_CHECKLIST.md` و`docs/PRODUCTION_RUNBOOK.md`. تحتوي الأولى على اختبارات staging لكل رحلة مع `EXPECTED / ACTUAL / STATUS / OWNER`، وتوضح الثانية بوابات الإطلاق وتصنيف `PASS / FAIL / UNKNOWN / OWNER INPUT REQUIRED`، بينما يوضح الـrunbook pre-deployment وdeployment وsmoke tests وrollback وincident response وbackup/restore وmonitoring وإجراء أثر العميل. جميعها إرشادية فقط؛ لم يُنفذ أي Deployment أو Migration أو Restore على Production.
