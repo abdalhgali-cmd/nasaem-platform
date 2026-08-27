@@ -10,6 +10,7 @@ import {
 import { Container } from "@/components/container";
 import { Logo } from "@/components/logo";
 import { mainNav, siteConfig } from "@/lib/site-config";
+import type { PublicSiteSettings } from "@/lib/public-settings";
 
 const serviceLinks = [
   { label: "باقات العمرة", href: "/umrah" },
@@ -27,25 +28,30 @@ const trustBadges = [
 
 // lucide-react dropped brand/logo icons (trademark reasons), so social links
 // use plain text monograms instead of guessing at reproduced logo glyphs.
-// Only rendered once a real profile URL exists in site-config.ts.
-const socialLinks = [
-  { mark: "f", href: siteConfig.social.facebook, label: "فيسبوك" },
-  { mark: "IG", href: siteConfig.social.instagram, label: "إنستغرام" },
-  { mark: "X", href: siteConfig.social.twitter, label: "إكس" },
-].filter((item) => item.href);
 
 export function SiteFooter({
   logoUrls,
+  publicSettings,
 }: {
   logoUrls?: { light?: string; dark?: string };
+  publicSettings?: PublicSiteSettings;
 }) {
+  const phone = publicSettings?.phone ?? siteConfig.phone;
+  const email = publicSettings?.email ?? siteConfig.email;
+  const address = publicSettings?.address ?? siteConfig.address;
+  const socialLinks = [
+    { mark: "f", href: publicSettings?.social.facebook ?? siteConfig.social.facebook, label: "فيسبوك" },
+    { mark: "IG", href: publicSettings?.social.instagram ?? siteConfig.social.instagram, label: "إنستغرام" },
+    { mark: "X", href: publicSettings?.social.twitter ?? siteConfig.social.twitter, label: "إكس" },
+  ].filter((item) => item.href);
+
   return (
     <footer className="border-t border-border bg-section text-foreground">
       <Container className="grid gap-10 py-16 sm:grid-cols-2 lg:grid-cols-4">
         <div className="sm:col-span-2 lg:col-span-1">
           <Logo urls={logoUrls} />
           <p className="mt-5 max-w-xs text-sm leading-relaxed text-muted-foreground">
-            {siteConfig.description}
+            {publicSettings?.seoDescription || siteConfig.description}
           </p>
           {socialLinks.length > 0 ? (
             <div className="mt-6 flex items-center gap-3">
@@ -103,21 +109,21 @@ export function SiteFooter({
             <li className="flex items-start gap-2.5">
               <MapPin className="mt-0.5 size-4 shrink-0 text-accent" />
               <span>
-                {siteConfig.address}
+                {address}
                 <br />
                 فروعنا: {siteConfig.branches.join(" • ")}
               </span>
             </li>
             <li className="flex items-center gap-2.5">
               <Phone className="size-4 shrink-0 text-accent" />
-              <a href={`tel:${siteConfig.phone.replace(/\s/g, "")}`} dir="ltr" className="hover:text-primary">
-                {siteConfig.phone}
+              <a href={`tel:${phone.replace(/\s/g, "")}`} dir="ltr" className="hover:text-primary">
+                {phone}
               </a>
             </li>
             <li className="flex items-center gap-2.5">
               <Mail className="size-4 shrink-0 text-accent" />
-              <a href={`mailto:${siteConfig.email}`} className="hover:text-primary">
-                {siteConfig.email}
+              <a href={`mailto:${email}`} className="hover:text-primary">
+                {email}
               </a>
             </li>
           </ul>

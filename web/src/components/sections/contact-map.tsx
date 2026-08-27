@@ -4,15 +4,17 @@ import { SectionHeading } from "@/components/section-heading";
 import { FadeIn } from "@/components/motion/fade-in";
 import { ContactForm } from "@/components/sections/contact-form";
 import { siteConfig } from "@/lib/site-config";
+import { getPublicSiteSettings } from "@/lib/public-settings";
 
-const contactCards = [
-  { icon: Phone, label: "اتصل بنا", value: siteConfig.phone, href: `tel:${siteConfig.phone.replace(/\s/g, "")}`, dir: "ltr" as const },
-  { icon: Mail, label: "راسلنا", value: siteConfig.email, href: `mailto:${siteConfig.email}` },
-  { icon: MapPin, label: "زُرنا", value: siteConfig.address, href: undefined },
-  { icon: Clock, label: "ساعات العمل", value: "السبت - الخميس: ٨ص - ٩م", href: undefined },
-];
+export async function ContactMap() {
+  const settings = await getPublicSiteSettings();
+  const contactCards = [
+    { icon: Phone, label: "اتصل بنا", value: settings.phone, href: `tel:${settings.phone.replace(/\s/g, "")}`, dir: "ltr" as const },
+    { icon: Mail, label: "راسلنا", value: settings.email, href: `mailto:${settings.email}` },
+    { icon: MapPin, label: "زُرنا", value: settings.address, href: undefined },
+    { icon: Clock, label: "ساعات العمل", value: "السبت - الخميس: ٨ص - ٩م", href: undefined },
+  ];
 
-export function ContactMap() {
   return (
     <section className="py-24">
       <Container>
@@ -58,7 +60,7 @@ export function ContactMap() {
               <iframe
                 title={`موقع ${siteConfig.shortName} على الخريطة`}
                 src={`https://www.google.com/maps?q=${encodeURIComponent(
-                  siteConfig.address
+                  settings.address
                 )}&output=embed`}
                 className="h-full min-h-[320px] w-full"
                 style={{ border: 0 }}

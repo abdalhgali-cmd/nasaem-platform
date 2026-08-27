@@ -1,24 +1,33 @@
 "use client";
 
 import * as React from "react";
+
 import { CheckCircle2, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
-const services = [
-  "باقة عمرة",
-  "تأشيرة",
-  "حجز طيران",
-  "حجز فندق",
-  "باقة سفر شاملة",
-  "استفسار آخر",
-];
+type PublicService = { id: string; name: string; category: string; active: boolean };
+const OTHER_SERVICE = "استفسار آخر";
 
 export function ContactForm() {
   const [status, setStatus] = React.useState<Status>("idle");
   const [errorMessage, setErrorMessage] = React.useState("");
+  const [services, setServices] = React.useState<PublicService[]>([]);
+
+  React.useEffect(() => {
+    let ignore = false;
+    fetch(`${API_URL}/services/public`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload) => {
+        if (!ignore) setServices(payload?.data?.services ?? []);
+      })
+      .catch(() => {
+        if (!ignore) setServices([]);
+      });
+    return () => { ignore = true; };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -150,13 +159,14 @@ export function ContactForm() {
             id="service"
             name="service"
             className="h-12 rounded-xl border border-border bg-background px-4 text-sm outline-none transition focus:border-primary"
-            defaultValue={services[0]}
+            defaultValue={OTHER_SERVICE}
           >
             {services.map((service) => (
-              <option key={service} value={service}>
-                {service}
+              <option key={service.id} value={service.name}>
+                {service.name}
               </option>
             ))}
+            <option value={OTHER_SERVICE}>{OTHER_SERVICE}</option>
           </select>
         </div>
         <div className="flex flex-col gap-1.5 sm:col-span-2">

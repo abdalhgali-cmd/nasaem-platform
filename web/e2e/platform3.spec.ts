@@ -153,11 +153,11 @@ test.describe("Visa — admin creates a visa type, it's reachable publicly by co
       // ?visaType=, not just the marketing site's fixed 5 category cards
       // — this is the real, working mechanism by which a brand-new
       // admin-created visa type becomes reachable by a real customer
-      // (e.g. a link shared by staff), even though /visas' own card grid
-      // doesn't yet auto-list every admin-created visa type (a separate,
-      // smaller disclosed gap: the grid is a fixed array in
-      // app/visas/page.tsx, not fetched from the API).
-      await page.goto(`/visas?visaType=${code}#book`);
+      // (e.g. a link shared by staff). The public `/visas` card grid now
+      // also consumes the same active VisaType catalog, so this assertion
+      // verifies both discovery and wizard selection.
+      await page.goto(`/visas?visaType=${code}&visaCategory=OTHER#book`);
+      await expect(page.getByRole("heading", { name: /تأشيرة اختبار E2E/ })).toBeVisible({ timeout: 15_000 });
       await expect(page.getByRole("button", { name: /تأشيرة اختبار E2E/ })).toBeVisible({ timeout: 15_000 });
     } finally {
       const listRes = await admin.get(`${BACKEND_URL}/api/visa-types?limit=100`);
