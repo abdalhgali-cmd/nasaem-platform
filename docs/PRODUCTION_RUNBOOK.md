@@ -41,3 +41,15 @@
 ## 8. Customer-impact procedure
 
 عند تعطل رحلة عميل، حدّد المرجع الداخلي دون كشفه علنًا، أوقف أي transition غير آمن، قدم قناة دعم واضحة، وسجل الإجراء في Activity Log المناسب. لا تعدّل Order history أو payment evidence يدويًا خارج المسار المصرح. بعد الإصلاح، تحقق من next action والإشعار والتسليم للعميل المتأثر.
+
+## 9. Current execution boundary and evidence
+
+تم تنفيذ preflight على repository وPR فقط: الفرع `feature/launch-readiness-remediation`، HEAD `54ce0761f407f9561d540532ee7fd6271d980a53`، working tree نظيف، PR #42 مفتوح ونظيف، وCI ناجح بخمس checks. هذا الدليل لا يثبت جاهزية Production ولا يستبدل evidence الخاص بالبنية التحتية.
+
+لم تتوفر صلاحية أو URL لبيئة staging ضمن هذه المهمة، لذلك لم تُنشأ حسابات Customer A/B ولم تُنفذ طلبات أو uploads أو payment proofs أو restore drills. الحالة الصحيحة لاختبارات البيئة هي `STAGING ACCESS REQUIRED`، وتبقى backup وrestore وRPO/RTO وmonitoring وhealth وreplicas وrollback وincident owner بحالة `UNKNOWN` أو `INFRASTRUCTURE INPUT REQUIRED` حتى يقدم Infra Owner دليلًا فعليًا.
+
+**MERGE: NOT PERFORMED**
+**PRODUCTION DEPLOYMENT: NOT PERFORMED**
+**PRODUCTION MIGRATIONS: NOT PERFORMED**
+**PRODUCTION CONFIGURATION: NOT CHANGED**
+**PRODUCTION CREDENTIALS: NOT USED**
