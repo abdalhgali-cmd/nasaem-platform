@@ -5,6 +5,7 @@ import { Check, CheckCircle2, Copy, Download, Loader2, LogOut, MessageCircle, Ph
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
+import { LegalDisclosure } from "@/components/legal-disclosure";
 
 type TrackedRequestStatus = "NEW" | "CONTACTED" | "CLOSED";
 type InvoiceStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -119,7 +120,7 @@ const DOCUMENT_STATUS_LABEL: Record<DocumentStatus, string> = {
   REJECTED: "مرفوض",
 };
 
-type Stage = "checking" | "phone" | "code" | "requests";
+type Stage = "checking" | "phone" | "code" | "requests" | "error";
 
 const STATUS_BADGE_CLASS: Record<TrackedRequestStatus, string> = {
   NEW: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
@@ -413,6 +414,10 @@ function RequestDocumentsPanel({
         <p className="mt-2 text-xs text-muted-foreground">لم يتم رفع أي مستندات بعد.</p>
       )}
 
+      <div className="mt-3">
+        <LegalDisclosure sensitive />
+      </div>
+
       <form onSubmit={handleUpload} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1">
           <label className="text-xs font-semibold text-foreground">نوع المستند</label>
@@ -592,16 +597,25 @@ export function TrackingPanel() {
   const [requests, setRequests] = React.useState<TrackedRequest[]>([]);
 
   const loadRequests = React.useCallback(async () => {
-    const res = await fetch(`${API_URL}/tracking/requests`, {
-      credentials: "include",
-    });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(`${API_URL}/tracking/requests`, {
+        credentials: "include",
+        signal: controller.signal,
+      });
 
-    if (!res.ok) {
-      return { loggedIn: false as const };
+      if (!res.ok) {
+        return { loggedIn: false as const, error: null };
+      }
+
+      const payload = await res.json().catch(() => null);
+      return { loggedIn: true as const, requests: payload?.data ?? [], error: null };
+    } catch {
+      return { loggedIn: false as const, error: "تعذر الاتصال بخدمة التتبع. حاول مرة أخرى." };
+    } finally {
+      window.clearTimeout(timeout);
     }
-
-    const payload = await res.json().catch(() => null);
-    return { loggedIn: true as const, requests: payload?.data ?? [] };
   }, []);
 
   const refreshRequests = React.useCallback(async () => {
@@ -621,7 +635,10 @@ export function TrackingPanel() {
     loadRequests().then((result) => {
       if (ignore) return;
 
-      if (result.loggedIn) {
+      if (result.error) {
+        setError(result.error);
+        setStage("error");
+      } else if (result.loggedIn) {
         setRequests(result.requests);
         setStage("requests");
       } else {
@@ -711,6 +728,17 @@ export function TrackingPanel() {
     return (
       <div className="flex justify-center py-20">
         <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (stage === "error") {
+    return (
+      <div className="mx-auto max-w-lg rounded-2xl border border-red-500/30 bg-red-500/5 p-6 text-center">
+        <p className="text-sm text-red-600 dark:text-red-400">{error || "تعذر تحميل التتبع."}</p>
+        <Button type="button" variant="outline" className="mt-4" onClick={() => window.location.reload()}>
+          إعادة المحاولة
+        </Button>
       </div>
     );
   }

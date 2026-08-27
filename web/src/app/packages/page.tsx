@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 const whyUs = [
-  { icon: Gem, title: "جودة مضمونة", description: "نختار شركاءنا ونراجع تفاصيل كل باقة بعناية فائقة." },
+  { icon: Gem, title: "مراجعة تفاصيل الباقة", description: "نوضح تفاصيل الباقة والخدمات المشمولة قبل اعتماد العرض." },
   { icon: Star, title: "تجربة متكاملة", description: "كل تفاصيل رحلتك في مكان واحد بدون تشتت." },
   { icon: Check, title: "مرونة في التعديل", description: "إمكانية تعديل الباقة لتناسب احتياجاتك الخاصة." },
 ];

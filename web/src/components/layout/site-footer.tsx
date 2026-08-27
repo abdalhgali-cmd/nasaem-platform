@@ -21,9 +21,17 @@ const serviceLinks = [
 ];
 
 const trustBadges = [
-  { icon: ShieldCheck, label: "حجوزات آمنة وموثوقة" },
-  { icon: Clock, label: "دعم على مدار الساعة" },
-  { icon: BadgeCheck, label: "أسعار تنافسية وشفافة" },
+  { icon: ShieldCheck, label: "معلومات واضحة قبل اعتماد العرض" },
+  { icon: Clock, label: "متابعة للطلب خطوة بخطوة" },
+  { icon: BadgeCheck, label: "تواصل مباشر مع الفريق" },
+];
+
+const legalLinks = [
+  { label: "سياسة الخصوصية", href: "/privacy" },
+  { label: "الشروط والأحكام", href: "/terms" },
+  { label: "سياسة الإلغاء", href: "/cancellation" },
+  { label: "سياسة الاسترداد", href: "/refund" },
+  { label: "معلومات الدفع", href: "/payment-information" },
 ];
 
 // lucide-react dropped brand/logo icons (trademark reasons), so social links
@@ -146,7 +154,14 @@ export function SiteFooter({
           <p>
             © {new Date().getFullYear()} {siteConfig.name}. جميع الحقوق محفوظة.
           </p>
-          <p className="font-medium">{siteConfig.nameEn}</p>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 sm:justify-end">
+            {legalLinks.map((item) => (
+              <Link key={item.href} href={item.href} className="font-medium underline-offset-4 hover:text-primary hover:underline">
+                {item.label}
+              </Link>
+            ))}
+            <p className="font-medium">{siteConfig.nameEn}</p>
+          </div>
         </Container>
       </div>
     </footer>
