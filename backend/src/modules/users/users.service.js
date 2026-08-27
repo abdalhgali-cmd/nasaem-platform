@@ -86,3 +86,36 @@ export async function changeUserStatus(id, status) {
     select: userListSelect,
   });
 }
+
+export async function changeUserRole({ id, role, actorId }) {
+  const existing = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, role: true, status: true },
+  });
+
+  if (!existing) return null;
+
+  if (actorId === id && role !== "SUPER_ADMIN") {
+    const error = new Error("You cannot lower your own role");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (existing.role === "SUPER_ADMIN" && role !== "SUPER_ADMIN") {
+    const activeSuperAdmins = await prisma.user.count({
+      where: { role: "SUPER_ADMIN", status: "ACTIVE" },
+    });
+
+    if (activeSuperAdmins <= 1) {
+      const error = new Error("At least one active SUPER_ADMIN must remain");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  return prisma.user.update({
+    where: { id },
+    data: { role },
+    select: userListSelect,
+  });
+}
