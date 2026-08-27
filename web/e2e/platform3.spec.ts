@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 
@@ -79,6 +80,27 @@ test.describe("Homepage — admin change reflects publicly", () => {
       );
     } finally {
       await page.request.patch(`${BACKEND_URL}/api/homepage/hero`, { data: { title: before.title } });
+    }
+  });
+
+  test("an admin-created service appears in the public homepage catalog", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-SERVICE-${Date.now()}`;
+    const name = `خدمة اختبار الصفحة ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, { data: { code, name, category: "e2e_service", description: "خدمة منشأة من كتالوج الإدارة", basePrice: 99, currency: "SAR", active: true, features: [] } });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+
+    try {
+      await pollByReloading(
+        page,
+        (timeoutMs) => page.getByRole("heading", { name }).count().then((count) => count > 0 ? name : page.locator("body").innerText({ timeout: timeoutMs })),
+        (text) => text.includes(name),
+        "admin-created homepage service"
+      );
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
     }
   });
 
@@ -318,13 +340,13 @@ test.describe("Visa — admin creates a visa type, it's reachable publicly by co
     try {
       await admin.patch(`${BACKEND_URL}/api/feature-flags/PASSPORT_OCR`, { data: { enabled: false } });
       const disabledScan = await admin.post(`${BACKEND_URL}/api/passport-ocr/scan`, {
-        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: require("node:fs").readFileSync(sample) } },
+        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: readFileSync(sample) } },
       });
       expect(disabledScan.status()).toBe(403);
 
       await admin.patch(`${BACKEND_URL}/api/feature-flags/PASSPORT_OCR`, { data: { enabled: true } });
       const enabledScan = await admin.post(`${BACKEND_URL}/api/passport-ocr/scan`, {
-        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: require("node:fs").readFileSync(sample) } },
+        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: readFileSync(sample) } },
       });
       expect(enabledScan.ok(), await enabledScan.text()).toBeTruthy();
       const data = (await enabledScan.json()).data;
