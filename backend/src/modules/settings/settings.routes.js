@@ -1,9 +1,11 @@
 import { Router } from "express";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
-import { getSettings, storeSetting } from "./settings.controller.js";
+import { getPublicSettings, getSettings, storeSetting } from "./settings.controller.js";
 
 const router = Router();
+
+router.get("/public", getPublicSettings);
 
 router.use(requireAuth);
 

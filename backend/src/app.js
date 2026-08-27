@@ -70,11 +70,18 @@ app.get("/", (req, res) => {
   });
 });
 
+const configuredApiRateLimit = Number.parseInt(process.env.API_RATE_LIMIT || "200", 10);
+const apiRateLimit = Number.isFinite(configuredApiRateLimit) && configuredApiRateLimit > 0 ? configuredApiRateLimit : 200;
+
 app.use(
   "/api",
   rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 200,
+    // Production remains at the safe default of 200 requests per IP. CI's
+    // browser suite may override this with API_RATE_LIMIT because one test
+    // run intentionally exercises many pages and public catalog fetches from
+    // a single runner IP; the override is not part of production config.
+    limit: apiRateLimit,
     standardHeaders: true,
     legacyHeaders: false,
   }),

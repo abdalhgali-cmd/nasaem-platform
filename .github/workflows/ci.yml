@@ -109,6 +109,10 @@ jobs:
       JWT_EXPIRES_IN: 7d
       CORS_ORIGIN: http://localhost:3000
       SEED_ADMIN_PASSWORD: CiTest@12345
+      # The suite exercises many public catalog calls from one runner IP;
+      # this CI-only override avoids cross-test 429s while Production keeps
+      # the backend default of 200 requests per IP.
+      API_RATE_LIMIT: 2000
       # Deliberately NOT setting PORT here: backend/src/server.js already
       # defaults to 5000 without it, and `next dev` also reads PORT — a
       # job-wide PORT=5000 was found (during this exact CI verification)

@@ -151,3 +151,40 @@ describe("CONTENT_MANAGER role", () => {
     assert.equal(res.status, 403);
   });
 });
+
+
+describe("staff role administration", () => {
+  let superAdminAgent;
+  let employeeAgent;
+  let targetUserId;
+  const employeePassword = "TestPass@12345";
+
+  before(async () => {
+    superAdminAgent = await loginAsSuperAdmin();
+    const targetEmail = `role-target-${uniqueSuffix()}@nasaem-platform.local`;
+    const createRes = await superAdminAgent.post("/api/users").send({
+      fullName: "Role Target Employee",
+      email: targetEmail,
+      password: employeePassword,
+      role: "EMPLOYEE",
+    });
+    assert.equal(createRes.status, 201, JSON.stringify(createRes.body));
+    targetUserId = createRes.body.data.id;
+
+    employeeAgent = request.agent(app);
+    const loginRes = await employeeAgent.post("/api/auth/login").send({ email: targetEmail, password: employeePassword });
+    assert.equal(loginRes.status, 200);
+  });
+
+  test("SUPER_ADMIN can change a staff role", async () => {
+    const res = await superAdminAgent.patch(`/api/users/${targetUserId}/role`).send({ role: "ACCOUNTANT" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.data.role, "ACCOUNTANT");
+    assert.equal(res.body.data.passwordHash, undefined);
+  });
+
+  test("non-SUPER_ADMIN cannot change a staff role", async () => {
+    const res = await employeeAgent.patch(`/api/users/${targetUserId}/role`).send({ role: "ADMIN" });
+    assert.equal(res.status, 403);
+  });
+});

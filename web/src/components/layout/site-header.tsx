@@ -20,8 +20,10 @@ import { cn } from "@/lib/utils";
 
 export function SiteHeader({
   logoUrls,
+  contactPhone,
 }: {
   logoUrls?: { light?: string; dark?: string };
+  contactPhone?: string;
 }) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = React.useState(false);
@@ -75,11 +77,11 @@ export function SiteHeader({
 
         <div className="hidden items-center gap-2 lg:flex">
           <a
-            href={`tel:${siteConfig.phone.replace(/\s/g, "")}`}
+            href={`tel:${(contactPhone ?? siteConfig.phone).replace(/\s/g, "")}`}
             className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-foreground/80 transition hover:text-primary"
           >
             <Phone className="size-4" />
-            <span dir="ltr">{siteConfig.phone}</span>
+            <span dir="ltr">{contactPhone ?? siteConfig.phone}</span>
           </a>
           <ThemeToggle />
           <Button asChild variant="gold" size="default">
@@ -129,11 +131,11 @@ export function SiteHeader({
               </nav>
               <div className="mt-auto flex flex-col gap-3 border-t border-border pt-5">
                 <a
-                  href={`tel:${siteConfig.phone.replace(/\s/g, "")}`}
+                  href={`tel:${(contactPhone ?? siteConfig.phone).replace(/\s/g, "")}`}
                   className="flex items-center gap-2 text-sm font-semibold text-foreground/80"
                 >
                   <Phone className="size-4" />
-                  <span dir="ltr">{siteConfig.phone}</span>
+                  <span dir="ltr">{contactPhone ?? siteConfig.phone}</span>
                 </a>
                 <Button asChild variant="gold" size="lg" className="w-full">
                   <Link href="/contact">احجز الآن</Link>

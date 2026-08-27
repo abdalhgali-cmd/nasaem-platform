@@ -4,6 +4,7 @@ import {
   deleteService,
   getServiceById,
   listPublicCatalog,
+  listPublicPackages,
   listServices,
   reorderServices,
   setServiceImageKey,
@@ -15,6 +16,15 @@ import { logActivity } from "../../utils/activityLog.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { VISA_TYPE_CATEGORIES } from "../../utils/enums.js";
 import prisma from "../../config/database.js";
+
+export async function getPublicPackages(req, res, next) {
+  try {
+    const packages = await listPublicPackages();
+    return res.status(200).json({ success: true, data: packages });
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function getPublicCatalog(req, res, next) {
   try {

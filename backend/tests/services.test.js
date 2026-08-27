@@ -122,3 +122,91 @@ describe("dynamic service catalog (Platform 3.0 Phase 3)", () => {
     assert.equal(reorderRes.status, 403);
   });
 });
+
+
+describe("public Umrah packages catalog", () => {
+  let agent;
+
+  before(async () => {
+    agent = await loginAsSuperAdmin();
+  });
+
+  test("returns only active UMRAH_PACKAGE services with customer-safe fields", async () => {
+    const suffix = uniqueSuffix();
+    const activePackage = await createService(agent, {
+      code: `UMRAH-ACTIVE-${suffix}`,
+      name: "باقة عمرة نشطة",
+      category: "UMRAH_PACKAGE",
+      basePrice: 2500,
+      features: ["DURATION: 10 أيام", "INCLUDED: النقل"],
+      active: true,
+    });
+    const inactivePackage = await createService(agent, {
+      code: `UMRAH-INACTIVE-${suffix}`,
+      name: "باقة عمرة غير نشطة",
+      category: "UMRAH_PACKAGE",
+      active: false,
+    });
+    const normalService = await createService(agent, {
+      code: `NORMAL-${suffix}`,
+      name: "خدمة عادية",
+      category: "package",
+      active: true,
+    });
+
+    const packagesRes = await request(app).get("/api/services/public/packages");
+    assert.equal(packagesRes.status, 200);
+    const packages = packagesRes.body.data;
+    assert.ok(packages.some((item) => item.id === activePackage.id));
+    assert.ok(!packages.some((item) => item.id === inactivePackage.id));
+    assert.ok(!packages.some((item) => item.id === normalService.id));
+
+    const returned = packages.find((item) => item.id === activePackage.id);
+    assert.equal(returned.category, "UMRAH_PACKAGE");
+    assert.equal(returned.name, "باقة عمرة نشطة");
+    assert.equal(returned.basePrice, "2500");
+    assert.equal(returned.passwordHash, undefined);
+    assert.equal(returned.internalNotes, undefined);
+  });
+
+  test("orders public Umrah packages by sortOrder and removes a deactivated package", async () => {
+    const suffix = uniqueSuffix();
+    const later = await createService(agent, {
+      code: `UMRAH-LATER-${suffix}`,
+      name: "باقة لاحقة",
+      category: "UMRAH_PACKAGE",
+      sortOrder: 90,
+      active: true,
+    });
+    const first = await createService(agent, {
+      code: `UMRAH-FIRST-${suffix}`,
+      name: "باقة أولى",
+      category: "UMRAH_PACKAGE",
+      sortOrder: 10,
+      active: true,
+    });
+
+    let packagesRes = await request(app).get("/api/services/public/packages");
+    let packages = packagesRes.body.data;
+    assert.ok(packages.findIndex((item) => item.id === first.id) < packages.findIndex((item) => item.id === later.id));
+
+    const updateRes = await agent.patch(`/api/services/${later.id}`).send({ name: "باقة محدثة", active: false });
+    assert.equal(updateRes.status, 200);
+    packagesRes = await request(app).get("/api/services/public/packages");
+    packages = packagesRes.body.data;
+    assert.ok(!packages.some((item) => item.id === later.id));
+    assert.equal(packages.find((item) => item.id === first.id).name, "باقة أولى");
+  });
+
+  test("keeps UMRAH_PACKAGE out of the general public service catalog", async () => {
+    const pkg = await createService(agent, {
+      code: `UMRAH-CATALOG-${uniqueSuffix()}`,
+      name: "باقة لا تظهر كخدمة عامة",
+      category: "UMRAH_PACKAGE",
+      active: true,
+    });
+    const catalogRes = await request(app).get("/api/services/public");
+    assert.equal(catalogRes.status, 200);
+    assert.ok(!catalogRes.body.data.services.some((item) => item.id === pkg.id));
+  });
+});

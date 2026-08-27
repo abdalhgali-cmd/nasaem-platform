@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { MessageCircle } from "lucide-react";
 import { siteConfig } from "@/lib/site-config";
 
-export function WhatsAppButton() {
+export function WhatsAppButton({ whatsapp = siteConfig.whatsapp }: { whatsapp?: string }) {
   const shouldReduceMotion = useReducedMotion();
   const message = encodeURIComponent(
     "السلام عليكم، أرغب في الاستفسار عن خدمات نسائم الحرمين للسفر والسياحة."
@@ -13,7 +13,7 @@ export function WhatsAppButton() {
 
   return (
     <motion.a
-      href={`https://wa.me/${siteConfig.whatsapp}?text=${message}`}
+      href={`https://wa.me/${whatsapp}?text=${message}`}
       target="_blank"
       rel="noopener noreferrer"
       aria-label="تواصل معنا عبر واتساب"

@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
 import { uploadSiteAsset as uploadSiteAssetMiddleware } from "../../middleware/upload.middleware.js";
 import {
   getPublicCatalog,
+  getPublicPackages,
   getService,
   getServices,
   patchReorder,
@@ -37,6 +38,7 @@ function handleUpload(req, res, next) {
 // Public, unauthenticated — backs the web/ Service Intake wizard's service
 // and visa-type pickers (Umrah/Visas/Packages). Must be registered before
 // requireAuth below, which gates every other route in this module.
+router.get("/public/packages", getPublicPackages);
 router.get("/public", getPublicCatalog);
 router.get("/:serviceId/requirements/public", getPublicRequirements);
 

@@ -60,10 +60,18 @@ const PUBLIC_VISA_TYPE_SELECT = {
 // ?visaCategory=INTERNATIONAL so Umrah/Family Visit visa types are never
 // present in the response to begin with — no frontend filtering involved.
 // `services` is unaffected; it has its own, unrelated `category` field.
+export async function listPublicPackages() {
+  return prisma.service.findMany({
+    where: { active: true, category: "UMRAH_PACKAGE" },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: PUBLIC_SERVICE_SELECT,
+  });
+}
+
 export async function listPublicCatalog({ visaCategory } = {}) {
   const [services, visaTypes] = await Promise.all([
     prisma.service.findMany({
-      where: { active: true },
+      where: { active: true, category: { not: "UMRAH_PACKAGE" } },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: PUBLIC_SERVICE_SELECT,
     }),

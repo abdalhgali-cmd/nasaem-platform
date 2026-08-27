@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 
@@ -82,6 +83,27 @@ test.describe("Homepage — admin change reflects publicly", () => {
     }
   });
 
+  test("an admin-created service appears in the public homepage catalog", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-SERVICE-${Date.now()}`;
+    const name = `خدمة اختبار الصفحة ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, { data: { code, name, category: "e2e_service", description: "خدمة منشأة من كتالوج الإدارة", basePrice: 99, currency: "SAR", active: true, features: [] } });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+
+    try {
+      await pollByReloading(
+        page,
+        (timeoutMs) => page.getByRole("heading", { name }).count().then((count) => count > 0 ? name : page.locator("body").innerText({ timeout: timeoutMs })),
+        (text) => text.includes(name),
+        "admin-created homepage service"
+      );
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+
   test("changing the theme's primary color updates the public site's CSS variable", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
@@ -153,11 +175,11 @@ test.describe("Visa — admin creates a visa type, it's reachable publicly by co
       // ?visaType=, not just the marketing site's fixed 5 category cards
       // — this is the real, working mechanism by which a brand-new
       // admin-created visa type becomes reachable by a real customer
-      // (e.g. a link shared by staff), even though /visas' own card grid
-      // doesn't yet auto-list every admin-created visa type (a separate,
-      // smaller disclosed gap: the grid is a fixed array in
-      // app/visas/page.tsx, not fetched from the API).
-      await page.goto(`/visas?visaType=${code}#book`);
+      // (e.g. a link shared by staff). The public `/visas` card grid now
+      // also consumes the same active VisaType catalog, so this assertion
+      // verifies both discovery and wizard selection.
+      await page.goto(`/visas?visaType=${code}&visaCategory=OTHER#book`);
+      await expect(page.getByRole("heading", { name: /تأشيرة اختبار E2E/ })).toBeVisible({ timeout: 15_000 });
       await expect(page.getByRole("button", { name: /تأشيرة اختبار E2E/ })).toBeVisible({ timeout: 15_000 });
     } finally {
       const listRes = await admin.get(`${BACKEND_URL}/api/visa-types?limit=100`);
@@ -318,13 +340,13 @@ test.describe("Visa — admin creates a visa type, it's reachable publicly by co
     try {
       await admin.patch(`${BACKEND_URL}/api/feature-flags/PASSPORT_OCR`, { data: { enabled: false } });
       const disabledScan = await admin.post(`${BACKEND_URL}/api/passport-ocr/scan`, {
-        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: require("node:fs").readFileSync(sample) } },
+        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: readFileSync(sample) } },
       });
       expect(disabledScan.status()).toBe(403);
 
       await admin.patch(`${BACKEND_URL}/api/feature-flags/PASSPORT_OCR`, { data: { enabled: true } });
       const enabledScan = await admin.post(`${BACKEND_URL}/api/passport-ocr/scan`, {
-        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: require("node:fs").readFileSync(sample) } },
+        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: readFileSync(sample) } },
       });
       expect(enabledScan.ok(), await enabledScan.text()).toBeTruthy();
       const data = (await enabledScan.json()).data;
@@ -660,3 +682,72 @@ test.describe("Security approvals — full lifecycle through the real customer-f
 // a real, valid image file — the pixel content itself is never asserted on.
 const HERO_TEST_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+
+test.describe("Umrah Packages — admin data reflects publicly", () => {
+  test("creates, edits, orders, and deactivates a real UMRAH_PACKAGE", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now();
+    const firstCode = `E2E-UMRAH-FIRST-${suffix}`;
+    const secondCode = `E2E-UMRAH-SECOND-${suffix}`;
+    const firstName = `باقة عمرة أولى E2E ${suffix}`;
+    const secondName = `باقة عمرة ثانية E2E ${suffix}`;
+    const updatedName = `باقة عمرة محدثة E2E ${suffix}`;
+    const created: string[] = [];
+
+    async function createPackage(code: string, name: string, sortOrder: number) {
+      const response = await admin.post(`${BACKEND_URL}/api/services`, {
+        data: {
+          code,
+          name,
+          category: "UMRAH_PACKAGE",
+          description: "باقة اختبار ديناميكية",
+          basePrice: 1900,
+          currency: "SAR",
+          active: true,
+          sortOrder,
+          features: ["DURATION: 10 أيام", "INCLUDED: النقل"],
+        },
+      });
+      expect(response.ok(), await response.text()).toBeTruthy();
+      const item = (await response.json()).data;
+      created.push(item.id);
+      return item;
+    }
+
+    try {
+      await createPackage(firstCode, firstName, 10);
+      await createPackage(secondCode, secondName, 20);
+
+      await page.goto("/packages", { waitUntil: "networkidle" });
+      await expect(page.getByRole("heading", { name: firstName })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("heading", { name: secondName })).toBeVisible({ timeout: 15_000 });
+      const initialCards = await page.locator("article h3").allTextContents();
+      expect(initialCards.indexOf(firstName)).toBeGreaterThanOrEqual(0);
+      expect(initialCards.indexOf(firstName)).toBeLessThan(initialCards.indexOf(secondName));
+
+      const listResponse = await admin.get(`${BACKEND_URL}/api/services?limit=100`);
+      const listPayload = await listResponse.json();
+      const firstItem = listPayload.data.find((item: { code: string }) => item.code === firstCode);
+      expect(firstItem).toBeTruthy();
+      const updateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, {
+        data: { name: updatedName, description: "وصف باقة محدث", basePrice: 2400, active: true, sortOrder: 5 },
+      });
+      expect(updateResponse.ok(), await updateResponse.text()).toBeTruthy();
+
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByRole("heading", { name: updatedName })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("heading", { name: firstName })).toHaveCount(0);
+      const updatedCards = await page.locator("article h3").allTextContents();
+      expect(updatedCards.indexOf(updatedName)).toBeLessThan(updatedCards.indexOf(secondName));
+
+      const deactivateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, { data: { active: false } });
+      expect(deactivateResponse.ok(), await deactivateResponse.text()).toBeTruthy();
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByRole("heading", { name: updatedName })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: secondName })).toBeVisible({ timeout: 15_000 });
+    } finally {
+      for (const id of created) await admin.delete(`${BACKEND_URL}/api/services/${id}`);
+    }
+  });
+});
