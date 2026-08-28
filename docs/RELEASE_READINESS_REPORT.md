@@ -5,11 +5,8 @@
 | Field | Actual | Status | Evidence |
 |---|---|---|---|
 | Repository | `abdalhgali-cmd/nasaem-platform` | PASS | GitHub repository accessible |
-| PR | #42 — NASAEM Final Launch Readiness & Product Completion | OPEN / CLEAN | `gh pr view 42` |
-| Branch | `feature/launch-readiness-remediation` | PASS | `git branch --show-current` |
-| HEAD | `07a944f402fae9191bac0df90af94d57aace1d8a` | PASS | `git rev-parse HEAD` |
-| Working tree | Clean | PASS | `git status --short --branch` returned no file changes |
-| Diff check | Clean | PASS | `git diff --check` |
+| PR | #42 — NASAEM Final Launch Readiness & Product Completion | OPEN / CLEAN | GitHub PR state |
+| Branch | `feature/launch-readiness-remediation` | PASS | PR head branch |
 | Merge | Not performed | NOT PERFORMED | Safety rule |
 | Production deploy | Not performed | NOT PERFORMED | Safety rule |
 | Production migration | Not performed | NOT PERFORMED | Safety rule |
@@ -18,34 +15,51 @@
 
 ## Tests and CI
 
-| Test | Status | Evidence |
-|---|---|---|
-| Backend tests | PASS | CI run `33152837259`, Backend tests completed successfully |
-| Frontend typecheck | PASS | CI run `33152837259` |
-| Frontend build | PASS | CI run `33152837259` |
-| Playwright E2E | PASS | CI run `33152837259`, completed successfully |
-| Frontend lint | UNKNOWN | No separate final result recorded in the current PR check set |
-| Security regression | REPOSITORY REVIEW PASS / STAGING UNKNOWN | Server-side controls reviewed; live A/B matrix unavailable |
-| Accessibility | STAGING VERIFICATION REQUIRED | No complete browser audit evidence |
+The engineering baseline is covered by GitHub Actions with a disposable PostgreSQL service. Backend migrations and seed run before the Node test suite; frontend typecheck/build and Playwright E2E are separate gates.
+
+A dedicated integration test now exists at `backend/tests/customerIsolation.test.js`. It creates independent authenticated Customer A and Customer B principals and verifies that order listing/direct-object access and notification mutation are scoped to the authenticated customer. Cross-customer direct-ID attempts return 404 rather than exposing resource existence or data.
+
+The test establishes the repository/CI invariant:
+
+> **CROSS-CUSTOMER ACCESS = 0 for the covered customer-portal order and notification paths.**
+
+This automated evidence complements existing ownership checks in customer-facing order, request, document, deliverable and notification flows. It does not replace a controlled live Staging exercise covering every browser/API path.
+
+## Customer isolation architecture clarification
+
+NASAEM is currently implemented as a **single travel-agency business application serving many customers**, not as a SaaS platform hosting multiple independent agencies/organizations.
+
+The launch security boundary is therefore the authenticated `Customer` principal:
+
+- `requireCustomerAuth` validates the customer session and re-fetches the Customer row.
+- Customer controllers derive identity from `req.customer.id`, not from a client-supplied customer ID.
+- Customer-portal services scope owned records with `customerId` in the database query itself.
+- Direct-object customer lookups use the authenticated `customerId` together with the requested record ID, preventing IDOR/BOLA across customer accounts.
+
+A separate Prisma `Tenant`/`Organization` model is **not required for the current single-agency launch model** and must not be introduced merely to prove Customer A/B isolation. Doing so would be a product-architecture change with migration and ownership semantics that are not justified by the current requirements.
+
+If NASAEM is later required to host multiple independent agencies or companies in one deployment, organization-level multi-tenancy must be designed as a separate scoped initiative before enabling that product model.
 
 ## Staging
 
 | Item | Status | Actual / required evidence |
 |---|---|---|
-| Staging deployment | STAGING ACCESS REQUIRED | No staging URL or authorized environment supplied |
-| Customer A/B | UNKNOWN | Must use synthetic accounts only; not created because staging is unavailable |
-| Customer journey | UNKNOWN | Must verify catalog → request → account → offer → invoice → manual payment → tracking |
-| Customer isolation / IDOR | UNKNOWN | Must test direct object IDs through UI and API for both synthetic customers |
-| Document security | UNKNOWN | Must test MIME, extension, size, ownership, private download and re-upload |
-| Payment workflow | UNKNOWN | Must use fake proof only and verify staff review, transitions, notification and audit |
-| RBAC | UNKNOWN | Must test SUPER_ADMIN/ADMIN/STAFF/CUSTOMER through direct APIs and UI |
-| Mobile QA | UNKNOWN | Playwright is not a substitute for visual staging QA |
-| Accessibility QA | UNKNOWN | Keyboard, focus, labels, ARIA, contrast and reduced motion remain to be audited |
-| SEO QA | UNKNOWN | Live title, description, canonical, OG, robots and sitemap remain to be measured |
+| Staging deployment | STAGING ACCESS REQUIRED | No authorized disposable Staging URL/environment supplied |
+| Customer A/B automated isolation | PASS IN CI FOR COVERED PATHS | `backend/tests/customerIsolation.test.js` uses two independent authenticated customers |
+| Customer A/B live isolation | STAGING VERIFICATION REQUIRED | Repeat synthetic A/B direct-object tests through live UI/API |
+| Customer journey | STAGING VERIFICATION REQUIRED | Verify catalog → request → account → offer → invoice → manual payment → tracking |
+| Document security | REPOSITORY TESTS PRESENT / STAGING VERIFICATION REQUIRED | MIME, ownership and cross-customer protections have automated coverage; live storage path still needs verification |
+| Payment workflow | STAGING / PROVIDER VERIFICATION REQUIRED | Use fake proof/sandbox only and verify transitions, duplicate handling, notification and audit |
+| RBAC | REPOSITORY TESTS PRESENT / STAGING VERIFICATION REQUIRED | Exercise SUPER_ADMIN/ADMIN/EMPLOYEE/ACCOUNTANT/CONTENT_MANAGER/customer roles through direct APIs and UI |
+| Mobile QA | STAGING VERIFICATION REQUIRED | Playwright is not a substitute for full visual-device QA |
+| Accessibility QA | STAGING VERIFICATION REQUIRED | Keyboard, focus, labels, ARIA, contrast and reduced motion remain to be audited |
+| SEO QA | STAGING VERIFICATION REQUIRED | Live title, description, canonical, OG, robots and sitemap remain to be measured |
 
 ## Security
 
-The repository implementation includes server-side authorization, customer ownership checks, RBAC boundaries, document/payment protections and production error sanitization. These are repository-level findings supported by code review and CI; they are not a substitute for a live staging penetration or two-customer isolation test. No customer PII, real passports, real documents, payment proofs, tokens, passwords or secrets were used.
+The repository includes server-side authentication and authorization, customer ownership checks, RBAC boundaries, document/payment protections, upload validation, rate limiting, CORS fail-closed behavior and production error sanitization. Customer isolation is enforced through authenticated customer identity and resource ownership rather than through an organization tenant identifier.
+
+No customer PII, real passports, real documents, real payment proofs, production tokens, passwords or production secrets are required for readiness verification.
 
 ## Commercial and legal gates
 
@@ -54,37 +68,49 @@ The repository implementation includes server-side authorization, customer owner
 | Visa pricing and requirements | OWNER INPUT REQUIRED | Provide approved, current commercial data |
 | Umrah packages | OWNER INPUT REQUIRED | Provide at least one approved real package before public sale language |
 | Services and contact details | OWNER INPUT REQUIRED | Approve services, phone, email, WhatsApp, address and support hours |
-| Legal policies | LEGAL INPUT REQUIRED | Replace placeholders with approved Privacy, Terms, Cancellation, Refund, Payment Information and document notice |
-| Payment provider | MANUAL PAYMENT | Keep manual review unless Finance supplies an approved provider and sandbox contract |
+| Legal policies | LEGAL INPUT REQUIRED | Approve Privacy, Terms, Cancellation, Refund, Payment Information and document-handling notice |
+| Payment provider | EXTERNAL DECISION REQUIRED | Retain manual review unless Finance supplies an approved provider and sandbox contract |
 | Supplier availability | SUPPLIER INPUT REQUIRED | Provide documented provider contracts/integrations or retain manual quote/review language |
 
 ## Infrastructure and operations
 
 | Gate | Status | Required evidence |
 |---|---|---|
+| Staging | INFRASTRUCTURE INPUT REQUIRED | Authorized disposable URL, database and non-production secrets |
 | Railway | INFRASTRUCTURE INPUT REQUIRED | Non-secret confirmation of API URL, health, replicas, CORS, limits and logs/redaction |
 | Vercel | INFRASTRUCTURE INPUT REQUIRED | Non-secret confirmation of domain, HTTPS, DNS, API separation and deployment |
 | Backup | INFRASTRUCTURE INPUT REQUIRED | Schedule, encryption, retention and successful backup evidence |
-| Restore | INFRASTRUCTURE INPUT REQUIRED | Isolated restore drill with integrity check, RPO and RTO |
+| Restore | INFRASTRUCTURE INPUT REQUIRED | Isolated restore drill with integrity check, measured RPO and RTO |
 | Monitoring | INFRASTRUCTURE INPUT REQUIRED | Uptime, API, DB, auth, upload, payment and resource alerts routed to an owner |
-| Rollback | INFRASTRUCTURE INPUT REQUIRED | Tested immutable artifact, rollback target and incident owner |
+| Rollback | INFRASTRUCTURE INPUT REQUIRED | Tested immutable artifact/rollback target and incident owner |
 | Incident response | INFRASTRUCTURE INPUT REQUIRED | Severity matrix, escalation, communication plan and evidence retention |
-
-## Completion assessment
-
-| Metric | Result | Basis |
-|---|---:|---|
-| Repository completion | 95% | Requested repository-level remediation, safety copy, dynamic catalogs, controls, tests and documentation are present; residual features are separately scoped |
-| Staging completion | 0% verified | Staging access and environment evidence were unavailable |
-| Production readiness | 60% | Engineering baseline is strong, but external P0 gates remain unverified |
 
 ## Remaining work by priority
 
 | Priority | Work |
 |---|---|
-| P0 | Staging access; A/B isolation; upload/document/payment/RBAC verification; approved legal/commercial inputs; infrastructure, backup/restore, monitoring and rollback evidence |
-| P1 | FAQ, testimonials, stats, navigation, page-specific SEO, true draft/preview/publish and documented supplier/payment integrations |
+| P0 | Authorized Staging; live synthetic A/B and RBAC verification; payment/supplier sandbox verification; approved legal/commercial inputs; backup/restore, monitoring and rollback evidence |
+| P1 | Full accessibility/mobile/SEO staging QA and any remaining non-blocking product refinements |
 | P2 | Analytics governance and non-critical operational/UX refinements |
+
+## Remaining production gates
+
+1. Provide an authorized disposable Staging environment and repeat Customer A/B isolation through live UI/API, including direct-object attempts for orders, requests, files/documents, deliverables and notifications.
+2. Execute the complete controlled Staging customer journey and staff/customer RBAC matrix.
+3. Verify payment success, failure, timeout, duplicate callback/retry, signature/idempotency and refund behavior if/when an external payment provider is enabled; otherwise validate the approved manual-payment workflow.
+4. Verify every enabled external supplier integration in a test/sandbox environment, or explicitly keep the relevant flow manual when no integration contract exists.
+5. Execute an isolated backup/restore drill and record measured RPO/RTO.
+6. Configure and evidence monitoring, alert routing, ownership and escalation.
+7. Execute and document a non-production rollback drill.
+8. Obtain required legal, commercial, supplier, pricing, payment-policy and owner approvals.
+
+## Architecture decision
+
+**Current launch model:** single NASAEM agency / multiple independent customers.
+
+**Customer isolation mechanism:** authenticated Customer principal + server-side `customerId` ownership checks.
+
+**Organization/Tenant Prisma migration:** **NOT REQUIRED for current launch scope.** It becomes required only if the owner explicitly changes the product requirement to host multiple independent agencies/organizations in the same application/database.
 
 ## Final classification
 
@@ -92,54 +118,4 @@ The repository implementation includes server-side authorization, customer owner
 >
 > **PRODUCTION: NOT READY — EXTERNAL VERIFICATION REQUIRED**
 
-This report deliberately does not claim `READY FOR PRODUCTION`, because staging, legal, commercial, infrastructure, backup/restore, monitoring, payment and supplier gates do not yet have complete evidence.
-
-## Final readiness audit update — 2026-08-28
-
-### Completed
-
-The repository was cloned and checked out at the instructed branch and verified against PR #42. The recorded HEAD is `07a944f402fae9191bac0df90af94d57aace1d8a`; the working tree was clean before this documentation update. Existing readiness documents, CI configuration, deployment files, environment examples, Prisma schema, routes, middleware, and tests were reviewed. The four readiness documents now include an explicit evidence matrix, a controlled A/B verification procedure, a safe rollback sequence, and the single-tenant architecture blocker.
-
-### Verified PASS
-
-The remote PR remains open and the latest CI run `33152837259` reports successful Backend tests, Frontend typecheck + build, Playwright E2E, Vercel Preview Comments, and Vercel deployment status. The repository contains server-side role checks, authenticated document upload handling, server-derived file metadata, payment review tests, and rate-limit proxy tests. These are repository/CI findings only; they are not a substitute for live Staging verification.
-
-### Blocked
-
-Local integration tests could not be executed because no disposable PostgreSQL service was available in the sandbox and the required test database/seed setup was not supplied. Staging access, tenant/organization semantics, payment and supplier sandbox credentials, backup/restore evidence, monitoring configuration, rollback drill evidence, and legal/commercial approvals remain unavailable. The current schema has no tenant boundary, therefore Customer A/B isolation is not presently testable as a real multi-tenant guarantee.
-
-### Owner Actions
-
-The owner must provide approved legal and commercial content, confirm the intended tenant model and authorization policy, appoint incident and operational owners, and provide a disposable Staging URL with synthetic test accounts and non-Production secrets. The owner must not provide or request Production credentials for this verification work.
-
-### External Actions
-
-Infrastructure must provide Staging database, deployment, logs, monitoring, alert routing, backup/restore, RPO/RTO, and rollback evidence. Payment and supplier owners must provide sandbox contracts/credentials and callback test access. Legal must approve the policies and regulatory/commercial wording.
-
-### Remaining Production Gates
-
-1. Define and implement a real tenant/organization boundary, then prove `CROSS-TENANT ACCESS = 0` across API, database, files, search, and export.
-2. Execute the complete controlled Staging customer journey and RBAC matrix.
-3. Verify payment success, failure, timeout, duplicate callback, retry, signature, idempotency, and refund behavior in a sandbox.
-4. Verify all supplier success/failure/retry/partial-failure paths in test environments.
-5. Provide and execute an isolated backup restore drill with measured RPO and RTO.
-6. Configure and evidence monitoring, alert thresholds, ownership, and escalation.
-7. Execute and document a non-Production rollback drill.
-8. Obtain legal, commercial, supplier, pricing, payment-policy, and owner approvals.
-
-### Recommended Next Step
-
-The single highest-priority action is to have the owner and architect define the tenant/organization boundary and provide a disposable Staging environment; without both, the mandatory isolation gate cannot be honestly verified.
-
-### Git/PR Status
-
-| Item | Status |
-|---|---|
-| Branch | `feature/launch-readiness-remediation` |
-| HEAD | `07a944f402fae9191bac0df90af94d57aace1d8a` |
-| Working tree | CLEAN |
-| PR #42 | OPEN |
-| CI | Latest completed run `33152837259`: all CI jobs successful |
-| Merge performed | No |
-| Production deployment performed | No |
-| Final classification | **PRODUCTION: NOT READY — EXTERNAL VERIFICATION REQUIRED** |
+The application is not declared production-ready because live Staging, payment/supplier external verification, infrastructure recovery/monitoring/rollback evidence and legal/commercial approvals remain incomplete. The absence of a `Tenant`/`Organization` Prisma model is no longer classified as a launch blocker for the current single-agency product model.
