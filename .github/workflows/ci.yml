@@ -5,6 +5,9 @@ on:
     branches: [main, feature/flights-booking-phase2, feature/platform-3-admin-controlled]
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   backend:
     name: Backend tests
@@ -39,6 +42,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -46,6 +51,16 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install dependencies
         run: npm install
+      - name: Commit normalized backend lockfile once
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          if ! git diff --quiet -- package-lock.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: sync backend lockfile"
+            git push origin HEAD:${GITHUB_HEAD_REF}
+          fi
       - name: Apply database migrations
         run: npx prisma migrate deploy
       - name: Seed database
