@@ -38,3 +38,22 @@
 لا تنتقل إلى Production قبل إغلاق كل `UNKNOWN` بدليل فعلي ومالك واضح، ونجاح customer isolation وdocument/payment/RBAC tests، واعتماد legal وcommercial inputs، وإثبات backup/restore وmonitoring وrollback وRPO/RTO في بيئة معزولة أو staging معتمدة.
 
 **Current gate: STAGING ACCESS REQUIRED.**
+
+## Launch-readiness audit update — 2026-08-28
+
+The repository and PR #42 were rechecked on branch `feature/launch-readiness-remediation` at HEAD `d14f847aec1aab73c28b3fb1d20e3e679bb21cda`. The working tree was clean before this update, and no Production deployment, migration, credential, or real payment data was used.
+
+| Gate | Current evidence-based status | Required next evidence |
+|---|---|---|
+| Staging deployment and environment | BLOCKED — no authorized Staging URL, secrets, database, or external-service credentials were supplied | Owner/Infrastructure must provide a disposable Staging environment and non-Production credentials |
+| Customer A/B isolation | BLOCKED — the Prisma schema has no tenant/organization boundary; the application is currently single-tenant | Product/Architecture must define a tenant model and ownership policy before a two-customer isolation PASS is possible |
+| RBAC and server authorization | REPOSITORY REVIEW PASS; LIVE STAGING VERIFICATION REQUIRED | Execute the role matrix against direct API calls and UI routes in Staging |
+| Files and documents | REPOSITORY REVIEW PASS for authenticated upload middleware and server-derived file metadata; LIVE OWNERSHIP/PRIVATE-DOWNLOAD TEST REQUIRED | Verify each synthetic customer cannot access another customer’s document or download URL |
+| Payments and suppliers | EXTERNAL VERIFICATION REQUIRED | Use provider/supplier sandbox credentials and execute the failure, retry, duplicate, timeout, and idempotency matrix |
+| Backup, restore, monitoring, and rollback | INFRASTRUCTURE INPUT REQUIRED | Supply configuration evidence and execute isolated non-Production drills |
+
+The required tenant result remains **CROSS-TENANT ACCESS = 0**. It must not be marked PASS for this single-tenant schema until tenant boundaries exist and are tested at the API, database, file, search, and export layers.
+
+### Controlled two-customer procedure once Staging exists
+
+Create synthetic Customer A and Customer B with separate accounts and non-real documents. Record all generated IDs. Authenticate as A and attempt direct access, list, search, filter, export, upload, and download operations using B’s identifiers; repeat the inverse as B. Repeat with altered path parameters, query parameters, request bodies, and pagination/export inputs. Run the same matrix through each staff role and record response codes, response bodies, database ownership predicates, and audit events. Any successful cross-boundary read, mutation, or file access is a failure and blocks release.

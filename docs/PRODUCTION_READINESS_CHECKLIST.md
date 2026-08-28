@@ -23,3 +23,19 @@
 ## Release rule
 
 لا تُعلن `READY FOR PUBLIC PRODUCTION` إلا بعد إثبات commercial data وlegal approval وinfrastructure verification وbackup/restore وmonitoring وstaging QA وpayment/supplier decisions. الحالة الحالية هي **READY FOR CONTROLLED STAGING / OWNER REVIEW** فقط.
+
+## Launch-readiness audit update — 2026-08-28
+
+The current classification is unchanged: **PRODUCTION: NOT READY — EXTERNAL VERIFICATION REQUIRED**. Automated repository checks do not establish production readiness. In particular, the current Prisma schema does not contain a tenant or organization boundary, so a genuine Customer A/Customer B isolation claim cannot be made for the present single-tenant application.
+
+| Production gate | Status | Evidence or blocker |
+|---|---|---|
+| Code, CI, backend tests, frontend build, E2E | PASS on recorded PR run 33109728667 | Existing PR check evidence; local integration execution requires disposable PostgreSQL and `SEED_ADMIN_PASSWORD` setup |
+| Staging A/B isolation | BLOCKED | No Staging access supplied and no tenant model exists in the repository |
+| Payment/provider verification | EXTERNAL VERIFICATION REQUIRED | No sandbox provider credentials or callback environment supplied |
+| Supplier verification | EXTERNAL VERIFICATION REQUIRED | No supplier sandbox access and no verified live contracts supplied |
+| Backup/restore and RPO/RTO | INFRASTRUCTURE INPUT REQUIRED | No infrastructure evidence or isolated restore drill supplied |
+| Monitoring/alerting | INFRASTRUCTURE INPUT REQUIRED | No alert destination, thresholds, owner, or incident evidence supplied |
+| Legal/commercial/owner approvals | OWNER ACTION REQUIRED | Approved policies, prices, supplier terms, company details, and regulatory review remain outstanding |
+
+No row above may be changed to PASS merely because code compiles or CI is green. Production remains blocked until every mandatory external gate has genuine evidence.

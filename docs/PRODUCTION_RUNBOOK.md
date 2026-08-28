@@ -53,3 +53,24 @@
 **PRODUCTION MIGRATIONS: NOT PERFORMED**
 **PRODUCTION CONFIGURATION: NOT CHANGED**
 **PRODUCTION CREDENTIALS: NOT USED**
+
+## Launch-readiness audit addendum — 2026-08-28
+
+### Safe release boundary
+
+This runbook authorizes controlled Staging verification only. It does not authorize Production deployment, Production migrations, use of Production credentials, real customer payment data, or destructive rollback testing in Production. The release candidate must remain on PR #42 and branch `feature/launch-readiness-remediation` until the owner explicitly approves the remaining external gates.
+
+### Rollback execution sequence
+
+1. **Deployment:** record the immutable commit SHA, deployment URL, migration state, environment version, and health-check result.
+2. **Detection:** capture the alert, affected route, tenant/customer scope if known, first occurrence, and supporting logs with secrets and PII redacted.
+3. **Decision:** the incident owner decides rollback versus forward fix using impact, data integrity, payment state, and migration compatibility as criteria.
+4. **Rollback:** redeploy the last known-good immutable artifact. Do not reverse database migrations automatically; use a separately reviewed forward-compatible remediation unless an approved restore plan exists.
+5. **Verification:** check health, authentication, authorization, document access, payment state consistency, supplier queue state, logs, and smoke journeys. In Staging, repeat the synthetic A/B matrix after rollback.
+6. **Communication:** notify the owner and operational stakeholders, record start/end times and customer impact, and preserve the incident evidence.
+
+A rollback is **not technically verified** until this sequence has been executed successfully against a disposable Staging deployment. The current status is **INFRASTRUCTURE INPUT REQUIRED** because no such deployment or immutable artifact evidence was supplied.
+
+### Unverified dependencies
+
+Payment callbacks, supplier responses, database backup/restore, monitoring destinations, and tenant isolation must remain explicitly labeled **EXTERNAL VERIFICATION REQUIRED** or **BLOCKED** until tested with non-Production resources.

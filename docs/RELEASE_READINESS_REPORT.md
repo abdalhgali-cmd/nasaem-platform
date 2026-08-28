@@ -93,3 +93,53 @@ The repository implementation includes server-side authorization, customer owner
 > **PRODUCTION: NOT READY — EXTERNAL VERIFICATION REQUIRED**
 
 This report deliberately does not claim `READY FOR PRODUCTION`, because staging, legal, commercial, infrastructure, backup/restore, monitoring, payment and supplier gates do not yet have complete evidence.
+
+## Final readiness audit update — 2026-08-28
+
+### Completed
+
+The repository was cloned and checked out at the instructed branch and verified against PR #42. The recorded HEAD is `d14f847aec1aab73c28b3fb1d20e3e679bb21cda`; the working tree was clean before this documentation update. Existing readiness documents, CI configuration, deployment files, environment examples, Prisma schema, routes, middleware, and tests were reviewed. The four readiness documents now include an explicit evidence matrix, a controlled A/B verification procedure, a safe rollback sequence, and the single-tenant architecture blocker.
+
+### Verified PASS
+
+The remote PR remains open and the recorded CI run `33109728667` reports successful Backend tests, Frontend typecheck + build, Playwright E2E, Vercel Preview Comments, and Vercel deployment status. The repository contains server-side role checks, authenticated document upload handling, server-derived file metadata, payment review tests, and rate-limit proxy tests. These are repository/CI findings only; they are not a substitute for live Staging verification.
+
+### Blocked
+
+Local integration tests could not be executed because no disposable PostgreSQL service was available in the sandbox and the required test database/seed setup was not supplied. Staging access, tenant/organization semantics, payment and supplier sandbox credentials, backup/restore evidence, monitoring configuration, rollback drill evidence, and legal/commercial approvals remain unavailable. The current schema has no tenant boundary, therefore Customer A/B isolation is not presently testable as a real multi-tenant guarantee.
+
+### Owner Actions
+
+The owner must provide approved legal and commercial content, confirm the intended tenant model and authorization policy, appoint incident and operational owners, and provide a disposable Staging URL with synthetic test accounts and non-Production secrets. The owner must not provide or request Production credentials for this verification work.
+
+### External Actions
+
+Infrastructure must provide Staging database, deployment, logs, monitoring, alert routing, backup/restore, RPO/RTO, and rollback evidence. Payment and supplier owners must provide sandbox contracts/credentials and callback test access. Legal must approve the policies and regulatory/commercial wording.
+
+### Remaining Production Gates
+
+1. Define and implement a real tenant/organization boundary, then prove `CROSS-TENANT ACCESS = 0` across API, database, files, search, and export.
+2. Execute the complete controlled Staging customer journey and RBAC matrix.
+3. Verify payment success, failure, timeout, duplicate callback, retry, signature, idempotency, and refund behavior in a sandbox.
+4. Verify all supplier success/failure/retry/partial-failure paths in test environments.
+5. Provide and execute an isolated backup restore drill with measured RPO and RTO.
+6. Configure and evidence monitoring, alert thresholds, ownership, and escalation.
+7. Execute and document a non-Production rollback drill.
+8. Obtain legal, commercial, supplier, pricing, payment-policy, and owner approvals.
+
+### Recommended Next Step
+
+The single highest-priority action is to have the owner and architect define the tenant/organization boundary and provide a disposable Staging environment; without both, the mandatory isolation gate cannot be honestly verified.
+
+### Git/PR Status
+
+| Item | Status |
+|---|---|
+| Branch | `feature/launch-readiness-remediation` |
+| HEAD before documentation update | `d14f847aec1aab73c28b3fb1d20e3e679bb21cda` |
+| Working tree | Clean before this documentation update; documentation changes are now uncommitted locally |
+| PR #42 | OPEN |
+| CI | Recorded run `33109728667`: listed checks successful |
+| Merge performed | No |
+| Production deployment performed | No |
+| Final classification | **PRODUCTION: NOT READY — EXTERNAL VERIFICATION REQUIRED** |
