@@ -14,10 +14,11 @@ export async function generateCustomerNo() {
   return `CUS-${String(nextNumber).padStart(6, "0")}`;
 }
 
-export async function listCustomers({ page, limit, skip, search }) {
-  const where = search
-    ? { OR: [{ fullName: { contains: search, mode: "insensitive" } }, { passportNo: { contains: search, mode: "insensitive" } }, { customerNo: { contains: search, mode: "insensitive" } }] }
-    : undefined;
+export async function listCustomers({ page, limit, skip, search, organizationId }) {
+  const where = {
+    organizationId,
+    ...(search ? { OR: [{ fullName: { contains: search, mode: "insensitive" } }, { passportNo: { contains: search, mode: "insensitive" } }, { customerNo: { contains: search, mode: "insensitive" } }] } : {}),
+  };
   const [data, total] = await Promise.all([
     prisma.customer.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, select: safeCustomerSelect }),
     prisma.customer.count({ where }),
@@ -25,12 +26,12 @@ export async function listCustomers({ page, limit, skip, search }) {
   return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
-export async function lookupCustomer({ passportNo, phone }) {
+export async function lookupCustomer({ passportNo, phone, organizationId }) {
   const normalizedPassport = passportNo?.trim();
   const normalizedPhone = phone?.trim();
   if (!normalizedPassport && !normalizedPhone) return null;
   return prisma.customer.findFirst({
-    where: { OR: [normalizedPassport ? { passportNo: normalizedPassport } : undefined, normalizedPhone ? { phone: normalizedPhone } : undefined].filter(Boolean) },
+    where: { organizationId, OR: [normalizedPassport ? { passportNo: normalizedPassport } : undefined, normalizedPhone ? { phone: normalizedPhone } : undefined].filter(Boolean) },
     select: {
       ...safeCustomerSelect,
       orders: { orderBy: { createdAt: "desc" }, take: 10, include: { items: { include: { service: true } }, payments: true, documents: true, history: true } },
@@ -38,9 +39,9 @@ export async function lookupCustomer({ passportNo, phone }) {
   });
 }
 
-export async function getCustomerById(id) {
-  const customer = await prisma.customer.findUnique({
-    where: { id },
+export async function getCustomerById(id, organizationId) {
+  const customer = await prisma.customer.findFirst({
+    where: { id, organizationId },
     select: {
       ...safeCustomerSelect,
       orders: { orderBy: { createdAt: "desc" }, include: { items: { include: { service: true } }, payments: true, documents: true, history: true } },
@@ -67,16 +68,16 @@ export async function getCustomerById(id) {
   };
 }
 
-export async function createCustomer(data) {
+export async function createCustomer(data, organizationId) {
   const customerNo = await generateCustomerNo();
   return prisma.customer.create({
-    data: { customerNo, fullName: data.fullName, passportNo: data.passportNo, nationality: data.nationality, birthDate: toDateOrNull(data.birthDate), gender: data.gender || null, phone: data.phone || null, email: data.email || null, country: data.country || null, city: data.city || null, address: data.address || null, notes: data.notes || null },
+    data: { customerNo, organizationId, fullName: data.fullName, passportNo: data.passportNo, nationality: data.nationality, birthDate: toDateOrNull(data.birthDate), gender: data.gender || null, phone: data.phone || null, email: data.email || null, country: data.country || null, city: data.city || null, address: data.address || null, notes: data.notes || null },
     select: safeCustomerSelect,
   });
 }
 
-export async function updateCustomer(id, data) {
-  const existing = await prisma.customer.findUnique({ where: { id } });
+export async function updateCustomer(id, data, organizationId) {
+  const existing = await prisma.customer.findFirst({ where: { id, organizationId } });
   if (!existing) return null;
   return prisma.customer.update({
     where: { id },

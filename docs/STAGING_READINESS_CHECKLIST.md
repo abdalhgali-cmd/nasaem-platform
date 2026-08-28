@@ -11,7 +11,8 @@
 | Dedicated non-Production Backend | BLOCKED | No authorized disposable backend supplied |
 | Dedicated non-Production Database | BLOCKED | No disposable PostgreSQL Staging database supplied |
 | Homepage/read-only frontend QA | AVAILABLE ON PREVIEW | Preview can be used for safe read-only/front-end checks |
-| Customer A/B automated isolation | PASS IN CI FOR COVERED PATHS | `backend/tests/customerIsolation.test.js` creates independent Customer A/B accounts against disposable PostgreSQL |
+| Customer A/B automated isolation | PASS IN PREVIOUS CI FOR COVERED PATHS | `backend/tests/customerIsolation.test.js` creates independent Customer A/B accounts against disposable PostgreSQL |
+| Organization A/B automated isolation | IMPLEMENTED / CI PENDING | `Organization` ownership fields, DB consistency triggers, staff resource scoping, and `organizationIsolation.test.js` were added; the new commit still requires GitHub CI |
 | Customer A/B live isolation | BLOCKED UNTIL WRITABLE STAGING | Must not create customers against Production backend |
 | RBAC live matrix | BLOCKED UNTIL WRITABLE STAGING | Repository tests exist; live direct-API/UI matrix still needed |
 | Documents/files live isolation | BLOCKED UNTIL WRITABLE STAGING | Repository ownership/upload tests exist; private storage/download matrix remains |
@@ -24,9 +25,7 @@
 
 ## Customer isolation model
 
-NASAEM في نطاق الإطلاق الحالي هو تطبيق لوكالة واحدة يخدم حسابات Customer متعددة، وليس SaaS متعدد الوكالات. حد العزل الأمني المطلوب هو **Customer A مقابل Customer B** عبر هوية العميل المصادق عليها و`customerId` على الموارد المملوكة للعميل.
-
-لا يُطلب إنشاء Prisma `Tenant` أو `Organization` لإطلاق النموذج الحالي. يصبح organization-level multi-tenancy مشروعًا معماريًا منفصلًا فقط إذا تغير نطاق المنتج ليستضيف وكالات/شركات مستقلة متعددة داخل نفس النشر وقاعدة البيانات.
+تم توسيع اتجاه المنتج ليستوعب وكالات مستقلة مستقبلًا. أُضيف حد `Organization` صريح إلى هوية الموظف والعميل والطلب وطلب الخدمة، مع backfill آمن يجعل كل البيانات الحالية تابعة لنسائم الحرمين. تغطي الحواجز الحالية أسطح العملاء والطلبات وجميع مسارات الإدارة المتفرعة من طلب الخدمة، لكنها **ليست إعلانًا باكتمال SaaS متعدد المؤسسات**؛ ما زال يلزم جرد بقية الوحدات العامة والمالية والمحتوى وتحديد ما هو مشترك وما هو خاص بالمؤسسة.
 
 ## Automated A/B evidence
 
@@ -41,6 +40,10 @@ NASAEM في نطاق الإطلاق الحالي هو تطبيق لوكالة و
 Required invariant for covered paths:
 
 > **CROSS-CUSTOMER ACCESS = 0**
+
+ويضيف `backend/tests/organizationIsolation.test.js` invariant مستقلًا للمسارات المؤسسية المغطاة:
+
+> **CROSS-ORGANIZATION ACCESS = 0**
 
 GitHub Actions يشغل الاختبارات على PostgreSQL disposable بعد migrations وseed، وقد نجح run الذي أدخل اختبار A/B.
 

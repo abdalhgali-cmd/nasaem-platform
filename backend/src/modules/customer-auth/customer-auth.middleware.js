@@ -13,9 +13,12 @@ export async function attachOptionalCustomer(req, res, next) {
     const payload = verifyCustomerToken(token);
     const customer = await prisma.customer.findUnique({
       where: { id: payload.sub },
-      select: { id: true, passwordHash: true },
+      select: { id: true, organizationId: true, passwordHash: true, organization: { select: { active: true } } },
     });
-    if (customer?.passwordHash) req.customer = { id: customer.id };
+    if (customer?.passwordHash && customer.organization.active) {
+      req.customer = { id: customer.id, organizationId: customer.organizationId };
+      req.organizationId = customer.organizationId;
+    }
   } catch {
     // Anonymous public submissions remain valid when an optional cookie is invalid.
   }
@@ -48,18 +51,21 @@ export async function requireCustomerAuth(req, res, next) {
         address: true,
         passwordHash: true,
         createdAt: true,
+        organizationId: true,
+        organization: { select: { active: true } },
       },
     });
 
     // passwordHash === null means this Customer row was never turned into
     // an account (or had its account removed) — the session must not
     // survive that, even though the token itself is still validly signed.
-    if (!customer || !customer.passwordHash) {
+    if (!customer || !customer.passwordHash || !customer.organization.active) {
       return res.status(401).json({ success: false, message: "الجلسة غير صالحة" });
     }
 
-    const { passwordHash, ...safeCustomer } = customer;
+    const { passwordHash, organization, ...safeCustomer } = customer;
     req.customer = safeCustomer;
+    req.organizationId = customer.organizationId;
     next();
   } catch (error) {
     return res.status(401).json({ success: false, message: "الجلسة منتهية، يرجى تسجيل الدخول مجددًا" });

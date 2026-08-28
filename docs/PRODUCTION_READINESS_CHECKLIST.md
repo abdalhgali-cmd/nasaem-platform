@@ -9,6 +9,7 @@
 | Infrastructure | Railway/Vercel/API/CORS/health/replicas/limits موثقة | غير قابلة للتحقق بالكامل من repository | INFRASTRUCTURE INPUT REQUIRED | Dashboard/runtime evidence مطلوب | Infra Owner |
 | Staging | بيئة disposable مصرح بها بقاعدة وsecrets غير إنتاجية | غير متوفرة | STAGING ACCESS REQUIRED | Live staging URL/evidence مطلوب | Infra + QA |
 | Customer isolation | Customer A لا يصل إلى Customer B والعكس | server-side `customerId` ownership + A/B integration coverage موجودة | PASS IN BACKEND CI FOR COVERED PATHS / LIVE STAGING REQUIRED | `customerIsolation.test.js` + customer portal ownership queries | Security + QA |
+| Organization isolation | موظفو وكالة A لا يقرؤون أو يعدلون بيانات وكالة B | Organization foundation + DB ownership triggers + staff scoping implemented; new CI/live Staging evidence pending | IMPLEMENTED / CI + STAGING REQUIRED | `organizationIsolation.test.js` + organization migration | Security + QA |
 | Backup | schedule/encryption/retention/success alerts | غير مثبت | INFRASTRUCTURE INPUT REQUIRED | Backup evidence مطلوب | Infra Owner |
 | Restore | isolated restore drill مع RPO/RTO وrollback | لم يُنفذ | INFRASTRUCTURE INPUT REQUIRED | Restore evidence مطلوب | Infra Owner |
 | Monitoring | uptime/API/DB/auth/upload/payment/storage/resource alerts | غير مثبت | INFRASTRUCTURE INPUT REQUIRED | Monitoring/alert evidence مطلوب | Infra Owner |
@@ -24,9 +25,7 @@
 
 ## Product architecture boundary
 
-NASAEM في نطاق الإطلاق الحالي هو **منصة لوكالة نسائم الحرمين الواحدة مع حسابات عملاء متعددة**. حد العزل المطلوب للإطلاق هو Customer ownership، وليس Organization/Tenant ownership.
-
-لذلك غياب Prisma `Tenant`/`Organization` model **ليس Production blocker في نطاق المنتج الحالي**. إضافة multi-organization tenancy مطلوبة فقط إذا أصبح المنتج مستقبلًا يستضيف وكالات أو شركات مستقلة متعددة في نفس النشر/قاعدة البيانات.
+أصبح الاتجاه المعماري المستهدف هو دعم وكالات مستقلة مستقبلًا مع إبقاء نسائم الحرمين المؤسسة الافتراضية لكل البيانات الحالية. تمت إضافة `Organization` وربط الهوية وموارد التشغيل الحساسة بها، لكن هذا الإصدار يمثل **tenant foundation** وليس اكتمال SaaS متعدد المؤسسات. يبقى Production محجوبًا حتى نجاح CI الجديد، وجرد بقية الوحدات، والتحقق الحي في Staging من عدم وجود وصول متقاطع.
 
 ## Customer A/B evidence
 

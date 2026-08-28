@@ -14,6 +14,7 @@ export async function getOrders(req, res, next) {
       serviceId: req.query.serviceId,
       search: req.query.search,
       stalledHours: req.query.stalledHours ? Number(req.query.stalledHours) : null,
+      organizationId: req.user.organizationId,
     });
 
     return res.status(200).json({
@@ -35,7 +36,7 @@ export async function assignOrderAction(req, res, next) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
-    const order = await assignOrder(id, parsed.data.assignedUserId, req.user?.id);
+    const order = await assignOrder(id, parsed.data.assignedUserId, req.user?.id, req.user.organizationId);
 
     if (!order) {
       return res.status(404).json({ success: false, message: "Order not found" });
@@ -52,7 +53,7 @@ export async function assignOrderAction(req, res, next) {
 export async function getOrder(req, res, next) {
   try {
     const { id } = req.params;
-    const order = await getOrderById(id);
+    const order = await getOrderById(id, req.user.organizationId);
 
     if (!order) {
       return res.status(404).json({
@@ -82,7 +83,7 @@ export async function storeOrder(req, res, next) {
       });
     }
 
-    const order = await createOrder(parsed.data, req.user?.id);
+    const order = await createOrder(parsed.data, req.user?.id, req.user.organizationId);
 
     logActivity({
       userId: req.user?.id,
@@ -125,7 +126,7 @@ export async function changeOrderStatus(req, res, next) {
       });
     }
 
-    const order = await updateOrderStatus(id, parsed.data.status, req.user?.id, parsed.data.notes || null);
+    const order = await updateOrderStatus(id, parsed.data.status, req.user?.id, parsed.data.notes || null, req.user.organizationId);
 
     if (!order) {
       return res.status(404).json({
@@ -169,7 +170,7 @@ export async function setOrderItemCost(req, res, next) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
-    const item = await setItemSupplierCost(req.params.id, req.params.itemId, parsed.data);
+    const item = await setItemSupplierCost(req.params.id, req.params.itemId, parsed.data, req.user.organizationId);
     if (!item) {
       return res.status(404).json({ success: false, message: "Order item not found" });
     }

@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
+import { requireContactRequestOrganization } from "../../middleware/organization.middleware.js";
 import { attachOptionalCustomer } from "../customer-auth/customer-auth.middleware.js";
 import { requireFeatureEnabled } from "../feature-flags/feature-flags.middleware.js";
 import {
@@ -71,9 +72,9 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getContactRequests
 );
+router.use("/:id", requireAuth, requireContactRequestOrganization);
 router.patch(
   "/:id/status",
-  requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   patchContactRequestStatus
 );

@@ -15,10 +15,27 @@ const SERVICE_CATEGORIES = [
   { code: "SVC-TASHEEL", name: "حجز مواعيد تساهيل", category: "tasheel" },
 ];
 
+const DEFAULT_ORGANIZATION = {
+  id: "org_nasaem_default",
+  slug: "nasaem-alharamain",
+  name: "نسائم الحرمين للسفر والسياحة",
+};
+
+async function seedDefaultOrganization() {
+  await prisma.organization.upsert({
+    where: { id: DEFAULT_ORGANIZATION.id },
+    update: { slug: DEFAULT_ORGANIZATION.slug, name: DEFAULT_ORGANIZATION.name, active: true },
+    create: DEFAULT_ORGANIZATION,
+  });
+}
+
 async function seedSuperAdmin() {
   const email = "admin@nasaem-platform.local";
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
+    if (existing.organizationId !== DEFAULT_ORGANIZATION.id) {
+      await prisma.user.update({ where: { id: existing.id }, data: { organizationId: DEFAULT_ORGANIZATION.id } });
+    }
     console.log("Super admin already exists.");
     return;
   }
@@ -39,6 +56,7 @@ async function seedSuperAdmin() {
       passwordHash,
       role: "SUPER_ADMIN",
       status: "ACTIVE",
+      organizationId: DEFAULT_ORGANIZATION.id,
     },
   });
 
@@ -245,6 +263,7 @@ async function seedFeatureFlags() {
 }
 
 async function main() {
+  await seedDefaultOrganization();
   await seedSuperAdmin();
   await seedServiceCategories();
   await seedPackageServices();

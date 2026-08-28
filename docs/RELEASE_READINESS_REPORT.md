@@ -30,11 +30,9 @@ The implementation commit containing this test completed CI successfully, establ
 
 ## Architecture decision
 
-NASAEM's current launch model is **one travel agency serving many Customer accounts**. It is not currently a multi-organization SaaS platform.
+The target architecture now anticipates multiple independent travel agencies while retaining Nasaem Al-Haramain as the default organization for all existing data. This change adds an explicit Prisma `Organization`, backfills current rows without moving ownership, propagates organization identity through staff/customer authentication, scopes the principal customer/order/contact-request staff surfaces, and adds database triggers that reject an Order or linked ContactRequest whose organization differs from its Customer.
 
-The launch security boundary is therefore the authenticated Customer principal. Customer-facing controllers use `req.customer.id`, and customer-owned database queries include `customerId` ownership constraints rather than accepting a client-supplied customer identity.
-
-A Prisma `Tenant`/`Organization` model is **not required for the current launch scope**. It becomes a separate architecture requirement only if NASAEM is later changed to host multiple independent agencies/companies in the same deployment/database.
+This is a **tenant-foundation increment**, not a claim that every catalog, finance, supplier, content, audit and configuration table has already been classified and isolated. `backend/tests/organizationIsolation.test.js` supplies the new automated two-organization matrix for covered paths; GitHub CI and writable Staging verification are still required before the invariant can be accepted as release evidence.
 
 ## Preview / Staging evidence
 
@@ -114,13 +112,14 @@ Supplier/provider verification is required only for integrations that are actual
 
 1. Provision a disposable non-Production backend and PostgreSQL database, with non-Production secrets and storage.
 2. Execute live synthetic Customer A/B isolation across every customer-owned resource, direct object ID, file/download, search/filter/export and mutation path.
-3. Execute the complete staff/customer RBAC and customer journey matrix in writable Staging.
-4. Approve the manual payment flow or verify a selected payment provider in Sandbox.
-5. Verify every enabled supplier integration in Sandbox, or explicitly approve manual flow where no integration exists.
-6. Execute isolated backup/restore and record measured RPO/RTO.
-7. Configure backend/database/provider monitoring, alert destinations, thresholds and operational ownership.
-8. Execute a non-Production rollback drill.
-9. Obtain legal, commercial, pricing, company-data, supplier/payment-policy and owner approvals.
+3. Execute live Organization A/B isolation and complete the tenant classification/scoping audit for remaining modules.
+4. Execute the complete staff/customer RBAC and customer journey matrix in writable Staging.
+5. Approve the manual payment flow or verify a selected payment provider in Sandbox.
+6. Verify every enabled supplier integration in Sandbox, or explicitly approve manual flow where no integration exists.
+7. Execute isolated backup/restore and record measured RPO/RTO.
+8. Configure backend/database/provider monitoring, alert destinations, thresholds and operational ownership.
+9. Execute a non-Production rollback drill.
+10. Obtain legal, commercial, pricing, company-data, supplier/payment-policy and owner approvals.
 
 ## Current classification
 
