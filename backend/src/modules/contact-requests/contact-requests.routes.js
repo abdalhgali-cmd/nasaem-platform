@@ -72,16 +72,18 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getContactRequests
 );
-router.use("/:id", requireAuth, requireContactRequestOrganization);
 router.patch(
   "/:id/status",
+  requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
   patchContactRequestStatus
 );
 router.post(
   "/:id/pricing-preview",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireContactRequestOrganization,
   requireFeatureEnabled("QUOTES"),
   previewPricing
 );
@@ -89,6 +91,7 @@ router.post(
   "/:id/pricing-invoice",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireContactRequestOrganization,
   requireFeatureEnabled("QUOTES"),
   storeInvoiceFromPricing
 );
@@ -96,6 +99,7 @@ router.post(
   "/:id/pricing-offer",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireContactRequestOrganization,
   requireFeatureEnabled("QUOTES"),
   storeOfferFromPricing
 );
@@ -103,18 +107,21 @@ router.post(
   "/:id/invoice",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
   storeInvoice
 );
 router.post(
   "/:id/offers",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
   storeOffer
 );
 router.post(
   "/:id/confirm-payment",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"),
+  requireContactRequestOrganization,
   requireFeatureEnabled("PAYMENTS"),
   confirmPayment
 );
@@ -122,12 +129,14 @@ router.get(
   "/:id/documents/:documentId/file",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireContactRequestOrganization,
   downloadDocumentFile
 );
 router.patch(
   "/:id/documents/:documentId/status",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
   requireFeatureEnabled("STAFF_REVIEW"),
   reviewDocument
 );
@@ -135,6 +144,7 @@ router.post(
   "/:id/deliverables",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
   requireFeatureEnabled("DOCUMENTS"),
   handleDeliverableUpload,
   storeDeliverable
@@ -143,6 +153,7 @@ router.get(
   "/:id/deliverables/:deliverableId/file",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireContactRequestOrganization,
   downloadDeliverableFile
 );
 
