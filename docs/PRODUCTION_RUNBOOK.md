@@ -1,6 +1,6 @@
 # NASAEM — Production Runbook
 
-> هذا runbook إجرائي للمراجعة والاعتماد. لا تُنفذ خطوات Deployment أو Migration أو Restore على Production من هذه المهمة. يجب أن ينفذها مالك البنية التحتية المخول وفق change window معتمدة.
+> هذا runbook إجرائي للمراجعة والاعتماد. لا تُنفذ خطوات Deployment أو Migration أو Restore على Production من هذا العمل. يجب أن ينفذها مالك البنية التحتية المخول وفق change window معتمدة.
 
 ## 1. Pre-deployment
 
@@ -24,6 +24,17 @@
 
 بعد rollback، تحقق من health والـerror rate وlogin وpublic catalog وcustomer isolation، ثم افتح incident record يوضح السبب والنطاق والإجراء والتوصية.
 
+### Rollback execution sequence
+
+1. **Deployment:** record immutable commit SHA, deployment URL, migration state, environment version and health result.
+2. **Detection:** capture alert, affected route, customer scope if known, first occurrence and redacted supporting logs.
+3. **Decision:** Incident Owner decides rollback versus forward-fix using customer impact, data integrity, payment state and migration compatibility.
+4. **Rollback:** redeploy the last known-good immutable artifact. Never reverse database migrations automatically; use a separately reviewed remediation or approved restore plan.
+5. **Verification:** check health, auth, authorization, customer isolation, document access, payment state consistency, supplier/manual workflow state and smoke journeys.
+6. **Communication:** record start/end times, customer impact, decision owner and final evidence.
+
+A rollback is not operationally PASS until this sequence has been executed successfully against a disposable non-Production backend/database environment.
+
 ## 5. Incident response
 
 صنّف الحادث حسب أثره على العملاء والبيانات والأموال. اعزل endpoint أو capability المتضررة إن أمكن دون تعطيل العزل الأمني. لا تنشر secrets أو document contents أو payment proofs في logs أو قنوات التواصل. احفظ timestamps وcommit وrequest correlation identifiers غير الحساسة، وأشرك مالك الأمن عند أي احتمال IDOR أو تسريب.
@@ -34,43 +45,76 @@
 
 يؤكد Infra Owner نجاح آخر backup ومكان تخزينه وتشفيره وretention policy، ثم ينفذ restore drill في بيئة معزولة لا تؤثر على Production. قِس زمن الاستعادة وفقد البيانات المتوقع، وتحقق من سلامة العلاقات وhistorical order prices وprivate documents access. لا تعتبر وجود ملف backup دليلًا على قابلية الاستعادة دون drill موثق.
 
+Required evidence:
+
+- backup schedule and retention;
+- encryption/storage ownership;
+- latest successful backup timestamp;
+- isolated restore start/end timestamps;
+- integrity checks after restore;
+- measured RPO and RTO;
+- escalation owner when backup or restore fails.
+
 ## 7. Monitoring
 
-راقب uptime، API 4xx/5xx، auth failures، DB connectivity، upload failures، document/payment review failures، queue latency، storage capacity، وresource saturation. يجب أن تصل alerts إلى مالك مناوب مع severity وrunbook واضحين. لا تسجل كلمات المرور أو tokens أو passport numbers أو document/payment contents.
+راقب uptime، API 4xx/5xx، auth failures، DB connectivity، upload failures، document/payment review failures، queue/provider latency، storage capacity، وresource saturation. يجب أن تصل alerts إلى مالك مناوب مع severity وrunbook واضحين. لا تسجل كلمات المرور أو tokens أو passport numbers أو document/payment contents.
 
-## 8. Customer-impact procedure
+Current evidence: the connected Vercel project exposes Preview runtime logs, and the seven-day runtime error query returned no runtime errors at the time of this readiness review. This proves log/error visibility on the frontend hosting layer only; it does **not** prove backend/database/payment/supplier alert routing or on-call escalation.
 
-عند تعطل رحلة عميل، حدّد المرجع الداخلي دون كشفه علنًا، أوقف أي transition غير آمن، قدم قناة دعم واضحة، وسجل الإجراء في Activity Log المناسب. لا تعدّل Order history أو payment evidence يدويًا خارج المسار المصرح. بعد الإصلاح، تحقق من next action والإشعار والتسليم للعميل المتأثر.
+## 8. Customer isolation
 
-## 9. Current execution boundary and evidence
+NASAEM في نطاق الإطلاق الحالي هو تطبيق لوكالة واحدة مع حسابات Customer متعددة، وليس SaaS متعدد الوكالات. حد العزل المطلوب هو Customer ownership.
 
-تم تنفيذ preflight على repository وPR فقط: الفرع `feature/launch-readiness-remediation`، HEAD `54ce0761f407f9561d540532ee7fd6271d980a53`، working tree نظيف، PR #42 مفتوح ونظيف، وCI ناجح بخمس checks. هذا الدليل لا يثبت جاهزية Production ولا يستبدل evidence الخاص بالبنية التحتية.
+`backend/tests/customerIsolation.test.js` creates two independently authenticated customers against disposable PostgreSQL in CI and verifies list/direct-ID order isolation and notification mutation isolation. Customer-facing services derive identity from the authenticated customer session and include `customerId` in ownership queries.
 
-لم تتوفر صلاحية أو URL لبيئة staging ضمن هذه المهمة، لذلك لم تُنشأ حسابات Customer A/B ولم تُنفذ طلبات أو uploads أو payment proofs أو restore drills. الحالة الصحيحة لاختبارات البيئة هي `STAGING ACCESS REQUIRED`، وتبقى backup وrestore وRPO/RTO وmonitoring وhealth وreplicas وrollback وincident owner بحالة `UNKNOWN` أو `INFRASTRUCTURE INPUT REQUIRED` حتى يقدم Infra Owner دليلًا فعليًا.
+Required invariant for covered automated paths:
 
-**MERGE: NOT PERFORMED**
-**PRODUCTION DEPLOYMENT: NOT PERFORMED**
-**PRODUCTION MIGRATIONS: NOT PERFORMED**
-**PRODUCTION CONFIGURATION: NOT CHANGED**
+> **CROSS-CUSTOMER ACCESS = 0**
+
+A separate Prisma `Tenant`/`Organization` model is not a launch requirement unless the product scope changes to hosting multiple independent agencies/companies in one deployment/database.
+
+## 9. Preview / Staging boundary
+
+A real Vercel Preview deployment for PR #42 is available and reaches `READY`; Preview responses are `noindex`, and Vercel runtime logs are accessible.
+
+However, the repository previously allowed Preview browser code to target the Railway Production API. This readiness work corrected that unsafe boundary in both `web/src/lib/api-url.ts` and legacy `web/public/assets/api.js`: when the configured backend is the Production Railway host, any unapproved Preview/branch hostname now fails closed to same-origin `/api` rather than sending browser mutations to Production.
+
+The deployed Preview copy of `/assets/api.js` was checked and contains this fail-closed guard.
+
+**Important:** Vercel Preview is therefore suitable for safe frontend/read-only verification, but it is **not yet a complete writable Staging environment** because a dedicated non-Production backend/database and non-Production external-service credentials have not been supplied. Do not create Customer A/B, uploads, payment proofs, orders, or other write-test data in Preview until that backend/database boundary exists.
+
+## 10. Payment and suppliers
+
+The current payment implementation is a manual record/review workflow. Do not claim payment-provider sandbox verification unless an actual gateway is selected and non-Production credentials/callbacks exist. Finance/Owner must either approve the manual workflow for launch or select a provider and complete sandbox verification.
+
+External supplier verification is required only for integrations that are actually enabled. Where no supplier API contract exists, preserve explicit manual quote/review language rather than fabricating provider availability.
+
+## 11. Current gates
+
+| Gate | Current status | Remaining evidence |
+|---|---|---|
+| Repository customer A/B isolation | PASS for covered CI paths | Live full-resource matrix after writable Staging exists |
+| Frontend Preview | READY / SAFE FOR READ-ONLY QA | Dedicated non-Production backend required for write QA |
+| Preview→Production mutation protection | IMPLEMENTED | Final CI/build for latest security commit |
+| Backup/restore | INFRASTRUCTURE INPUT REQUIRED | Isolated drill + RPO/RTO |
+| Backend monitoring/alerts | INFRASTRUCTURE INPUT REQUIRED | Alert destinations, thresholds, incident owner |
+| Rollback | NON-PRODUCTION BACKEND REQUIRED | Execute drill against disposable environment |
+| Payment | OWNER/EXTERNAL DECISION REQUIRED | Manual-flow approval or selected provider sandbox evidence |
+| Suppliers | OWNER/EXTERNAL DECISION REQUIRED | Manual-flow approval or enabled provider sandbox evidence |
+| Legal/commercial | OWNER/LEGAL ACTION REQUIRED | Approved policies, prices, fees, company and supplier/payment terms |
+
+## 12. Safety status
+
+**MERGE: NOT PERFORMED**  
+**PRODUCTION DEPLOYMENT: NOT PERFORMED**  
+**PRODUCTION MIGRATIONS: NOT PERFORMED**  
+**PRODUCTION CONFIGURATION: NOT CHANGED**  
 **PRODUCTION CREDENTIALS: NOT USED**
 
-## Launch-readiness audit addendum — 2026-08-28
+Current classification:
 
-### Safe release boundary
-
-This runbook authorizes controlled Staging verification only. It does not authorize Production deployment, Production migrations, use of Production credentials, real customer payment data, or destructive rollback testing in Production. The release candidate must remain on PR #42 and branch `feature/launch-readiness-remediation` until the owner explicitly approves the remaining external gates.
-
-### Rollback execution sequence
-
-1. **Deployment:** record the immutable commit SHA, deployment URL, migration state, environment version, and health-check result.
-2. **Detection:** capture the alert, affected route, tenant/customer scope if known, first occurrence, and supporting logs with secrets and PII redacted.
-3. **Decision:** the incident owner decides rollback versus forward fix using impact, data integrity, payment state, and migration compatibility as criteria.
-4. **Rollback:** redeploy the last known-good immutable artifact. Do not reverse database migrations automatically; use a separately reviewed forward-compatible remediation unless an approved restore plan exists.
-5. **Verification:** check health, authentication, authorization, document access, payment state consistency, supplier queue state, logs, and smoke journeys. In Staging, repeat the synthetic A/B matrix after rollback.
-6. **Communication:** notify the owner and operational stakeholders, record start/end times and customer impact, and preserve the incident evidence.
-
-A rollback is **not technically verified** until this sequence has been executed successfully against a disposable Staging deployment. The current status is **INFRASTRUCTURE INPUT REQUIRED** because no such deployment or immutable artifact evidence was supplied.
-
-### Unverified dependencies
-
-Payment callbacks, supplier responses, database backup/restore, monitoring destinations, and tenant isolation must remain explicitly labeled **EXTERNAL VERIFICATION REQUIRED** or **BLOCKED** until tested with non-Production resources.
+> **APPLICATION: READY FOR CONTROLLED FRONTEND PREVIEW / OWNER REVIEW**
+>
+> **WRITABLE STAGING: NOT READY — NON-PRODUCTION BACKEND/DATABASE REQUIRED**
+>
+> **PRODUCTION: NOT READY — EXTERNAL VERIFICATION REQUIRED**
