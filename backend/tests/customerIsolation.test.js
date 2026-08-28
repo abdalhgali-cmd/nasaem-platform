@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import prisma from "../src/config/database.js";
+import { getSystemActorId } from "../src/utils/systemActor.js";
 import { registerCustomer, uniqueSuffix } from "./helpers/api.js";
 
 describe("customer A/B isolation", () => {
@@ -57,6 +58,127 @@ describe("customer A/B isolation", () => {
 
     const bReadsA = await customerBAgent.get(`/api/customer/orders/${orderA.id}`);
     assert.equal(bReadsA.status, 404, "Customer B must not be able to read Customer A's order by guessed id");
+  });
+
+  test("customer request, document and deliverable surfaces stay scoped to the authenticated customer", async () => {
+    const { agent: customerAAgent, customer: customerA } = await registerCustomer({
+      fullName: "Resource Isolation Customer A",
+      phone: `24995${uniqueSuffix()}`,
+    });
+    const { agent: customerBAgent, customer: customerB } = await registerCustomer({
+      fullName: "Resource Isolation Customer B",
+      phone: `24996${uniqueSuffix()}`,
+    });
+
+    const suffix = uniqueSuffix();
+    const requestA = await prisma.contactRequest.create({
+      data: {
+        name: "Private request A",
+        phone: customerA.phone,
+        phoneNormalized: customerA.phone,
+        message: "Only customer A may see this request",
+        customerId: customerA.id,
+      },
+    });
+    const requestB = await prisma.contactRequest.create({
+      data: {
+        name: "Private request B",
+        phone: customerB.phone,
+        phoneNormalized: customerB.phone,
+        message: "Only customer B may see this request",
+        customerId: customerB.id,
+      },
+    });
+
+    const aRequestList = await customerAAgent.get("/api/customer/requests?limit=100");
+    assert.equal(aRequestList.status, 200, JSON.stringify(aRequestList.body));
+    assert.ok(aRequestList.body.data.some((request) => request.id === requestA.id));
+    assert.ok(!aRequestList.body.data.some((request) => request.id === requestB.id));
+
+    const bRequestList = await customerBAgent.get("/api/customer/requests?limit=100");
+    assert.equal(bRequestList.status, 200, JSON.stringify(bRequestList.body));
+    assert.ok(bRequestList.body.data.some((request) => request.id === requestB.id));
+    assert.ok(!bRequestList.body.data.some((request) => request.id === requestA.id));
+
+    const aReadsBRequest = await customerAAgent.get(`/api/customer/requests/${requestB.id}`);
+    assert.equal(aReadsBRequest.status, 404, "Customer A must not read Customer B's request by guessed id");
+
+    const bReadsARequest = await customerBAgent.get(`/api/customer/requests/${requestA.id}`);
+    assert.equal(bReadsARequest.status, 404, "Customer B must not read Customer A's request by guessed id");
+
+    const systemActorId = await getSystemActorId();
+    const orderA = await prisma.order.create({
+      data: {
+        orderNumber: `DOC-A-${suffix}`,
+        customerId: customerA.id,
+        totalAmount: 10,
+        currency: "SAR",
+      },
+    });
+    const orderB = await prisma.order.create({
+      data: {
+        orderNumber: `DOC-B-${suffix}`,
+        customerId: customerB.id,
+        totalAmount: 20,
+        currency: "SAR",
+      },
+    });
+
+    const documentA = await prisma.document.create({
+      data: {
+        orderId: orderA.id,
+        customerId: customerA.id,
+        uploadedById: systemActorId,
+        type: "OTHER",
+        fileName: "private-a.txt",
+        storagePath: "security-tests/private-a.txt",
+        mimeType: "text/plain",
+        sizeBytes: 1,
+      },
+    });
+    const documentB = await prisma.document.create({
+      data: {
+        orderId: orderB.id,
+        customerId: customerB.id,
+        uploadedById: systemActorId,
+        type: "OTHER",
+        fileName: "private-b.txt",
+        storagePath: "security-tests/private-b.txt",
+        mimeType: "text/plain",
+        sizeBytes: 1,
+      },
+    });
+
+    const aDocuments = await customerAAgent.get("/api/customer/documents");
+    assert.equal(aDocuments.status, 200, JSON.stringify(aDocuments.body));
+    assert.ok(aDocuments.body.data.some((document) => document.id === documentA.id));
+    assert.ok(!aDocuments.body.data.some((document) => document.id === documentB.id));
+
+    const bDocuments = await customerBAgent.get("/api/customer/documents");
+    assert.equal(bDocuments.status, 200, JSON.stringify(bDocuments.body));
+    assert.ok(bDocuments.body.data.some((document) => document.id === documentB.id));
+    assert.ok(!bDocuments.body.data.some((document) => document.id === documentA.id));
+
+    const deliverableB = await prisma.contactRequestDeliverable.create({
+      data: {
+        contactRequestId: requestB.id,
+        label: "Private B deliverable",
+        fileName: "private-b.pdf",
+        storagePath: "security-tests/private-b.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1,
+        uploadedByUserId: systemActorId,
+      },
+    });
+
+    const aDownloadsBDeliverable = await customerAAgent.get(
+      `/api/customer/requests/${requestB.id}/deliverables/${deliverableB.id}/file`
+    );
+    assert.equal(
+      aDownloadsBDeliverable.status,
+      404,
+      "Customer A must not download Customer B's deliverable even with both direct ids"
+    );
   });
 
   test("customer notification mutation is scoped to the authenticated customer", async () => {
