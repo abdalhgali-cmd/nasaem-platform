@@ -103,9 +103,9 @@ jobs:
       - name: Capture source evidence
         id: source
         run: |
-          echo "users=$(psql -h localhost -U postgres -d nasaem_backup_source -Atc 'SELECT count(*) FROM \"User\";')" >> "$GITHUB_OUTPUT"
-          echo "services=$(psql -h localhost -U postgres -d nasaem_backup_source -Atc 'SELECT count(*) FROM \"Service\";')" >> "$GITHUB_OUTPUT"
-          echo "migrations=$(psql -h localhost -U postgres -d nasaem_backup_source -Atc 'SELECT count(*) FROM \"_prisma_migrations\";')" >> "$GITHUB_OUTPUT"
+          echo "users=$(psql -h localhost -U postgres -d nasaem_backup_source -Atc 'SELECT count(*) FROM "User";')" >> "$GITHUB_OUTPUT"
+          echo "services=$(psql -h localhost -U postgres -d nasaem_backup_source -Atc 'SELECT count(*) FROM "Service";')" >> "$GITHUB_OUTPUT"
+          echo "migrations=$(psql -h localhost -U postgres -d nasaem_backup_source -Atc 'SELECT count(*) FROM "_prisma_migrations";')" >> "$GITHUB_OUTPUT"
       - name: Create logical backup
         id: backup
         run: |
@@ -125,9 +125,9 @@ jobs:
           echo "seconds=$((end-start))" >> "$GITHUB_OUTPUT"
       - name: Verify restored data
         run: |
-          restored_users=$(psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT count(*) FROM \"User\";')
-          restored_services=$(psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT count(*) FROM \"Service\";')
-          restored_migrations=$(psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT count(*) FROM \"_prisma_migrations\";')
+          restored_users=$(psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT count(*) FROM "User";')
+          restored_services=$(psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT count(*) FROM "Service";')
+          restored_migrations=$(psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT count(*) FROM "_prisma_migrations";')
           test "$restored_users" = "${{ steps.source.outputs.users }}"
           test "$restored_services" = "${{ steps.source.outputs.services }}"
           test "$restored_migrations" = "${{ steps.source.outputs.migrations }}"
