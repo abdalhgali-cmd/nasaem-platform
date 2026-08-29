@@ -131,7 +131,7 @@ describe("public Umrah packages catalog", () => {
     agent = await loginAsSuperAdmin();
   });
 
-  test("returns only active UMRAH_PACKAGE services with customer-safe fields", async () => {
+  test("returns active legacy and UMRAH_PACKAGE services with customer-safe fields", async () => {
     const suffix = uniqueSuffix();
     const activePackage = await createService(agent, {
       code: `UMRAH-ACTIVE-${suffix}`,
@@ -147,10 +147,16 @@ describe("public Umrah packages catalog", () => {
       category: "UMRAH_PACKAGE",
       active: false,
     });
+    const legacyPackage = await createService(agent, {
+      code: `LEGACY-PACKAGE-${suffix}`,
+      name: "باقة سفر قديمة",
+      category: "package",
+      active: true,
+    });
     const normalService = await createService(agent, {
       code: `NORMAL-${suffix}`,
       name: "خدمة عادية",
-      category: "package",
+      category: TEST_CATEGORY,
       active: true,
     });
 
@@ -159,6 +165,7 @@ describe("public Umrah packages catalog", () => {
     const packages = packagesRes.body.data;
     assert.ok(packages.some((item) => item.id === activePackage.id));
     assert.ok(!packages.some((item) => item.id === inactivePackage.id));
+    assert.ok(packages.some((item) => item.id === legacyPackage.id));
     assert.ok(!packages.some((item) => item.id === normalService.id));
 
     const returned = packages.find((item) => item.id === activePackage.id);

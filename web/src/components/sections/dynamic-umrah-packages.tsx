@@ -59,7 +59,7 @@ export function DynamicUmrahPackages({ selectedPackageCode }: { selectedPackageC
       const response = await fetch(`${API_URL}/services/public/packages`, { cache: "no-store" });
       const payload = (await response.json()) as { success?: boolean; data?: PublicPackage[]; message?: string };
       if (!response.ok || !payload.success) throw new Error(payload.message || "تعذر تحميل الباقات");
-      setPackages((payload.data ?? []).filter((item) => item.category === "UMRAH_PACKAGE").map(parsePackage));
+      setPackages((payload.data ?? []).map(parsePackage));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "تعذر تحميل الباقات، حاول تحديث الصفحة");
     } finally {

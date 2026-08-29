@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { API_URL } from "@/lib/api-url";
 
-type PublicPackage = { id: string; code: string; name: string; description: string | null; basePrice: string; currency: string; features: string[] | null };
+type PublicPackage = { id: string; code: string; name: string; category: string; description: string | null; basePrice: string; currency: string; features: string[] | null };
 
 function includedFeatures(features: string[] | null) {
   return (features ?? []).filter((feature) => feature.startsWith("INCLUDED:")).map((feature) => feature.slice("INCLUDED:".length).trim()).filter(Boolean);
@@ -36,7 +36,9 @@ export function FeaturedUmrah() {
   }
 
   React.useEffect(() => { void load(); }, []);
-  const visible = packages.slice(0, 3);
+  const visible = packages
+    .filter((pkg) => pkg.category === "UMRAH_PACKAGE" || pkg.code.startsWith("SVC-UMRAH-"))
+    .slice(0, 3);
 
   return <section className="py-24"><Container>
     <SectionHeading eyebrow="باقات العمرة" title="اختر الباقة التي تناسب رحلتك" description="الأسعار المعروضة من الكتالوج الحالي، والتكلفة النهائية يحددها الموظف حسب الموسم والخدمات المطلوبة." />
