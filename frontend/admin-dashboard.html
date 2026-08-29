@@ -431,8 +431,8 @@
         </div>
       </div>
 
-      <!-- Visas: VisaType directory (Phase 4). Requirements checklists
-           per visa still require the API directly — a disclosed gap. -->
+      <!-- Visas: VisaType directory (Phase 4) + requirements checklist
+           editor (Phase 5 API, wired to a UI here). -->
       <div id="mgmt-visas" class="hidden">
         <div class="card hidden" id="visa-create-card">
           <h2>تأشيرة جديدة</h2>
@@ -458,6 +458,22 @@
           <table>
             <thead><tr><th>الرمز</th><th>الاسم</th><th>الدولة</th><th>القسم</th><th>السعر الأساسي</th><th>الحالة</th><th></th></tr></thead>
             <tbody id="visas-body"></tbody>
+          </table>
+        </div>
+        <div class="card hidden" id="visa-requirements-card">
+          <h2>متطلبات: <span id="visa-requirements-title"></span> <button type="button" class="btn secondary" id="visa-requirements-close-btn" style="margin-inline-start: 8px">إغلاق</button></h2>
+          <div class="grid cols-3 hidden" id="visa-requirement-create-card">
+            <div class="field"><label for="vr-name">الاسم *</label><input id="vr-name" /></div>
+            <div class="field"><label for="vr-nameEn">الاسم بالإنجليزية</label><input id="vr-nameEn" /></div>
+            <div class="field"><label for="vr-attachmentType">نوع المرفق</label><input id="vr-attachmentType" placeholder="PASSPORT, PHOTO, ..." /></div>
+            <div class="field"><label for="vr-maxFiles">أقصى عدد ملفات</label><input id="vr-maxFiles" type="number" min="1" max="50" value="1" /></div>
+            <div class="field"><label for="vr-sortOrder">الترتيب</label><input id="vr-sortOrder" type="number" min="0" value="0" /></div>
+            <div class="field"><label><input id="vr-required" type="checkbox" checked /> مطلوب</label></div>
+          </div>
+          <button type="button" class="btn hidden" id="visa-requirement-create-btn">إضافة متطلب</button>
+          <table>
+            <thead><tr><th>الاسم</th><th>نوع المرفق</th><th>أقصى عدد ملفات</th><th>مطلوب</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="visa-requirements-body"></tbody>
           </table>
         </div>
       </div>

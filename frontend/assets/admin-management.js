@@ -170,6 +170,9 @@ function wireManagementTabs() {
   el("theme-save-btn").addEventListener("click", saveTheme);
   el("visa-create-btn").addEventListener("click", createVisaType);
   el("visas-body").addEventListener("click", handleVisaTypeRowClick);
+  el("visa-requirement-create-btn").addEventListener("click", createVisaRequirement);
+  el("visa-requirements-body").addEventListener("click", handleVisaRequirementRowClick);
+  el("visa-requirements-close-btn").addEventListener("click", closeVisaRequirements);
   el("airline-create-btn").addEventListener("click", createAirline);
   el("airlines-body").addEventListener("click", handleAirlineRowClick);
   el("airport-create-btn").addEventListener("click", createAirport);
@@ -1583,7 +1586,10 @@ async function loadVisaTypes() {
           <td>${VISA_TYPE_CATEGORY_LABELS[vt.category] || vt.category || "—"}</td>
           <td>${formatMoney(vt.basePrice, vt.currency)}</td>
           <td>${vt.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
-          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-visa="${vt.id}" data-active="${vt.active}">${vt.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>
+            <button type="button" class="btn secondary" data-manage-requirements="${vt.id}" data-name="${escapeHtml(vt.name)}">المتطلبات</button>
+            ${canWrite ? `<button type="button" class="btn secondary" data-toggle-visa="${vt.id}" data-active="${vt.active}">${vt.active ? "تعطيل" : "تفعيل"}</button>` : ""}
+          </td>
         </tr>`
       )
       .join("");
@@ -1620,6 +1626,11 @@ async function createVisaType() {
 }
 
 function handleVisaTypeRowClick(e) {
+  const manageBtn = e.target.closest("[data-manage-requirements]");
+  if (manageBtn) {
+    openVisaRequirements(manageBtn.dataset.manageRequirements, manageBtn.dataset.name);
+    return;
+  }
   const btn = e.target.closest("[data-toggle-visa]");
   if (!btn) return;
   const active = btn.dataset.active === "true";
@@ -1627,6 +1638,101 @@ function handleVisaTypeRowClick(e) {
     .patch(`/visa-types/${btn.dataset.toggleVisa}`, { active: !active })
     .then(loadVisaTypes)
     .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Visa requirements checklist editor (Phase 5 API; previously API-only) ---
+
+let currentVisaRequirementsTypeId = null;
+
+function openVisaRequirements(visaTypeId, visaName) {
+  currentVisaRequirementsTypeId = visaTypeId;
+  el("visa-requirements-title").textContent = visaName || "";
+  el("visa-requirements-card").classList.remove("hidden");
+  const canWrite = mgmtCanWrite("visas");
+  el("visa-requirement-create-card").classList.toggle("hidden", !canWrite);
+  el("visa-requirement-create-btn").classList.toggle("hidden", !canWrite);
+  loadVisaRequirements();
+  el("visa-requirements-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeVisaRequirements() {
+  currentVisaRequirementsTypeId = null;
+  el("visa-requirements-card").classList.add("hidden");
+}
+
+async function loadVisaRequirements() {
+  if (!currentVisaRequirementsTypeId) return;
+  try {
+    const { data } = await api.get(`/visa-types/${currentVisaRequirementsTypeId}/requirements`);
+    const canWrite = mgmtCanWrite("visas");
+    el("visa-requirements-body").innerHTML = data
+      .map(
+        (r) => `
+        <tr>
+          <td>${escapeHtml(r.name)}${r.nameEn ? `<div class="muted" style="font-size: 11px">${escapeHtml(r.nameEn)}</div>` : ""}</td>
+          <td>${r.attachmentType ? escapeHtml(r.attachmentType) : "—"}</td>
+          <td>${r.maxFiles ?? "—"}</td>
+          <td>${r.required ? "نعم" : "لا"}</td>
+          <td>${r.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
+          <td>${
+            canWrite
+              ? `<button type="button" class="btn secondary" data-toggle-requirement="${r.id}" data-active="${r.active}">${r.active ? "تعطيل" : "تفعيل"}</button>
+                 <button type="button" class="btn secondary" data-delete-requirement="${r.id}">حذف</button>`
+              : ""
+          }</td>
+        </tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function createVisaRequirement() {
+  if (!currentVisaRequirementsTypeId) return;
+  showAlert(mgmtAlert(), "");
+  const name = el("vr-name").value.trim();
+  if (!name) return showAlert(mgmtAlert(), "اسم المتطلب مطلوب.");
+
+  try {
+    await api.post(`/visa-types/${currentVisaRequirementsTypeId}/requirements`, {
+      name,
+      nameEn: el("vr-nameEn").value.trim() || undefined,
+      attachmentType: el("vr-attachmentType").value.trim() || undefined,
+      maxFiles: Number(el("vr-maxFiles").value) || 1,
+      sortOrder: Number(el("vr-sortOrder").value) || 0,
+      required: el("vr-required").checked,
+    });
+    el("vr-name").value = "";
+    el("vr-nameEn").value = "";
+    el("vr-attachmentType").value = "";
+    el("vr-maxFiles").value = "1";
+    el("vr-sortOrder").value = "0";
+    el("vr-required").checked = true;
+    loadVisaRequirements();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleVisaRequirementRowClick(e) {
+  const toggleBtn = e.target.closest("[data-toggle-requirement]");
+  if (toggleBtn) {
+    const active = toggleBtn.dataset.active === "true";
+    api
+      .patch(`/visa-types/requirements/${toggleBtn.dataset.toggleRequirement}`, { active: !active })
+      .then(loadVisaRequirements)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+  const deleteBtn = e.target.closest("[data-delete-requirement]");
+  if (deleteBtn) {
+    if (!confirm("حذف هذا المتطلب؟")) return;
+    api
+      .delete(`/visa-types/requirements/${deleteBtn.dataset.deleteRequirement}`)
+      .then(loadVisaRequirements)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+  }
 }
 
 // --- Airlines (Airline directory) ---
