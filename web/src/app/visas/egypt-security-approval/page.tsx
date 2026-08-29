@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
-import { PageHero } from "@/components/sections/page-hero";
+import { EgyptClearanceHero } from "@/components/sections/egypt-clearance-hero";
 import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
 import { Faq, type FaqItem } from "@/components/sections/faq";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
@@ -149,16 +149,28 @@ export default async function EgyptSecurityApprovalPage() {
     visaType?.stayDuration ? { label: "مدة الإقامة", value: visaType.stayDuration } : null,
   ].filter(Boolean) as { label: string; value: string }[];
 
+  // Same price source as the quick-facts card below (Pricing/Admin via the
+  // VisaType record) — just formatted as short hero copy instead of a card.
+  const heroPriceLabel =
+    hasPublishedPrice && visaType
+      ? `${numericPrice.toLocaleString("en-US")} ${visaType.currency}`
+      : "يتم تحديد التكلفة بعد مراجعة الطلب";
+  const heroPriceSubLabel =
+    hasPublishedPrice && visaType && visaType.currency !== "SDG" && visaType.priceSdg != null
+      ? `يعادل ${Math.round(visaType.priceSdg).toLocaleString("en-US")} جنيه سوداني`
+      : null;
+
   return (
     <>
-      <PageHero
-        eyebrow="الموافقة الأمنية لمصر"
-        breadcrumb="التأشيرات / الموافقة الأمنية لمصر"
+      <EgyptClearanceHero
         title={visaType?.name || "الموافقة الأمنية للسفر إلى مصر"}
         description={
           visaType?.description ||
           "قدّم بياناتك ومستنداتك إلكترونيًا، وتابع حالة طلبك خطوة بخطوة حتى استلام الموافقة، دون الحاجة للاتصال بنا لمعرفة ماذا يلي."
         }
+        priceLabel={heroPriceLabel}
+        priceSubLabel={heroPriceSubLabel}
+        isAccepting={Boolean(visaType)}
       />
 
       <section className="py-16">
