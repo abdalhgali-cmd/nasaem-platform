@@ -1,0 +1,18 @@
+"use client";
+
+import * as React from "react";
+import { Check, Loader2, Palette } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { adminRequest } from "@/lib/admin-api";
+
+type Theme = { primary: string | null; secondary: string | null; accent: string | null; background: string | null; text: string | null; button: string | null };
+const fields: { key: keyof Theme; label: string }[] = [{ key: "primary", label: "الأساسي" }, { key: "secondary", label: "الثانوي" }, { key: "accent", label: "التأكيد" }, { key: "background", label: "الخلفية" }, { key: "text", label: "النص" }, { key: "button", label: "الأزرار" }];
+const validHex = (value: string) => !value || /^#[0-9a-f]{6}$/i.test(value);
+
+export function AppearanceManager() {
+  const [theme, setTheme] = React.useState<Theme>({ primary: "", secondary: "", accent: "", background: "", text: "", button: "" });
+  const [loading, setLoading] = React.useState(true); const [working, setWorking] = React.useState(false); const [error, setError] = React.useState(""); const [success, setSuccess] = React.useState("");
+  React.useEffect(() => { adminRequest<{ data: Theme }>("/theme").then((payload) => setTheme(payload.data)).catch((err) => setError(err instanceof Error ? err.message : "تعذر تحميل المظهر")).finally(() => setLoading(false)); }, []);
+  async function save(event: React.FormEvent) { event.preventDefault(); if (Object.values(theme).some((value) => value && !validHex(value))) { setError("استخدم قيمة لون بصيغة #RRGGBB فقط"); return; } setWorking(true); setError(""); setSuccess(""); try { const payload = await adminRequest<{ data: Theme }>("/theme", { method: "PATCH", body: JSON.stringify(theme) }); setTheme(payload.data); setSuccess("تم حفظ ألوان المظهر"); } catch (err) { setError(err instanceof Error ? err.message : "تعذر حفظ المظهر"); } finally { setWorking(false); } }
+  return <section className="mx-auto max-w-5xl space-y-5 px-4 py-7 sm:px-6 lg:px-10"><div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-7"><div className="flex items-start gap-3"><div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Palette className="size-5" /></div><div><h2 className="text-xl font-black">المظهر</h2><p className="mt-1 text-sm leading-7 text-muted-foreground">ألوان آمنة فقط. لا يتم حفظ CSS أو JavaScript أو قيم غير مطابقة.</p></div></div></div>{error ? <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-bold text-destructive">{error}</div> : null}{success ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700"><Check className="me-2 inline size-4" />{success}</div> : null}<form onSubmit={save} className="grid gap-5 rounded-3xl border border-border bg-card p-5 shadow-sm sm:grid-cols-2 sm:p-7">{fields.map(({ key, label }) => <label key={key} className="text-sm font-bold">{label}<div className="mt-2 flex gap-2"><input type="color" value={validHex(theme[key] || "") && theme[key] ? theme[key]! : "#0b3d91"} onChange={(e) => setTheme({ ...theme, [key]: e.target.value })} className="size-11 rounded-lg border border-border bg-background p-1" /><input value={theme[key] || ""} placeholder="#0b3d91" onChange={(e) => setTheme({ ...theme, [key]: e.target.value })} className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 font-mono font-normal" dir="ltr" /></div></label>)}<div className="sm:col-span-2"><Button type="submit" disabled={loading || working}>{working ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}حفظ المظهر</Button></div></form></section>;
+}

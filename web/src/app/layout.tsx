@@ -7,6 +7,8 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { WhatsAppButton } from "@/components/layout/whatsapp-button";
 import { siteConfig } from "@/lib/site-config";
 import { getSiteAssetUrls } from "@/lib/site-assets";
+import { buildThemeOverrideCss, getPublicTheme } from "@/lib/theme";
+import { getPublicSiteSettings } from "@/lib/public-settings";
 
 const cairo = Cairo({
   subsets: ["arabic", "latin"],
@@ -20,42 +22,48 @@ const inter = Inter({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  metadataBase: new URL(siteConfig.url),
-  title: {
-    default: `${siteConfig.name} | ${siteConfig.nameEn}`,
-    template: `%s | ${siteConfig.shortName}`,
-  },
-  description: siteConfig.description,
-  keywords: [
-    "عمرة",
-    "حج",
-    "تأشيرات",
-    "حجز طيران",
-    "حجز فنادق",
-    "نسائم الحرمين",
-    "Umrah packages",
-    "Sudan travel agency",
-  ],
-  authors: [{ name: siteConfig.nameEn }],
-  openGraph: {
-    type: "website",
-    locale: "ar_SD",
-    url: siteConfig.url,
-    title: siteConfig.name,
-    description: siteConfig.description,
-    siteName: siteConfig.name,
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: siteConfig.name,
-    description: siteConfig.description,
-  },
-  robots: {
-    index: true,
-    follow: true,
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const publicSettings = await getPublicSiteSettings();
+  const title = publicSettings.seoTitle || `${siteConfig.name} | ${siteConfig.nameEn}`;
+  const description = publicSettings.seoDescription || siteConfig.description;
+
+  return {
+    metadataBase: new URL(siteConfig.url),
+    title: {
+      default: title,
+      template: `%s | ${siteConfig.shortName}`,
+    },
+    description,
+    keywords: [
+      "عمرة",
+      "حج",
+      "تأشيرات",
+      "حجز طيران",
+      "حجز فنادق",
+      "نسائم الحرمين",
+      "Umrah packages",
+      "Sudan travel agency",
+    ],
+    authors: [{ name: siteConfig.nameEn }],
+    openGraph: {
+      type: "website",
+      locale: "ar_SD",
+      url: siteConfig.url,
+      title,
+      description,
+      siteName: siteConfig.name,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+    robots: {
+      index: true,
+      follow: true,
+    },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: [
@@ -69,8 +77,9 @@ export const viewport: Viewport = {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const assetUrls = await getSiteAssetUrls();
+  const [assetUrls, theme, publicSettings] = await Promise.all([getSiteAssetUrls(), getPublicTheme(), getPublicSiteSettings()]);
   const logoUrls = { light: assetUrls.logo, dark: assetUrls["logo-dark"] };
+  const themeOverrideCss = buildThemeOverrideCss(theme);
 
   return (
     <html
@@ -81,6 +90,10 @@ export default async function RootLayout({
       className={`${cairo.variable} ${inter.variable}`}
     >
       <body className="flex min-h-screen flex-col bg-background text-foreground antialiased">
+        {/* Admin-configured colors (Theme settings) override the
+            globals.css defaults declared above; every value was already
+            validated as #RRGGBB server-side and re-checked in theme.ts. */}
+        {themeOverrideCss && <style dangerouslySetInnerHTML={{ __html: themeOverrideCss }} />}
         <ThemeProvider>
           <a
             href="#main-content"
@@ -88,12 +101,12 @@ export default async function RootLayout({
           >
             تخطَّ إلى المحتوى الرئيسي
           </a>
-          <SiteHeader logoUrls={logoUrls} />
+          <SiteHeader logoUrls={logoUrls} contactPhone={publicSettings.phone} />
           <main id="main-content" className="flex-1">
             {children}
           </main>
-          <SiteFooter logoUrls={logoUrls} />
-          <WhatsAppButton />
+          <SiteFooter logoUrls={logoUrls} publicSettings={publicSettings} />
+          <WhatsAppButton whatsapp={publicSettings.whatsapp} />
         </ThemeProvider>
       </body>
     </html>

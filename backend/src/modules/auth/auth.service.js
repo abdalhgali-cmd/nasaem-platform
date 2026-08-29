@@ -12,6 +12,24 @@ function sanitizeUser(user) {
 export async function loginUser({ email, password }) {
   const user = await prisma.user.findUnique({
     where: { email },
+    // Keep login compatible while an existing Production database is
+    // rolling forward through the Organization migration. Prisma's default
+    // select includes every model column, so a not-yet-migrated
+    // organizationId would otherwise turn even an invalid login into a 500.
+    select: {
+      id: true,
+      employeeNo: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      passwordHash: true,
+      role: true,
+      status: true,
+      branchId: true,
+      lastLogin: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 
   if (!user) {
@@ -61,3 +79,4 @@ export async function getCurrentUser(userId) {
 
   return user;
 }
+

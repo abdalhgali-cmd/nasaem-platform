@@ -12,6 +12,13 @@ enum UserRole {
   ADMIN
   EMPLOYEE
   ACCOUNTANT
+  // Platform 3.0 Phase 15 — a staff member who manages public-facing
+  // content (homepage, theme, service/visa/airline/airport/ferry
+  // directories) and nothing else: never granted financial routes
+  // (payments, invoices, confirm-payment) or operational routes (orders,
+  // customers, contact-request processing, documents review). See each
+  // content module's routes.js for exactly where this role is added.
+  CONTENT_MANAGER
 }
 
 enum UserStatus {
@@ -45,6 +52,18 @@ enum PaymentStatus {
   REFUNDED
 }
 
+// Optional review lifecycle for an individual Payment record, layered on top
+// of the existing `status` field without changing its values (flight-booking
+// payment confirmation and other existing writers keep working unchanged).
+// Null means "recorded directly by staff, no review step used" — the
+// pre-existing behavior. Only payments explicitly submitted for review carry
+// PENDING/CONFIRMED/REJECTED.
+enum PaymentReviewStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
 enum DocumentType {
   PASSPORT
   PHOTO
@@ -60,6 +79,26 @@ enum OfferStatus {
   ARCHIVED
 }
 
+enum CouponDiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branches        Branch[]
+  users           User[]
+  customers       Customer[]
+  orders          Order[]
+  contactRequests ContactRequest[]
+}
+
 model Branch {
   id        String   @id @default(cuid())
   code      String   @unique
@@ -70,8 +109,13 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users  User[]
-  orders Order[]
+  organizationId String @default("org_nasaem_default")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  users        User[]
+  orders       Order[]
+
+  @@index([organizationId])
 }
 
 model CompanyProfile {
@@ -99,6 +143,24 @@ model Currency {
   updatedAt DateTime @updatedAt
 }
 
+model PaymentAccount {
+  id            String   @id @default(cuid())
+  name          String
+  bankName      String
+  accountName   String
+  accountNumber String?
+  iban          String?
+  currency      String
+  active        Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([currency])
+  @@index([active])
+  @@index([sortOrder])
+}
+
 model Supplier {
   id        String   @id @default(cuid())
   code      String   @unique
@@ -110,6 +172,8 @@ model Supplier {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  orderItems OrderItem[]
 }
 
 model User {
@@ -126,6 +190,9 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
+  organizationId String @default("org_nasaem_default")
+
+  organization                       Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   branch                             Branch?                     @relation(fields: [branchId], references: [id], onDelete: SetNull)
   assignedOrders                     Order[]                     @relation("AssignedOrders")
   uploadedDocuments                  Document[]                  @relation("UploadedDocuments")
@@ -133,81 +200,209 @@ model User {
   activityLogs                       ActivityLog[]
   notifications                      Notification[]              @relation("UserNotifications")
   statusChangedLogs                  OrderStatusHistory[]        @relation("StatusChangedBy")
+  paymentsReviewed                   Payment[]                   @relation("PaymentReviewedBy")
   invoicesCreated                    Invoice[]                   @relation("InvoiceCreatedBy")
   reviewedContactRequestDocuments    ContactRequestDocument[]    @relation("ContactRequestDocumentReviewedBy")
   contactRequestOffersCreated        ContactRequestOffer[]       @relation("ContactRequestOfferCreatedBy")
   contactRequestDeliverablesUploaded ContactRequestDeliverable[] @relation("ContactRequestDeliverableUploadedBy")
+  couponsCreated                     Coupon[]                    @relation("CouponCreatedBy")
 
   @@index([role])
   @@index([status])
   @@index([branchId])
+  @@index([organizationId])
 }
 
 model Customer {
-  id          String    @id @default(cuid())
-  customerNo  String    @unique
-  fullName    String
-  passportNo  String    @unique
-  nationality String
-  birthDate   DateTime?
-  gender      Gender?
-  phone       String?
-  email       String?
-  country     String?
-  city        String?
-  address     String?
-  notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                     String    @id @default(cuid())
+  customerNo             String    @unique
+  fullName               String
+  // Nullable (was required+unique) so a customer can self-register an
+  // account before staff have ever recorded their passport — CRM-created
+  // rows keep the value they already have; the unique index still rejects
+  // a duplicate non-null passport number.
+  passportNo             String?   @unique
+  nationality            String?
+  birthDate              DateTime?
+  gender                 Gender?
+  // Deliberately NOT @unique at the DB level: pre-existing CRM data may
+  // already contain duplicate/shared phone numbers (e.g. a family member
+  // booking on someone else's behalf). Registration instead enforces "no
+  // other account already claims this phone" at the application layer
+  // (customer-auth.service.js), scoped to rows that already have a
+  // passwordHash — so it never conflicts with historical CRM data.
+  phone                  String?
+  email                  String?
+  country                String?
+  city                   String?
+  address                String?
+  notes                  String?
+  // Self-service Customer Account (see backend/src/modules/customer-auth).
+  // Null passwordHash means "CRM record only, no online account" — the
+  // pre-existing behavior for every customer created by staff. Reuses the
+  // same bcrypt hashing (utils/password.js) and JWT-cookie pattern already
+  // used for staff auth/tracking auth, just under its own token scope, so
+  // this is not a second authentication *mechanism* — it's the same one,
+  // applied to a different principal (Customer instead of User).
+  passwordHash           String?
+  passwordResetCode      String?
+  passwordResetExpiresAt DateTime?
+  passwordResetAttempts  Int       @default(0)
+  lastLoginAt            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-  orders    Order[]
-  documents Document[]
+  organizationId String @default("org_nasaem_default")
+
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  orders           Order[]
+  contactRequests  ContactRequest[]
+  notifications    Notification[]
+  documents        Document[]
+  umrahGroupMember UmrahGroupMember[]
+  coupons          Coupon[]           @relation("CouponCustomerRestriction")
+  couponUsages     CouponUsage[]
 
   @@index([customerNo])
   @@index([passportNo])
   @@index([phone])
   @@index([email])
+  @@index([organizationId])
 }
 
 model Service {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  name        String
-  category    String
-  description String?
-  basePrice   Decimal  @db.Decimal(12, 2)
-  currency    String   @default("SAR")
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  category       String
+  description    String?
+  basePrice      Decimal  @db.Decimal(12, 2)
+  currency       String   @default("SAR")
+  active         Boolean  @default(true)
+  // Platform 3.0 Phase 3 (Dynamic Service Catalog) — admin-configurable
+  // display metadata. iconKey/imageKey mirror HomepageSection's pattern
+  // exactly: iconKey is validated against the shared ICON_KEYS allow-list
+  // at the API layer (utils/enums.js), imageKey is a derived SiteAsset key
+  // (`service-image-<id>`) set only after a successful image upload.
+  // features is a small array of short bullet strings, not a separate
+  // table — nothing here needs its own identity, ordering or relations.
+  sortOrder      Int      @default(0)
+  iconKey        String?
+  imageKey       String?
+  features       Json?
+  // Platform 3.0 Phase 8 (Security Approvals) — same free-text rationale
+  // as VisaType.processingTime: wording varies too much ("same day",
+  // "3-5 working days", ...) to force a fixed shape.
+  processingTime String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   orderItems      OrderItem[]
   workflows       Workflow[]
   visaTypes       VisaType[]
   contactRequests ContactRequest[]
+  requirements    VisaRequirement[]
+  coupons         Coupon[]
 
   @@index([category])
   @@index([active])
+  @@index([sortOrder])
 }
 
 model VisaType {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  name        String
-  country     String
-  description String?
-  basePrice   Decimal  @db.Decimal(12, 2)
-  currency    String   @default("SAR")
-  active      Boolean  @default(true)
-  serviceId   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  country        String
+  description    String?
+  basePrice      Decimal  @db.Decimal(12, 2)
+  currency       String   @default("SAR")
+  active         Boolean  @default(true)
+  serviceId      String?
+  // Platform 3.0 Phase 4 (Dynamic Visa Management) — admin-configurable
+  // fields extending the existing model in place. `name` stays the
+  // existing (Arabic) display name used everywhere already; nameEn is the
+  // new optional English counterpart. type/processingTime/stayDuration/
+  // validity are free text (wording varies too much per country/embassy
+  // to force a fixed shape); entryType is validated against a small enum
+  // at the API layer only (utils/enums.js), same pattern as `category`
+  // elsewhere in this schema — avoids a migration if the set ever grows.
+  nameEn         String?
+  type           String?
+  processingTime String?
+  stayDuration   String?
+  validity       String?
+  entryType      String?
+  sortOrder      Int      @default(0)
+  // Platform 3.0 (Visa Categorization) — which top-level public section
+  // this visa type belongs to (INTERNATIONAL / UMRAH / FAMILY_VISIT /
+  // OTHER for everything else, e.g. work visas, Egypt clearance).
+  // Validated against VISA_TYPE_CATEGORIES at the API layer only (same
+  // plain-String + Zod-enum pattern as `entryType` above and `category`
+  // on Service) so the category set can grow without a migration. This is
+  // the authoritative classification the public API filters on — it must
+  // never be inferred/hidden in the frontend.
+  category       String   @default("OTHER")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  service         Service?         @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  service         Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   contactRequests ContactRequest[]
+  requirements    VisaRequirement[]
+  coupons         Coupon[]
 
   @@index([country])
   @@index([active])
+  @@index([sortOrder])
+  @@index([category])
+}
+
+// Platform 3.0 Phase 5 (Visa Requirements Engine) — the checklist
+// template an admin defines per visa type. Deliberately just the
+// requirement's own attributes: no relation to Document/ContactRequest
+// here, because a requirement is a reusable definition, not a per-
+// applicant record. What a specific applicant was actually asked for is
+// captured separately as a point-in-time snapshot on the ContactRequest
+// itself (createContactRequest in contact-requests.service.js) — so
+// editing or deactivating a requirement later never rewrites what an
+// already-submitted application's checklist said at submission time.
+// Platform 3.0 Phase 8 (Security Approvals) generalized this from
+// visa-only to also attach to a Service directly — Security Approvals
+// (and any future service, e.g. Ferries) is modeled as a Service, not a
+// VisaType, but still needs the exact same checklist engine. Exactly one
+// of visaTypeId/serviceId is set (enforced at the API layer, same
+// approach as every other "exactly one of" rule in this schema) rather
+// than duplicating this whole model per parent type.
+model VisaRequirement {
+  id               String   @id @default(cuid())
+  visaTypeId       String?
+  serviceId        String?
+  name             String
+  nameEn           String?
+  description      String?
+  required         Boolean  @default(true)
+  // Free text (e.g. "passport_copy", "photo") rather than a fixed enum —
+  // Phase 6 (Attachment Engine) is what actually wires uploads against
+  // this; this phase only defines the checklist.
+  attachmentType   String?
+  maxFiles         Int      @default(1)
+  allowedMimeTypes String[] @default([])
+  maxSizeBytes     Int?
+  reviewRequired   Boolean  @default(true)
+  ocrEnabled       Boolean  @default(false)
+  sortOrder        Int      @default(0)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  visaType VisaType?                @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
+  service  Service?                 @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  uploads  ContactRequestDocument[]
+
+  @@index([visaTypeId])
+  @@index([serviceId])
+  @@index([active])
+  @@index([sortOrder])
 }
 
 model Workflow {
@@ -228,28 +423,50 @@ model Workflow {
 }
 
 model Order {
-  id             String        @id @default(cuid())
-  orderNumber    String        @unique
+  id             String              @id @default(cuid())
+  orderNumber    String              @unique
   customerId     String
   assignedUserId String?
   branchId       String?
-  status         OrderStatus   @default(NEW)
-  paymentStatus  PaymentStatus @default(UNPAID)
-  priority       String        @default("NORMAL")
-  totalAmount    Decimal       @db.Decimal(12, 2)
-  currency       String        @default("SAR")
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  status         OrderStatus         @default(NEW)
+  paymentStatus  PaymentStatus       @default(UNPAID)
+  priority       String              @default("NORMAL")
+  totalAmount    Decimal             @db.Decimal(12, 2)
+  currency       String              @default("SAR")
+  // Coupon system (see backend/src/modules/coupons). All nullable and set
+  // exactly once, at order-creation time, by applyCouponToOrder() —
+  // never edited afterwards. These are a point-in-time SNAPSHOT of the
+  // coupon's terms, deliberately duplicated off the live Coupon row so
+  // that editing or deleting a Coupon later can never change what an
+  // already-placed order's receipt says (couponId itself is onDelete:
+  // SetNull for the same reason: losing the live link must not lose the
+  // historical facts). totalAmount keeps its existing meaning (the actual
+  // amount owed/charged); originalAmount is the pre-discount subtotal —
+  // absent (null) on every order that never used a coupon.
+  couponId       String?
+  couponCode     String?
+  discountType   CouponDiscountType?
+  discountValue  Decimal?            @db.Decimal(12, 2)
+  originalAmount Decimal?            @db.Decimal(12, 2)
+  discountAmount Decimal?            @db.Decimal(12, 2)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
-  customer      Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  assignedUser  User?                @relation("AssignedOrders", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  branch        Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  items         OrderItem[]
-  documents     Document[]
-  payments      Payment[]
-  notes         Note[]
-  history       OrderStatusHistory[]
-  notifications Notification[]
+  organizationId String @default("org_nasaem_default")
+
+  organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer         Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignedUser     User?                @relation("AssignedOrders", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  branch           Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  coupon           Coupon?              @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  items            OrderItem[]
+  documents        Document[]
+  payments         Payment[]
+  notes            Note[]
+  history          OrderStatusHistory[]
+  notifications    Notification[]
+  umrahGroupMember UmrahGroupMember[]
+  couponUsage      CouponUsage?
 
   @@index([customerId])
   @@index([assignedUserId])
@@ -257,24 +474,105 @@ model Order {
   @@index([status])
   @@index([paymentStatus])
   @@index([createdAt])
+  @@index([couponId])
+  @@index([organizationId])
+}
+
+// A discount code an admin creates and a customer redeems on an Order.
+// Deliberately holds only the coupon's *rules* — actual redemption facts
+// (who, which order, how much) live on CouponUsage so a Coupon can be
+// edited/archived without rewriting history, and so total/per-customer
+// usage counts are a simple query rather than a maintained counter that
+// could drift. serviceId/visaTypeId scope eligibility (null = applies to
+// everything); customerId restricts the coupon to one specific customer
+// (null = public, subject to the other rules). Kept intentionally flat —
+// no separate "campaign" or "rule" tables — because nothing here needs its
+// own identity or ordering beyond what a single row already expresses.
+model Coupon {
+  id                    String             @id @default(cuid())
+  code                  String             @unique
+  description           String?
+  discountType          CouponDiscountType
+  discountValue         Decimal            @db.Decimal(12, 2)
+  startDate             DateTime?
+  expiryDate            DateTime?
+  active                Boolean            @default(true)
+  archived              Boolean            @default(false)
+  // null = unlimited.
+  usageLimit            Int?
+  // null = unlimited; defaults to 1 (the common "one redemption per
+  // customer" case) rather than null, so an admin must deliberately widen it.
+  usageLimitPerCustomer Int?               @default(1)
+  minOrderAmount        Decimal?           @db.Decimal(12, 2)
+  serviceId             String?
+  visaTypeId            String?
+  newCustomersOnly      Boolean            @default(false)
+  customerId            String?
+  createdByUserId       String
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  service      Service?      @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  visaType     VisaType?     @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
+  restrictedTo Customer?     @relation("CouponCustomerRestriction", fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy    User          @relation("CouponCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  orders       Order[]
+  usages       CouponUsage[]
+
+  @@index([code])
+  @@index([active])
+  @@index([expiryDate])
+  @@index([serviceId])
+  @@index([visaTypeId])
+  @@index([customerId])
+}
+
+// One row per successful redemption. The @@unique on orderId is the
+// database-level guarantee that a single order can never carry two coupon
+// redemptions (Phase 6's "prevent double application") — application code
+// enforces every other rule, but this one is enforced even against a bug
+// or a concurrent request.
+model CouponUsage {
+  id             String   @id @default(cuid())
+  couponId       String
+  customerId     String
+  orderId        String   @unique
+  discountAmount Decimal  @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+
+  coupon   Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([couponId])
+  @@index([customerId])
 }
 
 model OrderItem {
-  id        String   @id @default(cuid())
-  orderId   String
-  serviceId String
-  quantity  Int      @default(1)
-  unitPrice Decimal  @db.Decimal(12, 2)
-  discount  Decimal  @default(0) @db.Decimal(12, 2)
-  total     Decimal  @db.Decimal(12, 2)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  orderId      String
+  serviceId    String
+  quantity     Int      @default(1)
+  unitPrice    Decimal  @db.Decimal(12, 2)
+  discount     Decimal  @default(0) @db.Decimal(12, 2)
+  total        Decimal  @db.Decimal(12, 2)
+  // Both nullable and independent of each other on purpose: cost is often
+  // learned after the sale (a supplier invoice arrives later), so an item
+  // can carry a supplierId without a cost yet, or vice versa. Financial
+  // reporting only computes gross profit for items that have a cost set —
+  // see finance.service.js's costCoverage/grossProfit "unavailable" rule.
+  supplierId   String?
+  supplierCost Decimal? @db.Decimal(12, 2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  service Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  service  Service   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([serviceId])
+  @@index([supplierId])
 }
 
 model Document {
@@ -301,21 +599,27 @@ model Document {
 }
 
 model Payment {
-  id              String        @id @default(cuid())
-  orderId         String
-  amount          Decimal       @db.Decimal(12, 2)
-  currency        String        @default("SAR")
-  paymentMethod   String
-  referenceNumber String?
-  status          PaymentStatus @default(UNPAID)
-  paidAt          DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id               String               @id @default(cuid())
+  orderId          String
+  amount           Decimal              @db.Decimal(12, 2)
+  currency         String               @default("SAR")
+  paymentMethod    String
+  referenceNumber  String?
+  status           PaymentStatus        @default(UNPAID)
+  paidAt           DateTime?
+  reviewStatus     PaymentReviewStatus?
+  rejectionReason  String?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order      Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("PaymentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([status])
+  @@index([reviewStatus])
 }
 
 model Note {
@@ -350,20 +654,23 @@ model OrderStatusHistory {
 }
 
 model Notification {
-  id        String    @id @default(cuid())
-  title     String
-  message   String
-  type      String
-  userId    String?
-  orderId   String?
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id         String    @id @default(cuid())
+  title      String
+  message    String
+  type       String
+  userId     String?
+  customerId String?
+  orderId    String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  user  User?  @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
-  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  user     User?     @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  order    Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([customerId])
   @@index([orderId])
   @@index([type])
 }
@@ -384,6 +691,187 @@ model Offer {
   @@index([status])
 }
 
+// Admin-controlled homepage service cards (Platform 3.0 Phase 1). The hero
+// itself (title/description/CTA/image) is deliberately NOT modeled here —
+// it's a singleton, so it lives as Setting rows (HOMEPAGE_HERO_*) and a
+// SiteAsset image slot ("hero-image"), reusing existing infrastructure
+// instead of a table with exactly one meaningful row. This model is for the
+// list of service cards, which genuinely need order + per-row visibility +
+// per-row image, none of which Setting can express.
+//
+// iconKey/imageKey are validated against fixed allow-lists at the API layer
+// (a known Lucide icon name; an existing SiteAsset key) rather than trusted
+// as arbitrary strings, so a section can never reference an icon component
+// or asset that doesn't exist.
+model HomepageSection {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  title       String
+  description String?
+  href        String?
+  iconKey     String?
+  imageKey    String?
+  visible     Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([visible])
+  @@index([sortOrder])
+}
+
+// Platform 3.0 Phase 9 (Ferries/Maritime). The ferry booking intake form
+// (web/src/components/sections/ferry-service-client.tsx) previously
+// hardcoded its route/carrier <select> options in React — these two
+// models let an admin actually manage that directory instead. logoKey
+// mirrors Service/HomepageSection's SiteAsset-derived-key pattern
+// (`ferry-operator-<id>`). No raw-SQL/flight_* entanglement here: unlike
+// flight_inventory, ferries never had an existing table, so this is a
+// clean new model with no legacy migration hazard.
+model FerryOperator {
+  id        String   @id @default(cuid())
+  name      String
+  nameEn    String?
+  logoKey   String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  schedules FerrySchedule[]
+
+  @@index([active])
+  @@index([sortOrder])
+}
+
+// A single sailing an admin publishes (route + date + capacity/price).
+// Deliberately not linked to ContactRequest/Order — a customer's booking
+// intake stays the existing free-text intakeData flow (see
+// contact-requests.service.js), unchanged by this phase; a FerrySchedule
+// is just what customers pick FROM in that form, not a reservation.
+model FerrySchedule {
+  id              String   @id @default(cuid())
+  operatorId      String
+  origin          String
+  destination     String
+  travelDate      DateTime
+  departureTime   String?
+  arrivalTime     String?
+  durationMinutes Int?
+  basePrice       Decimal  @db.Decimal(12, 2)
+  currency        String   @default("SAR")
+  capacity        Int?
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  operator FerryOperator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId])
+  @@index([active])
+  @@index([travelDate])
+  @@index([sortOrder])
+}
+
+// Platform 3.0 Phase 10 (Airline Directory). A standalone reference
+// directory — deliberately NOT wired into flight_inventory/flight_bookings
+// (raw-SQL tables with no Prisma model) or flights.service.js's
+// SUDANESE_AIRLINES filter, since the plan explicitly says not to change
+// flight-booking business logic unnecessarily; `airline_name` there stays
+// the free-text field it already is. iataCode/icaoCode are normalized to
+// uppercase at the API layer and unique when set (Postgres unique
+// constraints allow multiple NULLs, so "unknown code" isn't blocked).
+model Airline {
+  id        String   @id @default(cuid())
+  name      String
+  nameEn    String?
+  iataCode  String?  @unique
+  icaoCode  String?  @unique
+  logoKey   String?
+  website   String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@index([sortOrder])
+}
+
+// Platform 3.0 Phase 11 (Global Airport Directory). Standalone reference
+// data, same posture as Airline: not wired into flight_inventory/
+// flight_bookings. No sortOrder — unlike the small hand-curated
+// directories elsewhere in this schema, an airport directory is meant to
+// hold a large dataset searched by name/city/code (see
+// airports.service.js's searchAirports), not manually drag-reordered.
+// lat/lng are optional (@db.DoublePrecision — plain floating point is
+// precise enough for a map pin or a "nearest airport" hint; this isn't a
+// GIS system computing routes).
+model Airport {
+  id        String   @id @default(cuid())
+  nameAr    String
+  nameEn    String?
+  cityAr    String
+  cityEn    String?
+  countryAr String
+  countryEn String?
+  iataCode  String?  @unique
+  icaoCode  String?  @unique
+  latitude  Float?
+  longitude Float?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+}
+
+// A travel batch for a group Umrah trip. Deliberately thin: it holds the
+// group-level logistics (name/date/airline/hotel/transport) and nothing
+// else — every per-traveler fact (visa/ticket/payment/document readiness)
+// is read live off that member's existing Customer/Order rows instead of
+// being duplicated here, so a group is a view over Orders/Customers, not a
+// parallel system (see UmrahGroupMember and umrah-groups.service.js).
+model UmrahGroup {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  name       String
+  travelDate DateTime?
+  airline    String?
+  hotel      String?
+  transport  String?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  members UmrahGroupMember[]
+
+  @@index([travelDate])
+}
+
+model UmrahGroupMember {
+  id         String   @id @default(cuid())
+  groupId    String
+  customerId String
+  // The Umrah order this member's readiness (payment/documents/visa/ticket)
+  // is read from. Nullable: a customer can be added to a group before an
+  // order exists for them yet — they simply show as not ready until linked.
+  orderId    String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  group    UmrahGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  customer Customer   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order    Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([groupId, customerId])
+  @@index([groupId])
+  @@index([customerId])
+  @@index([orderId])
+}
+
 model ActivityLog {
   id        String   @id @default(cuid())
   userId    String?
@@ -392,6 +880,13 @@ model ActivityLog {
   entityId  String?
   ipAddress String?
   userAgent String?
+  // Platform 3.0 Phase 16 — the entity's state before/after this action,
+  // where safe to record. Populated only by logActivity()'s redactSensitive()
+  // path (backend/src/utils/activityLog.js), which strips password/token/
+  // secret/passport-image fields before anything reaches this column —
+  // never write here directly.
+  oldValue  Json?
+  newValue  Json?
   createdAt DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -409,19 +904,26 @@ model Setting {
   updatedAt DateTime @updatedAt
 }
 
-// Used to generate sequential human-readable numbers (order/customer/employee)
-// via an atomic single-statement upsert, instead of count()-based generation
-// which is subject to race conditions under concurrent requests.
 model Counter {
   key       String   @id
   value     Int      @default(0)
   updatedAt DateTime @updatedAt
 }
 
-// One row per known branding slot (see site-assets.constants.js for the
-// fixed list of allowed keys) — the currently-live file for that slot.
-// Uploading again replaces the row (and the old file on disk) rather than
-// versioning, since only the current asset is ever served.
+// Platform 3.0 Phase 13 — a fixed, seeded set of toggles (see
+// feature-flags/feature-flags.constants.js's FEATURE_FLAG_KEYS), not an
+// admin-creatable arbitrary list — `key` as the primary key mirrors
+// Counter's own pattern above. Enforcement happens server-side via
+// requireFeatureEnabled() (feature-flags/feature-flags.middleware.js),
+// wired into the specific route for each capability — never just a
+// frontend-hidden button.
+model FeatureFlag {
+  key         String   @id
+  enabled     Boolean  @default(true)
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
 model SiteAsset {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -439,23 +941,12 @@ enum ContactRequestStatus {
   CLOSED
 }
 
-// Reuses OrderStatus's exact terminology for a terminal outcome (COMPLETED/
-// REJECTED/CANCELLED) rather than inventing new words like "SUCCESS" — same
-// meaning, same Arabic labels already in frontend/assets/api.js's
-// STATUS_LABELS_AR, same badge colors already in style.css. Only meaningful
-// while status is CLOSED; see updateContactRequestStatus, which clears it on
-// reopen.
 enum ContactRequestOutcome {
   COMPLETED
   REJECTED
   CANCELLED
 }
 
-// Tracks the customer's side of a manual bank-transfer payment for a priced
-// ContactRequest — there is no payment gateway integration, so this is a
-// declared-then-verified flow: staff price it (Invoice), the customer
-// approves, transfers the money out-of-band, and tells us; staff then
-// confirms the transfer actually arrived.
 enum ContactRequestPaymentStatus {
   NOT_REQUIRED
   AWAITING_TRANSFER
@@ -463,63 +954,53 @@ enum ContactRequestPaymentStatus {
   CONFIRMED
 }
 
-// Submissions from the public marketing site's contact form (unauthenticated
-// endpoint) — reviewed and actioned by staff, distinct from Customer/Order
-// which represent an already-onboarded client with a real booking.
 model ContactRequest {
-  id                 String                      @id @default(cuid())
-  name               String
-  phone              String
-  // Digits-only, country-code-normalized form of `phone` (see utils/phone.js)
-  // — lets the /track flow match a request by phone regardless of how the
-  // customer originally typed it (spaces, +, leading 0 vs 249, ...).
-  phoneNormalized    String                      @default("")
-  email              String?
-  service            String?
-  // Real catalog references for a Public Service Intake submission (Umrah /
-  // Visas / Packages) — both nullable/optional so the original free-text
-  // contact form (no service picked from a catalog) keeps working unchanged.
-  // servicePackages already reuses Service (category="package") rather than
-  // a dedicated Package model — see prisma/seed.js.
-  serviceId          String?
-  visaTypeId         String?
-  // Number of travelers declared at intake (Umrah/Visas), when applicable.
-  travelerCount      Int?
-  // Free-form structured intake data that doesn't warrant its own relational
-  // model yet (traveler list, package/visa-specific answers, notes) — kept
-  // as JSON rather than inventing fixed columns/tables for business rules
-  // this phase doesn't need to enforce server-side.
-  intakeData         Json?
-  message            String
-  status             ContactRequestStatus        @default(NEW)
-  // Only set while status is CLOSED — why/how it ended. Cleared if the
-  // request is reopened (moved back to NEW/CONTACTED).
-  outcome            ContactRequestOutcome?
-  outcomeNote        String?
-  closedAt           DateTime?
-  paymentStatus      ContactRequestPaymentStatus @default(NOT_REQUIRED)
-  paymentConfirmedAt DateTime?
-  createdAt          DateTime                    @default(now())
-  updatedAt          DateTime                    @updatedAt
+  id                   String                      @id @default(cuid())
+  name                 String
+  phone                String
+  phoneNormalized      String                      @default("")
+  email                String?
+  service              String?
+  serviceId            String?
+  visaTypeId           String?
+  travelerCount        Int?
+  intakeData           Json?
+  // Platform 3.0 Phase 5 — a point-in-time copy of the selected visa
+  // type's active VisaRequirement checklist, captured at submission (see
+  // createContactRequest). Later edits to the live requirement templates
+  // must never change what an already-submitted request's checklist says.
+  requirementsSnapshot Json?
+  message              String
+  status               ContactRequestStatus        @default(NEW)
+  outcome              ContactRequestOutcome?
+  outcomeNote          String?
+  closedAt             DateTime?
+  paymentStatus        ContactRequestPaymentStatus @default(NOT_REQUIRED)
+  paymentConfirmedAt   DateTime?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
 
+  organizationId String @default("org_nasaem_default")
+
+  customerId      String?
+  organization    Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   serviceRef      Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   visaType        VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
+  customer        Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   invoice         Invoice?
   documents       ContactRequestDocument[]
   deliverables    ContactRequestDeliverable[]
   offers          ContactRequestOffer[]       @relation("ContactRequestOffers")
-  // The offer the customer picked from `offers` (e.g. one carrier out of
-  // several quoted). Nullable/unique — set once, on selection; a distinct
-  // relation from `offers` since it points at exactly one specific row
-  // rather than owning the collection.
   selectedOfferId String?                     @unique
   selectedOffer   ContactRequestOffer?        @relation("SelectedOffer", fields: [selectedOfferId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([createdAt])
   @@index([phoneNormalized])
+  @@index([customerId])
   @@index([serviceId])
   @@index([visaTypeId])
+  @@index([organizationId])
 }
 
 enum ContactRequestDocumentStatus {
@@ -528,13 +1009,6 @@ enum ContactRequestDocumentStatus {
   REJECTED
 }
 
-// A file the customer uploaded via /track for this request (e.g. a passport
-// scan) and staff's review of it. Append-only by design — a re-upload after
-// rejection creates a new row rather than overwriting the old one, so the
-// review history stays intact; "the current one" is simply the most recent
-// row per `label`. No fixed per-service checklist exists (services vary too
-// widely — visas, flights, hotels, ...), so `label` is free text rather than
-// an enum.
 model ContactRequestDocument {
   id               String                       @id @default(cuid())
   contactRequestId String
@@ -547,24 +1021,34 @@ model ContactRequestDocument {
   reviewNote       String?
   reviewedByUserId String?
   reviewedAt       DateTime?
+  // Platform 3.0 Phase 6 (Attachment Engine) — links this upload to the
+  // specific VisaRequirement checklist item it satisfies, so the upload
+  // can actually be validated against that requirement's own allowedMime/
+  // maxSize/maxFiles rules instead of only the generic global upload
+  // filter. Optional: nullable so uploads that aren't tied to a formal
+  // checklist (plain contact form, general attachments) keep working
+  // unchanged. onDelete: SetNull — deleting a requirement definition must
+  // never delete a customer's already-uploaded document.
+  requirementId    String?
+  // Platform 3.0 Phase 7 (Passport OCR Configuration) — set only when the
+  // linked VisaRequirement has ocrEnabled and the uploaded file is an
+  // image. Purely informational/additive: nothing here is ever written
+  // back onto authoritative data, and a failed/absent extraction never
+  // blocks the upload itself (see maybeRunPassportOcr).
+  ocrResult        Json?
   createdAt        DateTime                     @default(now())
   updatedAt        DateTime                     @updatedAt
 
-  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
-  reviewedBy     User?          @relation("ContactRequestDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  contactRequest ContactRequest   @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  reviewedBy     User?            @relation("ContactRequestDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  requirement    VisaRequirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
 
   @@index([contactRequestId])
   @@index([status])
   @@index([reviewedByUserId])
+  @@index([requirementId])
 }
 
-// The missing other half of ContactRequestDocument's file exchange: staff
-// deliver a finished file (an issued visa, a ticket, a hotel voucher) for
-// the customer to download from /track. Deliberately its own model rather
-// than reusing ContactRequestDocument — there's nothing for the customer to
-// accept/reject here, so that model's review status/note fields would be
-// meaningless noise on every row. Append-only, no status: the file itself
-// is the deliverable; a correction is just another upload.
 model ContactRequestDeliverable {
   id               String   @id @default(cuid())
   contactRequestId String
@@ -584,14 +1068,6 @@ model ContactRequestDeliverable {
   @@index([uploadedByUserId])
 }
 
-// One priced option among several staff can offer for the same request
-// (e.g. different flight/ferry carriers or schedules) — an alternative to
-// Invoice's single fixed quote for cases where the customer should pick
-// among genuinely different options rather than approve/reject one bundled
-// price. A request uses one pricing mechanism or the other, never both
-// (enforced in the service layer, not the schema). Append-only like
-// ContactRequestDocument — no edit/delete, staff just add a corrected offer
-// alongside if needed.
 model ContactRequestOffer {
   id               String   @id @default(cuid())
   contactRequestId String
@@ -617,11 +1093,6 @@ enum InvoiceStatus {
   REJECTED
 }
 
-// A single formal price quote for a ContactRequest, issued by staff and
-// requiring explicit customer approval (via /track) before any payment step
-// is presented. One-to-one and mutable only pre-approval: once APPROVED, the
-// price is locked — reissuing after a REJECTED decision is the only way to
-// offer a revised price.
 model Invoice {
   id               String        @id @default(cuid())
   contactRequestId String        @unique
@@ -641,11 +1112,6 @@ model Invoice {
   @@index([createdByUserId])
 }
 
-// One-time WhatsApp verification codes for the public /track self-service
-// login (POST /api/tracking/request-code, verify-code) — deliberately
-// separate from User/Customer, since the person tracking a request may not
-// exist as either yet (a ContactRequest is often someone's very first
-// contact with the company, before they're ever onboarded as a Customer).
 model ContactRequestLoginCode {
   id         String    @id @default(cuid())
   phone      String

@@ -9,4 +9,11 @@ export const createPaymentSchema = z.object({
   referenceNumber: z.string().optional().nullable(),
   status: z.enum(["UNPAID", "PARTIAL", "PAID", "REFUNDED"]).default("PAID"),
   paidAt: z.string().datetime().optional().or(z.string().min(1).optional()),
+  // When true, the payment is recorded as awaiting review (UNPAID until a
+  // staff member explicitly confirms it) instead of counted immediately.
+  pendingReview: z.coerce.boolean().optional(),
+});
+
+export const rejectPaymentSchema = z.object({
+  reason: z.string().trim().min(3, "Rejection reason is required"),
 });

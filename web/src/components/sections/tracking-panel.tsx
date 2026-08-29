@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, Download, Loader2, LogOut, PhoneCall, ShieldCheck } from "lucide-react";
+import { Check, CheckCircle2, Copy, Download, Loader2, LogOut, MessageCircle, PhoneCall, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
+import { siteConfig } from "@/lib/site-config";
+import { LegalDisclosure } from "@/components/legal-disclosure";
 
 type TrackedRequestStatus = "NEW" | "CONTACTED" | "CLOSED";
 type InvoiceStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -118,7 +120,7 @@ const DOCUMENT_STATUS_LABEL: Record<DocumentStatus, string> = {
   REJECTED: "مرفوض",
 };
 
-type Stage = "checking" | "phone" | "code" | "requests";
+type Stage = "checking" | "phone" | "code" | "requests" | "error";
 
 const STATUS_BADGE_CLASS: Record<TrackedRequestStatus, string> = {
   NEW: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
@@ -128,6 +130,24 @@ const STATUS_BADGE_CLASS: Record<TrackedRequestStatus, string> = {
 
 function formatMoney(amount: string, currency: string) {
   return `${Number(amount).toLocaleString("en-US")} ${currency}`;
+}
+
+function getRequestNextAction(req: TrackedRequest) {
+  if (req.status === "CLOSED") {
+    return req.outcome === "COMPLETED"
+      ? "لا يوجد إجراء مطلوب منك حاليًا. طلبك مكتمل."
+      : "لا يوجد إجراء مطلوب منك حاليًا. يمكنك التواصل معنا إذا احتجت إلى مساعدة.";
+  }
+  if (req.deliverables.length > 0) return "ملفاتك النهائية جاهزة للتحميل.";
+  if (req.documents.some((doc) => doc.status === "REJECTED")) {
+    return "أعد رفع المستند المرفوض بعد مراجعة الملاحظة الموضحة أدناه.";
+  }
+  if (req.paymentStatus === "UNDER_REVIEW") return "انتظر مراجعة إثبات التحويل من فريقنا.";
+  if (req.paymentStatus === "AWAITING_TRANSFER") return "حوّل المبلغ ثم اضغط «تم تحويل المبلغ».";
+  if (req.invoice?.status === "PENDING") return "راجع السعر المقترح ثم اختر الموافقة أو الرفض.";
+  if (req.offers.length > 0 && !req.selectedOfferId) return "راجع العروض واختر العرض المناسب لك.";
+  if (req.documents.some((doc) => doc.status === "PENDING")) return "انتظر مراجعة المستندات المرفوعة.";
+  return "لا يوجد إجراء مطلوب منك حاليًا. سنخبرك عند الحاجة.";
 }
 
 // Shared by every panel below that posts a tracking action (invoice
@@ -394,6 +414,10 @@ function RequestDocumentsPanel({
         <p className="mt-2 text-xs text-muted-foreground">لم يتم رفع أي مستندات بعد.</p>
       )}
 
+      <div className="mt-3">
+        <LegalDisclosure sensitive />
+      </div>
+
       <form onSubmit={handleUpload} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1">
           <label className="text-xs font-semibold text-foreground">نوع المستند</label>
@@ -490,6 +514,39 @@ function RequestIntakeSummaryPanel({ req }: { req: TrackedRequest }) {
 // tracking cookie is SameSite=Lax, which browsers still send on a direct
 // top-level navigation like opening this link in a new tab, exactly like
 // the staff dashboard already does for its own document links.
+function RequestReference({ requestId }: { requestId: string }) {
+  const [copied, setCopied] = React.useState(false);
+
+  async function copyReference() {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(requestId);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2200);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/70 bg-background px-3 py-2">
+      <span className="text-xs text-muted-foreground">رقم الطلب</span>
+      <div className="flex items-center gap-2" dir="ltr">
+        <span className="max-w-[12rem] truncate font-mono text-xs font-bold text-foreground">{requestId}</span>
+        <button
+          type="button"
+          onClick={copyReference}
+          className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-primary outline-none transition hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary"
+          aria-label="نسخ رقم الطلب"
+        >
+          {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+          <span aria-live="polite">{copied ? "تم النسخ" : "نسخ"}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RequestDeliverablesPanel({ req }: { req: TrackedRequest }) {
   if (req.deliverables.length === 0) {
     return null;
@@ -540,16 +597,25 @@ export function TrackingPanel() {
   const [requests, setRequests] = React.useState<TrackedRequest[]>([]);
 
   const loadRequests = React.useCallback(async () => {
-    const res = await fetch(`${API_URL}/tracking/requests`, {
-      credentials: "include",
-    });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(`${API_URL}/tracking/requests`, {
+        credentials: "include",
+        signal: controller.signal,
+      });
 
-    if (!res.ok) {
-      return { loggedIn: false as const };
+      if (!res.ok) {
+        return { loggedIn: false as const, error: null };
+      }
+
+      const payload = await res.json().catch(() => null);
+      return { loggedIn: true as const, requests: payload?.data ?? [], error: null };
+    } catch {
+      return { loggedIn: false as const, error: "تعذر الاتصال بخدمة التتبع. حاول مرة أخرى." };
+    } finally {
+      window.clearTimeout(timeout);
     }
-
-    const payload = await res.json().catch(() => null);
-    return { loggedIn: true as const, requests: payload?.data ?? [] };
   }, []);
 
   const refreshRequests = React.useCallback(async () => {
@@ -569,7 +635,10 @@ export function TrackingPanel() {
     loadRequests().then((result) => {
       if (ignore) return;
 
-      if (result.loggedIn) {
+      if (result.error) {
+        setError(result.error);
+        setStage("error");
+      } else if (result.loggedIn) {
         setRequests(result.requests);
         setStage("requests");
       } else {
@@ -663,6 +732,17 @@ export function TrackingPanel() {
     );
   }
 
+  if (stage === "error") {
+    return (
+      <div className="mx-auto max-w-lg rounded-2xl border border-red-500/30 bg-red-500/5 p-6 text-center">
+        <p className="text-sm text-red-600 dark:text-red-400">{error || "تعذر تحميل التتبع."}</p>
+        <Button type="button" variant="outline" className="mt-4" onClick={() => window.location.reload()}>
+          إعادة المحاولة
+        </Button>
+      </div>
+    );
+  }
+
   if (stage === "requests") {
     return (
       <div className="mx-auto max-w-2xl">
@@ -695,6 +775,11 @@ export function TrackingPanel() {
                     {req.statusLabel}
                   </span>
                 </div>
+                <RequestReference requestId={req.id} />
+                <div className="mt-3 rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm text-foreground">
+                  <span className="font-bold">الخطوة التالية</span>
+                  <p className="mt-1 text-muted-foreground">{getRequestNextAction(req)}</p>
+                </div>
                 <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
                 {req.status === "CLOSED" && req.outcomeNote ? (
                   <p className="mt-1 text-sm text-muted-foreground">{req.outcomeNote}</p>
@@ -705,9 +790,20 @@ export function TrackingPanel() {
                 <RequestOffersPanel req={req} onActionComplete={refreshRequests} />
                 <RequestTransferAction req={req} onActionComplete={refreshRequests} />
                 <RequestDocumentsPanel req={req} onActionComplete={refreshRequests} />
-                <p className="mt-3 text-xs text-muted-foreground" dir="ltr">
-                  {formatTrackedDate(req.createdAt)}
-                </p>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground" dir="ltr">
+                    {formatTrackedDate(req.createdAt)}
+                  </p>
+                  <a
+                    href={`https://wa.me/${siteConfig.whatsapp}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-muted-foreground outline-none transition hover:bg-primary/5 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <MessageCircle className="size-4" />
+                    تحتاج مساعدة؟ تواصل معنا عبر واتساب
+                  </a>
+                </div>
               </li>
             ))}
           </ul>

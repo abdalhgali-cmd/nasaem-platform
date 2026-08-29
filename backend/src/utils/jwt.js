@@ -63,3 +63,38 @@ export function verifyTrackingToken(token) {
 export function getTrackingTokenMaxAgeMs() {
   return ms(TRACKING_TOKEN_EXPIRES_IN);
 }
+
+// Customer Account self-service session (see backend/src/modules/customer-auth)
+// — same reasoning as the tracking token above: its own scope claim, its
+// own cookie, its own lifetime, so it can never be confused with a staff
+// session token or a /track phone-only token even though all three share
+// the same JWT_SECRET and jsonwebtoken library.
+const CUSTOMER_TOKEN_EXPIRES_IN = "30d";
+
+export function signCustomerToken(customerId) {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not configured");
+  }
+
+  return jwt.sign({ sub: customerId, scope: "customer" }, process.env.JWT_SECRET, {
+    expiresIn: CUSTOMER_TOKEN_EXPIRES_IN,
+  });
+}
+
+export function verifyCustomerToken(token) {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not configured");
+  }
+
+  const payload = jwt.verify(token, process.env.JWT_SECRET);
+
+  if (payload.scope !== "customer") {
+    throw new Error("Invalid token scope");
+  }
+
+  return payload;
+}
+
+export function getCustomerTokenMaxAgeMs() {
+  return ms(CUSTOMER_TOKEN_EXPIRES_IN);
+}

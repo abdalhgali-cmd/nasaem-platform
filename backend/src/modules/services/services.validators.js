@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { SUPPORTED_CURRENCIES } from "../../utils/enums.js";
+import { ICON_KEYS, SUPPORTED_CURRENCIES } from "../../utils/enums.js";
+
+const featuresSchema = z.array(z.string().trim().min(1).max(200)).max(20).optional().nullable();
 
 export const createServiceSchema = z.object({
   code: z.string().min(1, "Service code is required"),
@@ -9,6 +11,14 @@ export const createServiceSchema = z.object({
   basePrice: z.coerce.number().nonnegative(),
   currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
   active: z.coerce.boolean().optional(),
+  sortOrder: z.coerce.number().int().optional(),
+  iconKey: z.enum(ICON_KEYS).optional().nullable(),
+  features: featuresSchema,
+  processingTime: z.string().trim().max(100).optional().nullable(),
 });
 
 export const updateServiceSchema = createServiceSchema.partial();
+
+export const reorderServicesSchema = z.object({
+  order: z.array(z.string().min(1)).min(1),
+});

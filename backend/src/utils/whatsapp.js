@@ -1,7 +1,33 @@
+import { normalizePhone } from "./phone.js";
+import { isFeatureEnabled } from "../modules/feature-flags/feature-flags.service.js";
+
 const GRAPH_API_VERSION = "v21.0";
 
 function isConfigured() {
   return Boolean(process.env.WHATSAPP_API_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
+}
+
+// Platform 3.0 Phase 13: a synchronously-readable, stale-while-revalidate
+// cache for the WHATSAPP flag. sendWhatsAppMessage is always called
+// fire-and-forget (never awaited by its callers) specifically so a slow/
+// unreachable WhatsApp API can never delay the request that triggered
+// it; an `await` on a real DB query here, right before the dispatch,
+// would reintroduce exactly that kind of delay into what every caller
+// assumes is a synchronous kick-off. Reading a cached boolean keeps that
+// guarantee — the flag can lag up to WHATSAPP_FLAG_TTL_MS behind a
+// toggle, which is an acceptable trade for a notification channel.
+const WHATSAPP_FLAG_TTL_MS = 10_000;
+let whatsAppFlagCache = { enabled: true, checkedAt: 0 };
+
+function refreshWhatsAppFlagCache() {
+  isFeatureEnabled("WHATSAPP")
+    .then((enabled) => { whatsAppFlagCache = { enabled, checkedAt: Date.now() }; })
+    .catch(() => {});
+}
+
+function isWhatsAppFeatureEnabled() {
+  if (Date.now() - whatsAppFlagCache.checkedAt > WHATSAPP_FLAG_TTL_MS) refreshWhatsAppFlagCache();
+  return whatsAppFlagCache.enabled;
 }
 
 // Best-effort, same rationale as logActivity/createNotification: a WhatsApp
@@ -17,6 +43,22 @@ function isConfigured() {
 // message. See https://developers.facebook.com/docs/whatsapp/cloud-api.
 export async function sendWhatsAppMessage(to, body) {
   if (!isConfigured() || !to) return;
+  // Platform 3.0 Phase 13: gated at the source so every caller (order
+  // notifications, contact-request notifications, tracking OTP, ...) is
+  // covered by a single check instead of each needing its own.
+  if (!isWhatsAppFeatureEnabled()) return;
+
+  // Normalized here rather than trusted from the caller: the
+  // ContactRequest flow already normalizes before calling this (it stores
+  // phoneNormalized), but Order-related callers (orders.service.js,
+  // payments.controller.js) pass Customer.phone as staff typed it —
+  // whatever format that turns out to be (a leading 0, spaces, a leading
+  // +, ...) — and Meta's API silently rejects anything that isn't
+  // digits-only E.164 without the +. Normalizing centrally here means
+  // every current and future caller gets this for free instead of each
+  // one needing to remember to do it.
+  const recipient = normalizePhone(to);
+  if (!recipient) return;
 
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = process.env.WHATSAPP_API_TOKEN;
@@ -25,7 +67,7 @@ export async function sendWhatsAppMessage(to, body) {
   const payload = templateName
     ? {
         messaging_product: "whatsapp",
-        to,
+        to: recipient,
         type: "template",
         template: {
           name: templateName,
@@ -35,7 +77,7 @@ export async function sendWhatsAppMessage(to, body) {
       }
     : {
         messaging_product: "whatsapp",
-        to,
+        to: recipient,
         type: "text",
         text: { body },
       };

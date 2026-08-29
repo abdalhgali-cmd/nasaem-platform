@@ -46,8 +46,12 @@ function canRecordPayment() {
   return ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"].includes(currentUser.role);
 }
 
+// Platform 3.0 Phase 15: CONTENT_MANAGER can reach Management (the
+// Configuration Center panels live there) — mgmtCanWrite() and the
+// backend's own requireRole checks are what actually keep this role off
+// financial/operational sub-tabs, not this gate.
 function canSeeManagement() {
-  return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
+  return ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"].includes(currentUser.role);
 }
 
 function setupTabVisibility() {
@@ -63,7 +67,13 @@ function setupTabVisibility() {
     document.querySelector('[data-tab="management"]').classList.add("hidden");
   }
 
-  const firstVisible = Array.from(tabButtons).find((btn) => !btn.classList.contains("hidden"));
+  // CONTENT_MANAGER has no access to Orders (the next tab in DOM order
+  // once Overview is hidden) — land on Management, the only top-level
+  // tab this role can actually use, instead of a tab that just 403s.
+  const defaultTab = currentUser.role === "CONTENT_MANAGER" ? "management" : null;
+  const firstVisible =
+    (defaultTab && document.querySelector(`[data-tab="${defaultTab}"]`)) ||
+    Array.from(tabButtons).find((btn) => !btn.classList.contains("hidden"));
   if (firstVisible) {
     activateTab(firstVisible.dataset.tab);
   }

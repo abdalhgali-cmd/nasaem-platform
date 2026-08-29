@@ -44,6 +44,25 @@ describe("flight booking workflow", () => {
     const prematureRes = await admin.post(`/api/flight-bookings/${booking.id}/confirm-payment`).send({});
     assert.equal(prematureRes.status, 400);
 
+    // Platform 3.0 Phase 17: listFlightBookings() was refactored to map
+    // already-fetched rows in memory instead of re-querying each booking
+    // individually (an N+1 fix) — this is the evidence the list endpoint's
+    // output shape is unchanged by that refactor.
+    const listRes = await admin.get("/api/flight-bookings/admin/list");
+    assert.equal(listRes.status, 200);
+    const listed = listRes.body.bookings.find((b) => b.id === booking.id);
+    assert.ok(listed, "expected the created booking in the admin list");
+    assert.equal(listed.status, "PAYMENT_CONFIRMED");
+    assert.equal(listed.statusLabel, "تم تأكيد الدفع");
+    assert.deepEqual(listed.flightIds, [flightId]);
+    assert.equal(listed.customer_email, "flight@test.local");
+    assert.equal(listed.customer_phone, phone);
+
+    const filteredListRes = await admin.get("/api/flight-bookings/admin/list").query({ status: "PAYMENT_CONFIRMED" });
+    assert.equal(filteredListRes.status, 200);
+    assert.ok(filteredListRes.body.bookings.every((b) => b.status === "PAYMENT_CONFIRMED"));
+    assert.ok(filteredListRes.body.bookings.some((b) => b.id === booking.id));
+
     const finalRes = await admin.post(`/api/flight-bookings/${booking.id}/final-ticket`).attach("file", Buffer.from("final ticket"), "final.txt");
     assert.equal(finalRes.status, 200);
     assert.equal(finalRes.body.booking.status, "FINAL_TICKET_ISSUED");
@@ -65,5 +84,58 @@ describe("flight booking workflow", () => {
   test("rejects public access with wrong phone", async () => {
     const res = await request(app).get(`/api/flight-bookings/public/${booking.booking_number}`).query({ phone: "249000000000" });
     assert.equal(res.status, 404);
+  });
+
+  describe("document download isolation", () => {
+    let ownerPhone;
+    let ownedBooking;
+
+    before(async () => {
+      ownerPhone = `24993${uniqueSuffix().slice(-7)}`;
+      const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "File Isolation Test", phone: ownerPhone }, passengers: [{ firstName: "FILE", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }] });
+      ownedBooking = createRes.body.booking;
+      const provisionalRes = await admin.post(`/api/flight-bookings/${ownedBooking.id}/provisional-ticket`).attach("file", Buffer.from("provisional ticket contents"), "provisional.txt");
+      assert.equal(provisionalRes.status, 200);
+    });
+
+    // Regression: GET /:id/file/:kind used to hand back any booking's
+    // documents to anyone who knew (or guessed) the booking id/number, with
+    // no verification at all — a customer-document IDOR.
+    test("rejects a document download without the booking's phone number", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`);
+      assert.equal(res.status, 404);
+    });
+
+    test("rejects a document download with someone else's phone number", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).query({ phone: "249111111111" });
+      assert.equal(res.status, 404);
+    });
+
+    test("allows the document download with the matching phone number", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).query({ phone: ownerPhone });
+      assert.equal(res.status, 200);
+      assert.equal(res.text, "provisional ticket contents");
+    });
+
+    // Regression: GET /:id used to return full booking details (name,
+    // phone, amount, passengers) to anyone, unauthenticated.
+    test("requires staff auth to fetch a booking by id directly", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}`);
+      assert.equal(res.status, 401);
+    });
+
+    test("staff can fetch a booking by id and download its files via the staff-only routes", async () => {
+      const getRes = await admin.get(`/api/flight-bookings/${ownedBooking.id}`);
+      assert.equal(getRes.status, 200);
+      assert.equal(getRes.body.booking.id, ownedBooking.id);
+
+      const fileRes = await admin.get(`/api/flight-bookings/${ownedBooking.id}/staff-file/provisional`);
+      assert.equal(fileRes.status, 200);
+    });
+
+    test("EMPLOYEE cannot download staff files without authentication", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/staff-file/provisional`);
+      assert.equal(res.status, 401);
+    });
   });
 });

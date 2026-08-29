@@ -1,0 +1,17 @@
+"use client";
+/* eslint-disable react-hooks/set-state-in-effect -- initial data loading synchronizes with the API. */
+
+import * as React from "react";
+import { Activity, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { adminRequest } from "@/lib/admin-api";
+
+type ActivityRow = { id: string; action: string; entity: string; entityId?: string | null; createdAt: string; user?: { fullName: string; email?: string | null } | null };
+
+export function ActivityLogManager() {
+  const [rows, setRows] = React.useState<ActivityRow[]>([]); const [query, setQuery] = React.useState(""); const [loading, setLoading] = React.useState(true); const [error, setError] = React.useState("");
+  async function load() { setLoading(true); setError(""); try { const payload = await adminRequest<{ data: ActivityRow[] }>("/activity-logs?limit=100"); setRows(payload.data || []); } catch (err) { setError(err instanceof Error ? err.message : "تعذر تحميل سجل النشاط"); } finally { setLoading(false); } }
+  React.useEffect(() => { void load(); }, []);
+  const filtered = rows.filter((row) => [row.action, row.entity, row.entityId || "", row.user?.fullName || ""].some((value) => value.toLowerCase().includes(query.trim().toLowerCase())));
+  return <section className="mx-auto max-w-7xl space-y-5 px-4 py-7 sm:px-6 lg:px-10">{error ? <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-bold text-destructive">{error}</div> : null}<div className="flex items-center justify-between rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-7"><div className="flex items-start gap-3"><div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Activity className="size-5" /></div><div><h2 className="text-xl font-black">سجل النشاط</h2><p className="mt-1 text-sm leading-7 text-muted-foreground">سجل تغييرات الإدارة مع إخفاء كلمات المرور والرموز وبيانات جوازات السفر.</p></div></div><Button type="button" variant="outline" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} />تحديث</Button></div><div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-7"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="بحث بالإجراء أو الكيان أو الموظف" className="h-11 w-full max-w-xl rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary" /><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[780px] text-sm"><thead><tr className="border-b border-border text-xs text-muted-foreground"><th className="px-3 py-3 text-start">التاريخ</th><th className="px-3 py-3 text-start">الموظف</th><th className="px-3 py-3 text-start">الإجراء</th><th className="px-3 py-3 text-start">الكيان</th><th className="px-3 py-3 text-start">المعرف</th></tr></thead><tbody>{loading ? <tr><td colSpan={5} className="px-3 py-10 text-center text-muted-foreground">جاري التحميل...</td></tr> : null}{filtered.map((row) => <tr key={row.id} className="border-b border-border/70"><td className="px-3 py-4 text-xs text-muted-foreground">{new Date(row.createdAt).toLocaleString("ar-SA")}</td><td className="px-3 py-4 font-bold">{row.user?.fullName || "النظام"}</td><td className="px-3 py-4 font-mono text-xs" dir="ltr">{row.action}</td><td className="px-3 py-4">{row.entity}</td><td className="px-3 py-4 font-mono text-xs" dir="ltr">{row.entityId || "—"}</td></tr>)}</tbody></table></div></div></section>;
+}

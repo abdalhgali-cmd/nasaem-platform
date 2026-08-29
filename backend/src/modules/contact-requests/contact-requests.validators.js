@@ -55,6 +55,16 @@ export const createContactRequestSchema = z.object({
     parseIfJsonString,
     z.array(z.string().trim().min(1).max(120)).max(6).optional()
   ),
+  // Platform 3.0 Phase 6 — optional parallel array (same order/length as
+  // `documents`) linking each uploaded file to the VisaRequirement
+  // checklist item it satisfies. An empty string at a given index means
+  // "this file isn't tied to a specific requirement" — same as omitting
+  // documentLabels/documentRequirementIds entirely for the plain contact
+  // form, which never sends either.
+  documentRequirementIds: z.preprocess(
+    parseIfJsonString,
+    z.array(z.string().trim().max(60)).max(6).optional()
+  ),
 });
 
 export const updateContactRequestStatusSchema = z

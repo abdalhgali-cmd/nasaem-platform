@@ -30,7 +30,9 @@ export default function errorMiddleware(err, req, res, next) {
   const prismaDescription = describePrismaError(err);
 
   const statusCode = prismaDescription?.statusCode || err.statusCode || err.status || 500;
-  const message = prismaDescription?.message || err.message || "Internal server error";
+  const isProduction = process.env.NODE_ENV === "production";
+  const message = prismaDescription?.message ||
+    (isProduction && statusCode >= 500 ? "حدث خطأ داخلي. حاول مرة أخرى لاحقًا." : err.message || "Internal server error");
 
   res.status(statusCode).json({
     success: false,

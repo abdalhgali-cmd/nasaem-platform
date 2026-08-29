@@ -2,11 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main, feature/flights-booking-phase2]
+    branches: [main, feature/flights-booking-phase2, feature/platform-3-admin-controlled]
   pull_request:
 
 jobs:
-  test:
+  backend:
     name: Backend tests
     runs-on: ubuntu-latest
 
@@ -52,3 +52,181 @@ jobs:
         run: npm run prisma:seed
       - name: Run tests
         run: npm test
+
+  backup_restore:
+    name: PostgreSQL backup + restore drill
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: nasaem_backup_source
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/nasaem_backup_source?schema=public
+      JWT_SECRET: ci_test_secret_do_not_use_in_production
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://localhost:3000
+      SEED_ADMIN_PASSWORD: CiTest@12345
+      PGPASSWORD: password
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install
+      - name: Apply migrations and seed source database
+        working-directory: backend
+        run: |
+          npx prisma migrate deploy
+          npm run prisma:seed
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Capture source evidence
+        id: source
+        run: |
+          echo "users=$(psql -h localhost -U postgres -d nasaem_backup_source -Atc 'SELECT count(*) FROM "User";')" >> "$GITHUB_OUTPUT"
+          echo "services=$(psql -h localhost -U postgres -d nasaem_backup_source -Atc 'SELECT count(*) FROM "Service";')" >> "$GITHUB_OUTPUT"
+          echo "migrations=$(psql -h localhost -U postgres -d nasaem_backup_source -Atc 'SELECT count(*) FROM "_prisma_migrations";')" >> "$GITHUB_OUTPUT"
+      - name: Create logical backup
+        id: backup
+        run: |
+          start=$(date +%s)
+          pg_dump -h localhost -U postgres -d nasaem_backup_source -Fc --no-owner --no-acl -f /tmp/nasaem-backup.dump
+          test -s /tmp/nasaem-backup.dump
+          end=$(date +%s)
+          echo "seconds=$((end-start))" >> "$GITHUB_OUTPUT"
+          echo "bytes=$(stat -c%s /tmp/nasaem-backup.dump)" >> "$GITHUB_OUTPUT"
+      - name: Restore into disposable database
+        id: restore
+        run: |
+          start=$(date +%s)
+          createdb -h localhost -U postgres nasaem_backup_restore
+          pg_restore -h localhost -U postgres -d nasaem_backup_restore --no-owner --no-acl /tmp/nasaem-backup.dump
+          end=$(date +%s)
+          echo "seconds=$((end-start))" >> "$GITHUB_OUTPUT"
+      - name: Verify restored data
+        run: |
+          restored_users=$(psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT count(*) FROM "User";')
+          restored_services=$(psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT count(*) FROM "Service";')
+          restored_migrations=$(psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT count(*) FROM "_prisma_migrations";')
+          test "$restored_users" = "${{ steps.source.outputs.users }}"
+          test "$restored_services" = "${{ steps.source.outputs.services }}"
+          test "$restored_migrations" = "${{ steps.source.outputs.migrations }}"
+          psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT 1;' | grep -qx '1'
+      - name: Record drill metrics
+        run: |
+          {
+            echo "### Disposable PostgreSQL backup/restore drill"
+            echo "- Backup duration: ${{ steps.backup.outputs.seconds }}s"
+            echo "- Restore duration: ${{ steps.restore.outputs.seconds }}s"
+            echo "- Backup size: ${{ steps.backup.outputs.bytes }} bytes"
+            echo "- User rows verified: ${{ steps.source.outputs.users }}"
+            echo "- Service rows verified: ${{ steps.source.outputs.services }}"
+            echo "- Prisma migrations verified: ${{ steps.source.outputs.migrations }}"
+            echo "- Scope: CI disposable database only; this proves the restore procedure, not provider backup retention or Production RPO."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  web:
+    name: Frontend typecheck + build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm install
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
+
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    needs: [backend, web]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: nasaem_platform_dev
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/nasaem_platform_dev?schema=public
+      JWT_SECRET: ci_test_secret_do_not_use_in_production
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://localhost:3000
+      SEED_ADMIN_PASSWORD: CiTest@12345
+      API_RATE_LIMIT: 2000
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            web/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install
+      - name: Apply database migrations
+        working-directory: backend
+        run: npx prisma migrate deploy
+      - name: Seed database
+        working-directory: backend
+        run: npm run prisma:seed
+      - name: Install web dependencies
+        working-directory: web
+        run: npm install
+      - name: Install Playwright browsers
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Run Playwright E2E suite
+        working-directory: web
+        run: npx playwright test --project=mobile-web --project=mobile-frontend --project=platform3
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/test-results
+          retention-days: 7

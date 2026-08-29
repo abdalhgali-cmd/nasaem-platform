@@ -1,5 +1,7 @@
+import fs from "fs/promises";
 import path from "path";
 import { createWorker } from "tesseract.js";
+import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { parse as parseMrz } from "mrz";
 
 // Vendored locally (backend/ocr-data/eng.traineddata.gz) so OCR works without
@@ -123,9 +125,104 @@ export async function extractPassportData(imageBuffer) {
   return parsePassportMrzText(text);
 }
 
+const IMAGE_MIME_PREFIX = "image/";
+
+// Platform 3.0 Phase 7 (Passport OCR Configuration) — the shared entry
+// point both attachment upload paths (contact-request-documents.service.js
+// and contact-requests.service.js's intake wizard) call. OCR only runs
+// when the requirement explicitly opts in (ocrEnabled), keeping it
+// configurable per visa/requirement rather than blindly scanning every
+// upload. Runs entirely locally (this file's tesseract.js worker +
+// vendored language data), so passport data is never sent externally.
+// Never throws and never blocks the upload: a failed/absent extraction
+// (bad photo, non-passport document, OCR error) just means no result is
+// attached — the upload itself still succeeds.
+export async function maybeRunPassportOcr(requirement, file) {
+  if (!requirement?.ocrEnabled || !file.mimetype.startsWith(IMAGE_MIME_PREFIX)) {
+    return null;
+  }
+  // Platform 3.0 Phase 13: the PASSPORT_OCR flag gates both this
+  // automatic per-requirement extraction and the standalone staff scan
+  // tool (passport-ocr.routes.js) — disabling it stops OCR everywhere,
+  // not just one entry point.
+  if (!(await isFeatureEnabled("PASSPORT_OCR"))) return null;
+
+  try {
+    const buffer = file.buffer || (await fs.readFile(file.path));
+    return await extractPassportData(buffer);
+  } catch {
+    return null;
+  }
+}
+
 export async function terminateOcrWorker() {
   if (!workerPromise) return;
   const worker = await workerPromise;
   await worker.terminate();
   workerPromise = undefined;
+}
+
+function normalizeName(value) {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isoDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+// Compares OCR-extracted MRZ data against a stored Customer record so staff
+// scanning a passport for an existing order/customer can catch a
+// mismatched document (wrong passport, mistyped number, a stale record)
+// before it goes further. Deliberately conservative: a field is only ever
+// reported "mismatch" when the comparison is actually reliable — see the
+// nationality note below for why that field never gets a match/mismatch
+// verdict.
+export function comparePassportDataToCustomer(extracted, customer) {
+  const results = [];
+
+  const extractedPassportNo = String(extracted.documentNumber || "").toUpperCase().trim();
+  const storedPassportNo = String(customer.passportNo || "").toUpperCase().trim();
+  results.push({
+    field: "passportNo",
+    extracted: extracted.documentNumber,
+    stored: customer.passportNo,
+    status: !extractedPassportNo || !storedPassportNo ? "not_comparable" : extractedPassportNo === storedPassportNo ? "match" : "mismatch",
+  });
+
+  const ocrNameForward = normalizeName(`${extracted.givenNames || ""} ${extracted.surname || ""}`);
+  const ocrNameReversed = normalizeName(`${extracted.surname || ""} ${extracted.givenNames || ""}`);
+  const storedName = normalizeName(customer.fullName);
+  results.push({
+    field: "fullName",
+    extracted: [extracted.givenNames, extracted.surname].filter(Boolean).join(" ") || null,
+    stored: customer.fullName,
+    status: !storedName || (!ocrNameForward && !ocrNameReversed) ? "not_comparable" : storedName === ocrNameForward || storedName === ocrNameReversed ? "match" : "mismatch",
+  });
+
+  const extractedDob = isoDate(extracted.dateOfBirth);
+  const storedDob = isoDate(customer.birthDate);
+  results.push({
+    field: "dateOfBirth",
+    extracted: extracted.dateOfBirth,
+    stored: storedDob,
+    status: !extractedDob || !storedDob ? "not_comparable" : extractedDob === storedDob ? "match" : "mismatch",
+  });
+
+  // Never compared: the MRZ gives an ISO 3166-1 alpha-3 code (e.g. "SDN")
+  // while Customer.nationality is free text that, depending on how the
+  // record was created, might hold that same code, an English name, or an
+  // Arabic name (see frontend/assets/request.js's COUNTRY_NAME_AR mapping
+  // used when this same OCR result fills the intake form). Comparing those
+  // formats directly would produce false "mismatch" results far more often
+  // than it would catch a real one, so this is reported for staff to read,
+  // never scored.
+  results.push({ field: "nationality", extracted: extracted.nationality, stored: customer.nationality, status: "not_comparable" });
+
+  return { customerId: customer.id, fields: results, hasMismatch: results.some((r) => r.status === "mismatch") };
 }

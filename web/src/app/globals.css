@@ -18,6 +18,12 @@
   --color-accent: #d4af37;
   --color-accent-foreground: #1f2937;
 
+  /* Defaults to the same values as --color-primary so it renders
+     identically until an admin sets a distinct button color (Theme
+     settings) — see web/src/lib/theme.ts and app/layout.tsx. */
+  --color-button: var(--color-primary);
+  --color-button-foreground: var(--color-primary-foreground);
+
   --color-success: #16a34a;
   --color-ring: #1e88e5;
 }
@@ -38,6 +44,9 @@
   --color-accent: #e2bf55;
   --color-accent-foreground: #1a1405;
 
+  --color-button: var(--color-primary);
+  --color-button-foreground: var(--color-primary-foreground);
+
   --color-success: #22c55e;
   --color-ring: #4aa0ec;
 }
@@ -57,6 +66,8 @@
   --color-secondary-foreground: var(--color-secondary-foreground);
   --color-accent: var(--color-accent);
   --color-accent-foreground: var(--color-accent-foreground);
+  --color-button: var(--color-button);
+  --color-button-foreground: var(--color-button-foreground);
   --color-success: var(--color-success);
   --color-ring: var(--color-ring);
 

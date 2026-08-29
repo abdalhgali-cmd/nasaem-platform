@@ -1,6 +1,7 @@
 import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import prisma from "../src/config/database.js";
 import { loginAsSuperAdmin } from "./helpers/api.js";
 
 const originalRate = 300000;
@@ -41,15 +42,22 @@ describe("flight FX refresh", () => {
       });
       assert.equal(fxRes.status, 200, JSON.stringify(fxRes.body));
 
-      const flightsRes = await admin.get("/api/flights?limit=100");
-      assert.equal(flightsRes.status, 200);
-      const flight = flightsRes.body.data.items.find((item) => item.id === flightId);
+      // Looked up directly by id rather than through the paginated
+      // GET /api/flights?limit=100 list: flight_inventory is shared,
+      // unbounded, and written to concurrently by other test files'
+      // processes, so this specific row isn't guaranteed to land within
+      // the first 100 by departure_at — a direct row fetch is what this
+      // test actually needs (confirm this one row's priceSdg), and is
+      // robust regardless of how many other flights exist at the time.
+      const rows = await prisma.$queryRawUnsafe(`SELECT * FROM flight_inventory WHERE id = $1`, flightId);
+      const flight = rows[0];
       assert.ok(flight);
       assert.equal(Number(flight.price), 100);
-      assert.equal(Number(flight.fxRateToSdg), originalRate);
-      assert.equal(Number(flight.priceSdg), 100 * originalRate);
+      assert.equal(Number(flight.fx_rate_to_sdg), originalRate);
+      assert.equal(Number(flight.price_sdg), 100 * originalRate);
     } finally {
       await admin.patch("/api/flights/admin/rates").send(previousRates);
+      await prisma.$executeRawUnsafe(`DELETE FROM flight_inventory WHERE flight_number = $1`, `FX${suffix.slice(-5)}`);
     }
   });
 });

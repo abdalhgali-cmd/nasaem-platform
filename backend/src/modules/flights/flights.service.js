@@ -47,7 +47,11 @@ export async function updateCurrencyRates(input) {
   for (const [code, key] of entries) {
     if (input[code] === undefined) continue;
     const value = Number(input[code]);
-    if (!Number.isFinite(value) || value < 0) throw new Error(`Invalid FX rate for ${code}`);
+    if (!Number.isFinite(value) || value < 0) {
+      const error = new Error(`Invalid FX rate for ${code}`);
+      error.statusCode = 400;
+      throw error;
+    }
     await prisma.setting.upsert({
       where: { key },
       update: { value: String(value) },

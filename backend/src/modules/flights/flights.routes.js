@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
+import { requireFeatureEnabled } from "../feature-flags/feature-flags.middleware.js";
 import {
   downloadExcelTemplate,
   getFlights,
@@ -16,7 +17,7 @@ import { patchRatesAndRefresh } from "./fx-refresh.controller.js";
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.get("/search", searchFlights);
+router.get("/search", requireFeatureEnabled("FLIGHT_SEARCH"), searchFlights);
 router.get("/rates", getRates);
 
 router.use(requireAuth);

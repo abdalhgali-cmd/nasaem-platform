@@ -9,6 +9,8 @@ import {
   updateManualFlight,
 } from "./flights.service.js";
 import { searchTripFlights } from "./trip.provider.js";
+import { withTripSearchCache } from "./flights.cache.js";
+import { attachAirlineLogos } from "./flights.enrichment.js";
 
 export async function searchFlights(req, res, next) {
   try {
@@ -29,12 +31,18 @@ export async function searchFlights(req, res, next) {
     }
 
     const manual = await searchManualFlights(legs);
-    const trip = await searchTripFlights({ legs, travelers });
-    const allLegs = legs.map((_, index) => ({
+    // Platform 3.0 Phase 12: cached wrapper around the Trip.com call (see
+    // flights.cache.js) — the request/response shape to Trip.com itself
+    // is unchanged, only duplicate identical searches within a short
+    // window are deduplicated.
+    const tripCacheKey = JSON.stringify({ legs, travelers });
+    const trip = await withTripSearchCache(tripCacheKey, () => searchTripFlights({ legs, travelers }));
+    let allLegs = legs.map((_, index) => ({
       leg: index + 1,
       manual: manual[index] ?? [],
       trip: trip.legs[index] ?? [],
     }));
+    allLegs = await attachAirlineLogos(allLegs);
 
     return res.json({ success: true, tripConfigured: trip.configured, tripType, travelers, currency: "SDG", legs: allLegs });
   } catch (error) {

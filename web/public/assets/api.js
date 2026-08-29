@@ -1,4 +1,20 @@
-const API_BASE = "/api";
+// This copy of api.js is served by the Vercel-hosted marketing site
+// (web/), which has no backend of its own — unlike frontend/assets/api.js,
+// which the Express backend serves same-origin alongside its own API (see
+// backend/src/app.js's static-serving comment), a relative "/api" here
+// resolves against Vercel itself and 404s. There's no build-time env
+// injection into files under web/public (Next.js serves them verbatim), so
+// Production uses the Railway API only on explicitly approved production
+// hostnames. Every PR/branch preview fails closed to same-origin /api so QA
+// can never mutate Production accidentally.
+const PRODUCTION_API_BASE = "https://nasaem-platform-production.up.railway.app/api";
+const PRODUCTION_WEB_HOSTS = new Set([
+  "nasaem-alharamain.com",
+  "www.nasaem-alharamain.com",
+  "nasaem-platform.vercel.app",
+  "nasaem-platform-abdalhgali-cmds-projects.vercel.app",
+]);
+const API_BASE = PRODUCTION_WEB_HOSTS.has(window.location.hostname) ? PRODUCTION_API_BASE : "/api";
 
 class ApiError extends Error {
   constructor(message, status, errors) {
@@ -47,10 +63,6 @@ const api = {
   upload: (path, formData) => apiRequest(path, { method: "POST", body: formData }),
 };
 
-// Redirects to the login page unless there is an active session, and
-// returns the current user otherwise. Every authenticated page calls this
-// first so an expired/missing session lands back on login.html instead of
-// silently failing every subsequent API call.
 async function requireSession() {
   try {
     const { data } = await api.get("/auth/me");
@@ -68,11 +80,6 @@ function formatErrors(errors) {
   return messages.join("، ");
 }
 
-// Escapes text before interpolating it into an innerHTML template string.
-// Required for any field that can contain attacker-controlled content — most
-// importantly data from public/unauthenticated endpoints (e.g. contact form
-// submissions), which land in the staff dashboard with no auth gate on the
-// author.
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => {
     const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -127,8 +134,6 @@ function formatDate(value) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  // ar-SA defaults to the Hijri calendar in most browsers; force Gregorian
-  // explicitly since this is a business/operations date, not a religious one.
   return date.toLocaleDateString("ar-SA-u-ca-gregory-nu-latn", {
     year: "numeric",
     month: "2-digit",

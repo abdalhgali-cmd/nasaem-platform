@@ -31,6 +31,18 @@ import {
 } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 
+// Platform 3.0 Phase 6: mirrors contact-request-tracking.controller.js's
+// UPLOAD_ERROR_MESSAGES for the same error codes, raised here by
+// createContactRequest instead when a Service Intake submission's
+// documentRequirementIds fail their requirement's own rules.
+const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
+  REQUIREMENT_NOT_FOUND: "One of the selected requirements does not belong to the selected visa type",
+  INVALID_MIME: "One of the uploaded files has a type that isn't allowed for its requirement",
+  FILE_TOO_LARGE: "One of the uploaded files exceeds the maximum size allowed for its requirement",
+  MAX_FILES_REACHED: "Too many files were uploaded for one of the requirements",
+  FEATURE_DISABLED: "This service is currently unavailable",
+};
+
 export async function storeContactRequest(req, res, next) {
   try {
     const parsed = createContactRequestSchema.safeParse(req.body);
@@ -52,6 +64,19 @@ export async function storeContactRequest(req, res, next) {
 
     const contactRequest = await createContactRequest(parsed.data, req, req.files);
 
+    // Platform 3.0 Phase 6: a file tagged with documentRequirementIds that
+    // fails that requirement's own MIME/size/max-files rules — the whole
+    // submission is rejected (nothing was created), same posture as any
+    // other validation failure on this route.
+    if (contactRequest?.error) {
+      const status = contactRequest.error === "FEATURE_DISABLED" ? 403 : 400;
+      return res.status(status).json({
+        success: false,
+        message: UPLOAD_REQUIREMENT_ERROR_MESSAGES[contactRequest.error] || "Validation failed",
+        details: contactRequest.details,
+      });
+    }
+
     return res.status(201).json({
       success: true,
       message: "Request received",
@@ -67,6 +92,7 @@ export async function getContactRequests(req, res, next) {
     const { data, meta } = await listContactRequests({
       ...parsePagination(req.query),
       status: req.query.status,
+      organizationId: req.user.organizationId,
     });
 
     return res.status(200).json({
@@ -92,7 +118,7 @@ export async function patchContactRequestStatus(req, res, next) {
       });
     }
 
-    const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user.id);
+    const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user.id, req.user.organizationId);
 
     if (!contactRequest) {
       return res.status(404).json({

@@ -1,0 +1,753 @@
+import path from "node:path";
+import { readFileSync } from "node:fs";
+import { expect, test, type Page } from "@playwright/test";
+import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
+
+const BACKEND_URL = "http://localhost:5000";
+
+// getPublicHomepage()/getPublicTheme()/getSiteAssetUrls() use Next's
+// `next.revalidate: 60` fetch cache: a page already loaded in the browser
+// never updates on its own (it was rendered server-side once, at the
+// time of that request), and even a *fresh* navigation within the 60s
+// window can still get served the stale cached version — Next's
+// stale-while-revalidate semantics mean the first request after the
+// window closes still returns the stale copy while triggering a
+// background refresh, only the *next* request after that is guaranteed
+// fresh. So proving "the change lands within the documented window"
+// requires repeated real navigations, not watching one already-rendered
+// page. Bounded to comfortably more than two 60s windows.
+// Each `check()` call is itself given a short, bounded timeout and its
+// errors are caught — a locator that doesn't match anything yet (e.g. the
+// hero image hasn't rendered on this particular navigation) must not hang
+// the whole poll; it just counts as "not ready", exactly like an
+// unmatched value would, and the loop reloads and tries again.
+async function pollByReloading<T>(page: Page, check: (timeoutMs: number) => Promise<T>, isDone: (value: T) => boolean, label: string): Promise<T> {
+  const deadline = Date.now() + 150_000;
+  let last: T | undefined;
+  do {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    try {
+      last = await check(5_000);
+      if (isDone(last)) return last;
+    } catch {
+      // Not ready on this navigation — fall through to retry.
+    }
+    await page.waitForTimeout(3_000);
+  } while (Date.now() < deadline);
+  throw new Error(`${label}: did not observe the expected value within the polling window. Last seen: ${JSON.stringify(last)}`);
+}
+
+// Platform 3.0 Phase 18 — the plan's own required E2E scenario list
+// (Section 21): homepage, visa, airports, airlines, ferries, security
+// approvals. Admin-side setup goes through the real API directly (already
+// proven correct by 331 passing backend tests plus live Playwright
+// verification of the actual admin UI in Phases 14-16 of this session) —
+// what these tests add is genuine proof that the PUBLIC site (web/, this
+// package) actually reflects those changes, which nothing else in this
+// repo verifies.
+//
+// Follow-up pass ("wire the Requirements Engine / Airline Directory /
+// Airport Search into the public UI"): the three gaps this file's header
+// used to document here — the intake wizard's hardcoded document checklist,
+// and the flight-search UI never rendering an airline logo or offering
+// airport autocomplete — are now closed (service-intake-wizard.tsx fetches
+// GET /api/{visa-types,services}/:id/requirements/public;
+// flight-search-client.tsx renders airlineLogoKey and calls
+// GET /api/airports/search for its AirportField). The tests below drive
+// the real public UI end to end for each, not just the backend contract.
+
+test.describe("Homepage — admin change reflects publicly", () => {
+  test("changing the hero title updates the public homepage", async ({ page }) => {
+    // pollByReloading's 150s budget (it needs to survive stale-while-
+    // revalidate serving one more stale response after the 60s window
+    // closes) needs headroom beyond the config's default 30s test timeout.
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+
+    const beforeRes = await page.request.get(`${BACKEND_URL}/api/homepage/hero`);
+    const before = (await beforeRes.json()).data;
+
+    const newTitle = `E2E Hero Title ${Date.now()}`;
+    const patchRes = await page.request.patch(`${BACKEND_URL}/api/homepage/hero`, { data: { title: newTitle } });
+    expect(patchRes.ok()).toBeTruthy();
+
+    try {
+      await pollByReloading(
+        page,
+        (timeoutMs) => page.locator("h1").innerText({ timeout: timeoutMs }),
+        (text) => text.includes(newTitle),
+        "hero title"
+      );
+    } finally {
+      await page.request.patch(`${BACKEND_URL}/api/homepage/hero`, { data: { title: before.title } });
+    }
+  });
+
+  test("an admin-created service appears in the public homepage catalog", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-SERVICE-${Date.now()}`;
+    const name = `خدمة اختبار الصفحة ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, { data: { code, name, category: "e2e_service", description: "خدمة منشأة من كتالوج الإدارة", basePrice: 99, currency: "SAR", active: true, features: [] } });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+
+    try {
+      await pollByReloading(
+        page,
+        (timeoutMs) => page.getByRole("heading", { name }).count().then((count) => count > 0 ? name : page.locator("body").innerText({ timeout: timeoutMs })),
+        (text) => text.includes(name),
+        "admin-created homepage service"
+      );
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+
+  test("changing the theme's primary color updates the public site's CSS variable", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+
+    const beforeRes = await page.request.get(`${BACKEND_URL}/api/theme`);
+    const before = (await beforeRes.json()).data;
+
+    const testColor = "#1a2b3c";
+    const patchRes = await page.request.patch(`${BACKEND_URL}/api/theme`, { data: { primary: testColor } });
+    expect(patchRes.ok()).toBeTruthy();
+
+    try {
+      await pollByReloading(
+        page,
+        () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim()),
+        (color: string) => color === testColor,
+        "theme primary color"
+      );
+    } finally {
+      await page.request.patch(`${BACKEND_URL}/api/theme`, { data: { primary: before.primary } });
+    }
+  });
+
+  test("uploading a new hero image updates the public homepage's image", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+
+    const beforeRes = await page.request.get(`${BACKEND_URL}/api/site-assets`);
+    const beforeAsset = (await beforeRes.json()).data.find((a: { key: string }) => a.key === "hero-image");
+
+    const uploadRes = await page.request.post(`${BACKEND_URL}/api/site-assets/hero-image`, {
+      multipart: { image: { name: "hero.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+    });
+    expect(uploadRes.ok(), await uploadRes.text()).toBeTruthy();
+    const uploaded = (await uploadRes.json()).data;
+    const expectedVersion = `v=${new Date(uploaded.updatedAt).getTime()}`;
+
+    await pollByReloading(
+      page,
+      (timeoutMs) => page.locator("img[alt='']").first().getAttribute("src", { timeout: timeoutMs }),
+      (src) => !!src && src.includes(expectedVersion),
+      "hero image src"
+    );
+
+    // No revert here on purpose: unlike hero text/theme (single-value
+    // Settings rows, trivially reversible), a site asset upload replaces
+    // the previous file on disk (see site-assets.service.js's
+    // upsertSiteAsset — it unlinks the file it replaced) — there is
+    // nothing to "revert" to. Leaving the test image in place is the same
+    // posture as leaving a test-created row in the DB after other tests
+    // in this suite; the fixture is small (a 1x1 PNG) and clearly
+    // identifiable if a real admin ever needs to change it back.
+    if (!beforeAsset) return; // nothing was there before — nothing more to note.
+  });
+});
+
+test.describe("Visa — admin creates a visa type, it's reachable publicly by code", () => {
+  test("a newly created visa type is resolved and shown by the public intake wizard", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const code = `E2E-VISA-${Date.now()}`;
+
+    const createRes = await admin.post(`${BACKEND_URL}/api/visa-types`, {
+      data: { code, name: "تأشيرة اختبار E2E", country: "دولة اختبار", basePrice: 500, active: true },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+
+    try {
+      // The wizard resolves ANY valid visa type code passed via
+      // ?visaType=, not just the marketing site's fixed 5 category cards
+      // — this is the real, working mechanism by which a brand-new
+      // admin-created visa type becomes reachable by a real customer
+      // (e.g. a link shared by staff). The public `/visas` card grid now
+      // also consumes the same active VisaType catalog, so this assertion
+      // verifies both discovery and wizard selection.
+      await page.goto(`/visas?visaType=${code}&visaCategory=OTHER#book`);
+      await expect(page.getByRole("heading", { name: /تأشيرة اختبار E2E/ })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("button", { name: /تأشيرة اختبار E2E/ })).toBeVisible({ timeout: 15_000 });
+    } finally {
+      const listRes = await admin.get(`${BACKEND_URL}/api/visa-types?limit=100`);
+      const created = (await listRes.json()).data.find((v: { code: string }) => v.code === code);
+      if (created) await admin.delete(`${BACKEND_URL}/api/visa-types/${created.id}`);
+    }
+  });
+
+  // Regression test for the "International Visas must never show Family
+  // Visit or Umrah" bug: the "قدّم الآن" CTA on the "التأشيرات الدولية"
+  // card links to /visas?visaCategory=INTERNATIONAL#book, which the wizard
+  // uses to call GET /services/public?visaCategory=INTERNATIONAL — proving
+  // the exclusion happens in the real, rendered public UI (driven by the
+  // backend-authoritative VisaType.category), not just at the API layer.
+  test("the International Visas CTA never shows Umrah or Family Visit as selectable options", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now();
+    const intlName = `تأشيرة دولية E2E ${suffix}`;
+    const umrahName = `تأشيرة عمرة E2E ${suffix}`;
+    const familyName = `تأشيرة زيارة عائلية E2E ${suffix}`;
+
+    const created: string[] = [];
+    async function makeVisa(code: string, name: string, category: string) {
+      const res = await admin.post(`${BACKEND_URL}/api/visa-types`, {
+        data: { code, name, country: "دولة اختبار", basePrice: 100, active: true, category },
+      });
+      expect(res.ok(), await res.text()).toBeTruthy();
+      created.push((await res.json()).data.id);
+    }
+
+    try {
+      await makeVisa(`E2E-INTL-${suffix}`, intlName, "INTERNATIONAL");
+      await makeVisa(`E2E-UMRAH-${suffix}`, umrahName, "UMRAH");
+      await makeVisa(`E2E-FAMILY-${suffix}`, familyName, "FAMILY_VISIT");
+
+      await page.goto("/visas?visaCategory=INTERNATIONAL#book");
+      await expect(page.getByRole("button", { name: new RegExp(intlName) })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("button", { name: new RegExp(umrahName) })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: new RegExp(familyName) })).toHaveCount(0);
+    } finally {
+      for (const id of created) await admin.delete(`${BACKEND_URL}/api/visa-types/${id}`);
+    }
+  });
+
+  test("adding a requirement changes the public requirements-checklist API contract", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const code = `E2E-REQ-${Date.now()}`;
+
+    const createRes = await admin.post(`${BACKEND_URL}/api/visa-types`, {
+      data: { code, name: "تأشيرة متطلبات E2E", country: "دولة اختبار", basePrice: 100, active: true },
+    });
+    const visaType = (await createRes.json()).data;
+
+    try {
+      const beforeRes = await page.request.get(`${BACKEND_URL}/api/visa-types/${visaType.id}/requirements/public`);
+      expect((await beforeRes.json()).data).toHaveLength(0);
+
+      const reqRes = await admin.post(`${BACKEND_URL}/api/visa-types/${visaType.id}/requirements`, {
+        data: { name: "مستند اختبار E2E", required: true },
+      });
+      expect(reqRes.ok(), await reqRes.text()).toBeTruthy();
+
+      const afterRes = await page.request.get(`${BACKEND_URL}/api/visa-types/${visaType.id}/requirements/public`);
+      const after = (await afterRes.json()).data;
+      expect(after).toHaveLength(1);
+      expect(after[0].name).toBe("مستند اختبار E2E");
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/visa-types/${visaType.id}`);
+    }
+  });
+
+  test("the intake wizard's document step shows the visa type's real, admin-configured checklist and submits it linked to the right requirement", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const code = `E2E-WIZARD-REQ-${Date.now()}`;
+    const visaName = `تأشيرة معالج E2E ${Date.now()}`;
+
+    const createRes = await admin.post(`${BACKEND_URL}/api/visa-types`, {
+      data: { code, name: visaName, country: "دولة اختبار", basePrice: 100, active: true },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const visaType = (await createRes.json()).data;
+
+    // Distinctive names, chosen to never collide with any string that used
+    // to be hardcoded in service-intake-wizard.tsx (e.g. "صورة الجواز") —
+    // seeing exactly these two, and nothing else, is unambiguous proof the
+    // checklist came from the API, not a leftover static map.
+    const requiredName = `مستند إلزامي E2E ${Date.now()}`;
+    const optionalName = `مستند اختياري E2E ${Date.now()}`;
+    const req1Res = await admin.post(`${BACKEND_URL}/api/visa-types/${visaType.id}/requirements`, {
+      data: { name: requiredName, required: true, sortOrder: 0 },
+    });
+    const req2Res = await admin.post(`${BACKEND_URL}/api/visa-types/${visaType.id}/requirements`, {
+      data: { name: optionalName, required: false, sortOrder: 1 },
+    });
+    expect(req1Res.ok(), await req1Res.text()).toBeTruthy();
+    expect(req2Res.ok(), await req2Res.text()).toBeTruthy();
+    const requirement1 = (await req1Res.json()).data;
+
+    const phone = `2499${Date.now().toString().slice(-8)}`;
+
+    try {
+      await page.goto(`/visas?visaType=${code}#book`);
+      await page.getByRole("button", { name: new RegExp(visaName) }).click();
+      await page.getByRole("button", { name: "التالي" }).click();
+
+      await page.getByPlaceholder("اسمك الكامل").fill("عميل اختبار المعالج");
+      await page.getByPlaceholder("+249 9XX XXX XXX").fill(phone);
+      await page.getByRole("button", { name: "التالي" }).click();
+
+      // "details" step has no required fields — advance straight through.
+      await page.getByRole("button", { name: "التالي" }).click();
+
+      // Documents step: both checklist items must be visible verbatim,
+      // fetched live from GET /api/visa-types/:id/requirements/public —
+      // not any hardcoded fallback. Regex, not exact text: the rendered
+      // <span> holds the name plus its "*"/"(اختياري)" marker as one text
+      // node, so no element's full text is ever exactly the bare name.
+      await expect(page.getByText(new RegExp(requiredName))).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(new RegExp(optionalName))).toBeVisible();
+
+      // .first() = the required item's slot (sortOrder 0, rendered first),
+      // matching requirement1 asserted against below.
+      await page
+        .locator('input[type="file"]')
+        .first()
+        .setInputFiles(path.join(__dirname, "fixtures", "sample-document.png"));
+
+      await page.getByRole("button", { name: "التالي" }).click();
+      await page.getByRole("button", { name: "إرسال الطلب" }).click();
+      await expect(page.getByText("تم استلام طلبك")).toBeVisible({ timeout: 15_000 });
+
+      // The submission must have reached the backend tagged with the real
+      // requirement id — proving the wizard now sends
+      // documentRequirementIds (previously always empty, which meant the
+      // backend's own MIME/size/max-files checks and OCR gating for
+      // documentRequirementIds — already implemented and tested server-side
+      // — were dead code as far as this public form was concerned).
+      const listRes = await admin.get(`${BACKEND_URL}/api/contact-requests?limit=200`);
+      const created = (await listRes.json()).data.find((r: { phone: string }) => r.phone === phone);
+      expect(created, "the contact request should have been created").toBeTruthy();
+      expect(created.documents).toHaveLength(1);
+      expect(created.documents[0].requirementId).toBe(requirement1.id);
+      expect(created.documents[0].label).toBe(requiredName);
+
+      await admin.delete(`${BACKEND_URL}/api/contact-requests/${created.id}`).catch(() => {});
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/visa-types/${visaType.id}`);
+    }
+  });
+
+  test("enabling/disabling PASSPORT_OCR actually gates real MRZ extraction", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const sample = path.join(__dirname, "fixtures", "passport-mrz-sample.png");
+
+    const beforeFlagRes = await admin.get(`${BACKEND_URL}/api/feature-flags`);
+    const wasEnabled = (await beforeFlagRes.json()).data.find((f: { key: string }) => f.key === "PASSPORT_OCR").enabled;
+
+    try {
+      await admin.patch(`${BACKEND_URL}/api/feature-flags/PASSPORT_OCR`, { data: { enabled: false } });
+      const disabledScan = await admin.post(`${BACKEND_URL}/api/passport-ocr/scan`, {
+        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: readFileSync(sample) } },
+      });
+      expect(disabledScan.status()).toBe(403);
+
+      await admin.patch(`${BACKEND_URL}/api/feature-flags/PASSPORT_OCR`, { data: { enabled: true } });
+      const enabledScan = await admin.post(`${BACKEND_URL}/api/passport-ocr/scan`, {
+        multipart: { image: { name: "p.png", mimeType: "image/png", buffer: readFileSync(sample) } },
+      });
+      expect(enabledScan.ok(), await enabledScan.text()).toBeTruthy();
+      const data = (await enabledScan.json()).data;
+      // Real MRZ text extraction from a real image — not mocked.
+      expect(data.documentNumber).toBe("SD1234567");
+      expect(data.surname).toBe("MOHAMED");
+      expect(data.nationality).toBe("SDN");
+    } finally {
+      await admin.patch(`${BACKEND_URL}/api/feature-flags/PASSPORT_OCR`, { data: { enabled: wasEnabled } });
+    }
+  });
+});
+
+// Airport/airline codes must be letters-only (IATA: 3, ICAO: 3-4 depending
+// on module — see each *.validators.js) — a numeric suffix isn't valid, so
+// this derives a short, run-unique uppercase-letters-only suffix instead.
+function letterSuffix(length: number): string {
+  let n = Date.now();
+  let out = "";
+  for (let i = 0; i < length; i++) {
+    out += String.fromCharCode(65 + (n % 26));
+    n = Math.floor(n / 26);
+  }
+  return out;
+}
+
+test.describe("Airports — backend search contract", () => {
+  test("a newly added airport is found by Arabic, English, IATA and ICAO search", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now().toString().slice(-4);
+    const createRes = await admin.post(`${BACKEND_URL}/api/airports`, {
+      data: {
+        nameAr: `مطار اختبار E2E ${suffix}`,
+        nameEn: `E2E Test Airport ${suffix}`,
+        cityAr: "مدينة الاختبار",
+        cityEn: "Test City",
+        countryAr: "دولة الاختبار",
+        iataCode: letterSuffix(3),
+        icaoCode: letterSuffix(4),
+      },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const airport = (await createRes.json()).data;
+
+    try {
+      for (const q of ["اختبار E2E", "E2E Test", airport.iataCode, airport.icaoCode]) {
+        const res = await page.request.get(`${BACKEND_URL}/api/airports/search?q=${encodeURIComponent(q)}`);
+        const found = (await res.json()).data.some((a: { id: string }) => a.id === airport.id);
+        expect(found, `search "${q}" should find the newly created airport`).toBeTruthy();
+      }
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/airports/${airport.id}`);
+    }
+  });
+
+  test("the public flight-search form's airport autocomplete suggests a real, newly added airport and fills its IATA code", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now().toString().slice(-4);
+    const nameAr = `مطار الودجت E2E ${suffix}`;
+    const createRes = await admin.post(`${BACKEND_URL}/api/airports`, {
+      data: {
+        nameAr,
+        nameEn: `E2E Widget Airport ${suffix}`,
+        cityAr: "مدينة الودجت",
+        cityEn: "Widget City",
+        countryAr: "دولة الاختبار",
+        iataCode: letterSuffix(3),
+        icaoCode: letterSuffix(4),
+      },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const airport = (await createRes.json()).data;
+
+    try {
+      await page.goto("/flights");
+      const fromInput = page.getByPlaceholder("المدينة أو رمز المطار").first();
+      // Typed as a substring of the Arabic name — the same "contains,
+      // case-insensitive" match airports.service.js's searchAirports uses.
+      await fromInput.fill(nameAr.slice(0, 12));
+
+      const suggestion = page.getByRole("button", { name: new RegExp(nameAr) });
+      await expect(suggestion).toBeVisible({ timeout: 15_000 });
+      await suggestion.click();
+
+      await expect(fromInput).toHaveValue(airport.iataCode);
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/airports/${airport.id}`);
+    }
+  });
+});
+
+test.describe("Airlines — backend logo-enrichment contract", () => {
+  test("a newly added airline with a logo is resolved onto a matching flight search result", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    // searchManualFlights() filters results to isSudaneseAirline() matches
+    // (flights.service.js — a pre-existing, deliberately untouched
+    // business rule from Phase 12, see this repo's own comments there) —
+    // the airline name has to contain one of SUDANESE_AIRLINES' entries
+    // (e.g. "BADR") to be included in search results at all, so the logo
+    // match has something real to attach to.
+    const airlineName = `BADR AIRLINES E2E TEST ${Date.now()}`;
+
+    const createRes = await admin.post(`${BACKEND_URL}/api/airlines`, { data: { name: airlineName } });
+    const airline = (await createRes.json()).data;
+
+    const logoRes = await admin.post(`${BACKEND_URL}/api/airlines/${airline.id}/logo`, {
+      multipart: { image: { name: "logo.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+    });
+    expect(logoRes.ok(), await logoRes.text()).toBeTruthy();
+    // The create response's `airline.logoKey` is still null (logo didn't
+    // exist yet) — the upload response has the real, current value.
+    const airlineWithLogo = (await logoRes.json()).data;
+
+    const flightRes = await admin.post(`${BACKEND_URL}/api/flights`, {
+      data: {
+        airline: airlineName,
+        flightNumber: `E2${Date.now().toString().slice(-4)}`,
+        originCode: "PZU",
+        originName: "Port Sudan",
+        destinationCode: "JED",
+        destinationName: "Jeddah",
+        departureAt: "2027-01-15T08:00:00+02:00",
+        arrivalAt: "2027-01-15T11:00:00+02:00",
+        stops: 0,
+        cabin: "Economy",
+        price: 100,
+        currency: "USD",
+        availableSeats: 5,
+      },
+    });
+    const flight = (await flightRes.json()).data;
+
+    try {
+      const searchRes = await page.request.get(
+        `${BACKEND_URL}/api/flights/search?legs=${encodeURIComponent(JSON.stringify([{ from: "PZU", to: "JED", departureDate: "2027-01-15" }]))}`
+      );
+      const body = await searchRes.json();
+      const manualLegs = body?.legs?.[0]?.manual ?? [];
+      const match = manualLegs.find((f: { id: string }) => f.id === flight.id);
+      expect(match, "the created flight should appear in search results").toBeTruthy();
+      expect(match.airlineLogoKey, "attachAirlineLogos should resolve the logo key by matching airline name").toBe(airlineWithLogo.logoKey);
+      expect(match.airlineLogoKey).toBeTruthy();
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/flights/${flight.id}`);
+      await admin.delete(`${BACKEND_URL}/api/airlines/${airline.id}`);
+    }
+  });
+
+  test("a matched airline's logo actually renders on the public flight-search result card", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const airlineName = `BADR AIRLINES UI E2E ${Date.now()}`;
+
+    const createRes = await admin.post(`${BACKEND_URL}/api/airlines`, { data: { name: airlineName } });
+    const airline = (await createRes.json()).data;
+
+    const logoRes = await admin.post(`${BACKEND_URL}/api/airlines/${airline.id}/logo`, {
+      multipart: { image: { name: "logo.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+    });
+    expect(logoRes.ok(), await logoRes.text()).toBeTruthy();
+    const airlineWithLogo = (await logoRes.json()).data;
+
+    const departureDate = "2027-03-20";
+    const flightRes = await admin.post(`${BACKEND_URL}/api/flights`, {
+      data: {
+        airline: airlineName,
+        flightNumber: `E2${Date.now().toString().slice(-4)}`,
+        originCode: "PZU",
+        originName: "Port Sudan",
+        destinationCode: "JED",
+        destinationName: "Jeddah",
+        departureAt: `${departureDate}T08:00:00+02:00`,
+        arrivalAt: `${departureDate}T11:00:00+02:00`,
+        stops: 0,
+        cabin: "Economy",
+        price: 100,
+        currency: "USD",
+        availableSeats: 5,
+      },
+    });
+    const flight = (await flightRes.json()).data;
+
+    try {
+      await page.goto("/flights");
+      await page.getByPlaceholder("المدينة أو رمز المطار").first().fill("PZU");
+      await page.getByPlaceholder("المدينة أو رمز المطار").nth(1).fill("JED");
+      await page.locator('input[type="date"]').first().fill(departureDate);
+      await page.getByRole("button", { name: "بحث عن الرحلات" }).click();
+
+      const card = page.locator("article", { hasText: flight.flightNumber });
+      await expect(card).toBeVisible({ timeout: 15_000 });
+      await expect(card.locator("img")).toHaveAttribute(
+        "src",
+        new RegExp(`/site-assets/${airlineWithLogo.logoKey}/file`)
+      );
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/flights/${flight.id}`);
+      await admin.delete(`${BACKEND_URL}/api/airlines/${airline.id}`);
+    }
+  });
+});
+
+test.describe("Ferries — admin adds a schedule, it appears in the public form", () => {
+  test("a new operator/schedule populate the ferries page's real dropdowns", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const operatorName = `E2E Ferry Co ${Date.now()}`;
+
+    const operatorRes = await admin.post(`${BACKEND_URL}/api/ferries/operators`, { data: { name: operatorName } });
+    const operator = (await operatorRes.json()).data;
+
+    const origin = `E2E Origin ${Date.now()}`;
+    const destination = `E2E Destination`;
+    const scheduleRes = await admin.post(`${BACKEND_URL}/api/ferries/operators/${operator.id}/schedules`, {
+      data: { origin, destination, travelDate: "2027-02-01", basePrice: 50 },
+    });
+    const schedule = (await scheduleRes.json()).data;
+
+    try {
+      await page.goto("/ferries");
+      await expect(page.getByLabel("الناقل المفضل")).toBeVisible();
+      await expect(page.getByLabel("الناقل المفضل")).toContainText(operatorName, { timeout: 15_000 });
+      await expect(page.getByLabel("المسار")).toContainText(`${origin} → ${destination}`, { timeout: 15_000 });
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/ferries/schedules/${schedule.id}`);
+      await admin.delete(`${BACKEND_URL}/api/ferries/operators/${operator.id}`);
+    }
+  });
+});
+
+test.describe("Security approvals — full lifecycle through the real customer-facing UI", () => {
+  test("request → documents → payment → processing → approval → delivery → completion", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now().toString();
+    const phone = `2499${suffix.slice(-8)}`;
+
+    const servicesRes = await page.request.get(`${BACKEND_URL}/api/services/public`);
+    const service = (await servicesRes.json()).data.services.find((s: { code: string }) => s.code === "SVC-EGYPT-CLEARANCE");
+    expect(service, "SVC-EGYPT-CLEARANCE must be seeded (backend/prisma/seed.js)").toBeTruthy();
+
+    // 1. Request — a real, unauthenticated public submission, exactly the
+    // POST /api/contact-requests path web/'s /contact page's form uses.
+    const createRes = await page.request.post(`${BACKEND_URL}/api/contact-requests`, {
+      data: {
+        name: "E2E Security Approval Customer",
+        phone,
+        service: "الموافقة الأمنية لمصر",
+        serviceId: service.id,
+        message: "طلب موافقة أمنية اختباري E2E",
+      },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const contactRequest = (await createRes.json()).data;
+
+    try {
+      // Log into /track as this real customer (real browser, real OTP
+      // read from the DB — see readTrackingLoginCode's doc comment).
+      await page.goto("/track");
+      await page.locator("#phone").fill(`+${phone}`);
+      await page.getByRole("button", { name: "إرسال رمز التحقق" }).click();
+      const code = readTrackingLoginCode(phone);
+      await page.locator("#code").fill(code);
+      await page.getByRole("button", { name: "تأكيد" }).click();
+
+      await expect(page.getByText("تم استلام طلبك وهو قيد المراجعة")).toBeVisible({ timeout: 15_000 });
+
+      // 2. Documents — the customer uploads a real file through the real
+      // upload form.
+      const docLabelInput = page.locator("input[placeholder='مثال: جواز السفر']");
+      await docLabelInput.fill("جواز السفر");
+      await page.setInputFiles("input[type='file']", path.join(__dirname, "fixtures", "sample-document.png"));
+      await page.getByRole("button", { name: "رفع" }).click();
+      await expect(page.getByText("قيد المراجعة").first()).toBeVisible({ timeout: 15_000 });
+
+      // Staff reviews the document (admin API — the review UI itself was
+      // already verified live in this session's Phase 14/15/16 work).
+      const requestsRes = await admin.get(`${BACKEND_URL}/api/contact-requests?limit=200`);
+      const staffView = (await requestsRes.json()).data.find((r: { id: string }) => r.id === contactRequest.id);
+      const document = staffView.documents[0];
+      await admin.patch(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/documents/${document.id}/status`, {
+        data: { status: "ACCEPTED" },
+      });
+
+      // 3. Pricing/processing — staff sets the invoice.
+      await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/invoice`, {
+        data: { amount: 250, currency: "SAR" },
+      });
+
+      // 4. Approval — the customer approves the price, through the real
+      // approve button.
+      await page.reload();
+      await expect(page.getByRole("button", { name: "موافقة على السعر" })).toBeVisible({ timeout: 15_000 });
+      await page.getByRole("button", { name: "موافقة على السعر" }).click();
+      await expect(page.getByRole("button", { name: "تم تحويل المبلغ" })).toBeVisible({ timeout: 15_000 });
+
+      // Payment — the customer marks the transfer sent, through the real
+      // button. paymentStatus moves from AWAITING_TRANSFER to
+      // UNDER_REVIEW, so RequestTransferAction (which only renders while
+      // AWAITING_TRANSFER) stops rendering the button — that's the real,
+      // visible proof the transition happened.
+      await page.getByRole("button", { name: "تم تحويل المبلغ" }).click();
+      await expect(page.getByRole("button", { name: "تم تحويل المبلغ" })).not.toBeVisible({ timeout: 15_000 });
+
+      // Staff confirms the payment (admin API).
+      const confirmRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/confirm-payment`, { data: {} });
+      expect(confirmRes.ok(), await confirmRes.text()).toBeTruthy();
+
+      // 5. Delivery — staff uploads the finished clearance letter (admin API).
+      const deliverableRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/deliverables`, {
+        multipart: {
+          label: "خطاب الموافقة الأمنية",
+          file: { name: "clearance.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") },
+        },
+      });
+      expect(deliverableRes.ok(), await deliverableRes.text()).toBeTruthy();
+
+      // 6. Completion — staff closes the request as COMPLETED.
+      const closeRes = await admin.patch(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/status`, {
+        data: { status: "CLOSED", outcome: "COMPLETED" },
+      });
+      expect(closeRes.ok(), await closeRes.text()).toBeTruthy();
+
+      // The real customer, in the real browser, sees the finished result:
+      // completion status and a downloadable deliverable.
+      await page.reload();
+      await expect(page.getByText("تم إنجاز طلبك بنجاح")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("link", { name: "خطاب الموافقة الأمنية" })).toBeVisible();
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}`).catch(() => {});
+    }
+  });
+});
+
+// A minimal valid 1x1 red PNG, used everywhere an upload just needs to be
+// a real, valid image file — the pixel content itself is never asserted on.
+const HERO_TEST_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+
+test.describe("Umrah Packages — admin data reflects publicly", () => {
+  test("creates, edits, orders, and deactivates a real UMRAH_PACKAGE", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now();
+    const firstCode = `E2E-UMRAH-FIRST-${suffix}`;
+    const secondCode = `E2E-UMRAH-SECOND-${suffix}`;
+    const firstName = `باقة عمرة أولى E2E ${suffix}`;
+    const secondName = `باقة عمرة ثانية E2E ${suffix}`;
+    const updatedName = `باقة عمرة محدثة E2E ${suffix}`;
+    const created: string[] = [];
+
+    async function createPackage(code: string, name: string, sortOrder: number) {
+      const response = await admin.post(`${BACKEND_URL}/api/services`, {
+        data: {
+          code,
+          name,
+          category: "UMRAH_PACKAGE",
+          description: "باقة اختبار ديناميكية",
+          basePrice: 1900,
+          currency: "SAR",
+          active: true,
+          sortOrder,
+          features: ["DURATION: 10 أيام", "INCLUDED: النقل"],
+        },
+      });
+      expect(response.ok(), await response.text()).toBeTruthy();
+      const item = (await response.json()).data;
+      created.push(item.id);
+      return item;
+    }
+
+    try {
+      await createPackage(firstCode, firstName, 10);
+      await createPackage(secondCode, secondName, 20);
+
+      await page.goto("/packages", { waitUntil: "networkidle" });
+      await expect(page.getByRole("heading", { name: firstName })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("heading", { name: secondName })).toBeVisible({ timeout: 15_000 });
+      const initialCards = await page.locator("article h3").allTextContents();
+      expect(initialCards.indexOf(firstName)).toBeGreaterThanOrEqual(0);
+      expect(initialCards.indexOf(firstName)).toBeLessThan(initialCards.indexOf(secondName));
+
+      const listResponse = await admin.get(`${BACKEND_URL}/api/services?limit=100`);
+      const listPayload = await listResponse.json();
+      const firstItem = listPayload.data.find((item: { code: string }) => item.code === firstCode);
+      expect(firstItem).toBeTruthy();
+      const updateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, {
+        data: { name: updatedName, description: "وصف باقة محدث", basePrice: 2400, active: true, sortOrder: 5 },
+      });
+      expect(updateResponse.ok(), await updateResponse.text()).toBeTruthy();
+
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByRole("heading", { name: updatedName })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("heading", { name: firstName })).toHaveCount(0);
+      const updatedCards = await page.locator("article h3").allTextContents();
+      expect(updatedCards.indexOf(updatedName)).toBeLessThan(updatedCards.indexOf(secondName));
+
+      const deactivateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, { data: { active: false } });
+      expect(deactivateResponse.ok(), await deactivateResponse.text()).toBeTruthy();
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(page.getByRole("heading", { name: updatedName })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: secondName })).toBeVisible({ timeout: 15_000 });
+    } finally {
+      for (const id of created) await admin.delete(`${BACKEND_URL}/api/services/${id}`);
+    }
+  });
+});
