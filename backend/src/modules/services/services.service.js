@@ -76,7 +76,9 @@ const PUBLIC_VISA_TYPE_SELECT = {
 // `services` is unaffected; it has its own, unrelated `category` field.
 export async function listPublicPackages() {
   const packages = await prisma.service.findMany({
-    where: { active: true, category: "UMRAH_PACKAGE" },
+    // Keep legacy production packages visible while the dedicated
+    // UMRAH_PACKAGE catalog is populated through the admin manager.
+    where: { active: true, category: { in: ["package", "UMRAH_PACKAGE"] } },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: PUBLIC_SERVICE_SELECT,
   });
