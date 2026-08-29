@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
 import { loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 import { getFinancialReport } from "../src/modules/finance/finance.service.js";
+import { getDashboardStats, getDashboardSummary, getOperationsCenter } from "../src/modules/dashboard/dashboard.service.js";
 
 describe("organization tenant boundary", () => {
   test("Nasaem staff cannot list, read, mutate, or create records for another organization", async () => {
@@ -139,6 +140,74 @@ describe("organization tenant boundary", () => {
     const otherReport = await getFinancialReport({ organizationId: otherOrganization.id });
     assert.equal(otherReport.totals.ordersCount, 1, "a fresh organization's report must be scoped to only its own order");
     assert.equal(otherReport.totals.revenue, 500);
+  });
+
+  test("dashboard stats, operations center and summary are scoped to the caller's organization", async () => {
+    const suffix = uniqueSuffix();
+    const otherOrganization = await prisma.organization.create({
+      data: { slug: `other-dash-agency-${suffix}`, name: `Other Dashboard Agency ${suffix}` },
+    });
+    const otherUser = await prisma.user.create({
+      data: {
+        organizationId: otherOrganization.id,
+        employeeNo: `OTHER-DASH-EMP-${suffix}`,
+        fullName: `Other Dashboard Staff ${suffix}`,
+        email: `other-dash-staff-${suffix}@example.com`,
+        passwordHash: "not-a-real-hash",
+        role: "ADMIN",
+      },
+    });
+    const otherCustomer = await prisma.customer.create({
+      data: {
+        organizationId: otherOrganization.id,
+        customerNo: `OTHER-DASH-${suffix}`,
+        fullName: `Other Dashboard Customer ${suffix}`,
+        passportNo: `OTHERDASHPASS${suffix}`,
+      },
+    });
+    const otherOrder = await prisma.order.create({
+      data: {
+        organizationId: otherOrganization.id,
+        orderNumber: `OTHER-DASH-ORDER-${suffix}`,
+        customerId: otherCustomer.id,
+        totalAmount: 300,
+        status: "WAITING_DOCUMENTS",
+      },
+    });
+    await prisma.payment.create({
+      data: { orderId: otherOrder.id, amount: 150, paymentMethod: "CASH", status: "PAID" },
+    });
+    await prisma.contactRequest.create({
+      data: {
+        organizationId: otherOrganization.id,
+        customerId: otherCustomer.id,
+        name: otherCustomer.fullName,
+        phone: `249dash${suffix}`,
+        phoneNormalized: `249dash${suffix}`,
+        message: "Cross-tenant dashboard fixture",
+      },
+    });
+
+    // A brand-new organization has exactly this one fixture set — if the
+    // organizationId filter were ignored, these counts would instead
+    // reflect the whole shared test database (hundreds of rows from every
+    // other test file), not exactly 1.
+    const stats = await getDashboardStats(otherOrganization.id);
+    assert.equal(stats.customers, 1);
+    assert.equal(stats.orders, 1);
+    assert.equal(stats.users, 1);
+    assert.equal(stats.payments, 1);
+    assert.equal(stats.latestOrders.length, 1);
+    assert.equal(stats.latestOrders[0].id, otherOrder.id);
+
+    const operations = await getOperationsCenter(otherOrganization.id);
+    assert.equal(operations.items.length, 2, "expected exactly the one contact request and one order fixture");
+    assert.ok(operations.items.some((item) => item.source === "order" && item.reference === otherOrder.orderNumber));
+    assert.equal(operations.queues.waitingDocuments, 1);
+
+    const summary = await getDashboardSummary(otherOrganization.id);
+    assert.equal(summary.periods.today.orders, 1);
+    assert.equal(Number(summary.periods.today.paid), 150);
   });
 
   test("database rejects an order whose organization differs from its customer", async () => {
