@@ -242,9 +242,11 @@ export function ServiceIntakeWizard({
   );
   const [draftAvailable, setDraftAvailable] = React.useState(false);
   const [draftRestored, setDraftRestored] = React.useState(false);
-  // Guards against overwriting a real saved draft with the wizard's blank
-  // initial state during the one render before we've checked localStorage.
-  const readyToSaveRef = React.useRef(false);
+  // Guards against the autosave effect's very first run (triggered by the
+  // same mount that also runs the draft-detection effect below, in the same
+  // commit) treating the form's still-blank initial state as "the user
+  // cleared everything" and deleting the very draft it just detected.
+  const skipNextAutosaveRef = React.useRef(true);
 
   type DraftShape = {
     step: number;
@@ -270,14 +272,20 @@ export function ServiceIntakeWizard({
 
   React.useEffect(() => {
     setDraftAvailable(Boolean(readDraft()));
-    readyToSaveRef.current = true;
+    // Re-arm the skip for this (possibly new) draft slot — its first
+    // autosave run should observe, not overwrite, whatever is on disk.
+    skipNextAutosaveRef.current = true;
     // Only re-check when the draft slot itself changes (e.g. deep-linking
     // into a different package/visa type) — not on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey]);
 
   React.useEffect(() => {
-    if (!readyToSaveRef.current || result || typeof window === "undefined") return;
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false;
+      return;
+    }
+    if (result || typeof window === "undefined") return;
     const draft: DraftShape = {
       step,
       selectedServiceId,

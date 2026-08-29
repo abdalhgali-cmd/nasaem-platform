@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
@@ -31,6 +32,14 @@ export default async function VisasPage({
       <section className="py-24">
         <Container>
           <SectionHeading eyebrow="أنواع التأشيرات" title="اختر نوع التأشيرة المناسب لرحلتك" />
+          <div className="mt-8 flex justify-center">
+            <Link
+              href="/visas/egypt-security-approval"
+              className="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/5 px-5 py-2.5 text-sm font-bold text-accent-foreground/90 transition hover:border-accent hover:bg-accent/10 dark:text-accent"
+            >
+              الموافقة الأمنية للسفر إلى مصر — صفحة تفصيلية بالخطوات والمستندات
+            </Link>
+          </div>
           <div className="mt-14"><DynamicVisaCatalog selectedVisaCode={visaType} selectedCategory={visaCategory} /></div>
         </Container>
       </section>
