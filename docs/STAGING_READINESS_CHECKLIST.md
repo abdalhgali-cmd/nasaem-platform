@@ -12,7 +12,7 @@
 | Dedicated non-Production Database | BLOCKED | No disposable PostgreSQL Staging database supplied |
 | Homepage/read-only frontend QA | AVAILABLE ON PREVIEW | Preview can be used for safe read-only/front-end checks |
 | Customer A/B automated isolation | PASS IN PREVIOUS CI FOR COVERED PATHS | `backend/tests/customerIsolation.test.js` creates independent Customer A/B accounts against disposable PostgreSQL |
-| Organization A/B automated isolation | PASS FOR COVERED PATHS (Orders/Customers/ContactRequests/Payments/Documents/Finance/Dashboard) | Module inventory (2026-08-29) found Payments/Documents/Finance/Dashboard were unscoped despite depending on scoped `Order`/`Customer`/`ContactRequest`; all fixed (414/414 backend tests green, A/B regression tests added for each). `ActivityLog`/`Notification` remain deliberately shared — see "Organization scoping inventory" |
+| Organization A/B automated isolation | PASS — full inventory closed | Module inventory (2026-08-29) found Payments/Documents/Finance/Dashboard/ActivityLog were unscoped despite depending on scoped `Order`/`Customer`/`ContactRequest`/`User`; all fixed (415/415 backend tests green, A/B regression tests added for each). `Notification` reviewed and confirmed already safe by design — see "Organization scoping inventory" |
 | Customer A/B live isolation | BLOCKED UNTIL WRITABLE STAGING | Must not create customers against Production backend |
 | RBAC live matrix | BLOCKED UNTIL WRITABLE STAGING | Repository tests exist; live direct-API/UI matrix still needed |
 | Documents/files live isolation | BLOCKED UNTIL WRITABLE STAGING | Repository ownership/upload tests exist; private storage/download matrix remains |
@@ -39,13 +39,14 @@
 
 **أُصلح أيضًا:** `dashboard.service.js` (`getDashboardStats`, `getOperationsCenter`, `getDashboardSummary`) — نفس نوع الفجوة (عدّادات/تجميعات عبر `Customer`/`Order`/`Payment`/`Document`/`ContactRequest` بلا تصفية مؤسسة عبر 6+ استعلامات منفصلة). أُضيفت تصفية `organizationId` (مباشرة أو عبر `order: { organizationId }`) لكل الاستعلامات، مع استثناء متعمّد لـ `Offer`/`Service` (كتالوجات مشتركة بلا عمود `organizationId` أصلًا). اختبار A/B جديد يثبت أن مؤسسة جديدة تُرجع عدداتها الخاصة فقط (وليس كل بيانات قاعدة الاختبار المشتركة) — 414/414 اختبار أخضر.
 
-**لا يزال مفتوحًا (أولوية منخفضة، بلا بيانات عميل حساسة):** `ActivityLog`/`Notification` بلا `organizationId`. **الأثر الفعلي اليوم لكل ما سبق يبقى صفريًا عمليًا** لأن مؤسسة واحدة فقط (`org_nasaem_default`) موجودة ولا توجد واجهة لإنشاء مؤسسة ثانية بعد؛ هذه الإصلاحات احترازية قبل تفعيل أي مؤسسة ثانية فعليًا. بهذا، **جرد وإغلاق عزل المؤسسات لكل الوحدات التي تحمل بيانات عميل/مالية حساسة اكتمل بالكامل**.
+**أُصلح أيضًا:** `ActivityLog` — سجل النشاط (`GET /api/activity-logs`، SUPER_ADMIN/ADMIN) لم يكن يُصفّي بالمؤسسة إطلاقًا رغم أن أغلب مُدخلاته تخص إجراءات موظفين تابعين لمؤسسة معيّنة، وبعض إدخالاته تحمل بيانات (`oldValue`/`newValue`) قد تتضمن أسعارًا أو أسماء. أُضيف عمود `organizationId` فعليًا عبر migration جديدة (`20260829200000_add_activitylog_organization`، بنفس نمط migration حدود المؤسسات الأصلية)، ودالة `logActivity()` أصبحت تُحلّل المؤسسة تلقائيًا دون الحاجة لتعديل أكثر من 50 موضع استدعاء: (1) `organizationId` صريح إن وُجد، (2) `req.user`/`req.customer`/`req.organizationId` من طلب المصادقة، (3) بحث عن مؤسسة `userId` في قاعدة البيانات (يغطي حالات مثل `LOGIN` حيث `req.user` غير مُعرَّف بعد على نفس الطلب)، (4) مؤسسة `ContactRequest` نفسه عند غياب كل ما سبق (يغطي إجراءات بوابة تتبع العميل التي لا تحمل `req` ولا `userId` إطلاقًا). اختبار A/B جديد يثبت أن كلا مسارَي الاستدلال (عبر `userId` وعبر `ContactRequest`) يُنتجان المؤسسة الصحيحة ولا يتسرّبان لمؤسسة أخرى — 415/415 اختبار أخضر، وتأكدت جداول `flight_*` الخام بقيت سليمة بعد الـ migration.
+
+**رُوجع ووُجد آمنًا مسبقًا بدون تعديل:** `Notification` — كل مسارات القراءة/التعديل (`listNotifications`, `markNotificationRead` للموظفين؛ نظيرتاهما للعملاء في `customer-portal`) مُقيَّدة بالفعل بملكية شخصية صارمة (`userId`/`customerId` الخاص بالمُستدعي نفسه فقط، عبر `where: { userId }` أو `findFirst({ id, customerId })`) — لا يوجد أي قائمة إشعارات عامة عبر كل الموظفين. هذا النمط آمن من تسرّب عبر المؤسسات بحكم تصميمه (نفس منطق حماية "طلبات العميل الخاصة به فقط" الذي كان قائمًا قبل إضافة عزل المؤسسات أصلًا)، فلا حاجة لعمود `organizationId` لإغلاق هذه الفجوة تحديدًا.
 
 **مشترك/عام حسب التصميم الحالي (بلا `organizationId`، ولا يوجد فيها بيانات عميل حساسة):**
 `Service`, `VisaType`, `VisaRequirement`, `FerryOperator`, `FerrySchedule`, `Airline`, `Airport`, `FeatureFlag`, `HomepageSection`, `Setting`, `SiteAsset`, `Coupon`, `Supplier`, `UmrahGroup`. هذه كتالوجات/إعدادات تشغيلية — قرار بقائها مشتركة بين كل المؤسسات (كتالوج موحّد لكل الوكالات) أو أن تصبح خاصة بكل مؤسسة هو **قرار منتج**، وليس خطأ تقني، ويجب حسمه صراحة قبل أي إعلان عن دعم SaaS متعدد المؤسسات (انظر خيارات ذلك في `COMPLETION_PLAN.md` المسار A4).
 
-**غير محسوم (لا بيانات حساسة عابرة للعملاء لكن يستحق قرارًا لاحقًا):**
-`ActivityLog`, `Notification` — لا عمود `organizationId`؛ سجل النشاط والإشعارات مشترك حاليًا. أولوية منخفضة (لا تسريب بيانات عميل مباشر) لكن يجب تضمينه عند أي عمل مستقبلي على عزل المؤسسات الكامل.
+بهذا، **جرد وإغلاق عزل المؤسسات لكل الوحدات ذات البيانات الحساسة اكتمل بالكامل**، بما فيها ActivityLog/Notification.
 
 ## Automated A/B evidence
 
