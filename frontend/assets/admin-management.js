@@ -173,11 +173,18 @@ function wireManagementTabs() {
   el("visa-requirement-create-btn").addEventListener("click", createVisaRequirement);
   el("visa-requirements-body").addEventListener("click", handleVisaRequirementRowClick);
   el("visa-requirements-close-btn").addEventListener("click", closeVisaRequirements);
+  el("service-details-close-btn").addEventListener("click", closeServiceDetails);
+  el("service-details-save-btn").addEventListener("click", saveServiceDetails);
+  el("sv-image").addEventListener("change", handleServiceImageChange);
+  el("sv-move-up-btn").addEventListener("click", () => moveService("up"));
+  el("sv-move-down-btn").addEventListener("click", () => moveService("down"));
   el("airline-create-btn").addEventListener("click", createAirline);
   el("airlines-body").addEventListener("click", handleAirlineRowClick);
   el("airport-create-btn").addEventListener("click", createAirport);
   el("ferry-operator-create-btn").addEventListener("click", createFerryOperator);
   el("ferry-operators-body").addEventListener("click", handleFerryOperatorRowClick);
+  el("ferry-schedule-create-btn").addEventListener("click", createFerrySchedule);
+  el("ferry-schedules-body").addEventListener("click", handleFerryScheduleRowClick);
   el("feature-flags-body").addEventListener("click", handleFeatureFlagToggle);
   el("coupon-create-btn").addEventListener("click", createCoupon);
   el("coupons-body").addEventListener("click", handleCouponRowClick);
@@ -238,7 +245,10 @@ function loadActiveMgmtSubTab() {
   if (tab === "visas") loadVisaTypes();
   if (tab === "airlines") loadAirlines();
   if (tab === "airports") loadAirports();
-  if (tab === "ferries") loadFerryOperators();
+  if (tab === "ferries") {
+    el("ferry-schedule-create-card").classList.toggle("hidden", !mgmtCanWrite("ferries"));
+    loadFerryOperators().then(loadFerrySchedules);
+  }
   if (tab === "feature-flags") loadFeatureFlags();
 }
 
@@ -358,7 +368,10 @@ async function loadServices() {
           <td>${sv.category}</td>
           <td>${formatMoney(sv.basePrice, sv.currency)}</td>
           <td>${sv.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
-          <td>${mgmtCanWrite("services") ? `<button type="button" class="btn secondary" data-toggle-service="${sv.id}" data-active="${sv.active}">${sv.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>
+            <button type="button" class="btn secondary" data-manage-service="${sv.id}" data-name="${escapeHtml(sv.name)}">تفاصيل إضافية</button>
+            ${mgmtCanWrite("services") ? `<button type="button" class="btn secondary" data-toggle-service="${sv.id}" data-active="${sv.active}">${sv.active ? "تعطيل" : "تفعيل"}</button>` : ""}
+          </td>
         </tr>`
       )
       .join("");
@@ -397,6 +410,11 @@ async function createService() {
 }
 
 function handleServiceRowClick(e) {
+  const manageBtn = e.target.closest("[data-manage-service]");
+  if (manageBtn) {
+    openServiceDetails(manageBtn.dataset.manageService, manageBtn.dataset.name);
+    return;
+  }
   const btn = e.target.closest("[data-toggle-service]");
   if (!btn) return;
   const active = btn.dataset.active === "true";
@@ -404,6 +422,118 @@ function handleServiceRowClick(e) {
     .patch(`/services/${btn.dataset.toggleService}`, { active: !active })
     .then(loadServices)
     .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Service details: icon/features/image/reorder (Platform 3.0 Phase 3
+// API; previously only create + activate/deactivate had a UI) ---
+
+// Mirrors backend/src/utils/enums.js's ICON_KEYS allow-list — the frontend
+// select must offer exactly the values the API accepts.
+const SERVICE_ICON_KEYS = [
+  "ship",
+  "landmark",
+  "stamp",
+  "plane",
+  "hotel",
+  "globe",
+  "package",
+  "shield-check",
+  "map-pin",
+  "file-check",
+  "credit-card",
+  "users",
+  "star",
+  "clock",
+  "check-circle",
+];
+
+let currentServiceDetailsId = null;
+
+function openServiceDetails(serviceId, serviceName) {
+  currentServiceDetailsId = serviceId;
+  el("service-details-title").textContent = serviceName || "";
+  el("sv-icon").innerHTML =
+    '<option value="">بدون أيقونة</option>' + SERVICE_ICON_KEYS.map((key) => `<option value="${key}">${key}</option>`).join("");
+  const canWrite = mgmtCanWrite("services");
+  ["sv-icon", "sv-image", "sv-features", "service-details-save-btn", "sv-move-up-btn", "sv-move-down-btn"].forEach((id) => {
+    el(id).disabled = !canWrite;
+  });
+  el("service-details-card").classList.remove("hidden");
+  loadServiceDetails();
+  el("service-details-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeServiceDetails() {
+  currentServiceDetailsId = null;
+  el("service-details-card").classList.add("hidden");
+}
+
+async function loadServiceDetails() {
+  if (!currentServiceDetailsId) return;
+  try {
+    const { data } = await api.get(`/services/${currentServiceDetailsId}`);
+    el("sv-icon").value = data.iconKey || "";
+    el("sv-features").value = (data.features || []).join("\n");
+    el("service-details-image-preview").innerHTML = data.imageKey
+      ? `<img src="/api/site-assets/${data.imageKey}/file?v=${Date.now()}" alt="" style="max-height: 80px; border-radius: 6px" />`
+      : "لا توجد صورة مرفوعة بعد.";
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function saveServiceDetails() {
+  if (!currentServiceDetailsId) return;
+  showAlert(mgmtAlert(), "");
+  const features = el("sv-features")
+    .value.split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  try {
+    await api.patch(`/services/${currentServiceDetailsId}`, {
+      iconKey: el("sv-icon").value || null,
+      features,
+    });
+    loadServices();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleServiceImageChange(e) {
+  if (!currentServiceDetailsId || !e.target.files[0]) return;
+  const formData = new FormData();
+  formData.append("image", e.target.files[0]);
+  showAlert(mgmtAlert(), "");
+
+  api
+    .upload(`/services/${currentServiceDetailsId}/image`, formData)
+    .then(loadServiceDetails)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// Reordering works against the FULL service list (not just the current
+// pagination page) so a move never corrupts the global sortOrder of
+// services on other pages — see reorderServices() in
+// backend/src/modules/services/services.service.js, which sets sortOrder
+// from each id's position in whatever array it's given.
+async function moveService(direction) {
+  if (!currentServiceDetailsId) return;
+  showAlert(mgmtAlert(), "");
+  try {
+    const { data: all } = await api.get("/services?page=1&limit=1000");
+    const ids = all.map((sv) => sv.id);
+    const index = ids.indexOf(currentServiceDetailsId);
+    if (index === -1) return;
+    const swapWith = direction === "up" ? index - 1 : index + 1;
+    if (swapWith < 0 || swapWith >= ids.length) return;
+    [ids[index], ids[swapWith]] = [ids[swapWith], ids[index]];
+    await api.patch("/services/reorder", { order: ids });
+    loadServices();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
 }
 
 // --- Offers ---
@@ -1857,6 +1987,10 @@ async function loadFerryOperators() {
         </tr>`
       )
       .join("");
+
+    // Schedule creation is nested under an operator, so its picker needs
+    // the same operator list this panel already loaded.
+    el("fs-operatorId").innerHTML = data.map((fo) => `<option value="${fo.id}">${escapeHtml(fo.name)}</option>`).join("");
   } catch (error) {
     showAlert(mgmtAlert(), error.message);
   }
@@ -1884,6 +2018,88 @@ function handleFerryOperatorRowClick(e) {
     .patch(`/ferries/operators/${btn.dataset.toggleFerryOperator}`, { active: !active })
     .then(loadFerryOperators)
     .catch((error) => showAlert(mgmtAlert(), error.message));
+}
+
+// --- Ferries (sailing schedules — Phase 9 API; previously API-only) ---
+
+async function loadFerrySchedules() {
+  try {
+    const { data } = await api.get("/ferries/schedules");
+    const canWrite = mgmtCanWrite("ferries");
+    el("ferry-schedules-body").innerHTML = data
+      .map(
+        (fs) => `
+        <tr>
+          <td>${escapeHtml(fs.operator?.name || "—")}</td>
+          <td>${escapeHtml(fs.origin)} → ${escapeHtml(fs.destination)}</td>
+          <td>${formatDate(fs.travelDate)}${fs.departureTime ? `<div class="muted" style="font-size: 11px">${escapeHtml(fs.departureTime)}</div>` : ""}</td>
+          <td>${formatMoney(fs.basePrice, fs.currency)}</td>
+          <td>${fs.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
+          <td>${
+            canWrite
+              ? `<button type="button" class="btn secondary" data-toggle-ferry-schedule="${fs.id}" data-active="${fs.active}">${fs.active ? "تعطيل" : "تفعيل"}</button>
+                 <button type="button" class="btn secondary" data-delete-ferry-schedule="${fs.id}">حذف</button>`
+              : ""
+          }</td>
+        </tr>`
+      )
+      .join("");
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+async function createFerrySchedule() {
+  showAlert(mgmtAlert(), "");
+  const operatorId = el("fs-operatorId").value;
+  const origin = el("fs-origin").value.trim();
+  const destination = el("fs-destination").value.trim();
+  const travelDate = el("fs-travelDate").value;
+  if (!operatorId || !origin || !destination || !travelDate) {
+    return showAlert(mgmtAlert(), "شركة الملاحة والمسار والتاريخ مطلوبة.");
+  }
+
+  try {
+    await api.post(`/ferries/operators/${operatorId}/schedules`, {
+      origin,
+      destination,
+      travelDate,
+      departureTime: el("fs-departureTime").value || undefined,
+      arrivalTime: el("fs-arrivalTime").value || undefined,
+      basePrice: Number(el("fs-basePrice").value) || 0,
+      capacity: el("fs-capacity").value ? Number(el("fs-capacity").value) : undefined,
+    });
+    el("fs-origin").value = "";
+    el("fs-destination").value = "";
+    el("fs-travelDate").value = "";
+    el("fs-departureTime").value = "";
+    el("fs-arrivalTime").value = "";
+    el("fs-basePrice").value = "0";
+    el("fs-capacity").value = "";
+    loadFerrySchedules();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handleFerryScheduleRowClick(e) {
+  const toggleBtn = e.target.closest("[data-toggle-ferry-schedule]");
+  if (toggleBtn) {
+    const active = toggleBtn.dataset.active === "true";
+    api
+      .patch(`/ferries/schedules/${toggleBtn.dataset.toggleFerrySchedule}`, { active: !active })
+      .then(loadFerrySchedules)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+    return;
+  }
+  const deleteBtn = e.target.closest("[data-delete-ferry-schedule]");
+  if (deleteBtn) {
+    if (!confirm("حذف هذه الرحلة؟")) return;
+    api
+      .delete(`/ferries/schedules/${deleteBtn.dataset.deleteFerrySchedule}`)
+      .then(loadFerrySchedules)
+      .catch((error) => showAlert(mgmtAlert(), error.message));
+  }
 }
 
 // --- Feature Flags ---
