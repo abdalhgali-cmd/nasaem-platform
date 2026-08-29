@@ -17,6 +17,8 @@ type PublicPackage = {
   description: string | null;
   basePrice: string;
   currency: string;
+  fxRateToSdg: number | null;
+  priceSdg: number | null;
   iconKey: string | null;
   imageKey: string | null;
   features: string[] | null;
@@ -92,10 +94,11 @@ export function DynamicUmrahPackages({ selectedPackageCode }: { selectedPackageC
           {image ? <img src={image} alt={pkg.name} className="h-full w-full object-cover" /> : <ImageOff className="size-9 text-muted-foreground" />}
         </div>
         <div className="mt-5 flex items-start gap-3"><Package className={cn("mt-0.5 size-7 shrink-0", isHighlighted ? "text-accent" : "text-primary dark:text-secondary")} /><div><h3 className="text-xl font-bold">{pkg.name}</h3><p className={cn("mt-2 text-sm leading-relaxed", isHighlighted ? "text-white/75" : "text-muted-foreground")}>{pkg.description || "باقة عمرة متكاملة قابلة للتخصيص."}</p></div></div>
-        <div className="mt-6 flex items-baseline gap-2"><span className="text-sm">يبدأ من</span><span className="text-3xl font-extrabold">{Number(pkg.basePrice).toLocaleString("en-US")}</span><span className={cn("text-xs", isHighlighted ? "text-white/70" : "text-muted-foreground")}>{pkg.currency}</span></div>
+        <div className="mt-6"><div className="flex items-baseline gap-2"><span className="text-sm">يبدأ من</span><span className="text-3xl font-extrabold">{Number(pkg.basePrice).toLocaleString("en-US")}</span><span className={cn("text-xs", isHighlighted ? "text-white/70" : "text-muted-foreground")}>{pkg.currency}</span></div>{pkg.currency !== "SDG" && pkg.priceSdg != null ? <p className={cn("mt-1 text-xs font-bold", isHighlighted ? "text-white/75" : "text-muted-foreground")}>يعادل {Math.round(pkg.priceSdg).toLocaleString("en-US")} جنيه سوداني · سعر الصرف {Number(pkg.fxRateToSdg).toLocaleString("en-US")}</p> : null}</div>
         {features.length ? <ul className="mt-6 flex-1 space-y-3">{features.map((feature) => <li key={feature} className="flex items-start gap-2.5 text-sm"><Check className={cn("mt-0.5 size-4 shrink-0", isHighlighted ? "text-accent" : "text-success")} /><span className={isHighlighted ? "text-white/90" : "text-foreground/80"}>{feature}</span></li>)}</ul> : <div className="flex-1" />}
         <Button asChild variant={isHighlighted ? "gold" : "primary"} size="lg" className="mt-8 w-full"><a href={`/packages?package=${encodeURIComponent(pkg.code)}#book`}>اطلب هذه الباقة</a></Button>
       </article>;
     })}
   </div>;
 }
+
