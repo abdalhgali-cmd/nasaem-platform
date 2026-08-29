@@ -89,6 +89,28 @@ const DEFAULT_ATTACHMENT_ACCEPT = "image/jpeg,image/png,image/webp,application/p
 // reject outright.
 const MAX_TOTAL_DOCUMENTS = 6;
 
+// `attachmentType` is free text set per-requirement by staff (see the
+// Requirements Engine) and is usually left empty, so passport-specific
+// guidance is detected from the requirement's own admin-authored name/
+// description instead of a fixed enum. This only ever nudges the customer
+// on photo quality (lighting, all four corners visible, correct page) —
+// never a legal claim like validity duration, which nobody here is
+// qualified to invent.
+const PASSPORT_KEYWORD_PATTERN = /جواز|passport/i;
+
+function isPassportRequirement(requirement: PublicRequirement) {
+  return (
+    PASSPORT_KEYWORD_PATTERN.test(requirement.attachmentType || "") ||
+    PASSPORT_KEYWORD_PATTERN.test(requirement.name) ||
+    PASSPORT_KEYWORD_PATTERN.test(requirement.description || "")
+  );
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} ميغابايت`;
+  return `${Math.max(1, Math.round(bytes / 1024))} كيلوبايت`;
+}
+
 const SERVICE_TITLES: Record<IntakeServiceKind, string> = {
   umrah: "العمرة",
   visa: "التأشيرة",
@@ -199,6 +221,9 @@ export function ServiceIntakeWizard({
   const [loadingRequirements, setLoadingRequirements] = React.useState(false);
   const [documentFilesByRequirement, setDocumentFilesByRequirement] = React.useState<
     Record<string, File[]>
+  >({});
+  const [documentErrorsByRequirement, setDocumentErrorsByRequirement] = React.useState<
+    Record<string, string>
   >({});
 
   const [submitting, setSubmitting] = React.useState(false);
@@ -366,6 +391,15 @@ export function ServiceIntakeWizard({
   const selectedPackage = packageServices.find((p) => p.id === effectiveServiceId);
   const selectedVisaType = visaTypes.find((v) => v.id === effectiveVisaTypeId);
 
+  // The single source of truth for the price shown to the customer is
+  // whatever Pricing/Admin published against this Service/VisaType — never
+  // a value invented here. A published price of 0 reads the same as "not
+  // published yet" (the review step must not claim a free service by
+  // accident), so both fall back to the same "price pending review" copy.
+  const selectedPriceItem: PublicService | PublicVisaType | undefined =
+    service === "umrah" ? umrahService : service === "package" ? selectedPackage : selectedVisaType;
+  const hasPublishedPrice = Boolean(selectedPriceItem && Number(selectedPriceItem.basePrice) > 0);
+
   // Umrah and Package are Services; Visa uses the selected VisaType — each
   // has its own Requirements Engine endpoint (both backed by the same
   // checklist model, see backend/src/modules/requirements). Only the id
@@ -417,7 +451,23 @@ export function ServiceIntakeWizard({
 
   const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
 
-  function addDocumentFile(requirementId: string, file: File) {
+  // Mirrors the checks upload.middleware.js applies server-side (MIME
+  // allowlist + size cap, both sourced from this same requirement) so a
+  // customer finds out immediately instead of after submitting.
+  function validateDocumentFile(requirement: PublicRequirement, file: File): string | null {
+    if (requirement.allowedMimeTypes.length && !requirement.allowedMimeTypes.includes(file.type)) {
+      return "نوع الملف غير مدعوم. يرجى رفع صورة (JPG/PNG) أو ملف PDF.";
+    }
+    if (requirement.maxSizeBytes && file.size > requirement.maxSizeBytes) {
+      return `حجم الملف كبير جدًا. الحد الأقصى ${formatFileSize(requirement.maxSizeBytes)}.`;
+    }
+    return null;
+  }
+
+  function addDocumentFile(requirementId: string, requirement: PublicRequirement, file: File) {
+    const error = validateDocumentFile(requirement, file);
+    setDocumentErrorsByRequirement((prev) => ({ ...prev, [requirementId]: error || "" }));
+    if (error) return;
     setDocumentFilesByRequirement((prev) => ({
       ...prev,
       [requirementId]: [...(prev[requirementId] ?? []), file],
@@ -854,7 +904,7 @@ export function ServiceIntakeWizard({
                             className="hidden"
                             onChange={(e) => {
                               const file = e.target.files?.[0] ?? null;
-                              if (file) addDocumentFile(slot.requirement.id, file);
+                              if (file) addDocumentFile(slot.requirement.id, slot.requirement, file);
                               e.target.value = "";
                             }}
                           />
@@ -863,6 +913,17 @@ export function ServiceIntakeWizard({
                     </div>
                     {slot.requirement.description ? (
                       <p className="text-xs text-muted-foreground">{slot.requirement.description}</p>
+                    ) : null}
+                    {isPassportRequirement(slot.requirement) ? (
+                      <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground">
+                        نصيحة: صوّر صفحة البيانات في الجواز كاملة وبإضاءة جيدة، بحيث تظهر الأركان
+                        الأربعة وجميع الكتابة بوضوح دون انعكاس ضوئي أو اهتزاز.
+                      </p>
+                    ) : null}
+                    {documentErrorsByRequirement[slot.requirement.id] ? (
+                      <p className="text-xs font-semibold text-destructive">
+                        {documentErrorsByRequirement[slot.requirement.id]}
+                      </p>
                     ) : null}
                     {slot.files.length > 0 ? (
                       <ul className="flex flex-col gap-1">
@@ -916,6 +977,25 @@ export function ServiceIntakeWizard({
                     <span key={i}>— {t.fullName}</span>
                   ))}
                 {notes ? <span>ملاحظات: {notes}</span> : null}
+              </div>
+            </div>
+            <div className="rounded-xl border border-accent/40 bg-accent/5 p-4">
+              <span className="font-bold text-foreground">التكلفة</span>
+              <div className="mt-2 flex flex-col gap-1">
+                {hasPublishedPrice && selectedPriceItem ? (
+                  <>
+                    <span className="font-bold text-foreground" dir="ltr">
+                      {Number(selectedPriceItem.basePrice).toLocaleString("en-US")} {selectedPriceItem.currency}
+                    </span>
+                    {selectedPriceItem.currency !== "SDG" && selectedPriceItem.priceSdg != null ? (
+                      <span className="text-xs text-muted-foreground">
+                        يعادل {Math.round(selectedPriceItem.priceSdg).toLocaleString("en-US")} جنيه سوداني
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="text-sm text-muted-foreground">يتم تحديد التكلفة بعد مراجعة الطلب</span>
+                )}
               </div>
             </div>
             <div className="rounded-xl border border-border/70 p-4">
