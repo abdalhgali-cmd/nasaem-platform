@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 
 export const metadata: Metadata = {
-  title: "باقات العمرة",
-  description: "باقات عمرة محدثة من كتالوج NASAEM الرسمي مع تفاصيل واضحة وخيارات تناسب احتياجاتك.",
+  title: "باقات السفر",
+  description: "باقات سفر محدثة من كتالوج نسائم الحرمين الرسمي مع أسعار واضحة وخيارات تناسب احتياجاتك.",
 };
 
 const whyUs = [
@@ -29,9 +29,9 @@ export default async function PackagesPage({
   return (
     <>
       <PageHero
-        eyebrow="باقات العمرة"
+        eyebrow="باقات السفر"
         breadcrumb="الباقات"
-        title="باقات عمرة محدثة تناسب احتياجاتك"
+        title="باقات سفر محدثة تناسب احتياجاتك"
         description="استعرض الباقات المعتمدة حاليًا، ثم اختر الباقة المناسبة أو اطلب تصميم باقة مخصصة."
       />
 
