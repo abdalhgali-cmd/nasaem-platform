@@ -14,8 +14,8 @@ export async function getPublicServices(): Promise<PublicService[]> {
   try {
     const response = await fetch(`${API_URL}/services/public`, { next: { revalidate: 60 } });
     if (!response.ok) return [];
-    const payload = (await response.json()) as { data?: PublicService[] };
-    return Array.isArray(payload.data) ? payload.data : [];
+    const payload = (await response.json()) as { data?: { services?: PublicService[] } };
+    return Array.isArray(payload.data?.services) ? payload.data.services : [];
   } catch {
     return [];
   }
