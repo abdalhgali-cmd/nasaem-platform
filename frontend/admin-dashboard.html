@@ -191,6 +191,31 @@
           </table>
           <div class="pagination" id="services-pagination"></div>
         </div>
+        <div class="card hidden" id="service-details-card">
+          <h2>تفاصيل إضافية: <span id="service-details-title"></span> <button type="button" class="btn secondary" id="service-details-close-btn" style="margin-inline-start: 8px">إغلاق</button></h2>
+          <div class="grid cols-3">
+            <div class="field">
+              <label for="sv-icon">الأيقونة</label>
+              <select id="sv-icon">
+                <option value="">بدون أيقونة</option>
+              </select>
+            </div>
+            <div class="field"><label for="sv-image">الصورة</label><input id="sv-image" type="file" accept="image/png,image/jpeg,image/webp" /></div>
+            <div class="field">
+              <label>الترتيب</label>
+              <div>
+                <button type="button" class="btn secondary" id="sv-move-up-btn">▲ للأعلى</button>
+                <button type="button" class="btn secondary" id="sv-move-down-btn">▼ للأسفل</button>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="sv-features">المزايا (كل ميزة في سطر)</label>
+            <textarea id="sv-features" rows="4"></textarea>
+          </div>
+          <button type="button" class="btn" id="service-details-save-btn">حفظ الأيقونة والمزايا</button>
+          <div id="service-details-image-preview" class="muted" style="font-size: 12px; margin-top: 8px"></div>
+        </div>
       </div>
 
       <!-- Offers -->
@@ -431,8 +456,8 @@
         </div>
       </div>
 
-      <!-- Visas: VisaType directory (Phase 4). Requirements checklists
-           per visa still require the API directly — a disclosed gap. -->
+      <!-- Visas: VisaType directory (Phase 4) + requirements checklist
+           editor (Phase 5 API, wired to a UI here). -->
       <div id="mgmt-visas" class="hidden">
         <div class="card hidden" id="visa-create-card">
           <h2>تأشيرة جديدة</h2>
@@ -458,6 +483,22 @@
           <table>
             <thead><tr><th>الرمز</th><th>الاسم</th><th>الدولة</th><th>القسم</th><th>السعر الأساسي</th><th>الحالة</th><th></th></tr></thead>
             <tbody id="visas-body"></tbody>
+          </table>
+        </div>
+        <div class="card hidden" id="visa-requirements-card">
+          <h2>متطلبات: <span id="visa-requirements-title"></span> <button type="button" class="btn secondary" id="visa-requirements-close-btn" style="margin-inline-start: 8px">إغلاق</button></h2>
+          <div class="grid cols-3 hidden" id="visa-requirement-create-card">
+            <div class="field"><label for="vr-name">الاسم *</label><input id="vr-name" /></div>
+            <div class="field"><label for="vr-nameEn">الاسم بالإنجليزية</label><input id="vr-nameEn" /></div>
+            <div class="field"><label for="vr-attachmentType">نوع المرفق</label><input id="vr-attachmentType" placeholder="PASSPORT, PHOTO, ..." /></div>
+            <div class="field"><label for="vr-maxFiles">أقصى عدد ملفات</label><input id="vr-maxFiles" type="number" min="1" max="50" value="1" /></div>
+            <div class="field"><label for="vr-sortOrder">الترتيب</label><input id="vr-sortOrder" type="number" min="0" value="0" /></div>
+            <div class="field"><label><input id="vr-required" type="checkbox" checked /> مطلوب</label></div>
+          </div>
+          <button type="button" class="btn hidden" id="visa-requirement-create-btn">إضافة متطلب</button>
+          <table>
+            <thead><tr><th>الاسم</th><th>نوع المرفق</th><th>أقصى عدد ملفات</th><th>مطلوب</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="visa-requirements-body"></tbody>
           </table>
         </div>
       </div>
@@ -508,9 +549,8 @@
         </div>
       </div>
 
-      <!-- Ferries: FerryOperator directory (Phase 9). Sailing schedules
-           per operator still require the API directly — a disclosed
-           gap. -->
+      <!-- Ferries: FerryOperator directory (Phase 9) + sailing schedule
+           management (Phase 9 API, wired to a UI here). -->
       <div id="mgmt-ferries" class="hidden">
         <div class="card hidden" id="ferry-operator-create-card">
           <h2>شركة ملاحة جديدة</h2>
@@ -524,6 +564,30 @@
           <table>
             <thead><tr><th>الاسم</th><th>الحالة</th><th></th></tr></thead>
             <tbody id="ferry-operators-body"></tbody>
+          </table>
+        </div>
+        <div class="card hidden" id="ferry-schedule-create-card">
+          <h2>رحلة جديدة</h2>
+          <div class="grid cols-3">
+            <div class="field">
+              <label for="fs-operatorId">شركة الملاحة *</label>
+              <select id="fs-operatorId"></select>
+            </div>
+            <div class="field"><label for="fs-origin">من *</label><input id="fs-origin" /></div>
+            <div class="field"><label for="fs-destination">إلى *</label><input id="fs-destination" /></div>
+            <div class="field"><label for="fs-travelDate">تاريخ الرحلة *</label><input id="fs-travelDate" type="date" /></div>
+            <div class="field"><label for="fs-departureTime">وقت المغادرة</label><input id="fs-departureTime" type="time" /></div>
+            <div class="field"><label for="fs-arrivalTime">وقت الوصول</label><input id="fs-arrivalTime" type="time" /></div>
+            <div class="field"><label for="fs-basePrice">السعر الأساسي *</label><input id="fs-basePrice" type="number" min="0" step="0.01" value="0" /></div>
+            <div class="field"><label for="fs-capacity">السعة</label><input id="fs-capacity" type="number" min="1" /></div>
+          </div>
+          <button type="button" class="btn" id="ferry-schedule-create-btn">إضافة رحلة</button>
+        </div>
+        <div class="card">
+          <h2>الرحلات</h2>
+          <table>
+            <thead><tr><th>شركة الملاحة</th><th>المسار</th><th>التاريخ</th><th>السعر</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="ferry-schedules-body"></tbody>
           </table>
         </div>
       </div>

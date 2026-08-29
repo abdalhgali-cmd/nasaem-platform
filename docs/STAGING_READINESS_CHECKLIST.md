@@ -12,7 +12,7 @@
 | Dedicated non-Production Database | BLOCKED | No disposable PostgreSQL Staging database supplied |
 | Homepage/read-only frontend QA | AVAILABLE ON PREVIEW | Preview can be used for safe read-only/front-end checks |
 | Customer A/B automated isolation | PASS IN PREVIOUS CI FOR COVERED PATHS | `backend/tests/customerIsolation.test.js` creates independent Customer A/B accounts against disposable PostgreSQL |
-| Organization A/B automated isolation | IMPLEMENTED / CI PENDING | `Organization` ownership fields, DB consistency triggers, staff resource scoping, and `organizationIsolation.test.js` were added; the new commit still requires GitHub CI |
+| Organization A/B automated isolation | PASS FOR COVERED PATHS (Orders/Customers/ContactRequests/Payments/Documents/Finance) / DASHBOARD STILL OPEN | Module inventory (2026-08-29) found Payments/Documents/Finance were unscoped despite depending on scoped `Order`; fixed in this session (408/408 backend tests green, new A/B regression test added). `dashboard.service.js` remains unscoped — see "Organization scoping inventory" |
 | Customer A/B live isolation | BLOCKED UNTIL WRITABLE STAGING | Must not create customers against Production backend |
 | RBAC live matrix | BLOCKED UNTIL WRITABLE STAGING | Repository tests exist; live direct-API/UI matrix still needed |
 | Documents/files live isolation | BLOCKED UNTIL WRITABLE STAGING | Repository ownership/upload tests exist; private storage/download matrix remains |
@@ -26,6 +26,24 @@
 ## Customer isolation model
 
 تم توسيع اتجاه المنتج ليستوعب وكالات مستقلة مستقبلًا. أُضيف حد `Organization` صريح إلى هوية الموظف والعميل والطلب وطلب الخدمة، مع backfill آمن يجعل كل البيانات الحالية تابعة لنسائم الحرمين. تغطي الحواجز الحالية أسطح العملاء والطلبات وجميع مسارات الإدارة المتفرعة من طلب الخدمة، لكنها **ليست إعلانًا باكتمال SaaS متعدد المؤسسات**؛ ما زال يلزم جرد بقية الوحدات العامة والمالية والمحتوى وتحديد ما هو مشترك وما هو خاص بالمؤسسة.
+
+## Organization scoping inventory (2026-08-29)
+
+جرد فعلي لكل وحدة backend (`grep` على `organizationId` عبر `prisma/schema.prisma` و`src/modules/`)، تنفيذًا لبند A4 في `docs/COMPLETION_PLAN.md`:
+
+**مُعزول فعليًا (له عمود `organizationId` + مُطبَّق في الاستعلامات):**
+`Branch`, `User`, `Customer`, `Order`, `ContactRequest`. مغطاة بـ `organizationIsolation.test.js` (list/read/mutate/create عبر مؤسسة أخرى تُرفض، وقيد قاعدة بيانات يمنع طلبًا بمؤسسة تخالف مؤسسة عميله).
+
+**فجوة كانت حقيقية — أُصلحت في هذه الدورة (Payments/Documents/Finance):**
+`Payment` و`Document` كلاهما يتبعان `Order` (المُعزول)، لكن `listPayments`/`listDocuments` كانا لا يستقبلان `organizationId` أصلًا ولا يُصفّيان به (لا مباشرة ولا عبر `order.organizationId`)، ونفس الغياب كان في `finance.service.js` (`fetchOrdersInRange`/`getFinancialReport`). **تم إصلاحه الآن**: `listPayments`, `getPaymentById`, `confirmPayment`, `rejectPayment`, `createPayment` (منع إنشاء دفعة على طلب مؤسسة أخرى)، `listDocuments`, `getDocumentById`, `createDocument`, `deleteDocument`, و`getFinancialReport`/`fetchOrdersInRange` تصفّي جميعها الآن عبر `organizationId` (مباشرة أو عبر `order: { organizationId }`)، بنفس نمط `findFirst({ where: { id, organizationId } })` المستخدم أصلًا في `orders.service.js`. اختبار جديد في `organizationIsolation.test.js` ("payments, documents and the finance report are scoped to the caller's organization") يثبت: دفعة/مستند مؤسسة أخرى يرجعان 404 عند القراءة/التأكيد/الرفض/الحذف، إنشاء دفعة على طلب مؤسسة أخرى يرجع 404، وتقرير مالي لمؤسسة جديدة يُرجع طلبها الوحيد فقط (وليس كل الطلبات في قاعدة البيانات — دليل أن التصفية فعلية لا مصادفة). **408/408 اختبار خلفي ناجح** (شمل هذا التعديل) على قاعدة PostgreSQL معزولة محليًا بعد `prisma migrate deploy` + seed.
+
+**لا يزال مفتوحًا:** `dashboard.service.js` (`getDashboardStats`, `getOperationsCenter`, `getDashboardSummary`) لم يُصلح بعد — نفس نوع الفجوة (عدّادات/تجميعات عبر `Customer`/`Order`/`Payment`/`Document`/`ContactRequest` بلا تصفية مؤسسة)، لكنه سطح أكبر (6+ استعلامات منفصلة عبر 3 دوال) وتُرك أولوية تالية بدل إصلاح جزئي متسرّع تحت ضغط الوقت. **الأثر الفعلي اليوم لكل ما سبق يبقى صفريًا عمليًا** لأن مؤسسة واحدة فقط (`org_nasaem_default`) موجودة ولا توجد واجهة لإنشاء مؤسسة ثانية بعد؛ الإصلاح احترازي قبل تفعيل أي مؤسسة ثانية فعليًا.
+
+**مشترك/عام حسب التصميم الحالي (بلا `organizationId`، ولا يوجد فيها بيانات عميل حساسة):**
+`Service`, `VisaType`, `VisaRequirement`, `FerryOperator`, `FerrySchedule`, `Airline`, `Airport`, `FeatureFlag`, `HomepageSection`, `Setting`, `SiteAsset`, `Coupon`, `Supplier`, `UmrahGroup`. هذه كتالوجات/إعدادات تشغيلية — قرار بقائها مشتركة بين كل المؤسسات (كتالوج موحّد لكل الوكالات) أو أن تصبح خاصة بكل مؤسسة هو **قرار منتج**، وليس خطأ تقني، ويجب حسمه صراحة قبل أي إعلان عن دعم SaaS متعدد المؤسسات (انظر خيارات ذلك في `COMPLETION_PLAN.md` المسار A4).
+
+**غير محسوم (لا بيانات حساسة عابرة للعملاء لكن يستحق قرارًا لاحقًا):**
+`ActivityLog`, `Notification` — لا عمود `organizationId`؛ سجل النشاط والإشعارات مشترك حاليًا. أولوية منخفضة (لا تسريب بيانات عميل مباشر) لكن يجب تضمينه عند أي عمل مستقبلي على عزل المؤسسات الكامل.
 
 ## Automated A/B evidence
 

@@ -1,5 +1,5 @@
 import "./env.js";
-import { before, describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 
@@ -215,5 +215,80 @@ describe("public Umrah packages catalog", () => {
     const catalogRes = await request(app).get("/api/services/public");
     assert.equal(catalogRes.status, 200);
     assert.ok(!catalogRes.body.data.services.some((item) => item.id === pkg.id));
+  });
+});
+
+// Covers the multi-currency / parallel-market conversion added on top of the
+// public catalog (services.service.js's withSdgEquivalent). Prior coverage
+// (contactRequestIntake.test.js) only asserted the fxRateToSdg/priceSdg keys
+// exist on a response object, never their actual values or edge cases —
+// this fills that gap.
+describe("multi-currency SDG conversion (public catalog)", () => {
+  let agent;
+  let previousRates;
+
+  before(async () => {
+    agent = await loginAsSuperAdmin();
+    const ratesRes = await agent.get("/api/flights/admin/rates");
+    assert.equal(ratesRes.status, 200);
+    previousRates = ratesRes.body.data;
+  });
+
+  after(async () => {
+    // Restore whatever FX rates were live before this suite touched them —
+    // same pattern as flightFxRefresh.test.js, since these Settings rows
+    // are global, not per-test.
+    await agent.patch("/api/flights/admin/rates").send(previousRates);
+  });
+
+  test("converts a SAR-priced service to SDG using the configured rate", async () => {
+    const testRate = 42.5;
+    const fxRes = await agent.patch("/api/flights/admin/rates").send({ ...previousRates, SAR: testRate });
+    assert.equal(fxRes.status, 200, JSON.stringify(fxRes.body));
+
+    const svc = await createService(agent, { currency: "SAR", basePrice: 100, active: true });
+    const catalogRes = await request(app).get("/api/services/public");
+    const found = catalogRes.body.data.services.find((item) => item.id === svc.id);
+    assert.ok(found, "expected the SAR-priced test service in the public catalog");
+    assert.equal(found.fxRateToSdg, testRate);
+    assert.equal(found.priceSdg, 100 * testRate);
+  });
+
+  test("an SDG-priced service always converts at rate 1 regardless of configured rates", async () => {
+    const svc = await createService(agent, { currency: "SDG", basePrice: 250, active: true });
+    const catalogRes = await request(app).get("/api/services/public");
+    const found = catalogRes.body.data.services.find((item) => item.id === svc.id);
+    assert.ok(found);
+    assert.equal(found.fxRateToSdg, 1);
+    assert.equal(found.priceSdg, 250);
+  });
+
+  test("a zero exchange rate reports the price as not convertible instead of a zero/free price", async () => {
+    const fxRes = await agent.patch("/api/flights/admin/rates").send({ ...previousRates, AED: 0 });
+    assert.equal(fxRes.status, 200, JSON.stringify(fxRes.body));
+
+    const svc = await createService(agent, { currency: "AED", basePrice: 100, active: true });
+    const catalogRes = await request(app).get("/api/services/public");
+    const found = catalogRes.body.data.services.find((item) => item.id === svc.id);
+    assert.ok(found);
+    assert.equal(found.fxRateToSdg, null, "a 0 rate must not be reported as a valid conversion rate");
+    assert.equal(found.priceSdg, null, "priceSdg must not silently become 0 when the rate is unset");
+  });
+
+  test("a currency with no configured FX rate at all (e.g. USD unset) reports null instead of NaN", async () => {
+    const fxRes = await agent.patch("/api/flights/admin/rates").send({ SAR: previousRates.SAR, AED: previousRates.AED, EGP: previousRates.EGP, USD: 0 });
+    assert.equal(fxRes.status, 200, JSON.stringify(fxRes.body));
+
+    const svc = await createService(agent, { currency: "USD", basePrice: 100, active: true });
+    const catalogRes = await request(app).get("/api/services/public");
+    const found = catalogRes.body.data.services.find((item) => item.id === svc.id);
+    assert.ok(found);
+    assert.equal(found.fxRateToSdg, null);
+    assert.equal(found.priceSdg, null);
+  });
+
+  test("negative FX rates are rejected at the write endpoint", async () => {
+    const res = await agent.patch("/api/flights/admin/rates").send({ SAR: -1 });
+    assert.equal(res.status, 400);
   });
 });

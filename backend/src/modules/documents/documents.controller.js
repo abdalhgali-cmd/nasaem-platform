@@ -5,7 +5,7 @@ import { parsePagination } from "../../utils/pagination.js";
 
 export async function getDocuments(req, res, next) {
   try {
-    const { data, meta } = await listDocuments(parsePagination(req.query));
+    const { data, meta } = await listDocuments({ ...parsePagination(req.query), organizationId: req.user.organizationId });
 
     return res.status(200).json({
       success: true,
@@ -20,7 +20,7 @@ export async function getDocuments(req, res, next) {
 export async function getDocument(req, res, next) {
   try {
     const { id } = req.params;
-    const document = await getDocumentById(id);
+    const document = await getDocumentById(id, req.user.organizationId);
 
     if (!document) {
       return res.status(404).json({
@@ -57,16 +57,19 @@ export async function storeDocument(req, res, next) {
       });
     }
 
-    const document = await createDocument({
-      ...parsed.data,
-      uploadedById: req.user.id,
-      fileName: req.file.originalname,
-      // Store a path relative to the uploads root, not the absolute server
-      // filesystem path, so API responses don't leak server directory layout.
-      storagePath: path.join("documents", req.file.filename),
-      mimeType: req.file.mimetype,
-      sizeBytes: req.file.size,
-    });
+    const document = await createDocument(
+      {
+        ...parsed.data,
+        uploadedById: req.user.id,
+        fileName: req.file.originalname,
+        // Store a path relative to the uploads root, not the absolute server
+        // filesystem path, so API responses don't leak server directory layout.
+        storagePath: path.join("documents", req.file.filename),
+        mimeType: req.file.mimetype,
+        sizeBytes: req.file.size,
+      },
+      req.user.organizationId,
+    );
 
     return res.status(201).json({
       success: true,
@@ -81,7 +84,7 @@ export async function storeDocument(req, res, next) {
 export async function removeDocument(req, res, next) {
   try {
     const { id } = req.params;
-    const document = await deleteDocument(id);
+    const document = await deleteDocument(id, req.user.organizationId);
 
     if (!document) {
       return res.status(404).json({

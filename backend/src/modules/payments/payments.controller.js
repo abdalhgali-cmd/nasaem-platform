@@ -12,6 +12,7 @@ export async function getPayments(req, res, next) {
       status: req.query.status,
       reviewStatus: req.query.reviewStatus,
       orderId: req.query.orderId,
+      organizationId: req.user.organizationId,
     });
 
     return res.status(200).json({
@@ -27,7 +28,7 @@ export async function getPayments(req, res, next) {
 export async function getPayment(req, res, next) {
   try {
     const { id } = req.params;
-    const payment = await getPaymentById(id);
+    const payment = await getPaymentById(id, req.user.organizationId);
 
     if (!payment) {
       return res.status(404).json({
@@ -57,7 +58,7 @@ export async function storePayment(req, res, next) {
       });
     }
 
-    const payment = await createPayment(parsed.data);
+    const payment = await createPayment(parsed.data, req.user.organizationId);
 
     if (!payment) {
       return res.status(404).json({
@@ -101,7 +102,7 @@ export async function storePayment(req, res, next) {
 export async function confirmPaymentAction(req, res, next) {
   try {
     const { id } = req.params;
-    const payment = await confirmPayment(id, req.user?.id);
+    const payment = await confirmPayment(id, req.user?.id, req.user.organizationId);
 
     if (!payment) {
       return res.status(404).json({ success: false, message: "Payment not found" });
@@ -131,7 +132,7 @@ export async function rejectPaymentAction(req, res, next) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
-    const payment = await rejectPayment(id, req.user?.id, parsed.data.reason);
+    const payment = await rejectPayment(id, req.user?.id, parsed.data.reason, req.user.organizationId);
 
     if (!payment) {
       return res.status(404).json({ success: false, message: "Payment not found" });

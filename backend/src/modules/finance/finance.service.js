@@ -35,9 +35,10 @@ function resolveRange({ period, from, to }) {
   return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: null, label: "month" };
 }
 
-async function fetchOrdersInRange({ from, to }) {
+async function fetchOrdersInRange({ from, to, organizationId }) {
   return prisma.order.findMany({
     where: {
+      ...(organizationId ? { organizationId } : {}),
       createdAt: {
         ...(from ? { gte: from } : {}),
         ...(to ? { lte: to } : {}),
@@ -150,9 +151,9 @@ function itemGroupKey(groupBy, item) {
   return { key: item.supplierId || "UNKNOWN", label: item.supplier?.name || "بدون مورّد محدد" };
 }
 
-export async function getFinancialReport({ period, from, to, groupBy }) {
+export async function getFinancialReport({ period, from, to, groupBy, organizationId }) {
   const range = resolveRange({ period, from, to });
-  const orders = await fetchOrdersInRange(range);
+  const orders = await fetchOrdersInRange({ ...range, organizationId });
 
   const totals = emptyOrderMetrics();
   for (const order of orders) accumulateOrder(totals, order);

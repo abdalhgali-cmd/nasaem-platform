@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 
 import prisma from "../src/config/database.js";
 import { loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { getFinancialReport } from "../src/modules/finance/finance.service.js";
 
 describe("organization tenant boundary", () => {
   test("Nasaem staff cannot list, read, mutate, or create records for another organization", async () => {
@@ -61,6 +62,83 @@ describe("organization tenant boundary", () => {
     assert.equal(requestList.status, 200);
     assert.equal(requestList.body.data.some((item) => item.id === otherRequest.id), false);
     assert.equal((await agent.patch(`/api/contact-requests/${otherRequest.id}/status`).send({ status: "CONTACTED" })).status, 404);
+  });
+
+  test("payments, documents and the finance report are scoped to the caller's organization", async () => {
+    const suffix = uniqueSuffix();
+    const agent = await loginAsSuperAdmin();
+    const otherOrganization = await prisma.organization.create({
+      data: { slug: `other-finance-agency-${suffix}`, name: `Other Finance Agency ${suffix}` },
+    });
+    const otherUser = await prisma.user.create({
+      data: {
+        organizationId: otherOrganization.id,
+        employeeNo: `OTHER-EMP-${suffix}`,
+        fullName: `Other Tenant Staff ${suffix}`,
+        email: `other-staff-${suffix}@example.com`,
+        passwordHash: "not-a-real-hash",
+        role: "ADMIN",
+      },
+    });
+    const otherCustomer = await prisma.customer.create({
+      data: {
+        organizationId: otherOrganization.id,
+        customerNo: `OTHER-FIN-${suffix}`,
+        fullName: `Other Finance Customer ${suffix}`,
+        passportNo: `OTHERFINPASS${suffix}`,
+      },
+    });
+    const otherOrder = await prisma.order.create({
+      data: {
+        organizationId: otherOrganization.id,
+        orderNumber: `OTHER-FIN-ORDER-${suffix}`,
+        customerId: otherCustomer.id,
+        totalAmount: 500,
+      },
+    });
+    const otherPayment = await prisma.payment.create({
+      data: { orderId: otherOrder.id, amount: 200, paymentMethod: "CASH", status: "UNPAID", reviewStatus: "PENDING" },
+    });
+    const otherDocument = await prisma.document.create({
+      data: {
+        orderId: otherOrder.id,
+        customerId: otherCustomer.id,
+        uploadedById: otherUser.id,
+        type: "PASSPORT",
+        fileName: "other-tenant-passport.jpg",
+        storagePath: `documents/other-tenant-${suffix}.jpg`,
+      },
+    });
+
+    // Payments: list/read/confirm/reject on another organization's payment.
+    const paymentList = await agent.get(`/api/payments?orderId=${otherOrder.id}`);
+    assert.equal(paymentList.status, 200);
+    assert.equal(paymentList.body.data.length, 0);
+    assert.equal((await agent.get(`/api/payments/${otherPayment.id}`)).status, 404);
+    assert.equal((await agent.post(`/api/payments/${otherPayment.id}/confirm`).send({})).status, 404);
+    assert.equal((await agent.post(`/api/payments/${otherPayment.id}/reject`).send({ reason: "leaked" })).status, 404);
+    // Creating a payment against another organization's order must also fail.
+    assert.equal(
+      (await agent.post("/api/payments").send({ orderId: otherOrder.id, amount: 100, paymentMethod: "CASH" })).status,
+      404
+    );
+
+    // Documents: list/read/delete on another organization's document.
+    const documentList = await agent.get("/api/documents");
+    assert.equal(documentList.status, 200);
+    assert.equal(documentList.body.data.some((doc) => doc.id === otherDocument.id), false);
+    assert.equal((await agent.get(`/api/documents/${otherDocument.id}`)).status, 404);
+    assert.equal((await agent.delete(`/api/documents/${otherDocument.id}`)).status, 404);
+    const stillExists = await prisma.document.findUnique({ where: { id: otherDocument.id } });
+    assert.ok(stillExists, "another organization's document must not be deletable");
+
+    // Finance report: a brand-new organization has no orders of its own
+    // except this fixture, so a scoped report must return exactly this one
+    // order — if the `organizationId` filter were ignored, this would
+    // instead return every order in the whole test database.
+    const otherReport = await getFinancialReport({ organizationId: otherOrganization.id });
+    assert.equal(otherReport.totals.ordersCount, 1, "a fresh organization's report must be scoped to only its own order");
+    assert.equal(otherReport.totals.revenue, 500);
   });
 
   test("database rejects an order whose organization differs from its customer", async () => {
