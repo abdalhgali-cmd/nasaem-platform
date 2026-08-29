@@ -262,6 +262,54 @@ async function seedFeatureFlags() {
   console.log(`Seeded ${FEATURE_FLAG_KEYS.length} feature flags.`);
 }
 
+// Default FAQ for the Egypt Security Approval landing page
+// (EGYPT_CLEARANCE_FAQ, see settings.service.js's PUBLIC_SETTING_KEYS).
+// Answers deliberately never invent processing durations or government
+// requirements not already present in the seeded VisaRequirement
+// checklist — they point the customer back to the checklist/support
+// channels instead of guessing at rules this platform doesn't own.
+const EGYPT_CLEARANCE_FAQ_DEFAULT = [
+  {
+    question: "ما هي المستندات المطلوبة؟",
+    answer: "قائمة المستندات المطلوبة تظهر لك مباشرة داخل نموذج التقديم، وتختلف حسب حالتك. أرفق كل مستند كما هو موضح في كل خطوة.",
+  },
+  {
+    question: "كيف أقدّم الطلب؟",
+    answer: "اضغط على زر «ابدأ طلبك» وأكمل الخطوات بالترتيب: بياناتك، بيانات السفر، المستندات، ثم المراجعة والإرسال.",
+  },
+  {
+    question: "كيف أتابع حالة طلبي؟",
+    answer: "استخدم رقم هاتفك من صفحة «تتبع الطلب» لعرض حالة طلبك الحالية والخطوة التالية المطلوبة منك، إن وُجدت.",
+  },
+  {
+    question: "كيف أعرف أن هناك مستندًا ناقصًا أو مرفوضًا؟",
+    answer: "ستظهر حالة كل مستند (قيد المراجعة / مقبول / مرفوض) في صفحة التتبع، مع ملاحظة توضح سبب الرفض إن وُجد، وزر لإعادة الرفع.",
+  },
+  {
+    question: "كيف أدفع؟",
+    answer: "بعد مراجعة طلبك سيصلك السعر المعتمد، ويمكنك الاطلاع على طرق الدفع المعتمدة من صفحة التتبع بعد اعتماد السعر.",
+  },
+  {
+    question: "كيف أستلم الوثيقة بعد اكتمال المعاملة؟",
+    answer: "ستصلك الوثيقة النهائية كملف قابل للتنزيل من صفحة تتبع طلبك فور رفعها من فريقنا، مع إشعار لك بذلك.",
+  },
+  {
+    question: "هل يمكنني العودة لإكمال الطلب لاحقًا؟",
+    answer: "نعم، يحفظ النموذج تقدّمك تلقائيًا في متصفحك، ويمكنك المتابعة من نفس النقطة عند العودة إلى صفحة الطلب.",
+  },
+];
+
+async function seedEgyptClearanceFaq() {
+  await prisma.setting.upsert({
+    where: { key: "EGYPT_CLEARANCE_FAQ" },
+    // Never overwrite content an admin has already edited via the
+    // back-office Settings screen — only create it if it doesn't exist.
+    update: {},
+    create: { key: "EGYPT_CLEARANCE_FAQ", value: JSON.stringify(EGYPT_CLEARANCE_FAQ_DEFAULT) },
+  });
+  console.log("Seeded default Egypt Security Approval FAQ setting.");
+}
+
 async function main() {
   await seedDefaultOrganization();
   await seedSuperAdmin();
@@ -271,6 +319,7 @@ async function main() {
   await seedVisaRequirements();
   await seedHomepageSections();
   await seedFeatureFlags();
+  await seedEgyptClearanceFaq();
 }
 
 main()

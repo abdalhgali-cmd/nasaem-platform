@@ -10,6 +10,13 @@ export const PUBLIC_SETTING_KEYS = [
   "X_URL",
   "SEO_TITLE",
   "SEO_DESCRIPTION",
+  // Admin-editable FAQ for the Egypt Security Approval landing page — a
+  // JSON string of [{ question, answer }, ...]. Reuses the existing
+  // Setting/public-settings infrastructure instead of a new FAQ module;
+  // editable today via the staff back-office's free-form Settings editor
+  // (frontend/admin-dashboard.html) with no code change needed to update
+  // its content.
+  "EGYPT_CLEARANCE_FAQ",
 ];
 
 export async function listSettings() {

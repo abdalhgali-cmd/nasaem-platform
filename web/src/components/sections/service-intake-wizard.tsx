@@ -206,6 +206,111 @@ export function ServiceIntakeWizard({
   const [result, setResult] = React.useState<{ id: string } | null>(null);
   const [copiedRequestNumber, setCopiedRequestNumber] = React.useState(false);
 
+  // Draft save/resume (per-browser, via localStorage — no account or
+  // backend change required). File objects can't be serialized, so only
+  // the typed-in fields are restored; the customer is told to re-attach
+  // documents after resuming rather than the wizard silently pretending
+  // they're still there.
+  const draftKey = React.useMemo(
+    () => `nasaem-intake-draft:${service}:${initialServiceCode || "default"}`,
+    [service, initialServiceCode]
+  );
+  const [draftAvailable, setDraftAvailable] = React.useState(false);
+  const [draftRestored, setDraftRestored] = React.useState(false);
+  // Guards against overwriting a real saved draft with the wizard's blank
+  // initial state during the one render before we've checked localStorage.
+  const readyToSaveRef = React.useRef(false);
+
+  type DraftShape = {
+    step: number;
+    selectedServiceId: string;
+    selectedVisaTypeId: string;
+    name: string;
+    phone: string;
+    email: string;
+    travelerCount: number;
+    travelers: Traveler[];
+    notes: string;
+  };
+
+  function readDraft(): DraftShape | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      return raw ? (JSON.parse(raw) as DraftShape) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  React.useEffect(() => {
+    setDraftAvailable(Boolean(readDraft()));
+    readyToSaveRef.current = true;
+    // Only re-check when the draft slot itself changes (e.g. deep-linking
+    // into a different package/visa type) — not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  React.useEffect(() => {
+    if (!readyToSaveRef.current || result || typeof window === "undefined") return;
+    const draft: DraftShape = {
+      step,
+      selectedServiceId,
+      selectedVisaTypeId,
+      name,
+      phone,
+      email,
+      travelerCount,
+      travelers,
+      notes,
+    };
+    // A completely untouched form has nothing worth saving yet.
+    const isEmpty =
+      !name && !phone && !email && !notes && !selectedServiceId && !selectedVisaTypeId &&
+      travelers.every((t) => !t.fullName && !t.passportNo && !t.nationality);
+    try {
+      if (isEmpty && step === 0) window.localStorage.removeItem(draftKey);
+      else window.localStorage.setItem(draftKey, JSON.stringify(draft));
+    } catch {
+      // Storage can legitimately be unavailable (private browsing, quota) —
+      // the wizard must keep working without persistence either way.
+    }
+  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, result]);
+
+  function resumeDraft() {
+    const draft = readDraft();
+    if (!draft) return;
+    setSelectedServiceId(draft.selectedServiceId || "");
+    setSelectedVisaTypeId(draft.selectedVisaTypeId || "");
+    setName(draft.name || "");
+    setPhone(draft.phone || "");
+    setEmail(draft.email || "");
+    setTravelerCount(draft.travelerCount || 1);
+    setTravelers(draft.travelers?.length ? draft.travelers : [{ fullName: "", passportNo: "", nationality: "" }]);
+    setNotes(draft.notes || "");
+    setStep(Math.max(0, draft.step || 0));
+    setDraftAvailable(false);
+    setDraftRestored(true);
+  }
+
+  function discardDraft() {
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      // ignore
+    }
+    setDraftAvailable(false);
+  }
+
+  React.useEffect(() => {
+    if (!result) return;
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      // ignore
+    }
+  }, [result, draftKey]);
+
   React.useEffect(() => {
     let ignore = false;
 
@@ -527,6 +632,24 @@ export function ServiceIntakeWizard({
 
   return (
     <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-8">
+      {draftAvailable ? (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm">
+          <span className="font-semibold text-foreground">لديك طلب غير مكتمل — هل تريد متابعته؟</span>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" variant="gold" onClick={resumeDraft}>
+              متابعة الطلب
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={discardDraft}>
+              بدء طلب جديد
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {draftRestored ? (
+        <div className="mb-6 rounded-2xl border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+          تمت استعادة بياناتك المحفوظة. يرجى إعادة اختيار أي مستندات مرفقة سابقًا، فهي لا تُحفظ تلقائيًا.
+        </div>
+      ) : null}
       <div className="mb-8 flex items-center gap-2" dir="ltr">
         {steps.map((s, index) => (
           <div
