@@ -92,6 +92,7 @@ export async function getContactRequests(req, res, next) {
     const { data, meta } = await listContactRequests({
       ...parsePagination(req.query),
       status: req.query.status,
+      organizationId: req.user.organizationId,
     });
 
     return res.status(200).json({
@@ -117,7 +118,7 @@ export async function patchContactRequestStatus(req, res, next) {
       });
     }
 
-    const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user.id);
+    const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user.id, req.user.organizationId);
 
     if (!contactRequest) {
       return res.status(404).json({

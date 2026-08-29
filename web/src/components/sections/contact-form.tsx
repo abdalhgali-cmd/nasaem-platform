@@ -5,6 +5,7 @@ import * as React from "react";
 import { CheckCircle2, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
+import { LegalDisclosure } from "@/components/legal-disclosure";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
@@ -183,6 +184,8 @@ export function ContactForm() {
           />
         </div>
       </div>
+
+      <LegalDisclosure />
 
       <Button
         type="submit"

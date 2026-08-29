@@ -49,10 +49,12 @@ export async function requireAuth(req, res, next) {
         branchId: true,
         createdAt: true,
         updatedAt: true,
+        organizationId: true,
+        organization: { select: { id: true, slug: true, name: true, active: true } },
       },
     });
 
-    if (!user || user.status !== "ACTIVE") {
+    if (!user || user.status !== "ACTIVE" || !user.organization.active) {
       return res.status(401).json({
         success: false,
         message: "Account is not active",
@@ -60,6 +62,7 @@ export async function requireAuth(req, res, next) {
     }
 
     req.user = user;
+    req.organization = user.organization;
     next();
   } catch (error) {
     return res.status(401).json({

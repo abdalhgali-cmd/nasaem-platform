@@ -31,9 +31,9 @@ export function describeRequest(contactRequest) {
 // contact-request event staff should know about (customer approved a price,
 // selected an offer, uploaded a document, ...) can reuse the same fan-out
 // instead of staff having to poll the Contact Requests tab to notice.
-export async function notifyAdmins({ title, message, type }) {
+export async function notifyAdmins({ title, message, type, organizationId = "org_nasaem_default" }) {
   const admins = await prisma.user.findMany({
-    where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" },
+    where: { organizationId, role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" },
     select: { id: true },
   });
 
@@ -119,6 +119,7 @@ export async function createContactRequest(data, req, files = []) {
   const contactRequest = await prisma.contactRequest.create({
     data: {
       name: data.name,
+      organizationId: req.customer?.organizationId || "org_nasaem_default",
       phone: data.phone,
       phoneNormalized: normalizePhone(data.phone),
       email: data.email || null,
@@ -161,6 +162,7 @@ export async function createContactRequest(data, req, files = []) {
   });
 
   await notifyAdmins({
+    organizationId: contactRequest.organizationId,
     title: "طلب تواصل جديد من الموقع",
     message:
       `${contactRequest.name} (${contactRequest.phone}) — ${contactRequest.message.slice(0, 120)}` +
@@ -179,8 +181,8 @@ export async function createContactRequest(data, req, files = []) {
   return contactRequest;
 }
 
-export async function listContactRequests({ page, limit, skip, status }) {
-  const where = status ? { status } : undefined;
+export async function listContactRequests({ page, limit, skip, status, organizationId }) {
+  const where = { organizationId, ...(status ? { status } : {}) };
 
   const [data, total] = await Promise.all([
     prisma.contactRequest.findMany({
@@ -209,8 +211,8 @@ export async function listContactRequests({ page, limit, skip, status }) {
 // CLOSED — set together with it, and cleared together if the request is
 // ever reopened (moved back to NEW/CONTACTED), so a stale outcome from a
 // previous closure can never linger on a request that's active again.
-export async function updateContactRequestStatus(id, { status, outcome, outcomeNote }, userId) {
-  const existing = await prisma.contactRequest.findUnique({ where: { id } });
+export async function updateContactRequestStatus(id, { status, outcome, outcomeNote }, userId, organizationId = null) {
+  const existing = await prisma.contactRequest.findFirst({ where: { id, ...(organizationId ? { organizationId } : {}) } });
 
   if (!existing) {
     return null;

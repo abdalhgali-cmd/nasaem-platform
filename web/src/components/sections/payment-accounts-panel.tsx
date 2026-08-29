@@ -19,6 +19,7 @@ export function PaymentAccountsPanel() {
   const [accounts, setAccounts] = React.useState<PaymentAccount[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
+  const [retryKey, setRetryKey] = React.useState(0);
 
   React.useEffect(() => {
     let active = true;
@@ -42,7 +43,7 @@ export function PaymentAccountsPanel() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [retryKey]);
 
   async function copy(text: string) {
     try {
@@ -62,7 +63,20 @@ export function PaymentAccountsPanel() {
     );
   }
 
-  if (error || accounts.length === 0) return null;
+  if (error) {
+    return (
+      <section className="mx-auto mt-6 max-w-5xl px-4 sm:px-6 lg:px-8">
+        <div className="rounded-3xl border border-red-500/30 bg-red-500/5 p-5 text-sm text-red-600 dark:text-red-400">
+          <p>{error}</p>
+          <Button type="button" variant="outline" className="mt-3" onClick={() => { setError(""); setLoading(true); setRetryKey((value) => value + 1); }}>
+            إعادة المحاولة
+          </Button>
+        </div>
+      </section>
+    );
+  }
+
+  if (accounts.length === 0) return null;
 
   return (
     <section className="mx-auto mt-6 max-w-5xl px-4 sm:px-6 lg:px-8">

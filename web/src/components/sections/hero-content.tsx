@@ -3,14 +3,15 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, ShieldCheck, Star, Users } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, MessageCircle, ShieldCheck, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
 
-const stats = [
-  { icon: Users, value: "+15,000", label: "عميل سعيد" },
-  { icon: Star, value: "4.9/5", label: "تقييم العملاء" },
-  { icon: ShieldCheck, value: "10+", label: "سنوات خبرة" },
+const journeySteps = [
+  { icon: MessageCircle, value: "01", label: "أرسل طلبك" },
+  { icon: Tag, value: "02", label: "راجع العرض" },
+  { icon: ClipboardCheck, value: "03", label: "اعتمد بعد التوفر" },
+  { icon: ShieldCheck, value: "04", label: "تابع الحالة" },
 ];
 
 type HeroContentProps = {
@@ -89,9 +90,9 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.55 }}
-        className="mt-14 grid w-full max-w-2xl grid-cols-3 gap-4 border-t border-white/10 pt-8"
+        className="mt-14 grid w-full max-w-3xl grid-cols-2 gap-4 border-t border-white/10 pt-8 sm:grid-cols-4"
       >
-        {stats.map(({ icon: Icon, value, label }) => (
+        {journeySteps.map(({ icon: Icon, value, label }) => (
           <div key={label} className="flex flex-col items-center gap-1.5">
             <Icon className="size-5 text-accent" />
             <dt className="sr-only">{label}</dt>

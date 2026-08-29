@@ -1,5 +1,6 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect -- these effects synchronize remote customer data into local UI state. */
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -21,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { customerApi, customerUpload, CustomerApiError } from "@/lib/customer-api";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
+import { LegalDisclosure } from "@/components/legal-disclosure";
 
 type CustomerProfile = {
   id: string;
@@ -702,7 +704,7 @@ function RequestsTab() {
           {detail.notes ? <p className="mt-4 rounded-xl bg-background p-4 text-sm text-muted-foreground">{detail.notes}</p> : null}
           {detail.invoice ? <div className="mt-4 rounded-xl border border-border p-4 text-sm"><p className="font-bold">الفاتورة</p><p className="mt-2">{formatMoney(detail.invoice.amount, detail.invoice.currency)} — {detail.invoice.status}</p></div> : null}
           {detail.offers.length ? <div className="mt-4 rounded-xl border border-border p-4"><p className="font-bold">العروض</p><div className="mt-3 grid gap-2">{detail.offers.map((offer) => <div key={offer.id} className="rounded-lg bg-background p-3 text-sm"><div className="flex justify-between gap-2"><span>{offer.carrier}</span><strong dir="ltr">{formatMoney(offer.amount, offer.currency)}</strong></div>{offer.description ? <p className="mt-1 text-xs text-muted-foreground">{offer.description}</p> : null}</div>)}</div></div> : null}
-          <div className="mt-4 rounded-xl border border-border p-4"><p className="font-bold">المستندات</p>{detail.documents.length ? <div className="mt-3 grid gap-2">{detail.documents.map((doc) => <div key={doc.id} className="rounded-lg bg-background p-3 text-sm"><div className="flex justify-between gap-2"><span>{doc.label || doc.fileName}</span><span className="text-xs text-muted-foreground">{doc.status}</span></div>{doc.reviewNote ? <p className="mt-1 text-xs text-red-600 dark:text-red-400">{doc.reviewNote}</p> : null}</div>)}</div> : <p className="mt-2 text-xs text-muted-foreground">لم تُرفع مستندات بعد.</p>}<label className="mt-4 inline-flex cursor-pointer items-center justify-center rounded-lg border border-primary/30 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">{uploading ? "جارٍ الرفع..." : "رفع أو إعادة رفع مستند"}<input type="file" className="sr-only" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadDocument(detail.id, file); event.currentTarget.value = ""; }} /></label></div>
+          <div className="mt-4 rounded-xl border border-border p-4"><p className="font-bold">المستندات</p><div className="mt-2"><LegalDisclosure sensitive /></div>{detail.documents.length ? <div className="mt-3 grid gap-2">{detail.documents.map((doc) => <div key={doc.id} className="rounded-lg bg-background p-3 text-sm"><div className="flex justify-between gap-2"><span>{doc.label || doc.fileName}</span><span className="text-xs text-muted-foreground">{doc.status}</span></div>{doc.reviewNote ? <p className="mt-1 text-xs text-red-600 dark:text-red-400">{doc.reviewNote}</p> : null}</div>)}</div> : <p className="mt-2 text-xs text-muted-foreground">لم تُرفع مستندات بعد.</p>}<label className="mt-4 inline-flex cursor-pointer items-center justify-center rounded-lg border border-primary/30 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">{uploading ? "جارٍ الرفع..." : "رفع أو إعادة رفع مستند"}<input type="file" className="sr-only" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadDocument(detail.id, file); event.currentTarget.value = ""; }} /></label></div>
           {detail.deliverables.length ? <div className="mt-4 rounded-xl border border-border p-4"><p className="font-bold">الملفات النهائية</p><div className="mt-3 grid gap-2">{detail.deliverables.map((file) => <a key={file.id} href={`${API_URL}/customer/requests/${encodeURIComponent(detail.id)}/deliverables/${encodeURIComponent(file.id)}/file`} className="rounded-lg bg-background p-3 text-sm text-primary hover:underline">{file.label || file.fileName}</a>)}</div></div> : null}
           {detail.timeline?.length ? <div className="mt-4 rounded-xl border border-border p-4"><p className="font-bold">الخط الزمني</p><ol className="mt-3 flex flex-col gap-2">{detail.timeline.map((entry, index) => <li key={`${entry.createdAt}-${index}`} className="flex justify-between gap-3 text-xs"><span>{entry.action}</span><span className="text-muted-foreground" dir="ltr">{formatDate(entry.createdAt)}</span></li>)}</ol></div> : null}
         </div>

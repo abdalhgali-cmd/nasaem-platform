@@ -12,14 +12,14 @@ import { siteConfig } from "@/lib/site-config";
 export const metadata: Metadata = {
   title: "باقات العمرة",
   description:
-    "باقات عمرة متكاملة: تأشيرة فقط، عمرة مع الخدمات، أو عمرة جماعية ضمن أفواج منظمة — احجز رحلتك إلى بيت الله الحرام بثقة.",
+    "اطلب برنامج العمرة المناسب لك، وسيراجع فريقنا التفاصيل والتوفر والتكلفة النهائية قبل اعتماد الخطوات التالية.",
 };
 
 const steps = [
-  { title: "اختر باقتك", description: "حدد نوع الباقة المناسبة لك من بين خياراتنا المتعددة." },
-  { title: "أرسل مستنداتك", description: "شارك المستندات المطلوبة معنا عبر الواتساب أو مكاتبنا." },
-  { title: "تأكيد الحجز", description: "نؤكد لك تفاصيل الحجز والدفع خلال ٢٤ ساعة." },
-  { title: "استلم تأشيرتك", description: "تصلك التأشيرة وكل التفاصيل جاهزة قبل موعد السفر." },
+  { title: "اطلب عرض الباقة", description: "حدد الباقة أو اطلب برنامجًا مخصصًا حسب احتياجك." },
+  { title: "أرسل المستندات عند طلبها", description: "شارك المستندات المطلوبة عبر القناة التي يحددها فريقنا." },
+  { title: "راجع العرض والتوفر", description: "يراجع الفريق التكلفة والتوفر ثم يرسل لك الخطوات التالية." },
+  { title: "أكمل الإجراءات", description: "تصلك المستندات النهائية بعد اعتماد العرض وإكمال المتطلبات." },
 ];
 
 const documents = [
@@ -35,15 +35,15 @@ export default function UmrahPage() {
       <PageHero
         eyebrow="خدمات العمرة"
         breadcrumb="العمرة"
-        title="رحلة عمرة بلا تعقيد، من الحجز حتى العودة"
-        description="نتولى كل التفاصيل: التأشيرة، الطيران، الفنادق القريبة من الحرمين، والنقل — لتتفرغ أنت للعبادة فقط."
+        title="رحلة عمرة بمتابعة واضحة من الطلب حتى إكمال الإجراءات"
+        description="يساعدك فريقنا في ترتيب تفاصيل التأشيرة والطيران والفنادق والنقل، مع مراجعة التوفر والتكلفة قبل الاعتماد."
       />
 
       <FeaturedUmrah />
 
       <section className="bg-section py-24">
         <Container>
-          <SectionHeading eyebrow="خطوات بسيطة" title="كيف تحجز باقتك؟" />
+          <SectionHeading eyebrow="خطوات بسيطة" title="كيف تبدأ طلب باقتك؟" />
           <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {steps.map((step, index) => (
               <FadeIn key={step.title} delay={index * 0.06}>
@@ -87,7 +87,7 @@ export default function UmrahPage() {
 
       <section id="book" className="scroll-mt-24 py-24">
         <Container>
-          <SectionHeading eyebrow="احجز الآن" title="ابدأ طلب العمرة" />
+          <SectionHeading eyebrow="ابدأ طلبك" title="اطلب عرضًا لبرنامج العمرة" />
           <div className="mt-12">
             <UmrahBookingSection />
           </div>
@@ -102,7 +102,7 @@ export default function UmrahPage() {
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Button asChild variant="gold" size="lg">
-              <a href="#book">ابدأ الحجز الآن</a>
+              <a href="#book">ابدأ طلب العمرة</a>
             </Button>
             <Button asChild variant="outline" size="lg" className="border-white/30 text-white hover:bg-white/10 hover:border-white">
               <a href={`https://wa.me/${siteConfig.whatsapp}`} target="_blank" rel="noopener noreferrer">

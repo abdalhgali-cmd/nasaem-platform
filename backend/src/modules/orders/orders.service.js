@@ -47,8 +47,9 @@ async function generateOrderNumber() {
   return `NH-${year}-${String(nextNumber).padStart(6, "0")}`;
 }
 
-export async function listOrders({ page, limit, skip, status, paymentStatus, assignedUserId, serviceId, search, stalledHours }) {
+export async function listOrders({ page, limit, skip, status, paymentStatus, assignedUserId, serviceId, search, stalledHours, organizationId }) {
   const where = {
+    organizationId,
     ...(status ? { status } : {}),
     ...(paymentStatus ? { paymentStatus } : {}),
     ...(assignedUserId === "UNASSIGNED" ? { assignedUserId: null } : assignedUserId ? { assignedUserId } : {}),
@@ -72,11 +73,16 @@ export async function listOrders({ page, limit, skip, status, paymentStatus, ass
   return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
-export async function assignOrder(orderId, assignedUserId, changedByUserId) {
+export async function assignOrder(orderId, assignedUserId, changedByUserId, organizationId) {
   if (!changedByUserId) throw new Error("A valid user is required to assign an order");
 
-  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  const order = await prisma.order.findFirst({ where: { id: orderId, organizationId } });
   if (!order) return null;
+
+  if (assignedUserId) {
+    const assignee = await prisma.user.findFirst({ where: { id: assignedUserId, organizationId, status: "ACTIVE" }, select: { id: true } });
+    if (!assignee) return null;
+  }
 
   const updated = await prisma.order.update({
     where: { id: orderId },
@@ -102,8 +108,8 @@ export async function assignOrder(orderId, assignedUserId, changedByUserId) {
 // often arrives after the sale. Restricted at the route layer to
 // SUPER_ADMIN/ADMIN/ACCOUNTANT since it's financial data feeding gross
 // profit reporting (finance.service.js), not general order handling.
-export async function setItemSupplierCost(orderId, itemId, data) {
-  const item = await prisma.orderItem.findUnique({ where: { id: itemId } });
+export async function setItemSupplierCost(orderId, itemId, data, organizationId) {
+  const item = await prisma.orderItem.findFirst({ where: { id: itemId, order: { id: orderId, organizationId } } });
   if (!item || item.orderId !== orderId) return null;
 
   return prisma.orderItem.update({
@@ -116,8 +122,8 @@ export async function setItemSupplierCost(orderId, itemId, data) {
   });
 }
 
-export async function getOrderById(id) {
-  return prisma.order.findUnique({ where: { id }, include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, documents: true, payments: true, notes: true, history: true, notifications: true, branch: true } });
+export async function getOrderById(id, organizationId) {
+  return prisma.order.findFirst({ where: { id, organizationId }, include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, documents: true, payments: true, notes: true, history: true, notifications: true, branch: true } });
 }
 
 // Coupon application (Phase 6 of the customer-accounts/coupons plan). A
@@ -171,10 +177,17 @@ async function createOrderWithOptionalCoupon(tx, { orderData, couponCode, custom
   });
 }
 
-export async function createOrder(data, actorUserId = null) {
+export async function createOrder(data, actorUserId = null, expectedOrganizationId = null) {
   const orderNumber = await generateOrderNumber();
   const creatorUserId = actorUserId || data.assignedUserId;
   if (!creatorUserId) throw new Error("A valid user is required to create an order history entry");
+
+  const customer = await prisma.customer.findUnique({ where: { id: data.customerId }, select: { organizationId: true } });
+  if (!customer || (expectedOrganizationId && customer.organizationId !== expectedOrganizationId)) {
+    const error = new Error("Customer not found");
+    error.statusCode = 404;
+    throw error;
+  }
 
   const items = data.items.map((item) => {
     const quantity = Number(item.quantity || 1);
@@ -188,6 +201,7 @@ export async function createOrder(data, actorUserId = null) {
     createOrderWithOptionalCoupon(tx, {
       orderData: {
         orderNumber,
+        organizationId: customer.organizationId,
         customerId: data.customerId,
         assignedUserId: data.assignedUserId || null,
         branchId: data.branchId || null,
@@ -225,7 +239,10 @@ async function notifyOrderStatusChange(order, oldStatus, newStatus) {
   const title = `تحديث الطلب ${order.orderNumber}`;
   const message = `تم تغيير حالة الطلب من ${ORDER_STATUS_LABELS[oldStatus] || oldStatus} إلى ${ORDER_STATUS_LABELS[newStatus] || newStatus}.`;
   if (order.assignedUser?.id) await createNotification({ title, message, type: "ORDER_STATUS", userId: order.assignedUser.id, orderId: order.id });
-  const admins = await prisma.user.findMany({ where: { role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" }, select: { id: true } });
+  const admins = await prisma.user.findMany({
+    where: { organizationId: order.organizationId, role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" },
+    select: { id: true },
+  });
   const uniqueRecipientIds = new Set(admins.map((admin) => admin.id));
   if (order.assignedUser?.id) uniqueRecipientIds.add(order.assignedUser.id);
   await Promise.all([...uniqueRecipientIds].filter((id) => id !== order.assignedUser?.id).map((userId) => createNotification({ title, message, type: "ORDER_STATUS", userId, orderId: order.id })));
@@ -279,12 +296,12 @@ export function canCompleteOrder(order) {
   return hasConfirmedPayment(order) && hasRequiredDocuments(order);
 }
 
-export async function updateOrderStatus(orderId, status, changedByUserId, notes = null) {
+export async function updateOrderStatus(orderId, status, changedByUserId, notes = null, organizationId = null) {
   if (!changedByUserId) throw new Error("A valid user is required to update order status");
 
   const updatedOrder = await prisma.$transaction(async (tx) => {
-    const currentOrder = await tx.order.findUnique({
-      where: { id: orderId },
+    const currentOrder = await tx.order.findFirst({
+      where: { id: orderId, ...(organizationId ? { organizationId } : {}) },
       include: {
         documents: { select: { type: true } },
         items: { include: { service: { select: { category: true } } } },
