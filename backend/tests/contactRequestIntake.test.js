@@ -32,10 +32,12 @@ describe("service intake — public catalog", () => {
       "currency",
       "description",
       "features",
+      "fxRateToSdg",
       "iconKey",
       "id",
       "imageKey",
       "name",
+      "priceSdg",
       "processingTime",
     ]);
 
