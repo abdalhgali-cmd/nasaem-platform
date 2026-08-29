@@ -24,7 +24,7 @@
 | الكود الوظيفي (مراحل 1–21 من Platform 3.0) | 🟢 مكتمل ومُختبر محليًا (413/413 اختبار خلفي، E2E Playwright) |
 | CI على `main` | 🟢 أخضر (run 227) |
 | ميزة العملات المتعددة (اليوم) | 🟢 مُغطاة الآن بـ 5 اختبارات سلوك حقيقية + إصلاح خطأ حالة HTTP لسعر صرف غير صالح (كان 500 بدل 400) |
-| عزل المؤسسات (Organization/Tenant) | 🟡 Payments/Documents/Finance تم إصلاحها وتغطيتها باختبار A/B جديد؛ **`dashboard.service.js` لا يزال مفتوحًا** |
+| عزل المؤسسات (Organization/Tenant) | 🟢 كل الوحدات ذات البيانات الحساسة معزولة الآن (Orders/Customers/ContactRequests/Payments/Documents/Finance/Dashboard) — متبقٍ فقط ActivityLog/Notification بأولوية منخفضة |
 | PR #27 (شاشة تشغيل موحدة) | 🟡 رُوجع وعُلِّق عليه (متأخر عن `main`، ينقصه `AdminShell`) — بانتظار قرار المالك بالإصلاح أو الإغلاق |
 | Staging قابل للكتابة | 🔴 غير موجود (لا backend/DB غير إنتاجيين) |
 | التحقق الحي (A/B customers/orgs, RBAC, ملفات) | 🔴 محجوب حتى يتوفر Staging |
@@ -63,11 +63,12 @@
 - ✅ إصلاح جانبي: `PATCH /api/flights/admin/rates` كان يُرجع 500 بدل 400 عند سعر غير صالح — أُصلح ومُختبر.
 - ⬜ مصدر سعر الصرف يبقى يدويًا بالكامل من الإدارة (لا API خارجي) — هذا قرار عمل قائم فعليًا، لم يتغيّر.
 
-### A4. إكمال جرد عزل المؤسسات (Organization Isolation) — 🟡 جزئي
+### A4. إكمال جرد عزل المؤسسات (Organization Isolation) — 🟢 مكتمل (للوحدات ذات البيانات الحساسة)
 - ✅ جرد فعلي لكل وحدة backend مقابل عمود `organizationId` (موثّق في `STAGING_READINESS_CHECKLIST.md`).
 - ✅ **فجوة حقيقية اكتُشفت وأُصلحت**: `Payment`/`Document`/`finance.service.js` لم تكن تُصفّي بالمؤسسة إطلاقًا رغم اعتمادها على `Order` المُعزول — أي موظف من مؤسسة ثانية (لو وُجدت) كان سيرى/يُعدّل مدفوعات ومستندات وتقارير مالية لمؤسسة أخرى بمعرفة الـ ID فقط. أُصلح بنفس نمط `orders.service.js`، مع اختبار A/B جديد في `organizationIsolation.test.js`.
-- ⬜ **لا يزال مفتوحًا**: `dashboard.service.js` (نفس نوع الفجوة، سطح أكبر — 6+ استعلامات عبر 3 دوال) — تُرك أولوية تالية بدل إصلاح متسرّع.
-- ✅ تأكيد أن `organizationIsolation.test.js` أخضر فعليًا (413/413 اختبار خلفي ناجح على قاعدة بيانات محلية طازجة، بنفس تسلسل CI: migrate deploy + seed).
+- ✅ **`dashboard.service.js` أُصلح كذلك** — نفس نوع الفجوة عبر `getDashboardStats`/`getOperationsCenter`/`getDashboardSummary` (6+ استعلامات)، مع استثناء متعمّد لـ `Offer`/`Service` (كتالوجات مشتركة بلا `organizationId` أصلًا). اختبار A/B جديد يثبت أن مؤسسة جديدة تُرجع عداداتها الخاصة فقط.
+- ⬜ متبقٍ بأولوية منخفضة (لا بيانات عميل حساسة): `ActivityLog`/`Notification` بلا `organizationId` — قرار مستقبلي عند العمل على عزل مؤسسات كامل.
+- ✅ تأكيد أن `organizationIsolation.test.js` أخضر فعليًا (414/414 اختبار خلفي ناجح على قاعدة بيانات محلية طازجة، بنفس تسلسل CI: migrate deploy + seed).
 
 ### A5. تنظيف توثيقي — ✅ مكتمل جزئيًا
 - ✅ `docs/errors-and-development-proposal.md` وُسم صراحة كوثيقة متجاوزة (banner في الأعلى يشير لهذه الخطة).

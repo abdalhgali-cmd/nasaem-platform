@@ -1,15 +1,29 @@
 import prisma from "../../config/database.js";
 import { safeCustomerSelect } from "../../utils/safeSelects.js";
 
-export async function getDashboardStats() {
+// `organizationId` scopes every query tied (directly or via a relation) to
+// Customer/Order/User/ContactRequest — mirrors the pattern already used in
+// orders.service.js/payments.service.js/documents.service.js/
+// finance.service.js. `Offer` and `Service` stay unscoped on purpose: they
+// are shared content/catalog models with no organizationId column at all
+// (see the inventory in docs/STAGING_READINESS_CHECKLIST.md), not an
+// oversight.
+export async function getDashboardStats(organizationId) {
+  const orgWhere = organizationId ? { organizationId } : {};
+  const orderOrgWhere = organizationId ? { order: { organizationId } } : {};
   const [customers, orders, payments, offers, documents, users] = await Promise.all([
-    prisma.customer.count(), prisma.order.count(), prisma.payment.count(), prisma.offer.count(), prisma.document.count(), prisma.user.count(),
+    prisma.customer.count({ where: orgWhere }),
+    prisma.order.count({ where: orgWhere }),
+    prisma.payment.count({ where: orderOrgWhere }),
+    prisma.offer.count(),
+    prisma.document.count({ where: orderOrgWhere }),
+    prisma.user.count({ where: orgWhere }),
   ]);
   const [salesByCurrency, paidByCurrency, serviceSales, latestOrders] = await Promise.all([
-    prisma.order.groupBy({ by: ["currency"], _sum: { totalAmount: true }, _count: { _all: true } }),
-    prisma.payment.groupBy({ by: ["currency", "status"], where: { status: { not: "REFUNDED" } }, _sum: { amount: true }, _count: { _all: true } }),
-    prisma.orderItem.groupBy({ by: ["serviceId"], _sum: { total: true }, _count: { _all: true } }),
-    prisma.order.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { customer: { select: safeCustomerSelect } } }),
+    prisma.order.groupBy({ by: ["currency"], where: orgWhere, _sum: { totalAmount: true }, _count: { _all: true } }),
+    prisma.payment.groupBy({ by: ["currency", "status"], where: { status: { not: "REFUNDED" }, ...orderOrgWhere }, _sum: { amount: true }, _count: { _all: true } }),
+    prisma.orderItem.groupBy({ by: ["serviceId"], where: orderOrgWhere, _sum: { total: true }, _count: { _all: true } }),
+    prisma.order.findMany({ where: orgWhere, orderBy: { createdAt: "desc" }, take: 5, include: { customer: { select: safeCustomerSelect } } }),
   ]);
   const serviceIds = serviceSales.map((row) => row.serviceId);
   const services = serviceIds.length ? await prisma.service.findMany({ where: { id: { in: serviceIds } }, select: { id: true, code: true, name: true, category: true } }) : [];
@@ -39,14 +53,16 @@ function orderNextAction(order) {
   return { key: "REVIEW", label: "مراجعة الطلب" };
 }
 
-export async function getOperationsCenter() {
+export async function getOperationsCenter(organizationId) {
+  const orgFilter = organizationId ? { organizationId } : {};
+  const orderOrgFilter = organizationId ? { order: { organizationId } } : {};
   const [contactRequests, orders, pendingContactPayments, pendingOrderPayments, unassignedOrders, waitingDocs] = await Promise.all([
-    prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" } }, orderBy: { updatedAt: "asc" }, take: 50, include: { invoice: { select: { status: true, amount: true, currency: true } }, offers: { select: { id: true, carrier: true, amount: true, currency: true } }, documents: { select: { id: true, label: true, status: true } }, deliverables: { select: { id: true }, take: 1 } } }),
-    prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] } }, orderBy: { updatedAt: "asc" }, take: 50, include: { customer: { select: { fullName: true, phone: true, passportNo: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
-    prisma.contactRequest.count({ where: { paymentStatus: "UNDER_REVIEW" } }),
-    prisma.payment.count({ where: { reviewStatus: "PENDING" } }),
-    prisma.order.count({ where: { assignedUserId: null, status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] } } }),
-    prisma.order.count({ where: { status: "WAITING_DOCUMENTS" } }),
+    prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: { invoice: { select: { status: true, amount: true, currency: true } }, offers: { select: { id: true, carrier: true, amount: true, currency: true } }, documents: { select: { id: true, label: true, status: true } }, deliverables: { select: { id: true }, take: 1 } } }),
+    prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: { customer: { select: { fullName: true, phone: true, passportNo: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
+    prisma.contactRequest.count({ where: { paymentStatus: "UNDER_REVIEW", ...orgFilter } }),
+    prisma.payment.count({ where: { reviewStatus: "PENDING", ...orderOrgFilter } }),
+    prisma.order.count({ where: { assignedUserId: null, status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, ...orgFilter } }),
+    prisma.order.count({ where: { status: "WAITING_DOCUMENTS", ...orgFilter } }),
   ]);
 
   const now = Date.now();
@@ -58,23 +74,25 @@ export async function getOperationsCenter() {
   return { queues: { newRequests: contactRequests.filter((r) => r.status === "NEW").length, waitingPaymentReview: pendingContactPayments + pendingOrderPayments, unassignedOrders, waitingDocuments: waitingDocs, waitingCustomer: contactRequests.filter((r) => contactNextAction(r).key === "CUSTOMER_DECISION").length, readyToDeliver: contactRequests.filter((r) => contactNextAction(r).key === "DELIVER").length, stalled }, items: items.slice(0, 80) };
 }
 
-export async function getDashboardSummary() {
+export async function getDashboardSummary(organizationId) {
+  const orgFilter = organizationId ? { organizationId } : {};
+  const orderOrgFilter = organizationId ? { order: { organizationId } } : {};
   const now = new Date();
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startWeek = new Date(startToday); startWeek.setDate(startWeek.getDate() - 6);
   const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const [todayOrders, weekOrders, monthOrders, todayPayments, weekPayments, monthPayments, openRequests] = await Promise.all([
-    prisma.order.count({ where: { createdAt: { gte: startToday } } }),
-    prisma.order.count({ where: { createdAt: { gte: startWeek } } }),
-    prisma.order.count({ where: { createdAt: { gte: startMonth } } }),
+    prisma.order.count({ where: { createdAt: { gte: startToday }, ...orgFilter } }),
+    prisma.order.count({ where: { createdAt: { gte: startWeek }, ...orgFilter } }),
+    prisma.order.count({ where: { createdAt: { gte: startMonth }, ...orgFilter } }),
         // Only PAID counts as actually collected — a payment awaiting
         // review (status stays UNPAID until confirmed, see
         // payments.service.js) must not inflate "paid" before staff have
         // actually confirmed it, same fix as recalculateOrderPaymentStatus.
-        prisma.payment.aggregate({ where: { createdAt: { gte: startToday }, status: "PAID" }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startWeek }, status: "PAID" }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startMonth }, status: "PAID" }, _sum: { amount: true } }),
-    prisma.contactRequest.count({ where: { status: { not: "CLOSED" } } }),
+        prisma.payment.aggregate({ where: { createdAt: { gte: startToday }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
+        prisma.payment.aggregate({ where: { createdAt: { gte: startWeek }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
+        prisma.payment.aggregate({ where: { createdAt: { gte: startMonth }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
+    prisma.contactRequest.count({ where: { status: { not: "CLOSED" }, ...orgFilter } }),
   ]);
   return { periods: { today: { orders: todayOrders, paid: todayPayments._sum.amount || 0 }, last7Days: { orders: weekOrders, paid: weekPayments._sum.amount || 0 }, month: { orders: monthOrders, paid: monthPayments._sum.amount || 0 } }, openContactRequests: openRequests, profit: null, profitNote: "لا يتم احتساب الربح حتى تتوفر تكلفة المورد الفعلية للطلب." };
 }
