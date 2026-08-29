@@ -51,11 +51,12 @@ async function recalculateOrderPaymentStatus(db, orderId) {
   return paymentStatus;
 }
 
-export async function listPayments({ page, limit, skip, status, reviewStatus, orderId }) {
+export async function listPayments({ page, limit, skip, status, reviewStatus, orderId, organizationId }) {
   const where = {
     ...(status ? { status } : {}),
     ...(reviewStatus ? { reviewStatus } : {}),
     ...(orderId ? { orderId } : {}),
+    ...(organizationId ? { order: { organizationId } } : {}),
   };
   const [data, total] = await Promise.all([
     prisma.payment.findMany({
@@ -71,9 +72,9 @@ export async function listPayments({ page, limit, skip, status, reviewStatus, or
   return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
-export async function getPaymentById(id) {
-  return prisma.payment.findUnique({
-    where: { id },
+export async function getPaymentById(id, organizationId) {
+  return prisma.payment.findFirst({
+    where: { id, ...(organizationId ? { order: { organizationId } } : {}) },
     include: {
       order: {
         include: { customer: { select: safeCustomerSelect }, items: { include: { service: true } } },
@@ -89,10 +90,10 @@ export async function getPaymentById(id) {
 // still needs to be verified before it can move the order's balance. The
 // default (no pendingReview) keeps the pre-existing behavior — staff
 // recording a payment they have already verified in person/at the counter.
-export async function createPayment(data) {
+export async function createPayment(data, organizationId) {
   return prisma.$transaction(async (tx) => {
-    const order = await tx.order.findUnique({
-      where: { id: data.orderId },
+    const order = await tx.order.findFirst({
+      where: { id: data.orderId, ...(organizationId ? { organizationId } : {}) },
       select: { id: true, totalAmount: true },
     });
 
@@ -132,9 +133,9 @@ export async function createPayment(data) {
 // decided one (CONFIRMED/REJECTED) must not be silently re-decided, which is
 // exactly the "confirming in a way that produces incorrect financial data"
 // the review workflow exists to prevent.
-export async function confirmPayment(id, reviewedByUserId) {
+export async function confirmPayment(id, reviewedByUserId, organizationId) {
   return prisma.$transaction(async (tx) => {
-    const payment = await tx.payment.findUnique({ where: { id } });
+    const payment = await tx.payment.findFirst({ where: { id, ...(organizationId ? { order: { organizationId } } : {}) } });
     if (!payment) return null;
     if (payment.reviewStatus !== "PENDING") {
       const error = new Error("Only a payment awaiting review can be confirmed");
@@ -152,9 +153,9 @@ export async function confirmPayment(id, reviewedByUserId) {
   });
 }
 
-export async function rejectPayment(id, reviewedByUserId, reason) {
+export async function rejectPayment(id, reviewedByUserId, reason, organizationId) {
   return prisma.$transaction(async (tx) => {
-    const payment = await tx.payment.findUnique({ where: { id } });
+    const payment = await tx.payment.findFirst({ where: { id, ...(organizationId ? { order: { organizationId } } : {}) } });
     if (!payment) return null;
     if (payment.reviewStatus !== "PENDING") {
       const error = new Error("Only a payment awaiting review can be rejected");

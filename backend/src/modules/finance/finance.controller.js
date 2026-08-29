@@ -14,7 +14,7 @@ export async function getReport(req, res, next) {
       return res.status(400).json({ success: false, message: "groupBy must be one of: service, employee, supplier, currency" });
     }
 
-    const data = await getFinancialReport({ period, from, to, groupBy });
+    const data = await getFinancialReport({ period, from, to, groupBy, organizationId: req.user.organizationId });
     return res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

@@ -6,29 +6,31 @@ import { buildPaginationMeta } from "../../utils/pagination.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
 
-export async function listDocuments({ page, limit, skip }) {
+export async function listDocuments({ page, limit, skip, organizationId }) {
+  const where = organizationId ? { order: { organizationId } } : {};
   const [data, total] = await Promise.all([
     prisma.document.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
       include: { order: true, customer: { select: safeCustomerSelect }, uploadedBy: { select: safeUserSelect } },
     }),
-    prisma.document.count(),
+    prisma.document.count({ where }),
   ]);
   return { data, meta: buildPaginationMeta(page, limit, total) };
 }
 
-export async function getDocumentById(id) {
-  return prisma.document.findUnique({
-    where: { id },
+export async function getDocumentById(id, organizationId) {
+  return prisma.document.findFirst({
+    where: { id, ...(organizationId ? { order: { organizationId } } : {}) },
     include: { order: true, customer: { select: safeCustomerSelect }, uploadedBy: { select: safeUserSelect } },
   });
 }
 
-export async function createDocument(data) {
-  const order = await prisma.order.findUnique({
-    where: { id: data.orderId },
+export async function createDocument(data, organizationId) {
+  const order = await prisma.order.findFirst({
+    where: { id: data.orderId, ...(organizationId ? { organizationId } : {}) },
     select: { id: true, customerId: true },
   });
   if (!order) throw Object.assign(new Error("Order not found"), { statusCode: 404 });
@@ -51,8 +53,8 @@ export async function createDocument(data) {
   });
 }
 
-export async function deleteDocument(id) {
-  const document = await prisma.document.findUnique({ where: { id } });
+export async function deleteDocument(id, organizationId) {
+  const document = await prisma.document.findFirst({ where: { id, ...(organizationId ? { order: { organizationId } } : {}) } });
   if (!document) return null;
   await prisma.document.delete({ where: { id } });
   const absolutePath = path.join(UPLOAD_ROOT, document.storagePath);
