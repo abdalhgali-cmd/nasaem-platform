@@ -12,11 +12,13 @@ type Coupon = { id: string; code: string; description?: string | null; discountT
 type Offer = { id: string; title: string; description?: string | null; price: string | number; currency: string; status: "DRAFT" | "ACTIVE" | "ARCHIVED"; startDate?: string | null; endDate?: string | null };
 type CouponDraft = { code: string; description: string; discountType: Coupon["discountType"]; discountValue: string; serviceId: string; startDate: string; expiryDate: string; usageLimit: string; usageLimitPerCustomer: string; minOrderAmount: string; active: boolean };
 type OfferDraft = { title: string; description: string; price: string; currency: string; status: Offer["status"]; startDate: string; endDate: string };
+type CurrencyRates = { USD: number; SAR: number };
 
 const blankCoupon: CouponDraft = { code: "", description: "", discountType: "PERCENTAGE", discountValue: "10", serviceId: "", startDate: "", expiryDate: "", usageLimit: "", usageLimitPerCustomer: "1", minOrderAmount: "", active: true };
 const blankOffer: OfferDraft = { title: "", description: "", price: "0", currency: "SAR", status: "DRAFT", startDate: "", endDate: "" };
 const dateValue = (value?: string | null) => value ? value.slice(0, 16) : "";
 const optionalNumber = (value: string) => value.trim() ? Number(value) : null;
+const currencies = [{ code: "USD", label: "الدولار الأمريكي" }, { code: "SAR", label: "الريال السعودي" }, { code: "SDG", label: "الجنيه السوداني" }] as const;
 
 export function PricingManager() {
   const [tab, setTab] = React.useState<Tab>("packages");
@@ -30,32 +32,46 @@ export function PricingManager() {
   const [loading, setLoading] = React.useState(true);
   const [working, setWorking] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [rates, setRates] = React.useState<CurrencyRates>({ USD: 0, SAR: 0 });
 
   async function load() {
     setLoading(true);
     try {
-      const [services, couponList, offerList] = await Promise.all([
+      const [services, couponList, offerList, rateList] = await Promise.all([
         adminRequest<{ data: PackageRow[] }>("/services?limit=100"),
         adminRequest<{ data: Coupon[] }>("/coupons?limit=100"),
         adminRequest<{ data: Offer[] }>("/offers"),
+        adminRequest<{ data: CurrencyRates }>("/flights/admin/rates"),
       ]);
       setPackages((services.data || []).filter((item) => { const category = item.category.toLowerCase(); return category.includes("package") || category.includes("umrah"); }));
       setCoupons(couponList.data || []);
       setOffers(offerList.data || []);
+      setRates({ USD: Number(rateList.data?.USD || 0), SAR: Number(rateList.data?.SAR || 0) });
     } catch (error) { setMessage({ kind: "error", text: error instanceof Error ? error.message : "تعذر تحميل البيانات" }); }
     finally { setLoading(false); }
   }
   React.useEffect(() => { void load(); }, []);
 
-  async function savePrice(item: PackageRow, raw: string) {
+  async function savePrice(item: PackageRow, raw: string, currency: string) {
     const basePrice = Number(raw);
     if (!Number.isFinite(basePrice) || basePrice < 0) return setMessage({ kind: "error", text: "السعر يجب أن يكون صفرًا أو أكثر" });
     setWorking(item.id); setMessage(null);
     try {
-      const result = await adminRequest<{ data: PackageRow }>(`/services/${item.id}`, { method: "PATCH", body: JSON.stringify({ basePrice }) });
-      setPackages((rows) => rows.map((row) => row.id === item.id ? { ...row, basePrice: result.data.basePrice } : row));
+      const result = await adminRequest<{ data: PackageRow }>(`/services/${item.id}`, { method: "PATCH", body: JSON.stringify({ basePrice, currency }) });
+      setPackages((rows) => rows.map((row) => row.id === item.id ? { ...row, basePrice: result.data.basePrice, currency: result.data.currency } : row));
       setMessage({ kind: "ok", text: `تم تحديث سعر «${item.name}» للطلبات الجديدة` });
     } catch (error) { setMessage({ kind: "error", text: error instanceof Error ? error.message : "تعذر تحديث السعر" }); }
+    finally { setWorking(null); }
+  }
+
+  async function saveRates(event: React.FormEvent) {
+    event.preventDefault(); setWorking("rates"); setMessage(null);
+    if (rates.USD <= 0 || rates.SAR <= 0) { setWorking(null); return setMessage({ kind: "error", text: "أدخل سعرًا موازيًا أكبر من صفر للدولار والريال" }); }
+    try {
+      const result = await adminRequest<{ data: CurrencyRates }>("/flights/admin/rates", { method: "PATCH", body: JSON.stringify(rates) });
+      setRates({ USD: Number(result.data.USD), SAR: Number(result.data.SAR) });
+      setMessage({ kind: "ok", text: "تم تحديث أسعار السوق الموازي وستظهر المعادلات الجديدة للعملاء فورًا" });
+    } catch (error) { setMessage({ kind: "error", text: error instanceof Error ? error.message : "تعذر تحديث أسعار الصرف" }); }
     finally { setWorking(null); }
   }
 
@@ -109,12 +125,25 @@ export function PricingManager() {
     <div className="grid gap-2 rounded-2xl border border-border bg-card p-2 sm:grid-cols-3">{tabs.map(({ key, label, icon: Icon }) => <button key={key} type="button" onClick={() => setTab(key)} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-black ${tab === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}><Icon className="size-4" />{label}</button>)}</div>
     {message ? <div className={`rounded-2xl border p-4 text-sm font-bold ${message.kind === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-destructive/20 bg-destructive/5 text-destructive"}`}>{message.kind === "ok" ? <Check className="me-2 inline size-4" /> : null}{message.text}</div> : null}
 
-    {tab === "packages" ? <div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-7"><h2 className="text-xl font-black">أسعار الباقات</h2><p className="mt-1 text-sm text-muted-foreground">السعر المحفوظ يظهر للعميل ويُستخدم كأساس لحساب الخصم.</p><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[700px] text-sm"><thead><tr className="border-b border-border text-xs text-muted-foreground"><th className="px-3 py-3 text-start">الباقة</th><th className="px-3 py-3 text-start">السعر</th><th className="px-3 py-3 text-start">الحالة</th><th className="px-3 py-3 text-start">الكوبون</th></tr></thead><tbody>{loading ? <tr><td colSpan={4} className="p-10 text-center">جاري التحميل...</td></tr> : null}{!loading && packages.length === 0 ? <tr><td colSpan={4} className="p-10 text-center text-muted-foreground">لا توجد باقات مصنفة.</td></tr> : null}{packages.map((item) => <tr key={item.id} className="border-b border-border/70"><td className="px-3 py-4"><strong>{item.name}</strong><p className="text-xs text-muted-foreground">{item.code}</p></td><td className="px-3 py-4"><div className="flex items-center gap-2"><input defaultValue={String(item.basePrice)} type="number" min="0" step="0.01" className="h-10 w-36 rounded-lg border border-border bg-background px-3 font-bold" onBlur={(event) => { if (event.target.value !== String(item.basePrice)) void savePrice(item, event.target.value); }} /><span>{item.currency}</span>{working === item.id ? <Loader2 className="size-4 animate-spin" /> : null}</div></td><td className="px-3 py-4">{item.active ? "نشطة" : "غير نشطة"}</td><td className="px-3 py-4"><Button type="button" size="sm" variant="outline" onClick={() => editCoupon(undefined, item.id)}><Plus className="size-3" />إنشاء خصم</Button></td></tr>)}</tbody></table></div><div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">تعديل السعر يؤثر على الطلبات الجديدة فقط؛ الطلبات السابقة تحتفظ بسعرها التاريخي.</div></div> : null}
+    {tab === "packages" ? <div className="space-y-5"><form onSubmit={saveRates} className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-7"><h2 className="text-xl font-black">أسعار السوق الموازي اليوم</h2><p className="mt-1 text-sm text-muted-foreground">أدخل قيمة العملة الواحدة بالجنيه السوداني. الجنيه السوداني ثابت بقيمة 1.</p><div className="mt-5 grid gap-4 md:grid-cols-3"><RateField code="USD" label="الدولار الأمريكي" value={rates.USD} onChange={(value) => setRates((current) => ({ ...current, USD: value }))} /><RateField code="SAR" label="الريال السعودي" value={rates.SAR} onChange={(value) => setRates((current) => ({ ...current, SAR: value }))} /><div className="rounded-2xl border border-border bg-muted/40 p-4"><p className="text-sm font-black">الجنيه السوداني (SDG)</p><p className="mt-3 text-2xl font-black">1 SDG</p></div></div><Button type="submit" variant="gold" className="mt-5" disabled={working === "rates"}>{working === "rates" ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}حفظ سعر اليوم</Button></form><div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-7"><h2 className="text-xl font-black">أسعار الباقات</h2><p className="mt-1 text-sm text-muted-foreground">حدد السعر وعملته؛ سيظهر للعميل السعر الأصلي ومعادله بالجنيه السوداني.</p><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b border-border text-xs text-muted-foreground"><th className="px-3 py-3 text-start">الباقة</th><th className="px-3 py-3 text-start">السعر والعملة</th><th className="px-3 py-3 text-start">الحالة</th><th className="px-3 py-3 text-start">الكوبون</th></tr></thead><tbody>{loading ? <tr><td colSpan={4} className="p-10 text-center">جاري التحميل...</td></tr> : null}{!loading && packages.length === 0 ? <tr><td colSpan={4} className="p-10 text-center text-muted-foreground">لا توجد باقات مصنفة.</td></tr> : null}{packages.map((item) => <PackagePriceEditor key={`${item.id}-${item.basePrice}-${item.currency}`} item={item} working={working === item.id} rates={rates} onSave={(price, currency) => savePrice(item, price, currency)} onCoupon={() => editCoupon(undefined, item.id)} />)}</tbody></table></div><div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">تعديل السعر يؤثر على الطلبات الجديدة فقط؛ الطلبات السابقة تحتفظ بسعرها التاريخي.</div></div></div> : null}
 
     {tab === "coupons" ? <div className="space-y-5"><div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-7"><div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-black">الكوبونات والخصومات</h2><p className="mt-1 text-sm text-muted-foreground">اربط الكوبون بباقة واحدة أو اجعله صالحًا لجميع الباقات.</p></div><Button type="button" variant="gold" onClick={() => editCoupon()}><Plus className="size-4" />كوبون جديد</Button></div>{editingCoupon ? <CouponForm value={coupon} setValue={setCoupon} packages={packages} isNew={editingCoupon === "new"} working={working === "coupon"} onSubmit={saveCoupon} onClose={() => setEditingCoupon(null)} /> : null}</div><div className="grid gap-3 lg:grid-cols-2">{coupons.map((item) => <article key={item.id} className="rounded-2xl border border-border bg-card p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><strong className="font-mono text-lg">{item.code}</strong><span className={`rounded-full px-2 py-1 text-xs font-bold ${item.active ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>{item.active ? "فعال" : "متوقف"}</span></div><p className="mt-2 font-black text-primary">خصم {Number(item.discountValue).toLocaleString("en-US")}{item.discountType === "PERCENTAGE" ? "%" : " مبلغ ثابت"}</p><p className="mt-1 text-sm text-muted-foreground">{item.service?.name || "جميع الباقات"} · استُخدم {item._count?.usages || 0} مرة</p></div><Button type="button" size="sm" variant="outline" onClick={() => editCoupon(item)}><Edit3 className="size-3" />تعديل</Button></div><Button type="button" size="sm" variant={item.active ? "outline" : "primary"} className="mt-4" disabled={working === item.id} onClick={() => void toggleCoupon(item)}>{item.active ? "إيقاف" : "تفعيل"}</Button></article>)}</div></div> : null}
 
     {tab === "offers" ? <div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-7"><div className="flex items-center justify-between"><div><h2 className="text-xl font-black">العروض</h2><p className="mt-1 text-sm text-muted-foreground">العرض محتوى تسويقي؛ الكوبون هو الذي يطبّق الخصم فعليًا.</p></div><Button type="button" variant="gold" onClick={() => editOffer()}><Plus className="size-4" />عرض جديد</Button></div>{editingOffer ? <OfferForm value={offer} setValue={setOffer} working={working === "offer"} onSubmit={saveOffer} onClose={() => setEditingOffer(null)} /> : null}<div className="mt-5 grid gap-3 md:grid-cols-2">{offers.map((item) => <div key={item.id} className="flex items-center justify-between rounded-2xl border border-border p-4"><div><strong>{item.title}</strong><p className="text-sm text-muted-foreground">{Number(item.price).toLocaleString("en-US")} {item.currency} · {item.status}</p></div><Button type="button" size="sm" variant="outline" onClick={() => editOffer(item)}><Edit3 className="size-3" />تعديل</Button></div>)}</div></div> : null}
   </section>;
+}
+
+function RateField({ code, label, value, onChange }: { code: "USD" | "SAR"; label: string; value: number; onChange: (value: number) => void }) {
+  return <label className="rounded-2xl border border-border bg-muted/40 p-4 text-sm font-black">{label} ({code})<span className="mt-3 flex items-center gap-2"><span>1 {code} =</span><input required type="number" min="0.01" step="0.01" value={value || ""} onChange={(event) => onChange(Number(event.target.value))} className="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-base" /><span>SDG</span></span></label>;
+}
+
+function PackagePriceEditor({ item, working, rates, onSave, onCoupon }: { item: PackageRow; working: boolean; rates: CurrencyRates; onSave: (price: string, currency: string) => Promise<void>; onCoupon: () => void }) {
+  const [price, setPrice] = React.useState(String(item.basePrice));
+  const [currency, setCurrency] = React.useState(item.currency);
+  const rate = currency === "SDG" ? 1 : rates[currency as keyof CurrencyRates] || 0;
+  const equivalent = Number(price) * rate;
+  const changed = price !== String(item.basePrice) || currency !== item.currency;
+  return <tr className="border-b border-border/70"><td className="px-3 py-4"><strong>{item.name}</strong><p className="text-xs text-muted-foreground">{item.code}</p></td><td className="px-3 py-4"><div className="flex flex-wrap items-center gap-2"><input value={price} onChange={(event) => setPrice(event.target.value)} type="number" min="0" step="0.01" className="h-10 w-36 rounded-lg border border-border bg-background px-3 font-bold" /><select value={currency} onChange={(event) => setCurrency(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 font-bold">{currencies.map((option) => <option key={option.code} value={option.code}>{option.code} — {option.label}</option>)}</select>{changed ? <Button type="button" size="sm" onClick={() => void onSave(price, currency)} disabled={working}>{working ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}حفظ</Button> : null}</div>{currency !== "SDG" && equivalent > 0 ? <p className="mt-2 text-xs font-bold text-primary">يعادل {Math.round(equivalent).toLocaleString("en-US")} جنيه سوداني</p> : null}</td><td className="px-3 py-4">{item.active ? "نشطة" : "غير نشطة"}</td><td className="px-3 py-4"><Button type="button" size="sm" variant="outline" onClick={onCoupon}><Plus className="size-3" />إنشاء خصم</Button></td></tr>;
 }
 
 function CouponForm({ value, setValue, packages, isNew, working, onSubmit, onClose }: { value: CouponDraft; setValue: React.Dispatch<React.SetStateAction<CouponDraft>>; packages: PackageRow[]; isNew: boolean; working: boolean; onSubmit: (event: React.FormEvent) => void; onClose: () => void }) {
