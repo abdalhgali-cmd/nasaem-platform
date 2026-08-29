@@ -97,6 +97,7 @@ model Organization {
   customers       Customer[]
   orders          Order[]
   contactRequests ContactRequest[]
+  activityLogs    ActivityLog[]
 }
 
 model Branch {
@@ -889,11 +890,20 @@ model ActivityLog {
   newValue  Json?
   createdAt DateTime @default(now())
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Resolved by logActivity() itself (userId's own organization, the
+  // acting req.user/req.customer, or — for the several customer-tracking-
+  // portal actions that carry neither — the target ContactRequest's own
+  // organization), not passed explicitly by most of this model's ~50
+  // call sites. See utils/activityLog.js.
+  organizationId String @default("org_nasaem_default")
+
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@index([userId])
   @@index([entity])
   @@index([createdAt])
+  @@index([organizationId])
 }
 
 model Setting {

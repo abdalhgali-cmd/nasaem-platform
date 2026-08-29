@@ -6,6 +6,8 @@ import prisma from "../src/config/database.js";
 import { loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 import { getFinancialReport } from "../src/modules/finance/finance.service.js";
 import { getDashboardStats, getDashboardSummary, getOperationsCenter } from "../src/modules/dashboard/dashboard.service.js";
+import { logActivity } from "../src/utils/activityLog.js";
+import { listActivityLogs } from "../src/modules/activity/activity.service.js";
 
 describe("organization tenant boundary", () => {
   test("Nasaem staff cannot list, read, mutate, or create records for another organization", async () => {
@@ -208,6 +210,68 @@ describe("organization tenant boundary", () => {
     const summary = await getDashboardSummary(otherOrganization.id);
     assert.equal(summary.periods.today.orders, 1);
     assert.equal(Number(summary.periods.today.paid), 150);
+  });
+
+  test("activity logs resolve and scope to the acting organization even without req.user", async () => {
+    const suffix = uniqueSuffix();
+    const agent = await loginAsSuperAdmin();
+    const otherOrganization = await prisma.organization.create({
+      data: { slug: `other-audit-agency-${suffix}`, name: `Other Audit Agency ${suffix}` },
+    });
+    const otherUser = await prisma.user.create({
+      data: {
+        organizationId: otherOrganization.id,
+        employeeNo: `OTHER-AUDIT-EMP-${suffix}`,
+        fullName: `Other Audit Staff ${suffix}`,
+        email: `other-audit-staff-${suffix}@example.com`,
+        passwordHash: "not-a-real-hash",
+        role: "ADMIN",
+      },
+    });
+    const otherCustomer = await prisma.customer.create({
+      data: {
+        organizationId: otherOrganization.id,
+        customerNo: `OTHER-AUDIT-${suffix}`,
+        fullName: `Other Audit Customer ${suffix}`,
+        passportNo: `OTHERAUDITPASS${suffix}`,
+      },
+    });
+    const otherContactRequest = await prisma.contactRequest.create({
+      data: {
+        organizationId: otherOrganization.id,
+        customerId: otherCustomer.id,
+        name: otherCustomer.fullName,
+        phone: `249audit${suffix}`,
+        phoneNormalized: `249audit${suffix}`,
+        message: "Cross-tenant activity-log fixture",
+      },
+    });
+
+    // No `req` and no explicit `organizationId` on either call — proves
+    // logActivity() resolves organization on its own: the first via a
+    // userId -> User.organizationId lookup (e.g. LOGIN, which logs before
+    // req.user is set), the second via the ContactRequest entity fallback
+    // (the customer-tracking-portal actions, which have neither req nor
+    // userId at all).
+    await logActivity({ userId: otherUser.id, action: "AUDIT_TEST_USER_ACTION", entity: "TestEntity", entityId: `user-${suffix}` });
+    await logActivity({ action: "AUDIT_TEST_TRACKING_ACTION", entity: "ContactRequest", entityId: otherContactRequest.id });
+
+    const otherLogs = await listActivityLogs({ page: 1, limit: 100, skip: 0, organizationId: otherOrganization.id });
+    assert.ok(
+      otherLogs.data.some((log) => log.action === "AUDIT_TEST_USER_ACTION"),
+      "the userId-resolved entry must be scoped to the other organization"
+    );
+    assert.ok(
+      otherLogs.data.some((log) => log.action === "AUDIT_TEST_TRACKING_ACTION"),
+      "the ContactRequest-resolved entry must be scoped to the other organization"
+    );
+
+    // The caller is a default-organization admin — neither entry (both
+    // belonging to the other organization) may leak into their view.
+    const ownLogsRes = await agent.get("/api/activity-logs?limit=100");
+    assert.equal(ownLogsRes.status, 200);
+    assert.equal(ownLogsRes.body.data.some((log) => log.action === "AUDIT_TEST_USER_ACTION"), false);
+    assert.equal(ownLogsRes.body.data.some((log) => log.action === "AUDIT_TEST_TRACKING_ACTION"), false);
   });
 
   test("database rejects an order whose organization differs from its customer", async () => {
