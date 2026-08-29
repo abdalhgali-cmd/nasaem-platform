@@ -29,6 +29,8 @@ type PublicService = {
   description: string | null;
   basePrice: string;
   currency: string;
+  fxRateToSdg: number | null;
+  priceSdg: number | null;
 };
 
 type PublicVisaType = {
@@ -39,6 +41,8 @@ type PublicVisaType = {
   description: string | null;
   basePrice: string;
   currency: string;
+  fxRateToSdg: number | null;
+  priceSdg: number | null;
   serviceId: string | null;
   category: string;
 };
@@ -563,6 +567,11 @@ export function ServiceIntakeWizard({
                       يبدأ من {Number(item.basePrice).toLocaleString("en-US")} {item.currency}
                     </span>
                   ) : null}
+                  {item.currency !== "SDG" && item.priceSdg != null ? (
+                    <span className="mt-1 block text-xs font-bold text-primary">
+                      يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
@@ -834,3 +843,4 @@ export function ServiceIntakeWizard({
     </div>
   );
 }
+

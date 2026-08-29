@@ -1,5 +1,19 @@
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { getCurrencyRates } from "../flights/flights.service.js";
+
+async function withSdgEquivalent(items) {
+  const rates = await getCurrencyRates();
+  return items.map((item) => {
+    const currency = String(item.currency || "SDG").toUpperCase();
+    const fxRateToSdg = currency === "SDG" ? 1 : Number(rates[currency] || 0) || null;
+    return {
+      ...item,
+      fxRateToSdg,
+      priceSdg: fxRateToSdg ? Number(item.basePrice) * fxRateToSdg : null,
+    };
+  });
+}
 
 export async function listServices({ page, limit, skip }) {
   const [data, total] = await Promise.all([
@@ -61,11 +75,12 @@ const PUBLIC_VISA_TYPE_SELECT = {
 // present in the response to begin with — no frontend filtering involved.
 // `services` is unaffected; it has its own, unrelated `category` field.
 export async function listPublicPackages() {
-  return prisma.service.findMany({
+  const packages = await prisma.service.findMany({
     where: { active: true, category: "UMRAH_PACKAGE" },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: PUBLIC_SERVICE_SELECT,
   });
+  return withSdgEquivalent(packages);
 }
 
 export async function listPublicCatalog({ visaCategory } = {}) {
@@ -82,7 +97,11 @@ export async function listPublicCatalog({ visaCategory } = {}) {
     }),
   ]);
 
-  return { services, visaTypes };
+  const [pricedServices, pricedVisaTypes] = await Promise.all([
+    withSdgEquivalent(services),
+    withSdgEquivalent(visaTypes),
+  ]);
+  return { services: pricedServices, visaTypes: pricedVisaTypes };
 }
 
 export async function createService(data) {
@@ -156,3 +175,4 @@ export async function reorderServices(orderedIds) {
 
   return prisma.service.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }] });
 }
+
