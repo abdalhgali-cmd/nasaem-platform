@@ -5,10 +5,12 @@ import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
 import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
+import { RelatedServices } from "@/components/sections/related-services";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { getPublicSiteSettings } from "@/lib/public-settings";
+import { buildPageMetadata } from "@/lib/seo";
 import { resolveServiceHref, slugifyServiceCode } from "@/lib/service-routes";
 
 // Generic template for any service/visa type that doesn't (yet) have a
@@ -25,57 +27,48 @@ type PublicRequirement = {
   required: boolean;
 };
 
-type ResolvedItem =
-  | {
-      kind: "service";
-      id: string;
-      code: string;
-      name: string;
-      description: string | null;
-      basePrice: string;
-      currency: string;
-      priceSdg: number | null;
-    }
-  | {
-      kind: "visaType";
-      id: string;
-      code: string;
-      name: string;
-      description: string | null;
-      basePrice: string;
-      currency: string;
-      priceSdg: number | null;
-    };
+type CatalogService = { id: string; code: string; name: string; category: string; description: string | null; basePrice: string; currency: string; priceSdg: number | null };
+type CatalogVisaType = { id: string; code: string; name: string; category: string; description: string | null; basePrice: string; currency: string; priceSdg: number | null; country: string };
 
-async function resolveItemBySlug(slug: string): Promise<ResolvedItem | null> {
+type ResolvedItem =
+  | ({ kind: "service" } & CatalogService)
+  | ({ kind: "visaType" } & CatalogVisaType);
+
+async function getFullCatalog(): Promise<{ services: CatalogService[]; visaTypes: CatalogVisaType[] }> {
   try {
     const response = await fetch(`${API_URL}/services/public`, { next: { revalidate: 60 } });
-    if (!response.ok) return null;
-    const payload = (await response.json()) as {
-      data?: {
-        services?: { id: string; code: string; name: string; category: string; description: string | null; basePrice: string; currency: string; priceSdg: number | null }[];
-        visaTypes?: { id: string; code: string; name: string; category: string; description: string | null; basePrice: string; currency: string; priceSdg: number | null; country: string }[];
-      };
-    };
-
-    const service = payload.data?.services?.find((item) => slugifyServiceCode(item.code) === slug);
-    if (service) {
-      // A service promoted to a dedicated page must not also render here —
-      // keeps this template and DEDICATED_ROUTES from ever disagreeing.
-      if (resolveServiceHref(service) !== `/services/${slug}`) return null;
-      return { kind: "service", ...service };
-    }
-
-    const visaType = payload.data?.visaTypes?.find((item) => slugifyServiceCode(item.code) === slug);
-    if (visaType) {
-      if (resolveServiceHref(visaType) !== `/services/${slug}`) return null;
-      return { kind: "visaType", ...visaType };
-    }
-
-    return null;
+    if (!response.ok) return { services: [], visaTypes: [] };
+    const payload = (await response.json()) as { data?: { services?: CatalogService[]; visaTypes?: CatalogVisaType[] } };
+    return { services: payload.data?.services ?? [], visaTypes: payload.data?.visaTypes ?? [] };
   } catch {
-    return null;
+    return { services: [], visaTypes: [] };
   }
+}
+
+function resolveItemFromCatalog(
+  slug: string,
+  catalog: { services: CatalogService[]; visaTypes: CatalogVisaType[] }
+): ResolvedItem | null {
+  const service = catalog.services.find((item) => slugifyServiceCode(item.code) === slug);
+  if (service) {
+    // A service promoted to a dedicated page must not also render here —
+    // keeps this template and DEDICATED_ROUTES from ever disagreeing.
+    if (resolveServiceHref(service) !== `/services/${slug}`) return null;
+    return { kind: "service", ...service };
+  }
+
+  const visaType = catalog.visaTypes.find((item) => slugifyServiceCode(item.code) === slug);
+  if (visaType) {
+    if (resolveServiceHref(visaType) !== `/services/${slug}`) return null;
+    return { kind: "visaType", ...visaType };
+  }
+
+  return null;
+}
+
+async function resolveItemBySlug(slug: string): Promise<ResolvedItem | null> {
+  const catalog = await getFullCatalog();
+  return resolveItemFromCatalog(slug, catalog);
 }
 
 async function getRequirements(item: ResolvedItem): Promise<PublicRequirement[]> {
@@ -96,16 +89,22 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const item = await resolveItemBySlug(slug);
   if (!item) return { title: "الخدمة غير متاحة" };
-  return {
+  return buildPageMetadata({
+    path: `/services/${slug}`,
     title: item.name,
     description: item.description || `قدّم طلب ${item.name} إلكترونيًا وتابع حالته خطوة بخطوة.`,
-  };
+  });
 }
 
 export default async function GenericServicePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const [item, settings] = await Promise.all([resolveItemBySlug(slug), getPublicSiteSettings()]);
+  const [catalog, settings] = await Promise.all([getFullCatalog(), getPublicSiteSettings()]);
+  const item = resolveItemFromCatalog(slug, catalog);
   if (!item) notFound();
+
+  const relatedItems = [...catalog.services, ...catalog.visaTypes]
+    .filter((candidate) => candidate.code !== item.code)
+    .slice(0, 3);
 
   const requirements = await getRequirements(item);
 
@@ -191,6 +190,8 @@ export default async function GenericServicePage({ params }: { params: Promise<{
           </div>
         </Container>
       </section>
+
+      <RelatedServices items={relatedItems} />
 
       <section className="py-16">
         <Container>

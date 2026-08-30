@@ -46,7 +46,7 @@ export async function Services() {
                   >
                     {service.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element -- backend-hosted, dynamic key, not in next.config's remotePatterns.
-                      <img src={service.imageUrl} alt="" className="h-32 w-full rounded-2xl object-cover" />
+                      <img src={service.imageUrl} alt={service.name} className="h-32 w-full rounded-2xl object-cover" />
                     ) : (
                       <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-secondary/10 transition-transform duration-300 group-hover:scale-105">
                         <ServiceIcon className="size-10 stroke-[1.7] text-primary" aria-hidden="true" />

@@ -14,26 +14,27 @@ import { SectionHeading } from "@/components/section-heading";
 import { SaudiFamilyVisitHero } from "@/components/sections/saudi-family-visit-hero";
 import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
 import { Faq, type FaqItem } from "@/components/sections/faq";
+import { RelatedServices } from "@/components/sections/related-services";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { getPublicSiteSettings } from "@/lib/public-settings";
+import { buildPageMetadata } from "@/lib/seo";
 
 // The VisaType code seeded for this service (backend/prisma/seed.js) —
 // admins can rename/re-price/re-describe it freely from the Visa Types
 // admin UI; this page only ever reads that data, never hardcodes it.
 const VISA_CODE = "VISA-FAMILY-VISIT";
-
-export const metadata: Metadata = {
-  title: "الزيارة العائلية للسعودية",
-  description:
-    "قدّم طلب الزيارة العائلية للسعودية إلكترونيًا من هاتفك، وتابع حالته خطوة بخطوة حتى استلام الوثيقة النهائية.",
-};
+const PAGE_PATH = "/visas/saudi-family-visit";
+const FALLBACK_TITLE = "الزيارة العائلية للسعودية";
+const FALLBACK_DESCRIPTION =
+  "قدّم طلب الزيارة العائلية للسعودية إلكترونيًا من هاتفك، وتابع حالته خطوة بخطوة حتى استلام الوثيقة النهائية.";
 
 type PublicVisaType = {
   id: string;
   code: string;
   name: string;
+  category: string;
   description: string | null;
   basePrice: string;
   currency: string;
@@ -51,15 +52,29 @@ type PublicRequirement = {
   required: boolean;
 };
 
-async function getFamilyVisitVisaType(): Promise<PublicVisaType | null> {
+async function getVisaTypes(): Promise<PublicVisaType[]> {
   try {
     const response = await fetch(`${API_URL}/services/public`, { next: { revalidate: 60 } });
-    if (!response.ok) return null;
+    if (!response.ok) return [];
     const payload = (await response.json()) as { data?: { visaTypes?: PublicVisaType[] } };
-    return payload.data?.visaTypes?.find((visa) => visa.code === VISA_CODE) ?? null;
+    return payload.data?.visaTypes ?? [];
   } catch {
-    return null;
+    return [];
   }
+}
+
+async function getFamilyVisitVisaType(): Promise<PublicVisaType | null> {
+  const visaTypes = await getVisaTypes();
+  return visaTypes.find((visa) => visa.code === VISA_CODE) ?? null;
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const visaType = await getFamilyVisitVisaType();
+  return buildPageMetadata({
+    path: PAGE_PATH,
+    title: visaType?.name || FALLBACK_TITLE,
+    description: visaType?.description || FALLBACK_DESCRIPTION,
+  });
 }
 
 async function getRequirements(visaTypeId: string): Promise<PublicRequirement[]> {
@@ -131,10 +146,12 @@ const whyNasaem = [
 ];
 
 export default async function SaudiFamilyVisitPage() {
-  const [visaType, settings] = await Promise.all([
-    getFamilyVisitVisaType(),
+  const [visaTypes, settings] = await Promise.all([
+    getVisaTypes(),
     getPublicSiteSettings(),
   ]);
+  const visaType = visaTypes.find((visa) => visa.code === VISA_CODE) ?? null;
+  const relatedVisaTypes = visaTypes.filter((visa) => visa.code !== VISA_CODE).slice(0, 3);
   const [requirements, faqItems] = await Promise.all([
     visaType ? getRequirements(visaType.id) : Promise.resolve<PublicRequirement[]>([]),
     getFamilyVisitFaq(),
@@ -294,6 +311,8 @@ export default async function SaudiFamilyVisitPage() {
       </section>
 
       <Faq items={faqItems} />
+
+      <RelatedServices items={relatedVisaTypes} />
 
       <section className="py-16">
         <Container>

@@ -4,12 +4,14 @@ import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { HotelRequestClient } from "@/components/sections/hotel-request-client";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildPageMetadata({
+  path: "/hotels",
   title: "حجز الفنادق",
   description:
     "اطلب حجز فندق في وجهتك، وسيتحقق فريق نسائم الحرمين من التوفر والسعر ويعود إليك بالعرض المناسب.",
-};
+});
 
 const amenities = [
   { icon: Wifi, label: "إنترنت لاسلكي" },

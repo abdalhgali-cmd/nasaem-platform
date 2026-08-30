@@ -8,12 +8,14 @@ import { UmrahBookingSection } from "@/components/sections/umrah-booking-section
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildPageMetadata({
+  path: "/umrah",
   title: "باقات العمرة",
   description:
     "اطلب برنامج العمرة المناسب لك، وسيراجع فريقنا التفاصيل والتوفر والتكلفة النهائية قبل اعتماد الخطوات التالية.",
-};
+});
 
 const steps = [
   { title: "اطلب عرض الباقة", description: "حدد الباقة أو اطلب برنامجًا مخصصًا حسب احتياجك." },

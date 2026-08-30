@@ -7,11 +7,13 @@ import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard
 import { DynamicVisaCatalog } from "@/components/sections/dynamic-visa-catalog";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildPageMetadata({
+  path: "/visas",
   title: "خدمات التأشيرات",
   description: "استعرض أنواع التأشيرات النشطة وتقدم بطلبك عبر بيانات محدثة من كتالوج NASAEM.",
-};
+});
 
 export default async function VisasPage({
   searchParams,

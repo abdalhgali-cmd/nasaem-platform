@@ -912,3 +912,64 @@ test.describe("Egypt hero motion — respects prefers-reduced-motion", () => {
     await reducedContext.close();
   });
 });
+
+// Comprehensive service experience pass — SEO metadata + related services
+// added to every dedicated/generic service page, and a sanity check that
+// the pre-existing direct routes (Umrah, Flights, Ferries — never hardcoded
+// to the generic visa flow to begin with) are untouched by this work.
+test.describe("Service page SEO metadata and related services", () => {
+  test("Egypt page has a canonical link, OpenGraph tags, and a related-services section that links elsewhere", async ({ page }) => {
+    await page.goto("/visas/egypt-security-approval", { waitUntil: "networkidle" });
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/visas\/egypt-security-approval$/);
+    await expect(page.locator('meta[property="og:title"]')).toHaveCount(1);
+    await expect(page.locator('meta[property="og:description"]')).toHaveCount(1);
+    const relatedSection = page.locator("section", { has: page.getByText("قد تهمك أيضًا") });
+    await expect(relatedSection).toBeVisible();
+    // At least one related-service card must link somewhere other than this same page.
+    const relatedHrefs = await relatedSection.locator("a").evaluateAll((els) => els.map((el) => el.getAttribute("href")));
+    expect(relatedHrefs.some((href) => href && !href.includes("egypt-security-approval"))).toBeTruthy();
+  });
+
+  test("Saudi Family Visit page has a canonical link and OpenGraph tags", async ({ page }) => {
+    await page.goto("/visas/saudi-family-visit", { waitUntil: "networkidle" });
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/visas\/saudi-family-visit$/);
+    await expect(page.locator('meta[property="og:title"]')).toHaveCount(1);
+  });
+
+  test("a generic service page has a canonical link and OpenGraph tags matching its slug", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-SEO-${Date.now()}`;
+    const name = `خدمة اختبار السيو ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name, category: "e2e_seo_category", basePrice: 0, currency: "SAR", active: true, features: [] },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+    const slug = code.toLowerCase();
+
+    try {
+      const deadline = Date.now() + 150_000;
+      let status = 0;
+      while (Date.now() < deadline) {
+        const resp = await page.goto(`/services/${slug}`, { waitUntil: "networkidle" });
+        status = resp?.status() ?? 0;
+        if (status === 200) break;
+        await page.waitForTimeout(3_000);
+      }
+      expect(status).toBe(200);
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", new RegExp(`/services/${slug}$`));
+      await expect(page.locator('meta[property="og:title"]')).toHaveCount(1);
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+
+  test("Umrah, Flights, and Ferries keep their own dedicated pages, unaffected by the routing change", async ({ page }) => {
+    for (const path of ["/umrah", "/flights", "/ferries"]) {
+      const response = await page.goto(path, { waitUntil: "networkidle" });
+      expect(response?.ok(), `${path} should load`).toBeTruthy();
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", new RegExp(`${path}$`));
+    }
+  });
+});
