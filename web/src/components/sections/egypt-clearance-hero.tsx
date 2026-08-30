@@ -74,7 +74,7 @@ export function EgyptClearanceHero({
           loop
           muted
           playsInline
-          className="absolute inset-0 hidden size-full object-cover sm:block motion-reduce:hidden"
+          className="absolute inset-0 hidden size-full object-cover sm:motion-safe:block"
           src={motionVideoUrl}
         />
       ) : null}
