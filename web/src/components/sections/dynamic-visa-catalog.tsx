@@ -6,6 +6,7 @@ import * as React from "react";
 import { Briefcase, Globe2, Loader2, RefreshCw, Stamp, Users2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
+import { resolveServiceHref } from "@/lib/service-routes";
 import { cn } from "@/lib/utils";
 
 type PublicVisaType = {
@@ -75,7 +76,7 @@ export function DynamicVisaCatalog({ selectedVisaCode, selectedCategory }: { sel
         <div className="mt-4 flex items-start justify-between gap-4"><div><h3 className="text-lg font-bold text-foreground">{visa.name}</h3>{visa.nameEn ? <p className="mt-1 text-xs text-muted-foreground" dir="ltr">{visa.nameEn}</p> : null}<p className="mt-1 text-xs font-medium text-muted-foreground">{visa.country}</p></div><div className="shrink-0 text-end">{hasPublishedPrice ? <><p className="text-xl font-extrabold text-primary dark:text-secondary">{numericPrice.toLocaleString("en-US")}</p><p className="text-xs text-muted-foreground">{visa.currency}</p></> : <p className="max-w-28 text-xs font-semibold leading-5 text-muted-foreground">التكلفة تحدد بعد مراجعة الطلب</p>}</div></div>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{visa.description || "تفاصيل وإجراءات محدثة حسب نوع التأشيرة والوجهة."}</p>
         {details.length ? <ul className="mt-5 grid gap-2 border-t border-border pt-4 sm:grid-cols-2">{details.map((detail) => <li key={detail} className="text-xs text-muted-foreground">{detail}</li>)}</ul> : null}
-        <Button asChild variant="primary" size="sm" className="mt-6 w-full"><a href={`/visas?visaType=${encodeURIComponent(visa.code)}&visaCategory=${encodeURIComponent(visa.category)}#book`}>قدّم الآن</a></Button>
+        <Button asChild variant="primary" size="sm" className="mt-6 w-full"><a href={resolveServiceHref(visa)}>قدّم الآن</a></Button>
       </article>;
     })}
   </div>;

@@ -17,6 +17,8 @@ export const PUBLIC_SETTING_KEYS = [
   // (frontend/admin-dashboard.html) with no code change needed to update
   // its content.
   "EGYPT_CLEARANCE_FAQ",
+  // Same admin-editable-FAQ pattern for the Saudi Family Visit landing page.
+  "SAUDI_FAMILY_VISIT_FAQ",
 ];
 
 export async function listSettings() {

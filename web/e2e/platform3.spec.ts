@@ -751,3 +751,164 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
     }
   });
 });
+
+// Direct-service-access routing (resolveServiceHref, lib/service-routes.ts)
+// — clicking a specific service/visa type must land on its own dedicated
+// page in one click, never on a general catalog the customer has to search
+// again. Covers the two real customer-facing surfaces that used to hardcode
+// a generic "/visas?visaType=...#book" destination for every visa type
+// regardless of whether it had a dedicated page: the homepage's Services
+// grid (services.tsx) and the /visas page's own catalog
+// (dynamic-visa-catalog.tsx). "Navigation" in the routing spec maps onto
+// this app's actual architecture as the /visas listing catalog — the top
+// nav bar only ever held category-level links (التأشيرات), never
+// individual service links, on this site.
+test.describe("Direct service routing — no intermediate catalog browsing", () => {
+  test("homepage Services grid: Egypt Security Approval card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
+    await page.locator("a").filter({ hasText: "الموافقة الأمنية لمصر" }).first().click();
+    await expect(page).toHaveURL(/\/visas\/egypt-security-approval$/);
+    await expect(page.locator("h1")).toContainText("الموافقة الأمنية");
+  });
+
+  test("homepage Services grid: Family Visit card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
+    await page.locator("a").filter({ hasText: "الزيارة العائلية" }).first().click();
+    await expect(page).toHaveURL(/\/visas\/saudi-family-visit$/);
+    await expect(page.locator("h1")).toContainText("الزيارة العائلية");
+  });
+
+  test("/visas catalog: Egypt Security Approval's own card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/visas", { waitUntil: "networkidle" });
+    const card = page.locator("article").filter({ hasText: "الموافقة الأمنية لمصر" }).first();
+    await card.scrollIntoViewIfNeeded();
+    await card.getByRole("link", { name: "قدّم الآن" }).click();
+    await expect(page).toHaveURL(/\/visas\/egypt-security-approval$/);
+  });
+
+  test("/visas catalog: Family Visit's own card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/visas", { waitUntil: "networkidle" });
+    const card = page.locator("article").filter({ hasText: "الزيارة العائلية" }).first();
+    await card.scrollIntoViewIfNeeded();
+    await card.getByRole("link", { name: "قدّم الآن" }).click();
+    await expect(page).toHaveURL(/\/visas\/saudi-family-visit$/);
+  });
+
+  test("a service with no dedicated page routes to the generic dynamic service template", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-GENERIC-${Date.now()}`;
+    const name = `خدمة عامة للاختبار ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name, category: "e2e_generic_category", description: "خدمة بدون تجربة مخصصة", basePrice: 0, currency: "SAR", active: true, features: [] },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+    const expectedSlug = code.toLowerCase();
+
+    try {
+      await pollByReloading(
+        page,
+        (timeoutMs) => page.locator("a").filter({ hasText: name }).first().getAttribute("href", { timeout: timeoutMs }),
+        (href) => href === `/services/${expectedSlug}`,
+        "generic service homepage card href"
+      );
+
+      await page.goto(`/services/${expectedSlug}`, { waitUntil: "networkidle" });
+      await expect(page.locator("h1")).toContainText(name);
+      await expect(page.getByText("يتم تحديد التكلفة بعد مراجعة الطلب")).toBeVisible();
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+
+  test("old query-param visa URLs keep working (no unexpected 404s from the routing change)", async ({ page }) => {
+    const response = await page.goto("/visas?visaType=VISA-EGYPT-CLEARANCE&visaCategory=OTHER#book", { waitUntil: "networkidle" });
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { name: "اختر نوع التأشيرة", exact: true })).toBeVisible({ timeout: 15_000 });
+  });
+});
+
+test.describe("Service media — admin-controlled icon and safe fallbacks", () => {
+  test("admin sets a service's icon and the public homepage card renders it", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-ICON-${Date.now()}`;
+    const name = `خدمة أيقونة الاختبار ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name, category: "e2e_icon_category", basePrice: 0, currency: "SAR", active: true, iconKey: "ship", features: [] },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+
+    try {
+      const card = await pollByReloading(
+        page,
+        async (timeoutMs) => {
+          const link = page.locator("a").filter({ hasText: name }).first();
+          await link.waitFor({ timeout: timeoutMs });
+          return link;
+        },
+        () => true,
+        "generic service card"
+      );
+      // No image was uploaded — the card must render the chosen icon, never
+      // a broken <img>.
+      await expect(card.locator("img")).toHaveCount(0);
+      await expect(card.locator("svg.lucide-ship")).toBeVisible();
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+
+  test("a service with neither icon nor image falls back to the default catalog icon, never a broken image", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-FALLBACK-${Date.now()}`;
+    const name = `خدمة بدون صورة ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name, category: "e2e_fallback_category", basePrice: 0, currency: "SAR", active: true, features: [] },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+
+    try {
+      const card = await pollByReloading(
+        page,
+        async (timeoutMs) => {
+          const link = page.locator("a").filter({ hasText: name }).first();
+          await link.waitFor({ timeout: timeoutMs });
+          return link;
+        },
+        () => true,
+        "fallback service card"
+      );
+      await expect(card.locator("img")).toHaveCount(0);
+      // The default Package icon specifically — the card's "اعرف المزيد"
+      // arrow icon is also an <svg>, so plain `svg` would match both.
+      await expect(card.locator("svg.lucide-package")).toBeVisible();
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+});
+
+test.describe("Egypt hero motion — respects prefers-reduced-motion", () => {
+  test("the departing-plane animation runs by default and stops under prefers-reduced-motion", async ({ browser }) => {
+    const normalContext = await browser.newContext();
+    const normalPage = await normalContext.newPage();
+    await normalPage.goto("/visas/egypt-security-approval", { waitUntil: "networkidle" });
+    const runningAnimationName = await normalPage.locator(".animate-fly-route").evaluate((el) => getComputedStyle(el).animationName);
+    expect(runningAnimationName).toBe("fly-route");
+    await normalContext.close();
+
+    const reducedContext = await browser.newContext({ reducedMotion: "reduce" });
+    const reducedPage = await reducedContext.newPage();
+    await reducedPage.goto("/visas/egypt-security-approval", { waitUntil: "networkidle" });
+    const stoppedAnimationName = await reducedPage.locator(".animate-fly-route").evaluate((el) => getComputedStyle(el).animationName);
+    expect(stoppedAnimationName).toBe("none");
+    await reducedContext.close();
+  });
+});

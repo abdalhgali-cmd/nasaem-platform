@@ -310,6 +310,46 @@ async function seedEgyptClearanceFaq() {
   console.log("Seeded default Egypt Security Approval FAQ setting.");
 }
 
+// Default FAQ for the Saudi Family Visit landing page (SAUDI_FAMILY_VISIT_FAQ)
+// — same rationale as EGYPT_CLEARANCE_FAQ_DEFAULT above: answers point back
+// to the live checklist/tracking/support surfaces rather than inventing
+// requirements or durations this platform doesn't own.
+const SAUDI_FAMILY_VISIT_FAQ_DEFAULT = [
+  {
+    question: "ما هي المستندات المطلوبة؟",
+    answer: "قائمة المستندات المطلوبة تظهر لك مباشرة داخل نموذج التقديم، وتختلف حسب حالتك. أرفق كل مستند كما هو موضح في كل خطوة.",
+  },
+  {
+    question: "كيف أقدّم الطلب؟",
+    answer: "اضغط على زر «ابدأ الطلب» وأكمل الخطوات بالترتيب: بياناتك، بيانات السفر، المستندات، ثم المراجعة والإرسال.",
+  },
+  {
+    question: "كيف أتابع حالة طلبي؟",
+    answer: "استخدم رقم هاتفك من صفحة «تتبع الطلب» لعرض حالة طلبك الحالية والخطوة التالية المطلوبة منك، إن وُجدت.",
+  },
+  {
+    question: "هل يمكنني تقديم طلب لعدة أفراد من العائلة؟",
+    answer: "نعم، يمكنك إضافة بيانات أكثر من مسافر داخل نفس الطلب من خطوة «بيانات السفر».",
+  },
+  {
+    question: "كيف أدفع؟",
+    answer: "بعد مراجعة طلبك سيصلك السعر المعتمد، ويمكنك الاطلاع على طرق الدفع المعتمدة من صفحة التتبع بعد اعتماد السعر.",
+  },
+  {
+    question: "هل يمكنني العودة لإكمال الطلب لاحقًا؟",
+    answer: "نعم، يحفظ النموذج تقدّمك تلقائيًا في متصفحك، ويمكنك المتابعة من نفس النقطة عند العودة إلى صفحة الطلب.",
+  },
+];
+
+async function seedSaudiFamilyVisitFaq() {
+  await prisma.setting.upsert({
+    where: { key: "SAUDI_FAMILY_VISIT_FAQ" },
+    update: {},
+    create: { key: "SAUDI_FAMILY_VISIT_FAQ", value: JSON.stringify(SAUDI_FAMILY_VISIT_FAQ_DEFAULT) },
+  });
+  console.log("Seeded default Saudi Family Visit FAQ setting.");
+}
+
 async function main() {
   await seedDefaultOrganization();
   await seedSuperAdmin();
@@ -320,6 +360,7 @@ async function main() {
   await seedHomepageSections();
   await seedFeatureFlags();
   await seedEgyptClearanceFaq();
+  await seedSaudiFamilyVisitFaq();
 }
 
 main()

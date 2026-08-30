@@ -1,30 +1,34 @@
 import Link from "next/link";
 import {
-  ChevronLeft,
   CircleCheck,
+  ChevronLeft,
   FileCheck2,
+  Heart,
   MapPin,
-  Plane,
   ShieldCheck,
 } from "lucide-react";
 import { Container } from "@/components/container";
 import { FadeIn } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 
-function EgyptFlagAccent() {
+// Same restrained-identity approach as EgyptClearanceHero: one hero
+// illustration (stylized, non-specific desert/family/travel-document
+// scene — see /public/images/saudi-family-visit-hero.svg) plus Saudi
+// green as a color cue only. No flag composition, no religious script, no
+// government emblem.
+function SaudiAccentSwatch() {
   return (
     <span
       aria-hidden
       className="inline-flex h-5 w-8 flex-col overflow-hidden rounded-sm border border-white/25 shadow-sm"
     >
-      <span className="h-1/3 bg-[#ce1126]" />
-      <span className="h-1/3 bg-white" />
-      <span className="h-1/3 bg-[#171717]" />
+      <span className="h-1/2 bg-[#006C35]" />
+      <span className="h-1/2 bg-white" />
     </span>
   );
 }
 
-export function EgyptClearanceHero({
+export function SaudiFamilyVisitHero({
   title,
   description,
   priceLabel,
@@ -40,40 +44,31 @@ export function EgyptClearanceHero({
   isAccepting: boolean;
 }) {
   return (
-    <section className="relative isolate min-h-[680px] overflow-hidden bg-[#071d45] text-white sm:min-h-[720px] lg:min-h-[650px]">
+    <section className="relative isolate min-h-[680px] overflow-hidden bg-[#0b3d24] text-white sm:min-h-[720px] lg:min-h-[650px]">
       <div
         aria-hidden
         className="absolute inset-0 bg-cover bg-[position:35%_center] sm:bg-center lg:bg-[position:left_center]"
-        style={{ backgroundImage: "url('/images/egypt-security-approval-hero.svg')" }}
+        style={{ backgroundImage: "url('/images/saudi-family-visit-hero.svg')" }}
       />
       <div
         aria-hidden
-        className="absolute inset-0 bg-gradient-to-b from-[#061b42]/35 via-[#071d45]/58 to-[#061a3e]/95 lg:bg-gradient-to-l lg:from-[#061b42]/95 lg:via-[#071d45]/72 lg:to-[#071d45]/14"
+        className="absolute inset-0 bg-gradient-to-b from-[#092e1c]/35 via-[#0b3d24]/58 to-[#092e1c]/95 lg:bg-gradient-to-l lg:from-[#092e1c]/95 lg:via-[#0b3d24]/72 lg:to-[#0b3d24]/14"
       />
-      <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-[#ce1126] via-white to-[#171717]" />
-
-      {/* Sudan → Egypt departing-plane motif: pure CSS animation (no
-          video/Lottie asset), disabled for prefers-reduced-motion via
-          Tailwind's motion-reduce: variant, which leaves the plane as a
-          static icon instead of removing it entirely. */}
-      <Plane
-        aria-hidden
-        className="pointer-events-none absolute end-[18%] top-[38%] hidden size-6 -rotate-45 text-white/60 sm:block motion-reduce:animate-none animate-fly-route"
-      />
+      <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-[#006C35] via-white to-[#006C35]" />
 
       <Container className="relative flex min-h-[680px] items-center py-14 sm:min-h-[720px] sm:py-16 lg:min-h-[650px]">
         <div className="grid w-full items-center gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
           <FadeIn className="order-2 lg:order-1">
-            <div className="mx-auto max-w-xl rounded-[2rem] border border-white/15 bg-[#071d45]/74 p-5 shadow-2xl shadow-black/20 backdrop-blur-md sm:p-7 lg:mx-0">
+            <div className="mx-auto max-w-xl rounded-[2rem] border border-white/15 bg-[#0b3d24]/74 p-5 shadow-2xl shadow-black/20 backdrop-blur-md sm:p-7 lg:mx-0">
               <div className="flex items-center gap-3 border-b border-white/10 pb-4">
                 <span className="flex size-11 items-center justify-center rounded-2xl bg-accent/15 text-accent">
                   <MapPin className="size-5" />
                 </span>
                 <div>
                   <p className="text-xs font-medium text-white/60">وجهتك</p>
-                  <p className="mt-0.5 text-sm font-bold">جمهورية مصر العربية</p>
+                  <p className="mt-0.5 text-sm font-bold">المملكة العربية السعودية</p>
                 </div>
-                <EgyptFlagAccent />
+                <SaudiAccentSwatch />
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -105,8 +100,8 @@ export function EgyptClearanceHero({
                   مستنداتك محمية
                 </span>
                 <span className="inline-flex items-center gap-2 rounded-xl bg-white/[0.06] px-3 py-3">
-                  <Plane className="size-4 shrink-0 text-accent" />
-                  متابعة حتى النتيجة
+                  <Heart className="size-4 shrink-0 text-accent" />
+                  لكل أفراد العائلة
                 </span>
               </div>
             </div>
@@ -121,38 +116,38 @@ export function EgyptClearanceHero({
               <ChevronLeft className="size-3.5" />
               <Link href="/visas" className="transition hover:text-white">التأشيرات</Link>
               <ChevronLeft className="size-3.5" />
-              <span className="text-white/90">الموافقة الأمنية لمصر</span>
+              <span className="text-white/90">الزيارة العائلية</span>
             </nav>
 
-            <span className="mt-6 inline-flex items-center gap-2 rounded-full border border-accent/45 bg-[#071d45]/55 px-4 py-2 text-xs font-bold text-accent backdrop-blur-sm">
-              <EgyptFlagAccent />
-              خدمة السفر إلى مصر
+            <span className="mt-6 inline-flex items-center gap-2 rounded-full border border-accent/45 bg-[#0b3d24]/55 px-4 py-2 text-xs font-bold text-accent backdrop-blur-sm">
+              <SaudiAccentSwatch />
+              خدمة الزيارة العائلية للسعودية
             </span>
 
             <h1 className="mt-5 text-balance text-4xl font-black leading-[1.15] tracking-tight text-white sm:text-5xl lg:text-[3.65rem]">
               {title}
             </h1>
-            <p className="mt-3 text-xl font-extrabold text-accent sm:text-2xl">للسفر إلى مصر</p>
+            <p className="mt-3 text-xl font-extrabold text-accent sm:text-2xl">للسفر إلى السعودية</p>
             <p className="mx-auto mt-5 max-w-xl text-balance text-sm leading-8 text-white/80 sm:text-base lg:mx-0">
               {description}
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center lg:justify-start">
               <Button asChild variant="gold" size="lg" className="min-w-44 shadow-lg shadow-black/15">
-                <a href="#book">ابدأ طلب الموافقة</a>
+                <a href="#book">ابدأ طلب الزيارة</a>
               </Button>
               <Button
                 asChild
                 variant="outline"
                 size="lg"
-                className="min-w-40 border-white/35 bg-[#071d45]/25 text-white backdrop-blur-sm hover:border-white hover:bg-white/10"
+                className="min-w-40 border-white/35 bg-[#0b3d24]/25 text-white backdrop-blur-sm hover:border-white hover:bg-white/10"
               >
                 <Link href="/track">تتبع طلبك</Link>
               </Button>
             </div>
 
             <p className="mx-auto mt-6 max-w-xl text-balance text-[11px] leading-6 text-white/55 lg:mx-0">
-              نسائم الحرمين وكالة سفر وسياحة تقدم خدمة متابعة إجراءات طلب الموافقة الأمنية، وليست جهة إصدار حكومية.
+              نسائم الحرمين وكالة سفر وسياحة تقدم خدمة متابعة إجراءات طلب الزيارة العائلية، وليست جهة إصدار حكومية.
             </p>
           </FadeIn>
         </div>
@@ -160,7 +155,7 @@ export function EgyptClearanceHero({
 
       <div
         aria-hidden
-        className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#071d45]/45 to-transparent"
+        className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#0b3d24]/45 to-transparent"
       />
     </section>
   );
