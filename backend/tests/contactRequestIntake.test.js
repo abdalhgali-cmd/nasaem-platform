@@ -22,9 +22,13 @@ describe("service intake — public catalog", () => {
     const umrah = res.body.data.services.find((s) => s.code === "SVC-UMRAH");
     assert.ok(umrah, "expected the seeded Umrah service in the public catalog");
     assert.equal(umrah.category, "umrah");
-    // Narrow field set only — no createdAt/updatedAt/internal metadata leaked.
+    // Narrow field set only — no createdAt/internal metadata leaked.
     // iconKey/imageKey/features were added in Platform 3.0 Phase 3 (Dynamic
-    // Service Catalog) — see services.service.js's PUBLIC_SERVICE_SELECT.
+    // Service Catalog); heroImageKey/heroImageMobileKey/motionEnabled/
+    // motionVideoKey/updatedAt back the admin-managed hero media system —
+    // see services.service.js's PUBLIC_SERVICE_SELECT (updatedAt is exposed
+    // deliberately there, unlike createdAt, as the cache-busting version for
+    // those media URLs).
     assert.deepEqual(Object.keys(umrah).sort(), [
       "basePrice",
       "category",
@@ -33,12 +37,17 @@ describe("service intake — public catalog", () => {
       "description",
       "features",
       "fxRateToSdg",
+      "heroImageKey",
+      "heroImageMobileKey",
       "iconKey",
       "id",
       "imageKey",
+      "motionEnabled",
+      "motionVideoKey",
       "name",
       "priceSdg",
       "processingTime",
+      "updatedAt",
     ]);
 
     const packages = res.body.data.services.filter((s) => s.category === "package");
