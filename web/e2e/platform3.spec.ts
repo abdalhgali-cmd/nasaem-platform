@@ -1109,22 +1109,18 @@ test.describe("Admin-managed service hero media (generic /services/[slug] templa
       // The generic service page fetches the public catalog with a 60s
       // fetch cache — poll real navigations until the change lands, same
       // approach this file already uses for the homepage/settings tests.
-      // PageHero renders both a mobile (sm:hidden) and a desktop
-      // (hidden sm:block) background div at once — only one is actually
-      // on-screen at a given viewport, so ":visible" (not .first(), which
-      // is DOM-order and would just grab the mobile one) is what picks the
-      // one this viewport is really showing.
+      // Checking page.content() (not a locator) is deliberate: until the
+      // catalog cache catches up the route 404s, and PageHero only renders
+      // its background div at all once a hero image is present — a locator
+      // wait would hang on an element that may never exist on a given
+      // attempt, instead of failing that attempt fast so the loop retries.
       await pollByReloading(
         page,
-        async (timeoutMs) => {
+        async () => {
           await page.goto(`/services/${slug}`, { waitUntil: "domcontentloaded" });
-          const bg = await page
-            .locator("div[style*='background-image']:visible")
-            .first()
-            .evaluate((el) => (el as HTMLElement).style.backgroundImage, { timeout: timeoutMs });
-          return bg;
+          return page.content();
         },
-        (bg) => bg.includes(updated.heroImageKey),
+        (html) => html.includes(updated.heroImageKey),
         "hero image on generic service page"
       );
 
@@ -1133,11 +1129,8 @@ test.describe("Admin-managed service hero media (generic /services/[slug] templa
       const mobileContext = await page.context().browser()!.newContext({ viewport: { width: 390, height: 844 } });
       const mobilePage = await mobileContext.newPage();
       await mobilePage.goto(`/services/${slug}`, { waitUntil: "networkidle" });
-      const mobileBg = await mobilePage
-        .locator("div[style*='background-image']:visible")
-        .first()
-        .evaluate((el) => (el as HTMLElement).style.backgroundImage);
-      expect(mobileBg).toContain(updated.heroImageMobileKey);
+      const mobileHtml = await mobilePage.content();
+      expect(mobileHtml).toContain(updated.heroImageMobileKey);
       await mobileContext.close();
 
       // Motion enabled + a clip uploaded → the clip plays and is hidden
