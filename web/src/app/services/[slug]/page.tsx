@@ -12,6 +12,7 @@ import { API_URL } from "@/lib/api-url";
 import { getPublicSiteSettings } from "@/lib/public-settings";
 import { buildPageMetadata } from "@/lib/seo";
 import { resolveServiceHref, slugifyServiceCode } from "@/lib/service-routes";
+import { resolveServiceHeroMedia, type ServiceHeroMedia } from "@/lib/service-hero-media";
 
 // Generic template for any service/visa type that doesn't (yet) have a
 // hand-built dedicated experience — Section 5 of the routing spec. It
@@ -27,8 +28,8 @@ type PublicRequirement = {
   required: boolean;
 };
 
-type CatalogService = { id: string; code: string; name: string; category: string; description: string | null; basePrice: string; currency: string; priceSdg: number | null };
-type CatalogVisaType = { id: string; code: string; name: string; category: string; description: string | null; basePrice: string; currency: string; priceSdg: number | null; country: string };
+type CatalogService = { id: string; code: string; name: string; category: string; description: string | null; basePrice: string; currency: string; priceSdg: number | null } & ServiceHeroMedia;
+type CatalogVisaType = { id: string; code: string; name: string; category: string; description: string | null; basePrice: string; currency: string; priceSdg: number | null; country: string; serviceId: string | null };
 
 type ResolvedItem =
   | ({ kind: "service" } & CatalogService)
@@ -111,6 +112,14 @@ export default async function GenericServicePage({ params }: { params: Promise<{
   const numericPrice = Number(item.basePrice);
   const hasPublishedPrice = Number.isFinite(numericPrice) && numericPrice > 0;
 
+  // A Service record carries its own hero media; a VisaType's hero media
+  // lives on its linked Service (same lookup EgyptClearanceHero/
+  // SaudiFamilyVisitHero's pages do), since VisaType has no media columns
+  // of its own.
+  const heroMediaSource =
+    item.kind === "service" ? item : (catalog.services.find((s) => s.id === item.serviceId) ?? null);
+  const heroMedia = resolveServiceHeroMedia(heroMediaSource, API_URL);
+
   return (
     <>
       <PageHero
@@ -118,6 +127,10 @@ export default async function GenericServicePage({ params }: { params: Promise<{
         breadcrumb={item.name}
         title={item.name}
         description={item.description || "قدّم بياناتك ومستنداتك إلكترونيًا، وتابع حالة طلبك خطوة بخطوة."}
+        imageUrl={heroMedia.heroImageUrl}
+        mobileImageUrl={heroMedia.heroImageMobileUrl}
+        motionEnabled={heroMedia.motionEnabled}
+        motionVideoUrl={heroMedia.motionVideoUrl}
       />
 
       <section className="py-16">

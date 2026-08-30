@@ -291,6 +291,18 @@ model Service {
   iconKey        String?
   imageKey       String?
   features       Json?
+  // Admin-managed hero visual identity for a service's dedicated/landing
+  // page — same SiteAsset-key pattern as imageKey above, just a second slot
+  // for the large above-the-fold banner instead of the small catalog-card
+  // image. heroImageMobileKey is optional: pages fall back to heroImageKey
+  // when it's unset rather than requiring two uploads. motionEnabled gates
+  // a page's decorative motion (a bundled CSS animation by default, or the
+  // uploaded motionVideoKey clip when one is set) — kept separate from
+  // motionVideoKey so an admin can enable motion without needing an upload.
+  heroImageKey       String?
+  heroImageMobileKey String?
+  motionEnabled      Boolean  @default(false)
+  motionVideoKey     String?
   // Platform 3.0 Phase 8 (Security Approvals) — same free-text rationale
   // as VisaType.processingTime: wording varies too much ("same day",
   // "3-5 working days", ...) to force a fixed shape.

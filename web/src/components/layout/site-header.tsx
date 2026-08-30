@@ -50,7 +50,7 @@ export function SiteHeader({
 
         <nav
           aria-label="التصفح الرئيسي"
-          className="hidden items-center gap-1 lg:flex"
+          className="hidden items-center gap-1 xl:flex"
         >
           {mainNav.map((item) => {
             const active =
@@ -75,7 +75,7 @@ export function SiteHeader({
           })}
         </nav>
 
-        <div className="hidden items-center gap-2 lg:flex">
+        <div className="hidden items-center gap-2 xl:flex">
           <a
             href={`tel:${(contactPhone ?? siteConfig.phone).replace(/\s/g, "")}`}
             className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-foreground/80 transition hover:text-primary"
@@ -89,7 +89,7 @@ export function SiteHeader({
           </Button>
         </div>
 
-        <div className="flex items-center gap-1 lg:hidden">
+        <div className="flex items-center gap-1 xl:hidden">
           <ThemeToggle />
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>

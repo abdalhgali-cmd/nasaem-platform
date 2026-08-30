@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { getPublicSiteSettings } from "@/lib/public-settings";
 import { buildPageMetadata } from "@/lib/seo";
+import { resolveServiceHeroMedia, type ServiceHeroMedia } from "@/lib/service-hero-media";
 
 // The VisaType code seeded for this service (backend/prisma/seed.js) —
 // admins can rename/re-price/re-describe it freely from the Visa Types
@@ -43,7 +44,10 @@ type PublicVisaType = {
   stayDuration: string | null;
   validity: string | null;
   entryType: string | null;
+  serviceId: string | null;
 };
+
+type PublicService = { id: string } & ServiceHeroMedia;
 
 type PublicRequirement = {
   id: string;
@@ -52,19 +56,21 @@ type PublicRequirement = {
   required: boolean;
 };
 
-async function getVisaTypes(): Promise<PublicVisaType[]> {
+async function getCatalog(): Promise<{ services: PublicService[]; visaTypes: PublicVisaType[] }> {
   try {
     const response = await fetch(`${API_URL}/services/public`, { next: { revalidate: 60 } });
-    if (!response.ok) return [];
-    const payload = (await response.json()) as { data?: { visaTypes?: PublicVisaType[] } };
-    return payload.data?.visaTypes ?? [];
+    if (!response.ok) return { services: [], visaTypes: [] };
+    const payload = (await response.json()) as {
+      data?: { services?: PublicService[]; visaTypes?: PublicVisaType[] };
+    };
+    return { services: payload.data?.services ?? [], visaTypes: payload.data?.visaTypes ?? [] };
   } catch {
-    return [];
+    return { services: [], visaTypes: [] };
   }
 }
 
 async function getFamilyVisitVisaType(): Promise<PublicVisaType | null> {
-  const visaTypes = await getVisaTypes();
+  const { visaTypes } = await getCatalog();
   return visaTypes.find((visa) => visa.code === VISA_CODE) ?? null;
 }
 
@@ -146,12 +152,14 @@ const whyNasaem = [
 ];
 
 export default async function SaudiFamilyVisitPage() {
-  const [visaTypes, settings] = await Promise.all([
-    getVisaTypes(),
+  const [{ services, visaTypes }, settings] = await Promise.all([
+    getCatalog(),
     getPublicSiteSettings(),
   ]);
   const visaType = visaTypes.find((visa) => visa.code === VISA_CODE) ?? null;
   const relatedVisaTypes = visaTypes.filter((visa) => visa.code !== VISA_CODE).slice(0, 3);
+  const linkedService = visaType?.serviceId ? (services.find((s) => s.id === visaType.serviceId) ?? null) : null;
+  const heroMedia = resolveServiceHeroMedia(linkedService, API_URL);
   const [requirements, faqItems] = await Promise.all([
     visaType ? getRequirements(visaType.id) : Promise.resolve<PublicRequirement[]>([]),
     getFamilyVisitFaq(),
@@ -188,6 +196,10 @@ export default async function SaudiFamilyVisitPage() {
         priceLabel={heroPriceLabel}
         priceSubLabel={heroPriceSubLabel}
         isAccepting={Boolean(visaType)}
+        heroImageUrl={heroMedia.heroImageUrl}
+        heroImageMobileUrl={heroMedia.heroImageMobileUrl}
+        motionEnabled={heroMedia.motionEnabled}
+        motionVideoUrl={heroMedia.motionVideoUrl}
       />
 
       <section className="py-16">

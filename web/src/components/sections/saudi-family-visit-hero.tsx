@@ -34,6 +34,10 @@ export function SaudiFamilyVisitHero({
   priceLabel,
   priceSubLabel,
   isAccepting,
+  heroImageUrl,
+  heroImageMobileUrl,
+  motionEnabled = false,
+  motionVideoUrl,
 }: {
   title: string;
   description: string;
@@ -42,14 +46,42 @@ export function SaudiFamilyVisitHero({
   priceSubLabel?: string | null;
   /** True only when this VisaType came back from the active public catalog. */
   isAccepting: boolean;
+  /** Admin-uploaded hero background (Service.heroImageKey); falls back to the bundled illustration when unset. */
+  heroImageUrl?: string | null;
+  /** Admin-uploaded mobile-specific override; falls back to heroImageUrl, then the bundled illustration. */
+  heroImageMobileUrl?: string | null;
+  /** Service.motionEnabled — this hero has no built-in CSS animation, so motion only shows up once an admin has both enabled it and uploaded a clip. */
+  motionEnabled?: boolean;
+  /** Admin-uploaded motion clip (Service.motionVideoKey). */
+  motionVideoUrl?: string | null;
 }) {
+  const DEFAULT_HERO_IMAGE = "/images/saudi-family-visit-hero.svg";
+  const desktopImage = heroImageUrl || DEFAULT_HERO_IMAGE;
+  const mobileImage = heroImageMobileUrl || desktopImage;
+
   return (
     <section className="relative isolate min-h-[680px] overflow-hidden bg-[#0b3d24] text-white sm:min-h-[720px] lg:min-h-[650px]">
       <div
         aria-hidden
-        className="absolute inset-0 bg-cover bg-[position:35%_center] sm:bg-center lg:bg-[position:left_center]"
-        style={{ backgroundImage: "url('/images/saudi-family-visit-hero.svg')" }}
+        className="absolute inset-0 bg-cover bg-[position:35%_center] sm:hidden"
+        style={{ backgroundImage: `url('${mobileImage}')` }}
       />
+      <div
+        aria-hidden
+        className="absolute inset-0 hidden bg-cover sm:block sm:bg-center lg:bg-[position:left_center]"
+        style={{ backgroundImage: `url('${desktopImage}')` }}
+      />
+      {motionEnabled && motionVideoUrl ? (
+        <video
+          aria-hidden
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="absolute inset-0 hidden size-full object-cover sm:block motion-reduce:hidden"
+          src={motionVideoUrl}
+        />
+      ) : null}
       <div
         aria-hidden
         className="absolute inset-0 bg-gradient-to-b from-[#092e1c]/35 via-[#0b3d24]/58 to-[#092e1c]/95 lg:bg-gradient-to-l lg:from-[#092e1c]/95 lg:via-[#0b3d24]/72 lg:to-[#0b3d24]/14"

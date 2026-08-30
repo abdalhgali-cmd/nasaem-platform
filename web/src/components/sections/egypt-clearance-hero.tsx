@@ -30,6 +30,10 @@ export function EgyptClearanceHero({
   priceLabel,
   priceSubLabel,
   isAccepting,
+  heroImageUrl,
+  heroImageMobileUrl,
+  motionEnabled = false,
+  motionVideoUrl,
 }: {
   title: string;
   description: string;
@@ -38,14 +42,42 @@ export function EgyptClearanceHero({
   priceSubLabel?: string | null;
   /** True only when this VisaType came back from the active public catalog. */
   isAccepting: boolean;
+  /** Admin-uploaded hero background (Service.heroImageKey); falls back to the bundled illustration when unset. */
+  heroImageUrl?: string | null;
+  /** Admin-uploaded mobile-specific override; falls back to heroImageUrl, then the bundled illustration. */
+  heroImageMobileUrl?: string | null;
+  /** Service.motionEnabled — gates the decorative motion entirely (video clip if uploaded, else the built-in CSS animation). */
+  motionEnabled?: boolean;
+  /** Admin-uploaded motion clip (Service.motionVideoKey); when unset, motionEnabled just runs the built-in plane animation. */
+  motionVideoUrl?: string | null;
 }) {
+  const DEFAULT_HERO_IMAGE = "/images/egypt-security-approval-hero.svg";
+  const desktopImage = heroImageUrl || DEFAULT_HERO_IMAGE;
+  const mobileImage = heroImageMobileUrl || desktopImage;
+
   return (
     <section className="relative isolate min-h-[680px] overflow-hidden bg-[#071d45] text-white sm:min-h-[720px] lg:min-h-[650px]">
       <div
         aria-hidden
-        className="absolute inset-0 bg-cover bg-[position:35%_center] sm:bg-center lg:bg-[position:left_center]"
-        style={{ backgroundImage: "url('/images/egypt-security-approval-hero.svg')" }}
+        className="absolute inset-0 bg-cover bg-[position:35%_center] sm:hidden"
+        style={{ backgroundImage: `url('${mobileImage}')` }}
       />
+      <div
+        aria-hidden
+        className="absolute inset-0 hidden bg-cover sm:block sm:bg-center lg:bg-[position:left_center]"
+        style={{ backgroundImage: `url('${desktopImage}')` }}
+      />
+      {motionEnabled && motionVideoUrl ? (
+        <video
+          aria-hidden
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="absolute inset-0 hidden size-full object-cover sm:block motion-reduce:hidden"
+          src={motionVideoUrl}
+        />
+      ) : null}
       <div
         aria-hidden
         className="absolute inset-0 bg-gradient-to-b from-[#061b42]/35 via-[#071d45]/58 to-[#061a3e]/95 lg:bg-gradient-to-l lg:from-[#061b42]/95 lg:via-[#071d45]/72 lg:to-[#071d45]/14"
@@ -55,11 +87,16 @@ export function EgyptClearanceHero({
       {/* Sudan → Egypt departing-plane motif: pure CSS animation (no
           video/Lottie asset), disabled for prefers-reduced-motion via
           Tailwind's motion-reduce: variant, which leaves the plane as a
-          static icon instead of removing it entirely. */}
-      <Plane
-        aria-hidden
-        className="pointer-events-none absolute end-[18%] top-[38%] hidden size-6 -rotate-45 text-white/60 sm:block motion-reduce:animate-none animate-fly-route"
-      />
+          static icon instead of removing it entirely. Only rendered when an
+          admin has motion enabled for this service, and only as a fallback
+          when no motion video clip was uploaded (the video above already
+          supplies its own motion). */}
+      {motionEnabled && !motionVideoUrl ? (
+        <Plane
+          aria-hidden
+          className="pointer-events-none absolute end-[18%] top-[38%] hidden size-6 -rotate-45 text-white/60 sm:block motion-reduce:animate-none animate-fly-route"
+        />
+      ) : null}
 
       <Container className="relative flex min-h-[680px] items-center py-14 sm:min-h-[720px] sm:py-16 lg:min-h-[650px]">
         <div className="grid w-full items-center gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">

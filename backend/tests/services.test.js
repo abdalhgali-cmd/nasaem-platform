@@ -123,6 +123,113 @@ describe("dynamic service catalog (Platform 3.0 Phase 3)", () => {
   });
 });
 
+// Admin-managed hero visual identity (Platform 3.0 — comprehensive service
+// experience gap #2): a service's dedicated/landing page hero image, mobile
+// hero override, and optional motion clip must all be settable without a
+// code change, through the same SiteAsset upload infrastructure and RBAC
+// gate as the existing card image upload above — and must stay fully
+// separate from the private customer-document upload paths (contact-request
+// documents), which this suite never touches.
+describe("admin-managed service hero media (Platform 3.0 comprehensive service experience)", () => {
+  let agent;
+
+  before(async () => {
+    agent = await loginAsSuperAdmin();
+  });
+
+  test("uploads a desktop hero image and it becomes retrievable via the public site-assets file route", async () => {
+    const svc = await createService(agent);
+    const uploadRes = await agent
+      .post(`/api/services/${svc.id}/hero-image`)
+      .attach("image", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "hero.png", contentType: "image/png" });
+    assert.equal(uploadRes.status, 200);
+    assert.ok(uploadRes.body.data.heroImageKey);
+
+    const fileRes = await request(app).get(`/api/site-assets/${uploadRes.body.data.heroImageKey}/file`);
+    assert.equal(fileRes.status, 200);
+
+    const publicRes = await request(app).get("/api/services/public");
+    const found = publicRes.body.data.services.find((item) => item.id === svc.id);
+    assert.equal(found.heroImageKey, uploadRes.body.data.heroImageKey);
+  });
+
+  test("uploads a mobile hero image override independently of the desktop hero image", async () => {
+    const svc = await createService(agent);
+    await agent
+      .post(`/api/services/${svc.id}/hero-image`)
+      .attach("image", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "hero.png", contentType: "image/png" });
+    const mobileRes = await agent
+      .post(`/api/services/${svc.id}/hero-image-mobile`)
+      .attach("image", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "hero-mobile.png", contentType: "image/png" });
+
+    assert.equal(mobileRes.status, 200);
+    assert.ok(mobileRes.body.data.heroImageKey, "desktop hero image must survive the mobile-hero upload");
+    assert.ok(mobileRes.body.data.heroImageMobileKey);
+    assert.notEqual(mobileRes.body.data.heroImageKey, mobileRes.body.data.heroImageMobileKey);
+  });
+
+  test("uploads an MP4 motion clip and rejects a non-video file", async () => {
+    const svc = await createService(agent);
+    const okRes = await agent
+      .post(`/api/services/${svc.id}/motion-video`)
+      .attach("video", Buffer.from([0x00, 0x00, 0x00, 0x18]), { filename: "hero.mp4", contentType: "video/mp4" });
+    assert.equal(okRes.status, 200);
+    assert.ok(okRes.body.data.motionVideoKey);
+
+    const fileRes = await request(app).get(`/api/site-assets/${okRes.body.data.motionVideoKey}/file`);
+    assert.equal(fileRes.status, 200);
+
+    const badRes = await agent
+      .post(`/api/services/${svc.id}/motion-video`)
+      .attach("video", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "not-a-video.png", contentType: "image/png" });
+    assert.equal(badRes.status, 400);
+  });
+
+  test("motionEnabled can be toggled via PATCH and defaults to false", async () => {
+    const created = await createService(agent);
+    assert.equal(created.motionEnabled, false);
+
+    const patchRes = await agent.patch(`/api/services/${created.id}`).send({ motionEnabled: true });
+    assert.equal(patchRes.status, 200);
+    assert.equal(patchRes.body.data.motionEnabled, true);
+
+    const publicRes = await request(app).get("/api/services/public");
+    const found = publicRes.body.data.services.find((item) => item.id === created.id);
+    assert.equal(found.motionEnabled, true);
+  });
+
+  test("404s uploading hero/motion media for a service that doesn't exist", async () => {
+    const heroRes = await agent
+      .post("/api/services/does-not-exist/hero-image")
+      .attach("image", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "hero.png", contentType: "image/png" });
+    assert.equal(heroRes.status, 404);
+
+    const motionRes = await agent
+      .post("/api/services/does-not-exist/motion-video")
+      .attach("video", Buffer.from([0x00, 0x00, 0x00, 0x18]), { filename: "hero.mp4", contentType: "video/mp4" });
+    assert.equal(motionRes.status, 404);
+  });
+
+  test("EMPLOYEE cannot upload hero images or motion video for services", async () => {
+    const suffix = uniqueSuffix();
+    const email = `services-media-employee-${suffix}@nasaem-platform.local`;
+    await agent.post("/api/users").send({ fullName: "Services Media RBAC Employee", email, password: "TestPass@12345", role: "EMPLOYEE" });
+    const employeeAgent = request.agent(app);
+    await employeeAgent.post("/api/auth/login").send({ email, password: "TestPass@12345" });
+
+    const svc = await createService(agent);
+    const heroRes = await employeeAgent
+      .post(`/api/services/${svc.id}/hero-image`)
+      .attach("image", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "hero.png", contentType: "image/png" });
+    assert.equal(heroRes.status, 403);
+
+    const motionRes = await employeeAgent
+      .post(`/api/services/${svc.id}/motion-video`)
+      .attach("video", Buffer.from([0x00, 0x00, 0x00, 0x18]), { filename: "hero.mp4", contentType: "video/mp4" });
+    assert.equal(motionRes.status, 403);
+  });
+});
+
 
 describe("public Umrah packages catalog", () => {
   let agent;

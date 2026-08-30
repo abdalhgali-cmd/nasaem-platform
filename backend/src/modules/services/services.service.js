@@ -34,18 +34,28 @@ export async function getServiceById(id) {
 
 // Backs the public Service Intake wizard (web/): active services + visa
 // types only, with a narrow field set (no internal metadata like
-// createdAt/updatedAt) — deliberately not the same shape as the staff
-// listServices() above, which is auth-gated and returns full rows.
+// createdAt) — deliberately not the same shape as the staff listServices()
+// above, which is auth-gated and returns full rows. updatedAt IS exposed
+// (unlike createdAt) because it doubles as the cache-busting version for
+// this service's hero/motion media URLs (see web/src/lib/service-hero-
+// media.ts) — deriving it from this same already-fetched record, instead of
+// a second call to the independently-cached /site-assets list, is what
+// keeps a fresh upload from racing two separate revalidate windows.
 const PUBLIC_SERVICE_SELECT = {
   id: true,
   code: true,
   name: true,
+  updatedAt: true,
   category: true,
   description: true,
   basePrice: true,
   currency: true,
   iconKey: true,
   imageKey: true,
+  heroImageKey: true,
+  heroImageMobileKey: true,
+  motionEnabled: true,
+  motionVideoKey: true,
   features: true,
   processingTime: true,
 };
@@ -118,6 +128,7 @@ export async function createService(data) {
       active: typeof data.active === "boolean" ? data.active : true,
       sortOrder: data.sortOrder ?? 0,
       iconKey: data.iconKey || null,
+      motionEnabled: typeof data.motionEnabled === "boolean" ? data.motionEnabled : false,
       features: data.features ?? undefined,
       processingTime: data.processingTime || null,
     },
@@ -161,6 +172,15 @@ export async function setServiceImageKey(id, imageKey) {
   const existing = await prisma.service.findUnique({ where: { id } });
   if (!existing) return null;
   return prisma.service.update({ where: { id }, data: { imageKey } });
+}
+
+// Shared by the hero-image/hero-image-mobile/motion-video upload endpoints
+// below — each just writes its own SiteAsset key into a different column,
+// so one field-parameterized setter replaces three near-identical copies.
+export async function setServiceMediaKey(id, field, key) {
+  const existing = await prisma.service.findUnique({ where: { id } });
+  if (!existing) return null;
+  return prisma.service.update({ where: { id }, data: { [field]: key } });
 }
 
 // Assigns sortOrder = position in the given id list, so admins can drag

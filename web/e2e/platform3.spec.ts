@@ -973,3 +973,234 @@ test.describe("Service page SEO metadata and related services", () => {
     }
   });
 });
+
+// A prior pass routed every VisaType without a dedicated page (and Tasheel,
+// a Service) to the shared /visas?visaType=...#book catalog — a customer
+// still had to land on a general page. These real, already-seeded catalog
+// entries (backend/prisma/seed.js) must now each resolve to their own
+// /services/[slug] page instead, and VISA-UMRAH (Umrah's VisaType record)
+// must resolve to Umrah's actual dedicated page.
+test.describe("Every named service opens its own page — no generic-catalog dead ends", () => {
+  const cases: { path: string; expectedHeading: string }[] = [
+    { path: "/services/international", expectedHeading: "التأشيرات الدولية" },
+    { path: "/services/work", expectedHeading: "تأشيرة العمل" },
+    { path: "/services/work-visa", expectedHeading: "تأشيرة العمل" },
+    { path: "/services/intl-visa", expectedHeading: "التأشيرات الدولية" },
+    { path: "/services/tasheel", expectedHeading: "حجز مواعيد تساهيل" },
+  ];
+
+  for (const { path, expectedHeading } of cases) {
+    test(`${path} renders its own service page (real seeded catalog entry)`, async ({ page }) => {
+      const response = await page.goto(path, { waitUntil: "networkidle" });
+      expect(response?.ok(), `${path} should load`).toBeTruthy();
+      await expect(page.locator("h1")).toContainText(expectedHeading);
+      // Never a bare "not found" / fallback to a generic catalog page.
+      await expect(page.locator("h1")).not.toContainText("اختر نوع التأشيرة");
+    });
+  }
+
+  test("VISA-UMRAH (Umrah's visa-type card, e.g. from the /visas catalog) routes to Umrah's own dedicated page", async ({ page }) => {
+    const servicesRes = await page.request.get(`${BACKEND_URL}/api/services/public`);
+    const payload = await servicesRes.json();
+    const umrahVisaType = payload.data.visaTypes.find((v: { code: string }) => v.code === "VISA-UMRAH");
+    expect(umrahVisaType, "VISA-UMRAH must be seeded").toBeTruthy();
+
+    await page.goto("/visas", { waitUntil: "networkidle" });
+    const card = page.locator("article").filter({ hasText: umrahVisaType.name }).first();
+    await card.scrollIntoViewIfNeeded();
+    const href = await card.getByRole("link", { name: "قدّم الآن" }).getAttribute("href");
+    expect(href).toBe("/umrah");
+  });
+
+  test("homepage Services grid sends International Visa, Work Visa, and Tasheel to their own pages, not a shared catalog", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
+    const hrefs = await section.locator("a").evaluateAll((els) =>
+      Object.fromEntries(els.map((el) => [el.querySelector("h3")?.textContent ?? "", el.getAttribute("href")]))
+    );
+    for (const [name, href] of Object.entries(hrefs)) {
+      if (["التأشيرات الدولية", "تأشيرة العمل", "حجز مواعيد تساهيل"].includes(name)) {
+        expect(href, `${name} must not land on the shared /visas catalog`).not.toMatch(/^\/visas\?/);
+        expect(href, `${name} must not land on the dead-end /contact fallback`).not.toMatch(/^\/contact\?/);
+        expect(href).toMatch(/^\/services\//);
+      }
+    }
+  });
+});
+
+// Regression for a real pre-existing bug found during responsive QA: at
+// exactly 1024px the desktop nav (11 items) didn't fit under the old `lg:`
+// breakpoint, and a long, unbroken footer email address overflowed its
+// column — both pushed document.documentElement.scrollWidth past the
+// viewport with no visible scrollbar warning. Neither was introduced by
+// this PR's own routing/media work, but both are now fixed (site-header.tsx
+// moved its desktop-nav breakpoint to `xl:`; site-footer.tsx wraps the long
+// email in break-all) as part of satisfying the "responsive PASS at 1024px"
+// requirement.
+test.describe("No horizontal overflow at 1024px (and neighboring breakpoints)", () => {
+  for (const width of [360, 390, 430, 768, 1024, 1280, 1440]) {
+    test(`/  and /about have no horizontal overflow at ${width}px`, async ({ browser }) => {
+      const context = await browser.newContext({ viewport: { width, height: 900 } });
+      const page = await context.newPage();
+      for (const path of ["/", "/about"]) {
+        await page.goto(path, { waitUntil: "networkidle" });
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+        );
+        expect(overflow, `${path} at ${width}px should not overflow horizontally`).toBeLessThanOrEqual(1);
+      }
+      await context.close();
+    });
+  }
+
+  test("the desktop nav is reachable via the hamburger menu at 1024px and directly visible at 1280px+", async ({ browser }) => {
+    const narrowContext = await browser.newContext({ viewport: { width: 1024, height: 900 } });
+    const narrowPage = await narrowContext.newPage();
+    await narrowPage.goto("/", { waitUntil: "networkidle" });
+    await expect(narrowPage.getByRole("button", { name: "فتح القائمة" })).toBeVisible();
+    await expect(narrowPage.locator('nav[aria-label="التصفح الرئيسي"]')).toBeHidden();
+    await narrowContext.close();
+
+    const wideContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const widePage = await wideContext.newPage();
+    await widePage.goto("/", { waitUntil: "networkidle" });
+    await expect(widePage.locator('nav[aria-label="التصفح الرئيسي"]')).toBeVisible();
+    await wideContext.close();
+  });
+});
+
+// Admin-managed hero visual identity (comprehensive service experience
+// gap #2) — a service's hero image, mobile hero override, and motion
+// (video clip or the built-in CSS fallback, gated on motionEnabled) must
+// be settable purely through the admin UI/API and reused instantly by the
+// generic /services/[slug] template, without a code change or migration
+// beyond the one applied locally for this PR.
+test.describe("Admin-managed service hero media (generic /services/[slug] template)", () => {
+  test("uploading a hero image/mobile-hero and enabling motion is reflected on the service's public page", async ({ page }) => {
+    test.setTimeout(180_000);
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now();
+    const code = `E2E-HERO-MEDIA-${suffix}`;
+
+    const createRes = await admin.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name: `خدمة وسائط E2E ${suffix}`, category: "qa-test-category", basePrice: 10, active: true },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const service = (await createRes.json()).data;
+    const slug = code.replace(/^(SVC|VISA)-/i, "").toLowerCase();
+
+    try {
+      const heroRes = await admin.post(`${BACKEND_URL}/api/services/${service.id}/hero-image`, {
+        multipart: { image: { name: "hero.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+      });
+      expect(heroRes.ok(), await heroRes.text()).toBeTruthy();
+      const mobileRes = await admin.post(`${BACKEND_URL}/api/services/${service.id}/hero-image-mobile`, {
+        multipart: { image: { name: "hero-mobile.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+      });
+      expect(mobileRes.ok(), await mobileRes.text()).toBeTruthy();
+      const motionRes = await admin.post(`${BACKEND_URL}/api/services/${service.id}/motion-video`, {
+        multipart: { video: { name: "hero.mp4", mimeType: "video/mp4", buffer: Buffer.from([0x00, 0x00, 0x00, 0x18]) } },
+      });
+      expect(motionRes.ok(), await motionRes.text()).toBeTruthy();
+      const enableRes = await admin.patch(`${BACKEND_URL}/api/services/${service.id}`, { data: { motionEnabled: true } });
+      expect(enableRes.ok(), await enableRes.text()).toBeTruthy();
+      const updated = (await enableRes.json()).data;
+
+      // The generic service page fetches the public catalog with a 60s
+      // fetch cache — poll real navigations until the change lands, same
+      // approach this file already uses for the homepage/settings tests.
+      // PageHero renders both a mobile (sm:hidden) and a desktop
+      // (hidden sm:block) background div at once — only one is actually
+      // on-screen at a given viewport, so ":visible" (not .first(), which
+      // is DOM-order and would just grab the mobile one) is what picks the
+      // one this viewport is really showing.
+      await pollByReloading(
+        page,
+        async (timeoutMs) => {
+          await page.goto(`/services/${slug}`, { waitUntil: "domcontentloaded" });
+          const bg = await page
+            .locator("div[style*='background-image']:visible")
+            .first()
+            .evaluate((el) => (el as HTMLElement).style.backgroundImage, { timeout: timeoutMs });
+          return bg;
+        },
+        (bg) => bg.includes(updated.heroImageKey),
+        "hero image on generic service page"
+      );
+
+      // Mobile hero override: a real mobile viewport must render the
+      // mobile-specific background, not silently fall back to desktop.
+      const mobileContext = await page.context().browser()!.newContext({ viewport: { width: 390, height: 844 } });
+      const mobilePage = await mobileContext.newPage();
+      await mobilePage.goto(`/services/${slug}`, { waitUntil: "networkidle" });
+      const mobileBg = await mobilePage
+        .locator("div[style*='background-image']:visible")
+        .first()
+        .evaluate((el) => (el as HTMLElement).style.backgroundImage);
+      expect(mobileBg).toContain(updated.heroImageMobileKey);
+      await mobileContext.close();
+
+      // Motion enabled + a clip uploaded → the clip plays and is hidden
+      // under prefers-reduced-motion (never removed outright — same
+      // posture as the Egypt hero's CSS animation).
+      await expect(page.locator("video")).toHaveCount(1);
+      await expect(page.locator("video")).toBeVisible();
+
+      const reducedContext = await page.context().browser()!.newContext({ reducedMotion: "reduce" });
+      const reducedPage = await reducedContext.newPage();
+      await reducedPage.goto(`/services/${slug}`, { waitUntil: "networkidle" });
+      await expect(reducedPage.locator("video")).toBeHidden();
+      await reducedContext.close();
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/services/${service.id}`).catch(() => {});
+    }
+  });
+
+  test("the admin Services panel exposes hero/mobile-hero/motion-video upload controls and a motion-enabled checkbox", async ({ page }) => {
+    await loginAsSeededAdmin(page);
+    await page.goto("/admin/services", { waitUntil: "networkidle" });
+
+    const row = page.locator("tbody tr").first();
+    await expect(row.getByText("صورة الغلاف", { exact: true })).toBeVisible();
+    await expect(row.getByText("صورة الغلاف (جوال)", { exact: true })).toBeVisible();
+    await expect(row.getByText("فيديو الحركة", { exact: true })).toBeVisible();
+
+    await row.getByRole("button", { name: "تعديل" }).click();
+    await expect(page.getByText("تفعيل الحركة في صفحة الخدمة")).toBeVisible();
+  });
+
+  test("EMPLOYEE cannot upload service hero/mobile-hero/motion media (RBAC)", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now();
+    const email = `hero-media-employee-${suffix}@nasaem-platform.local`;
+    await admin.post(`${BACKEND_URL}/api/users`, {
+      data: { fullName: "Hero Media RBAC Employee", email, password: "TestPass@12345", role: "EMPLOYEE" },
+    });
+    const createRes = await admin.post(`${BACKEND_URL}/api/services`, {
+      data: { code: `E2E-HERO-RBAC-${suffix}`, name: `RBAC ${suffix}`, category: "qa-test-category", basePrice: 1 },
+    });
+    const service = (await createRes.json()).data;
+
+    try {
+      const employeeContext = await page.context().browser()!.newContext();
+      const employeePage = await employeeContext.newPage();
+      const loginRes = await employeePage.request.post(`${BACKEND_URL}/api/auth/login`, {
+        data: { email, password: "TestPass@12345" },
+      });
+      expect(loginRes.ok()).toBeTruthy();
+
+      const heroRes = await employeePage.request.post(`${BACKEND_URL}/api/services/${service.id}/hero-image`, {
+        multipart: { image: { name: "hero.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+      });
+      expect(heroRes.status()).toBe(403);
+
+      const motionRes = await employeePage.request.post(`${BACKEND_URL}/api/services/${service.id}/motion-video`, {
+        multipart: { video: { name: "hero.mp4", mimeType: "video/mp4", buffer: Buffer.from([0x00, 0x00, 0x00, 0x18]) } },
+      });
+      expect(motionRes.status()).toBe(403);
+      await employeeContext.close();
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/services/${service.id}`).catch(() => {});
+    }
+  });
+});

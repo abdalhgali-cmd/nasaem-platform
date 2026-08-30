@@ -9,7 +9,11 @@ const SERVICE_CATEGORIES = [
   { code: "SVC-UMRAH", name: "خدمات العمرة", category: "umrah" },
   { code: "SVC-FAMILY-VISIT", name: "تأشيرة الزيارة العائلية", category: "family_visit" },
   { code: "SVC-WORK-VISA", name: "تأشيرة العمل", category: "work_visa" },
-  { code: "SVC-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", category: "egypt_clearance" },
+  // motionEnabled seeds true here only because this dedicated page already
+  // shipped with an always-on CSS plane animation before the admin toggle
+  // (Service.motionEnabled) existed — every other service defaults to the
+  // column's own default (false) and is opted in by an admin instead.
+  { code: "SVC-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", category: "egypt_clearance", motionEnabled: true },
   { code: "SVC-FERRY", name: "حجز العبارات", category: "ferry" },
   { code: "SVC-INTL-VISA", name: "التأشيرات الدولية", category: "intl_visa" },
   { code: "SVC-TASHEEL", name: "حجز مواعيد تساهيل", category: "tasheel" },
@@ -75,6 +79,7 @@ async function seedServiceCategories() {
         category: svc.category,
         basePrice: 0,
         currency: "SAR",
+        motionEnabled: Boolean(svc.motionEnabled),
       },
     });
   }
