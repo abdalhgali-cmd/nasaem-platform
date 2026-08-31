@@ -57,6 +57,11 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       documents: { orderBy: { createdAt: "desc" } },
       deliverables: { orderBy: { createdAt: "desc" } },
       offers: { orderBy: { createdAt: "desc" } },
+      // Smart Case Operations — Release A. The customer's own travelers for
+      // their own request (already scoped by phoneNormalized ownership
+      // above) — lets /track show which traveler a document/replacement
+      // request belongs to once the frontend is updated to use it.
+      travelers: { orderBy: { sortOrder: "asc" } },
       serviceRef: { select: { id: true, name: true, category: true } },
       visaType: { select: { id: true, name: true, country: true } },
     },
@@ -97,10 +102,10 @@ async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
   });
 }
 
-export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file, requirementId }) {
+export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file, requirementId, travelerId }) {
   const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
   if (!contactRequest) return { error: "NOT_FOUND" };
-  return createContactRequestDocument(contactRequestId, { label, file, requirementId });
+  return createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId });
 }
 
 export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, file) {

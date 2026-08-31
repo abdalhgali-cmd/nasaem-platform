@@ -6,6 +6,11 @@ export const uploadContactRequestDocumentSchema = z.object({
   // item this upload satisfies. Omitted entirely for uploads that aren't
   // tied to a formal checklist (kept working exactly as before).
   requirementId: z.string().trim().min(1).optional(),
+  // Smart Case Operations — Release A — which traveler this document
+  // belongs to (must be a traveler on this same contact request — checked
+  // in contact-request-documents.service.js, never trusted from the client
+  // alone). Omitted for a case/customer-scoped document.
+  travelerId: z.string().trim().min(1).optional(),
 });
 
 export const reviewContactRequestDocumentSchema = z

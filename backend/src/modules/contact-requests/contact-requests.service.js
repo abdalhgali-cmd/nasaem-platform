@@ -50,6 +50,12 @@ export async function notifyAdmins({ title, message, type, organizationId = "org
 export async function createContactRequest(data, req, files = []) {
   const documentLabels = data.documentLabels || [];
   const documentRequirementIds = data.documentRequirementIds || [];
+  // Smart Case Operations — Release A (Customer/Traveler separation). Both
+  // optional and additive: a wizard build that doesn't send them creates
+  // exactly the request it always did (zero Traveler rows, every document
+  // case/customer-scoped) — see the schema.prisma Traveler model comment.
+  const travelers = data.travelers || [];
+  const documentTravelerIndexes = data.documentTravelerIndexes || [];
 
   // Platform 3.0 Phase 13: HOTEL_SEARCH/SECURITY_APPROVAL gate intake for
   // the specific, real Service categories that already exist for those
@@ -116,36 +122,112 @@ export async function createContactRequest(data, req, files = []) {
     }
   }
 
-  const contactRequest = await prisma.contactRequest.create({
-    data: {
-      name: data.name,
-      organizationId: req.customer?.organizationId || "org_nasaem_default",
-      phone: data.phone,
-      phoneNormalized: normalizePhone(data.phone),
-      email: data.email || null,
-      service: data.service || null,
-      serviceId: data.serviceId || null,
-      visaTypeId: data.visaTypeId || null,
-      travelerCount: data.travelerCount ?? null,
-      intakeData: data.intakeData ?? undefined,
-      requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
-      message: data.message,
-      customerId: req.customer?.id || null,
-      documents: files.length
-        ? {
-            create: files.map((file, index) => ({
-              label: documentLabels[index] || file.originalname,
-              requirementId: documentRequirementIds[index] || null,
-              ocrResult: ocrResults[index] ?? undefined,
-              fileName: file.originalname,
-              storagePath: path.join("contact-request-documents", file.filename),
-              mimeType: file.mimetype,
-              sizeBytes: file.size,
-            })),
-          }
+  // Smart Case Operations — Release A. Each entry in documentTravelerIndexes
+  // must be "" (case/customer-scoped) or a valid index into `travelers` —
+  // validated up front, alongside the MIME/size/requirement checks above,
+  // so a bad reference rejects the whole submission rather than silently
+  // creating an orphaned or wrongly-owned document.
+  for (let i = 0; i < files.length; i += 1) {
+    const ref = documentTravelerIndexes[i];
+    if (!ref) continue;
+    const index = Number(ref);
+    if (!Number.isInteger(index) || index < 0 || index >= travelers.length) {
+      return { error: "TRAVELER_NOT_FOUND" };
+    }
+  }
+
+  const baseData = {
+    name: data.name,
+    organizationId: req.customer?.organizationId || "org_nasaem_default",
+    phone: data.phone,
+    phoneNormalized: normalizePhone(data.phone),
+    email: data.email || null,
+    service: data.service || null,
+    serviceId: data.serviceId || null,
+    visaTypeId: data.visaTypeId || null,
+    travelerCount: data.travelerCount ?? null,
+    // Non-DOCUMENT requirement answers (TEXT/NUMBER/DATE/SELECT/YES_NO) ride
+    // alongside the existing free-text intakeData shape as their own key,
+    // rather than a new column — intakeData was always meant to hold
+    // whatever structured extras a submission carries (see its schema.prisma
+    // comment); a submission with neither keeps intakeData exactly as it
+    // was before this release.
+    intakeData:
+      data.intakeData || data.answers
+        ? { ...(data.intakeData || {}), ...(data.answers ? { answers: data.answers } : {}) }
         : undefined,
-    },
-  });
+    requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
+    message: data.message,
+    customerId: req.customer?.id || null,
+  };
+
+  // Two code paths on purpose: when the submission doesn't use the new
+  // structured `travelers` field (every submission before this release, and
+  // still most of them — plain contact form, wizard builds not yet updated),
+  // this is byte-for-byte the original single create() call below. Only a
+  // submission that actually sends travelers needs the two-step transaction
+  // (travelers must exist before a document can reference one).
+  const contactRequest =
+    travelers.length === 0
+      ? await prisma.contactRequest.create({
+          data: {
+            ...baseData,
+            documents: files.length
+              ? {
+                  create: files.map((file, index) => ({
+                    label: documentLabels[index] || file.originalname,
+                    requirementId: documentRequirementIds[index] || null,
+                    ocrResult: ocrResults[index] ?? undefined,
+                    fileName: file.originalname,
+                    storagePath: path.join("contact-request-documents", file.filename),
+                    mimeType: file.mimetype,
+                    sizeBytes: file.size,
+                  })),
+                }
+              : undefined,
+          },
+        })
+      : await prisma.$transaction(async (tx) => {
+          const created = await tx.contactRequest.create({
+            data: {
+              ...baseData,
+              travelers: {
+                create: travelers.map((traveler, index) => ({
+                  fullName: traveler.fullName,
+                  passportNo: traveler.passportNo || null,
+                  nationality: traveler.nationality || null,
+                  birthDate: traveler.birthDate ? new Date(traveler.birthDate) : null,
+                  gender: traveler.gender || null,
+                  isPrimary: Boolean(traveler.isPrimary),
+                  sortOrder: index,
+                })),
+              },
+            },
+            include: { travelers: true },
+          });
+
+          if (files.length) {
+            await tx.contactRequestDocument.createMany({
+              data: files.map((file, index) => {
+                const ref = documentTravelerIndexes[index];
+                const travelerId = ref ? created.travelers[Number(ref)].id : null;
+                return {
+                  contactRequestId: created.id,
+                  label: documentLabels[index] || file.originalname,
+                  requirementId: documentRequirementIds[index] || null,
+                  travelerId,
+                  ocrResult: ocrResults[index] ?? undefined,
+                  fileName: file.originalname,
+                  storagePath: path.join("contact-request-documents", file.filename),
+                  mimeType: file.mimetype,
+                  sizeBytes: file.size,
+                };
+              }),
+            });
+          }
+
+          return created;
+        });
 
   logActivity({
     action: "CONTACT_REQUEST_RECEIVED",
@@ -195,6 +277,11 @@ export async function listContactRequests({ page, limit, skip, status, organizat
         documents: { orderBy: { createdAt: "desc" } },
         offers: { orderBy: { createdAt: "desc" } },
         deliverables: { orderBy: { createdAt: "desc" } },
+        // Smart Case Operations — Release A. Empty array for every request
+        // predating this release (or any submission that doesn't use the
+        // structured traveler form) — same shape staff already handle for
+        // documents/offers/deliverables.
+        travelers: { orderBy: { sortOrder: "asc" } },
         // Selected fields only — staff need the human-readable name/category
         // for a Service Intake submission, not the full catalog row.
         serviceRef: { select: { id: true, name: true, category: true } },

@@ -41,6 +41,8 @@ const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
   FILE_TOO_LARGE: "One of the uploaded files exceeds the maximum size allowed for its requirement",
   MAX_FILES_REACHED: "Too many files were uploaded for one of the requirements",
   FEATURE_DISABLED: "This service is currently unavailable",
+  // Smart Case Operations — Release A.
+  TRAVELER_NOT_FOUND: "One of the uploaded documents references a traveler that wasn't submitted",
 };
 
 export async function storeContactRequest(req, res, next) {

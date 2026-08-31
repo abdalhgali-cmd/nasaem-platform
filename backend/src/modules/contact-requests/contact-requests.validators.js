@@ -65,6 +65,44 @@ export const createContactRequestSchema = z.object({
     parseIfJsonString,
     z.array(z.string().trim().max(60)).max(6).optional()
   ),
+  // Smart Case Operations — Release A (Customer/Traveler separation). A
+  // structured traveler list — distinct from the existing free-text
+  // `intakeData.travelers` shape (kept unchanged for backward compatibility;
+  // see contact-requests.service.js). Present only when the wizard collects
+  // "لي / لشخص آخر / لعدة أشخاص" as real per-traveler records instead of
+  // free text, which is what lets a document actually be owned by a
+  // specific traveler.
+  travelers: z.preprocess(
+    parseIfJsonString,
+    z
+      .array(
+        z.object({
+          fullName: z.string().trim().min(1).max(200),
+          passportNo: z.string().trim().max(50).optional().or(z.literal("")),
+          nationality: z.string().trim().max(100).optional().or(z.literal("")),
+          birthDate: z.string().trim().max(30).optional().or(z.literal("")),
+          gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+          isPrimary: z.coerce.boolean().optional(),
+        })
+      )
+      .max(20)
+      .optional()
+  ),
+  // Parallel array (same order/length as `documents`) — each entry is
+  // either "" (this document belongs to the case/customer, not a specific
+  // traveler) or the index into `travelers` above that owns this document.
+  documentTravelerIndexes: z.preprocess(
+    parseIfJsonString,
+    z.array(z.string().trim().max(10)).max(6).optional()
+  ),
+  // Answers for non-DOCUMENT requirement types (TEXT/NUMBER/DATE/SELECT/
+  // YES_NO) — { [requirementId]: value }. Merged into intakeData.answers
+  // (see contact-requests.service.js); capped in size the same way
+  // intakeData itself already is.
+  answers: z.preprocess(
+    parseIfJsonString,
+    z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional()
+  ),
 });
 
 export const updateContactRequestStatusSchema = z
