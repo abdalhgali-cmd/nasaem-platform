@@ -38,26 +38,27 @@ type Props = {
   requirements: EgyptClearanceRequirement[];
 };
 
-type DraftSnapshot = {
+type EntryMode = "AIR" | "BORDER" | "";
+type LocalSnapshot = {
   name: string;
   phone: string;
   email: string;
   passportNo: string;
   birthDate: string;
-  entryMode: "AIR" | "BORDER" | "";
+  entryMode: EntryMode;
 };
 
 const LOCAL_KEY = "nasaem:egypt-clearance:intake";
 const TOKEN_KEY = "nasaem:egypt-clearance:draft-token";
-const FILE_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
-
+const FALLBACK_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
 const inputClass =
   "h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10";
 
 function formatBytes(bytes: number | null) {
   if (!bytes) return null;
-  if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MB`;
-  return `${Math.round(bytes / 1024)} KB`;
+  return bytes >= 1024 * 1024
+    ? `${Math.round(bytes / (1024 * 1024))} MB`
+    : `${Math.round(bytes / 1024)} KB`;
 }
 
 export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Props) {
@@ -79,7 +80,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
   const [email, setEmail] = React.useState("");
   const [passportNo, setPassportNo] = React.useState("");
   const [birthDate, setBirthDate] = React.useState("");
-  const [entryMode, setEntryMode] = React.useState<"AIR" | "BORDER" | "">("");
+  const [entryMode, setEntryMode] = React.useState<EntryMode>("");
   const [passportDocumentId, setPassportDocumentId] = React.useState<string | null>(null);
   const [passportFileName, setPassportFileName] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
@@ -88,47 +89,49 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
   const [error, setError] = React.useState("");
   const [resultId, setResultId] = React.useState<string | null>(null);
   const draftTokenRef = React.useRef<string | null>(null);
+  const draftPromiseRef = React.useRef<Promise<string> | null>(null);
   const hydratedRef = React.useRef(false);
 
-  const currentSnapshot = React.useMemo<DraftSnapshot>(
+  const snapshot = React.useMemo<LocalSnapshot>(
     () => ({ name, phone, email, passportNo, birthDate, entryMode }),
     [name, phone, email, passportNo, birthDate, entryMode]
   );
+  const hasProgress = Boolean(name || phone || email || passportNo || birthDate || entryMode || passportDocumentId);
 
-  const hasMeaningfulProgress = Boolean(
-    name || phone || email || passportNo || birthDate || entryMode || passportDocumentId
-  );
-
-  async function ensureDraft() {
+  async function ensureDraft(): Promise<string> {
     if (draftTokenRef.current) return draftTokenRef.current;
+    if (draftPromiseRef.current) return draftPromiseRef.current;
 
-    const response = await fetch(`${API_URL}/intake-drafts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        serviceKind: "visa",
-        serviceId: serviceId || undefined,
-        visaTypeId,
-      }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.data?.token) throw new Error("تعذّر بدء الطلب، حاول مرة أخرى");
+    draftPromiseRef.current = (async () => {
+      const response = await fetch(`${API_URL}/intake-drafts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serviceKind: "visa", serviceId: serviceId || undefined, visaTypeId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.data?.token) throw new Error("تعذّر بدء الطلب، حاول مرة أخرى");
+      const token = payload.data.token as string;
+      draftTokenRef.current = token;
+      try {
+        window.localStorage.setItem(TOKEN_KEY, token);
+      } catch {
+        // Server draft remains usable in this tab.
+      }
+      return token;
+    })();
 
-    draftTokenRef.current = payload.data.token;
     try {
-      window.localStorage.setItem(TOKEN_KEY, payload.data.token);
-    } catch {
-      // The server draft still works for this session even if storage is unavailable.
+      return await draftPromiseRef.current;
+    } finally {
+      draftPromiseRef.current = null;
     }
-    return payload.data.token as string;
   }
 
-  async function saveDraft(token = draftTokenRef.current) {
-    if (!token) token = await ensureDraft();
+  async function saveDraft(token?: string) {
+    const resolvedToken = token || (await ensureDraft());
     setSaving(true);
     try {
-      const answers = entryRequirement && entryMode ? { [entryRequirement.id]: entryMode } : {};
-      const response = await fetch(`${API_URL}/intake-drafts/${token}`, {
+      const response = await fetch(`${API_URL}/intake-drafts/${resolvedToken}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -140,15 +143,8 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
           phone,
           email,
           travelerCount: 1,
-          answers,
-          travelers: [
-            {
-              fullName: name,
-              passportNo,
-              birthDate,
-              isPrimary: true,
-            },
-          ],
+          answers: entryRequirement && entryMode ? { [entryRequirement.id]: entryMode } : {},
+          travelers: [{ fullName: name, passportNo, birthDate, isPrimary: true }],
         }),
       });
       if (!response.ok) throw new Error("تعذّر حفظ تقدم الطلب");
@@ -161,64 +157,43 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
     if (typeof window === "undefined" || hydratedRef.current) return;
     hydratedRef.current = true;
 
+    let token: string | null = null;
     try {
       const raw = window.localStorage.getItem(LOCAL_KEY);
       if (raw) {
-        const saved = JSON.parse(raw) as Partial<DraftSnapshot>;
-        setName(saved.name ?? "");
-        setPhone(saved.phone ?? "");
-        setEmail(saved.email ?? "");
-        setPassportNo(saved.passportNo ?? "");
-        setBirthDate(saved.birthDate ?? "");
-        setEntryMode(saved.entryMode ?? "");
+        const local = JSON.parse(raw) as Partial<LocalSnapshot>;
+        setName(local.name ?? "");
+        setPhone(local.phone ?? "");
+        setEmail(local.email ?? "");
+        setPassportNo(local.passportNo ?? "");
+        setBirthDate(local.birthDate ?? "");
+        setEntryMode(local.entryMode ?? "");
       }
-      const token = window.localStorage.getItem(TOKEN_KEY);
+      token = window.localStorage.getItem(TOKEN_KEY);
       if (token) draftTokenRef.current = token;
     } catch {
-      // Local persistence is only a UX enhancement.
-    }
-  }, []);
-
-  React.useEffect(() => {
-    if (!hydratedRef.current || resultId) return;
-    try {
-      window.localStorage.setItem(LOCAL_KEY, JSON.stringify(currentSnapshot));
-    } catch {
-      // Keep the form usable if the browser blocks localStorage.
+      // Local persistence is optional.
     }
 
-    if (!hasMeaningfulProgress) return;
-    const timer = window.setTimeout(() => {
-      void saveDraft().catch(() => undefined);
-    }, 900);
-    return () => window.clearTimeout(timer);
-    // saveDraft is intentionally driven by the actual form snapshot only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSnapshot, hasMeaningfulProgress, resultId]);
-
-  React.useEffect(() => {
-    const token = draftTokenRef.current;
     if (!token) return;
-    let cancelled = false;
-
     void (async () => {
       try {
         const response = await fetch(`${API_URL}/intake-drafts/${token}`);
         if (!response.ok) return;
         const payload = await response.json();
         const draft = payload?.data;
-        if (!draft || cancelled) return;
+        if (!draft) return;
 
         const traveler = Array.isArray(draft.travelers) ? draft.travelers[0] : null;
         if (traveler) {
-          if (!name) setName(traveler.fullName ?? "");
-          if (!passportNo) setPassportNo(traveler.passportNo ?? "");
-          if (!birthDate) setBirthDate(traveler.birthDate ?? "");
+          setName((value) => value || traveler.fullName || "");
+          setPassportNo((value) => value || traveler.passportNo || "");
+          setBirthDate((value) => value || traveler.birthDate || "");
         }
-        if (!phone) setPhone(draft.phone ?? "");
-        if (!email) setEmail(draft.email ?? "");
-        if (!entryMode && entryRequirement?.id && draft.answers?.[entryRequirement.id]) {
-          setEntryMode(draft.answers[entryRequirement.id]);
+        setPhone((value) => value || draft.phone || "");
+        setEmail((value) => value || draft.email || "");
+        if (entryRequirement?.id && draft.answers?.[entryRequirement.id]) {
+          setEntryMode((value) => value || draft.answers[entryRequirement.id]);
         }
         const passportDoc = Array.isArray(draft.documents)
           ? draft.documents.find((doc: { requirementId?: string | null }) =>
@@ -230,15 +205,24 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
           setPassportFileName(passportDoc.fileName || "تم رفع الجواز");
         }
       } catch {
-        // Resume failure should never block a fresh application.
+        // A resume failure must not block a fresh request.
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entryRequirement?.id, passportRequirement?.id]);
+
+  React.useEffect(() => {
+    if (!hydratedRef.current || resultId) return;
+    try {
+      window.localStorage.setItem(LOCAL_KEY, JSON.stringify(snapshot));
+    } catch {
+      // Keep working without localStorage.
+    }
+    if (!hasProgress) return;
+    const timer = window.setTimeout(() => void saveDraft().catch(() => undefined), 900);
+    return () => window.clearTimeout(timer);
+    // Persist exactly when the form snapshot changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, hasProgress, resultId]);
 
   async function uploadPassport(file: File) {
     setError("");
@@ -261,7 +245,11 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       await saveDraft(token);
 
       if (passportDocumentId) {
-        await fetch(`${API_URL}/intake-drafts/${token}/documents/${passportDocumentId}`, { method: "DELETE" });
+        const removeResponse = await fetch(
+          `${API_URL}/intake-drafts/${token}/documents/${passportDocumentId}`,
+          { method: "DELETE" }
+        );
+        if (!removeResponse.ok) throw new Error("تعذّر استبدال صورة الجواز الحالية");
       }
 
       const body = new FormData();
@@ -270,18 +258,17 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       body.append("travelerIndex", "0");
       body.append("file", file);
 
-      const response = await fetch(`${API_URL}/intake-drafts/${token}/documents`, {
-        method: "POST",
-        body,
-      });
+      const response = await fetch(`${API_URL}/intake-drafts/${token}/documents`, { method: "POST", body });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.message || "تعذّر رفع صورة الجواز");
 
-      const document = payload?.data?.document;
-      setPassportDocumentId(document?.id ?? null);
-      setPassportFileName(document?.fileName || file.name);
+      // storeDraftDocument returns the document itself under data.
+      const document = payload?.data;
+      if (!document?.id) throw new Error("تم رفع الملف لكن تعذّر حفظ مرجع الجواز");
+      setPassportDocumentId(document.id);
+      setPassportFileName(document.fileName || file.name);
 
-      const ocr = document?.ocrResult;
+      const ocr = document.ocrResult;
       if (ocr) {
         const extractedName = [ocr.givenNames, ocr.surname].filter(Boolean).join(" ").trim();
         if (extractedName && !name) setName(extractedName);
@@ -295,7 +282,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
     }
   }
 
-  function validate() {
+  function validationError() {
     if (name.trim().length < 2) return "الاسم الكامل مطلوب";
     if (phone.trim().length < 6) return "رقم الهاتف مطلوب";
     if (!passportNo.trim()) return "رقم الجواز مطلوب";
@@ -307,11 +294,8 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
   }
 
   async function submit() {
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
+    const invalid = validationError();
+    if (invalid) return setError(invalid);
 
     setSubmitting(true);
     setError("");
@@ -321,21 +305,18 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       const response = await fetch(`${API_URL}/intake-drafts/${token}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: "طلب الموافقة الأمنية لمصر — مرحلة الموافقة الأساسية",
-        }),
+        body: JSON.stringify({ message: "طلب الموافقة الأمنية لمصر — مرحلة الموافقة الأساسية" }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.message || "تعذّر إرسال الطلب");
-
-      const id = payload?.data?.id || payload?.data?.contactRequest?.id;
+      const id = payload?.data?.id as string | undefined;
       if (!id) throw new Error("تم الإرسال لكن تعذّر قراءة رقم الطلب");
       setResultId(id);
       try {
         window.localStorage.removeItem(LOCAL_KEY);
         window.localStorage.removeItem(TOKEN_KEY);
       } catch {
-        // Submission succeeded; local cleanup is optional.
+        // Submission already succeeded.
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "تعذّر إرسال الطلب");
@@ -350,7 +331,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
         <CheckCircle2 className="mx-auto size-14 text-success" />
         <h2 className="mt-4 text-2xl font-extrabold text-foreground">تم استلام طلب الموافقة الأمنية</h2>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          رقم طلبك <span className="font-mono font-bold text-foreground" dir="ltr">{resultId}</span>. يمكنك تحديد موعد السفر لاحقًا، حتى لو كان بعد عدة أشهر. التعميم يتم كمرحلة لاحقة قبل الرحلة.
+          رقم طلبك <span className="font-mono font-bold text-foreground" dir="ltr">{resultId}</span>. يمكنك تحديد موعد السفر لاحقًا حتى لو كان بعد عدة أشهر، والتعميم سيكون مرحلة لاحقة في نفس الطلب.
         </p>
         <div className="mt-6 rounded-2xl border border-border bg-card p-5 text-start text-sm">
           <p className="font-bold text-foreground">ماذا بعد؟</p>
@@ -367,13 +348,10 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
     <div className="mx-auto max-w-3xl rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
       <div className="mb-7">
         <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary dark:text-secondary">
-          <FileCheck2 className="size-4" />
-          طلب الموافقة الأساسية
+          <FileCheck2 className="size-4" /> طلب الموافقة الأساسية
         </div>
         <h2 className="mt-3 text-2xl font-extrabold text-foreground">ابدأ طلبك الآن</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          لا تحتاج إلى حجز أو تاريخ سفر الآن. يمكنك تقديم الموافقة أولًا وتحديد رحلتك لاحقًا.
-        </p>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">لا تحتاج إلى حجز أو تاريخ سفر الآن. يمكنك تقديم الموافقة أولًا وتحديد رحلتك لاحقًا.</p>
       </div>
 
       <div className="grid gap-5 sm:grid-cols-2">
@@ -381,22 +359,18 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
           <span className="flex items-center gap-2 text-sm font-bold text-foreground"><UserRound className="size-4" /> الاسم الكامل *</span>
           <input value={name} onChange={(event) => setName(event.target.value)} className={inputClass} placeholder="الاسم كما في الجواز" autoComplete="name" />
         </label>
-
         <label className="flex flex-col gap-2">
           <span className="flex items-center gap-2 text-sm font-bold text-foreground"><Phone className="size-4" /> رقم الهاتف *</span>
           <input value={phone} onChange={(event) => setPhone(event.target.value)} className={`${inputClass} text-start`} placeholder="+249..." dir="ltr" type="tel" autoComplete="tel" />
         </label>
-
         <label className="flex flex-col gap-2">
           <span className="text-sm font-bold text-foreground">رقم الجواز *</span>
           <input value={passportNo} onChange={(event) => setPassportNo(event.target.value.toUpperCase())} className={inputClass} placeholder="رقم الجواز" dir="ltr" autoCapitalize="characters" />
         </label>
-
         <label className="flex flex-col gap-2">
           <span className="text-sm font-bold text-foreground">تاريخ الميلاد *</span>
           <input value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} type="date" />
         </label>
-
         <label className="flex flex-col gap-2 sm:col-span-2">
           <span className="flex items-center gap-2 text-sm font-bold text-foreground"><Mail className="size-4" /> البريد الإلكتروني <span className="font-normal text-muted-foreground">(اختياري)</span></span>
           <input value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} placeholder="name@example.com" type="email" autoComplete="email" />
@@ -425,17 +399,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
           {uploading ? <Loader2 className="size-9 animate-spin text-primary" /> : passportDocumentId ? <CheckCircle2 className="size-9 text-success" /> : <UploadCloud className="size-9 text-primary" />}
           <span className="mt-3 text-sm font-bold text-foreground">{uploading ? "جارٍ رفع الجواز…" : passportDocumentId ? "تم رفع الجواز" : "اضغط لرفع صورة الجواز أو PDF"}</span>
           <span className="mt-1 max-w-full truncate text-xs text-muted-foreground">{passportFileName || "JPG / PNG / WEBP / PDF"}</span>
-          <input
-            type="file"
-            className="sr-only"
-            accept={passportRequirement?.allowedMimeTypes?.join(",") || FILE_ACCEPT}
-            disabled={uploading}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void uploadPassport(file);
-              event.currentTarget.value = "";
-            }}
-          />
+          <input type="file" className="sr-only" accept={passportRequirement?.allowedMimeTypes?.join(",") || FALLBACK_ACCEPT} disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadPassport(file); event.currentTarget.value = ""; }} />
         </label>
       </div>
 
@@ -447,7 +411,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       {error ? <div className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm font-semibold text-destructive">{error}</div> : null}
 
       <div className="mt-7 flex flex-col-reverse items-stretch justify-between gap-3 sm:flex-row sm:items-center">
-        <span className="text-xs text-muted-foreground">{saving ? "جارٍ حفظ تقدمك تلقائيًا…" : hasMeaningfulProgress ? "يتم حفظ تقدمك تلقائيًا." : ""}</span>
+        <span className="text-xs text-muted-foreground">{saving ? "جارٍ حفظ تقدمك تلقائيًا…" : hasProgress ? "يتم حفظ تقدمك تلقائيًا." : ""}</span>
         <Button type="button" variant="gold" size="lg" onClick={() => void submit()} disabled={submitting || uploading}>
           {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
           إرسال طلب الموافقة
