@@ -8,6 +8,7 @@ import {
   BriefcaseBusiness,
   ImageIcon,
   ClipboardCheck,
+  ClipboardList,
   FileCheck2,
   Flag,
   Gauge,
@@ -33,6 +34,9 @@ export type AdminUser = {
 
 const navigation = [
   { href: "/admin/operations", label: "مركز العمليات", icon: Gauge, roles: undefined },
+  // Smart Case Operations — Release C. The per-case workspace, open to the
+  // roles that actually work cases; ACCOUNTANT/CONTENT_MANAGER never do.
+  { href: "/admin/cases", label: "مساحة عمل الحالات", icon: ClipboardList, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
   { href: "/admin/users", label: "المستخدمون", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
   { href: "/admin/roles", label: "الأدوار والصلاحيات", icon: ShieldCheck, roles: ["SUPER_ADMIN", "ADMIN"] },
   { href: "/admin/services", label: "الخدمات", icon: BriefcaseBusiness, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },

@@ -1,6 +1,7 @@
 import path from "path";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
@@ -10,7 +11,8 @@ import {
   STATUS_LABELS,
 } from "../contact-request-tracking/contact-request-tracking.status.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
-import { getPublicChecklist } from "../requirements/requirements.service.js";
+import { getPublicChecklist, requirementApplies } from "../requirements/requirements.service.js";
+import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 
@@ -50,6 +52,12 @@ export async function notifyAdmins({ title, message, type, organizationId = "org
 export async function createContactRequest(data, req, files = []) {
   const documentLabels = data.documentLabels || [];
   const documentRequirementIds = data.documentRequirementIds || [];
+  // Smart Case Operations — Release A (Customer/Traveler separation). Both
+  // optional and additive: a wizard build that doesn't send them creates
+  // exactly the request it always did (zero Traveler rows, every document
+  // case/customer-scoped) — see the schema.prisma Traveler model comment.
+  const travelers = data.travelers || [];
+  const documentTravelerIndexes = data.documentTravelerIndexes || [];
 
   // Platform 3.0 Phase 13: HOTEL_SEARCH/SECURITY_APPROVAL gate intake for
   // the specific, real Service categories that already exist for those
@@ -116,37 +124,125 @@ export async function createContactRequest(data, req, files = []) {
     }
   }
 
-  const contactRequest = await prisma.contactRequest.create({
-    data: {
-      name: data.name,
-      organizationId: req.customer?.organizationId || "org_nasaem_default",
-      phone: data.phone,
-      phoneNormalized: normalizePhone(data.phone),
-      email: data.email || null,
-      service: data.service || null,
-      serviceId: data.serviceId || null,
-      visaTypeId: data.visaTypeId || null,
-      travelerCount: data.travelerCount ?? null,
-      intakeData: data.intakeData ?? undefined,
-      requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
-      message: data.message,
-      customerId: req.customer?.id || null,
-      documents: files.length
-        ? {
-            create: files.map((file, index) => ({
-              label: documentLabels[index] || file.originalname,
-              requirementId: documentRequirementIds[index] || null,
-              ocrResult: ocrResults[index] ?? undefined,
-              fileName: file.originalname,
-              storagePath: path.join("contact-request-documents", file.filename),
-              mimeType: file.mimetype,
-              sizeBytes: file.size,
-            })),
-          }
-        : undefined,
-    },
-  });
+  // Smart Case Operations — Release A. Each entry in documentTravelerIndexes
+  // must be "" (case/customer-scoped) or a valid index into `travelers` —
+  // validated up front, alongside the MIME/size/requirement checks above,
+  // so a bad reference rejects the whole submission rather than silently
+  // creating an orphaned or wrongly-owned document.
+  for (let i = 0; i < files.length; i += 1) {
+    const ref = documentTravelerIndexes[i];
+    if (!ref) continue;
+    const index = Number(ref);
+    if (!Number.isInteger(index) || index < 0 || index >= travelers.length) {
+      return { error: "TRAVELER_NOT_FOUND" };
+    }
+  }
 
+  const baseData = {
+    name: data.name,
+    organizationId: req.customer?.organizationId || "org_nasaem_default",
+    phone: data.phone,
+    phoneNormalized: normalizePhone(data.phone),
+    email: data.email || null,
+    service: data.service || null,
+    serviceId: data.serviceId || null,
+    visaTypeId: data.visaTypeId || null,
+    travelerCount: data.travelerCount ?? null,
+    // Non-DOCUMENT requirement answers (TEXT/NUMBER/DATE/SELECT/YES_NO) ride
+    // alongside the existing free-text intakeData shape as their own key,
+    // rather than a new column — intakeData was always meant to hold
+    // whatever structured extras a submission carries (see its schema.prisma
+    // comment); a submission with neither keeps intakeData exactly as it
+    // was before this release.
+    intakeData:
+      data.intakeData || data.answers
+        ? { ...(data.intakeData || {}), ...(data.answers ? { answers: data.answers } : {}) }
+        : undefined,
+    requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
+    message: data.message,
+    customerId: req.customer?.id || null,
+  };
+
+  // Two code paths on purpose: when the submission doesn't use the new
+  // structured `travelers` field (every submission before this release, and
+  // still most of them — plain contact form, wizard builds not yet updated),
+  // this is byte-for-byte the original single create() call below. Only a
+  // submission that actually sends travelers needs the two-step transaction
+  // (travelers must exist before a document can reference one).
+  const contactRequest =
+    travelers.length === 0
+      ? await prisma.contactRequest.create({
+          data: {
+            ...baseData,
+            documents: files.length
+              ? {
+                  create: files.map((file, index) => ({
+                    label: documentLabels[index] || file.originalname,
+                    requirementId: documentRequirementIds[index] || null,
+                    ocrResult: ocrResults[index] ?? undefined,
+                    fileName: file.originalname,
+                    storagePath: path.join("contact-request-documents", file.filename),
+                    mimeType: file.mimetype,
+                    sizeBytes: file.size,
+                  })),
+                }
+              : undefined,
+          },
+        })
+      : await prisma.$transaction(async (tx) => {
+          const created = await tx.contactRequest.create({
+            data: {
+              ...baseData,
+              travelers: {
+                create: travelers.map((traveler, index) => ({
+                  fullName: traveler.fullName,
+                  passportNo: traveler.passportNo || null,
+                  nationality: traveler.nationality || null,
+                  birthDate: traveler.birthDate ? new Date(traveler.birthDate) : null,
+                  gender: traveler.gender || null,
+                  isPrimary: Boolean(traveler.isPrimary),
+                  sortOrder: index,
+                })),
+              },
+            },
+            include: { travelers: true },
+          });
+
+          if (files.length) {
+            await tx.contactRequestDocument.createMany({
+              data: files.map((file, index) => {
+                const ref = documentTravelerIndexes[index];
+                const travelerId = ref ? created.travelers[Number(ref)].id : null;
+                return {
+                  contactRequestId: created.id,
+                  label: documentLabels[index] || file.originalname,
+                  requirementId: documentRequirementIds[index] || null,
+                  travelerId,
+                  ocrResult: ocrResults[index] ?? undefined,
+                  fileName: file.originalname,
+                  storagePath: path.join("contact-request-documents", file.filename),
+                  mimeType: file.mimetype,
+                  sizeBytes: file.size,
+                };
+              }),
+            });
+          }
+
+          return created;
+        });
+
+  await announceNewContactRequest(contactRequest, { documentCount: files.length, req, customerId: req.customer?.id });
+
+  return contactRequest;
+}
+
+// Everything that must happen once a ContactRequest exists, regardless of
+// which path created it — the public form/wizard (createContactRequest
+// above) or a submitted server-side draft (Release B, see
+// intake-drafts.service.js). Extracted so a draft submission can never
+// silently skip the staff notification/audit trail a direct submission
+// gets.
+export async function announceNewContactRequest(contactRequest, { documentCount = 0, req = undefined, customerId = null } = {}) {
   logActivity({
     action: "CONTACT_REQUEST_RECEIVED",
     entity: "ContactRequest",
@@ -155,7 +251,7 @@ export async function createContactRequest(data, req, files = []) {
   });
 
   await createNotification({
-    customerId: req.customer?.id,
+    customerId: customerId || undefined,
     title: "تم استلام طلبك",
     message: `تم استلام طلب الخدمة رقم ${contactRequest.id} وسيتم التواصل معك عند وجود تحديث.`,
     type: "CONTACT_REQUEST_RECEIVED",
@@ -166,7 +262,7 @@ export async function createContactRequest(data, req, files = []) {
     title: "طلب تواصل جديد من الموقع",
     message:
       `${contactRequest.name} (${contactRequest.phone}) — ${contactRequest.message.slice(0, 120)}` +
-      (files.length ? ` — مع ${files.length} مستند(ات) مرفق(ة)` : ""),
+      (documentCount ? ` — مع ${documentCount} مستند(ات) مرفق(ة)` : ""),
     type: "CONTACT_REQUEST",
   });
 
@@ -177,12 +273,89 @@ export async function createContactRequest(data, req, files = []) {
     process.env.WHATSAPP_ADMIN_NUMBER,
     `طلب تواصل جديد من الموقع\nالاسم: ${contactRequest.name}\nالهاتف: ${contactRequest.phone}\nالرسالة: ${contactRequest.message.slice(0, 200)}`
   );
-
-  return contactRequest;
 }
 
-export async function listContactRequests({ page, limit, skip, status, organizationId }) {
-  const where = { organizationId, ...(status ? { status } : {}) };
+// Smart Case Operations — Release C groundwork (readiness engine). Purely
+// computed from data that already exists — requirementsSnapshot (the
+// point-in-time checklist captured at submission), the request's own
+// documents, and paymentStatus — never stored, so it can never go stale
+// and needs no migration. Deterministic business rules only, no AI.
+//
+// requirementsSnapshot rows captured before Release A have no `type` field
+// at all — treated as "DOCUMENT" (matches VisaRequirement.type's own
+// default, i.e. exactly what every requirement meant before that field
+// existed).
+export function computeReadiness(contactRequest) {
+  const answers = contactRequest.intakeData?.answers || {};
+  const applicableRequired = (contactRequest.requirementsSnapshot || []).filter(
+    (r) => r.required && requirementApplies(r, answers)
+  );
+
+  const currentDocuments = contactRequest.documents.filter((d) => !d.supersededAt);
+
+  const missingDocumentRequirement = applicableRequired
+    .filter((r) => !r.type || r.type === "DOCUMENT")
+    .find((r) => !currentDocuments.some((d) => d.requirementId === r.id && d.status === "ACCEPTED"));
+
+  const missingAnswer = applicableRequired
+    .filter((r) => r.type && r.type !== "DOCUMENT")
+    .find((r) => answers[r.id] === undefined || answers[r.id] === "" || answers[r.id] === null);
+
+  const documentsUnderReview = currentDocuments.some((d) => d.status === "PENDING");
+  const documentsRejected = currentDocuments.some((d) => d.status === "REJECTED");
+  const paymentReady = contactRequest.paymentStatus === "CONFIRMED" || contactRequest.paymentStatus === "NOT_REQUIRED";
+
+  const documentsComplete = !missingDocumentRequirement;
+  const answersComplete = !missingAnswer;
+  const ready = documentsComplete && answersComplete && paymentReady && !documentsUnderReview;
+
+  // Staff-facing work-queue bucket — precedence roughly mirrors
+  // contact-request-tracking.status.js's deriveTrackingStatusLabel (most
+  // actionable/blocking state wins), just for the internal, not
+  // customer-facing, view.
+  // Release F: a case already sent to a provider is waiting on them, not
+  // on us — that outranks "ready to process", which it no longer is.
+  const awaitingProvider = (contactRequest.providerSubmissions || []).some((s) => s.status !== "FAILED");
+  // Release E: results are in once the customer has something to collect.
+  const hasDeliverable = (contactRequest.deliverables || []).length > 0;
+
+  let queue = "READY_FOR_PROCESSING";
+  if (contactRequest.status === "CLOSED") queue = "COMPLETED";
+  else if (hasDeliverable) queue = "RESULTS_READY";
+  else if (documentsRejected) queue = "WAITING_CUSTOMER";
+  else if (documentsUnderReview) queue = "NEEDS_REVIEW";
+  else if (!documentsComplete || !answersComplete) queue = "MISSING_DOCUMENTS";
+  else if (!paymentReady) queue = "WAITING_PAYMENT";
+  else if (awaitingProvider) queue = "WAITING_PROVIDER";
+
+  return {
+    documentsComplete,
+    answersComplete,
+    paymentReady,
+    documentsUnderReview,
+    awaitingProvider,
+    overall: ready ? "READY_FOR_PROCESSING" : "NOT_READY",
+    queue,
+    // Release E (SLA). Null whenever the case carries no recorded
+    // expectation — never an invented deadline.
+    sla: deriveSlaState(contactRequest.dueAt),
+  };
+}
+
+// Smart Case Operations — Release C groundwork. `assignedUserId` accepts a
+// real user id (exact match), or the sentinel "unassigned" for the "New" /
+// unowned work-queue view — kept as one filter param rather than a second
+// boolean flag, mirroring how `status` already works here.
+export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId }) {
+  const where = {
+    organizationId,
+    ...(status ? { status } : {}),
+    ...(assignedUserId === "unassigned"
+      ? { assignedUserId: null }
+      : assignedUserId
+        ? { assignedUserId }
+        : {}),
+  };
 
   const [data, total] = await Promise.all([
     prisma.contactRequest.findMany({
@@ -195,16 +368,161 @@ export async function listContactRequests({ page, limit, skip, status, organizat
         documents: { orderBy: { createdAt: "desc" } },
         offers: { orderBy: { createdAt: "desc" } },
         deliverables: { orderBy: { createdAt: "desc" } },
+        // Smart Case Operations — Release A. Empty array for every request
+        // predating this release (or any submission that doesn't use the
+        // structured traveler form) — same shape staff already handle for
+        // documents/offers/deliverables.
+        travelers: { orderBy: { sortOrder: "asc" } },
         // Selected fields only — staff need the human-readable name/category
         // for a Service Intake submission, not the full catalog row.
         serviceRef: { select: { id: true, name: true, category: true } },
         visaType: { select: { id: true, name: true, country: true } },
+        // Smart Case Operations — Release C groundwork.
+        assignedUser: { select: safeUserSelect },
+        // Release F/E: needed by computeReadiness's WAITING_PROVIDER bucket
+        // and by the case workspace's Provider/Activity sections. Selected
+        // fields only — the full submission detail has its own endpoint.
+        providerSubmissions: {
+          orderBy: { createdAt: "desc" },
+          select: { id: true, status: true, channel: true, submittedAt: true, externalReference: true, supplierId: true },
+        },
+        tasks: {
+          where: { status: "OPEN" },
+          orderBy: { createdAt: "asc" },
+          select: { id: true, type: true, title: true, status: true, dueAt: true, assignedUserId: true },
+        },
       },
     }),
     prisma.contactRequest.count({ where }),
   ]);
 
-  return { data, meta: buildPaginationMeta(page, limit, total) };
+  return {
+    data: data.map((contactRequest) => ({ ...contactRequest, readiness: computeReadiness(contactRequest) })),
+    meta: buildPaginationMeta(page, limit, total),
+  };
+}
+
+// Smart Case Operations — Release E. Recomputes a single case's readiness
+// and brings its open system tasks in line with it. Called from the events
+// that can change readiness (a document review decision, a payment
+// confirmation) so a queue never shows work that's already done, or misses
+// work that just appeared. Best-effort by design: a task-sync failure must
+// never fail the staff action that triggered it.
+export async function refreshCaseTasks(contactRequestId) {
+  try {
+    const contactRequest = await prisma.contactRequest.findUnique({
+      where: { id: contactRequestId },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+        dueAt: true,
+        assignedUserId: true,
+        requirementsSnapshot: true,
+        intakeData: true,
+        documents: { where: { supersededAt: null }, select: { requirementId: true, status: true, supersededAt: true } },
+        deliverables: { select: { id: true } },
+        providerSubmissions: { select: { status: true } },
+      },
+    });
+    if (!contactRequest) return;
+
+    await syncCaseTasks(contactRequestId, computeReadiness(contactRequest), {
+      assignedUserId: contactRequest.assignedUserId,
+    });
+  } catch {
+    // Intentionally swallowed — see this function's comment.
+  }
+}
+
+// Smart Case Operations — Release G (management operations metrics). Counts
+// of open work per queue bucket, for the operations dashboard. Computed off
+// the same computeReadiness() every case list already uses, so the numbers a
+// manager sees can never disagree with the queues employees actually work.
+//
+// Deliberately bounded: it reads the open (non-CLOSED) cases for the
+// organization with only the fields readiness needs — not every column, not
+// every closed case in history — and counts them in memory. Closed/completed
+// totals come from a plain indexed count rather than being materialized.
+export async function getOperationsQueueSummary(organizationId) {
+  const [openCases, completedCount] = await Promise.all([
+    prisma.contactRequest.findMany({
+      where: { organizationId, status: { not: "CLOSED" } },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+        dueAt: true,
+        requirementsSnapshot: true,
+        intakeData: true,
+        assignedUserId: true,
+        documents: { where: { supersededAt: null }, select: { requirementId: true, status: true, supersededAt: true } },
+        deliverables: { select: { id: true } },
+        providerSubmissions: { select: { status: true } },
+      },
+    }),
+    prisma.contactRequest.count({ where: { organizationId, status: "CLOSED" } }),
+  ]);
+
+  const queues = {
+    MISSING_DOCUMENTS: 0,
+    NEEDS_REVIEW: 0,
+    WAITING_CUSTOMER: 0,
+    WAITING_PAYMENT: 0,
+    READY_FOR_PROCESSING: 0,
+    WAITING_PROVIDER: 0,
+    RESULTS_READY: 0,
+  };
+  let overdue = 0;
+  let unassigned = 0;
+
+  for (const contactRequest of openCases) {
+    const readiness = computeReadiness(contactRequest);
+    if (queues[readiness.queue] !== undefined) queues[readiness.queue] += 1;
+    if (readiness.sla === "OVERDUE") overdue += 1;
+    if (!contactRequest.assignedUserId) unassigned += 1;
+  }
+
+  return {
+    queues,
+    open: openCases.length,
+    unassigned,
+    overdue,
+    completed: completedCount,
+  };
+}
+
+// Smart Case Operations — Release C groundwork (employee assignment).
+// assignedUserId null clears the assignment (unassigns). The target user,
+// when set, must be real, active staff in this same organization — never
+// trusted as an opaque id, same posture as every other cross-entity
+// reference in this module.
+export async function assignContactRequest(id, assignedUserId, actingUserId, organizationId) {
+  const contactRequest = await prisma.contactRequest.findFirst({ where: { id, organizationId } });
+  if (!contactRequest) return { error: "NOT_FOUND" };
+
+  if (assignedUserId) {
+    const assignee = await prisma.user.findFirst({
+      where: { id: assignedUserId, organizationId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (!assignee) return { error: "ASSIGNEE_NOT_FOUND" };
+  }
+
+  const updated = await prisma.contactRequest.update({
+    where: { id },
+    data: { assignedUserId: assignedUserId || null },
+    include: { assignedUser: { select: safeUserSelect } },
+  });
+
+  logActivity({
+    userId: actingUserId,
+    action: assignedUserId ? "CONTACT_REQUEST_ASSIGNED" : "CONTACT_REQUEST_UNASSIGNED",
+    entity: "ContactRequest",
+    entityId: id,
+  });
+
+  return { contactRequest: updated };
 }
 
 // outcome/outcomeNote/closedAt only mean anything while the request is
@@ -454,6 +772,10 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
     entity: "ContactRequest",
     entityId: contactRequestId,
   });
+
+  // Release E: payment confirmation closes "check payment" and can open
+  // "process application".
+  await refreshCaseTasks(contactRequestId);
 
   // Not awaited: same rationale as elsewhere in this module.
   sendWhatsAppMessage(

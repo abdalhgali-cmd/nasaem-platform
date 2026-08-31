@@ -22,6 +22,10 @@ export async function createSupplier(data) {
       email: data.email || null,
       notes: data.notes || null,
       active: typeof data.active === "boolean" ? data.active : true,
+      submissionChannel: data.submissionChannel || null,
+      submissionEmail: data.submissionEmail || null,
+      portalUrl: data.portalUrl || null,
+      expectedProcessingDays: data.expectedProcessingDays ?? null,
     },
   });
 }

@@ -2,7 +2,6 @@
 
 import * as React from "react";
 
-/* eslint-disable react-hooks/set-state-in-effect -- checklist state synchronizes with the selected API-backed service. */
 import Link from "next/link";
 import {
   Check,
@@ -57,7 +56,10 @@ type Traveler = {
 // GET /api/visa-types/:id/requirements/public and
 // GET /api/services/:id/requirements/public) — admin-configured per visa
 // type or service, replacing what used to be a static, hand-maintained
-// document list here.
+// document list here. type/scope/options/condition* are Smart Case
+// Operations Release A (see backend/prisma/schema.prisma's VisaRequirement
+// comment) — every requirement predating that release has type "DOCUMENT",
+// so filtering on it below changes nothing for existing checklists.
 type PublicRequirement = {
   id: string;
   name: string;
@@ -69,12 +71,41 @@ type PublicRequirement = {
   allowedMimeTypes: string[];
   maxSizeBytes: number | null;
   ocrEnabled: boolean;
+  type: "TEXT" | "NUMBER" | "DATE" | "SELECT" | "YES_NO" | "DOCUMENT";
+  scope: "CUSTOMER" | "TRAVELER" | "CASE";
+  options: { value: string; label: string }[] | null;
+  conditionRequirementId: string | null;
+  conditionOperator: "EQUALS" | "NOT_EQUALS" | "GREATER_THAN" | "LESS_THAN" | null;
+  conditionValue: string | null;
 };
 
 type DocumentSlot = {
   requirement: PublicRequirement;
   files: File[];
 };
+
+// Mirrors backend/src/modules/requirements/requirements.service.js's
+// requirementApplies() exactly — kept as a small standalone pure function
+// here (not imported; the web app doesn't share a package with the
+// backend) purely for live show/hide responsiveness as the customer
+// answers. The server re-validates independently and is the actual
+// authority — this is UX only.
+function requirementApplies(requirement: PublicRequirement, answers: Record<string, string>): boolean {
+  if (!requirement.conditionRequirementId || !requirement.conditionOperator) return true;
+
+  const actual = answers[requirement.conditionRequirementId];
+  const expected = requirement.conditionValue;
+
+  if (requirement.conditionOperator === "EQUALS") return String(actual ?? "") === String(expected ?? "");
+  if (requirement.conditionOperator === "NOT_EQUALS") return String(actual ?? "") !== String(expected ?? "");
+
+  const actualNumber = Number(actual);
+  const expectedNumber = Number(expected);
+  if (Number.isNaN(actualNumber) || Number.isNaN(expectedNumber)) return false;
+  if (requirement.conditionOperator === "GREATER_THAN") return actualNumber > expectedNumber;
+  if (requirement.conditionOperator === "LESS_THAN") return actualNumber < expectedNumber;
+  return true;
+}
 
 // Same MIME allowlist the backend's upload middleware enforces for every
 // contact-request document (backend/src/middleware/upload.middleware.js) —
@@ -225,6 +256,11 @@ export function ServiceIntakeWizard({
   const [documentErrorsByRequirement, setDocumentErrorsByRequirement] = React.useState<
     Record<string, string>
   >({});
+  // Smart Case Operations — Release A. Answers to non-DOCUMENT requirement
+  // types (TEXT/NUMBER/DATE/SELECT/YES_NO), keyed by requirement id — sent
+  // to the backend as-is (see handleSubmit) and also used locally to
+  // evaluate requirementApplies() for conditional requirements.
+  const [answers, setAnswers] = React.useState<Record<string, string>>({});
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState("");
@@ -258,7 +294,40 @@ export function ServiceIntakeWizard({
     travelerCount: number;
     travelers: Traveler[];
     notes: string;
+    // Smart Case Operations — Release A/B. Answer-type requirements are
+    // part of what the customer has filled in, so a resumed draft that
+    // dropped them would silently lose work.
+    answers?: Record<string, string>;
   };
+
+  // Smart Case Operations — Release B (server-side drafts). localStorage
+  // above keeps the wizard resilient with no network at all; this mirrors
+  // the same state to the server so a customer can resume on another
+  // device, or after clearing this browser. The two are complementary, and
+  // a server failure never blocks the wizard — the local draft still works.
+  //
+  // The token is the draft's only authorization (see intake-drafts.routes.js),
+  // so it is held exactly where the local draft is and never put in a URL.
+  const serverDraftKey = `${draftKey}:token`;
+  const serverDraftTokenRef = React.useRef<string | null>(null);
+  const [autosaveState, setAutosaveState] = React.useState<"idle" | "saving" | "saved" | "offline">("idle");
+
+  // Mirrors DRAFT_PUBLIC_SELECT (intake-drafts.service.js). Every field is
+  // optional because a draft is saved partially by design, from whatever
+  // step the customer reached.
+  type ServerDraft = {
+    serviceId?: string | null;
+    visaTypeId?: string | null;
+    step?: number | null;
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    travelerCount?: number | null;
+    notes?: string | null;
+    answers?: Record<string, string> | null;
+    travelers?: Traveler[] | null;
+  };
+  const [serverDraft, setServerDraft] = React.useState<ServerDraft | null>(null);
 
   function readDraft(): DraftShape | null {
     if (typeof window === "undefined") return null;
@@ -296,6 +365,7 @@ export function ServiceIntakeWizard({
       travelerCount,
       travelers,
       notes,
+      answers,
     };
     // A completely untouched form has nothing worth saving yet.
     const isEmpty =
@@ -308,10 +378,149 @@ export function ServiceIntakeWizard({
       // Storage can legitimately be unavailable (private browsing, quota) —
       // the wizard must keep working without persistence either way.
     }
-  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, result]);
+  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, answers, result]);
+
+  // Mirrors the local draft to the server, debounced so typing doesn't
+  // produce a request per keystroke. Every failure path here is silent by
+  // design: server-side resume is an enhancement, and a customer must never
+  // be shown a network error for something they didn't ask for.
+  React.useEffect(() => {
+    if (result || typeof window === "undefined") return;
+
+    const isEmpty =
+      !name && !phone && !email && !notes && !selectedServiceId && !selectedVisaTypeId &&
+      travelers.every((t) => !t.fullName && !t.passportNo && !t.nationality);
+    if (isEmpty) return;
+
+    const timer = window.setTimeout(async () => {
+      setAutosaveState("saving");
+      try {
+        if (!serverDraftTokenRef.current) {
+          const existing = window.localStorage.getItem(serverDraftKey);
+          if (existing) serverDraftTokenRef.current = existing;
+        }
+
+        if (!serverDraftTokenRef.current) {
+          const createRes = await fetch(`${API_URL}/intake-drafts`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              serviceKind: service,
+              serviceId: selectedServiceId || undefined,
+              visaTypeId: selectedVisaTypeId || undefined,
+            }),
+          });
+          if (!createRes.ok) throw new Error("draft create failed");
+          const payload = await createRes.json();
+          const token = payload?.data?.token;
+          if (!token) throw new Error("draft create returned no token");
+          serverDraftTokenRef.current = token;
+          try {
+            window.localStorage.setItem(serverDraftKey, token);
+          } catch {
+            // Same tolerance as the local draft: storage may be unavailable.
+          }
+        }
+
+        const patchRes = await fetch(`${API_URL}/intake-drafts/${serverDraftTokenRef.current}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            step,
+            serviceKind: service,
+            serviceId: selectedServiceId || undefined,
+            visaTypeId: selectedVisaTypeId || undefined,
+            name,
+            phone,
+            email,
+            travelerCount,
+            notes,
+            answers,
+            travelers,
+          }),
+        });
+        if (!patchRes.ok) {
+          // A draft that expired or was already submitted must not be
+          // retried forever — drop the token and let the next save start a
+          // fresh one.
+          if (patchRes.status === 404 || patchRes.status === 409) {
+            serverDraftTokenRef.current = null;
+            try {
+              window.localStorage.removeItem(serverDraftKey);
+            } catch {
+              // ignore
+            }
+          }
+          throw new Error("draft save failed");
+        }
+        setAutosaveState("saved");
+      } catch {
+        setAutosaveState("offline");
+      }
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+    // Deliberately keyed on the same values as the local autosave above, so
+    // the two persist exactly the same snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, answers, result]);
+
+  // Resume from the server when this browser has no local draft but does
+  // still hold a token (e.g. localStorage was partially cleared, or the
+  // customer returned after the local draft expired).
+  React.useEffect(() => {
+    if (typeof window === "undefined" || draftRestored || readDraft()) return;
+    let token: string | null = null;
+    try {
+      token = window.localStorage.getItem(serverDraftKey);
+    } catch {
+      return;
+    }
+    if (!token) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/intake-drafts/${token}`);
+        if (!res.ok) return;
+        const payload = await res.json();
+        const draft = payload?.data;
+        if (!draft || cancelled) return;
+        serverDraftTokenRef.current = token;
+        // Surface it the same way a local draft is surfaced — the customer
+        // chooses to resume; nothing is silently repopulated underneath them.
+        setServerDraft(draft);
+        setDraftAvailable(true);
+      } catch {
+        // Offline resume simply isn't offered.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverDraftKey]);
 
   function resumeDraft() {
-    const draft = readDraft();
+    const local = readDraft();
+    // The server draft is only ever used when this browser has no local one
+    // (see the effect above), so local wins whenever both exist — it is the
+    // more recent of the two by construction.
+    const draft: DraftShape | null = local ?? (serverDraft
+      ? {
+          step: serverDraft.step ?? 0,
+          selectedServiceId: serverDraft.serviceId ?? "",
+          selectedVisaTypeId: serverDraft.visaTypeId ?? "",
+          name: serverDraft.name ?? "",
+          phone: serverDraft.phone ?? "",
+          email: serverDraft.email ?? "",
+          travelerCount: serverDraft.travelerCount ?? 1,
+          travelers: serverDraft.travelers ?? [],
+          notes: serverDraft.notes ?? "",
+          answers: serverDraft.answers ?? {},
+        }
+      : null);
     if (!draft) return;
     setSelectedServiceId(draft.selectedServiceId || "");
     setSelectedVisaTypeId(draft.selectedVisaTypeId || "");
@@ -321,6 +530,7 @@ export function ServiceIntakeWizard({
     setTravelerCount(draft.travelerCount || 1);
     setTravelers(draft.travelers?.length ? draft.travelers : [{ fullName: "", passportNo: "", nationality: "" }]);
     setNotes(draft.notes || "");
+    setAnswers(draft.answers || {});
     setStep(Math.max(0, draft.step || 0));
     setDraftAvailable(false);
     setDraftRestored(true);
@@ -329,9 +539,16 @@ export function ServiceIntakeWizard({
   function discardDraft() {
     try {
       window.localStorage.removeItem(draftKey);
+      // Release B — drop the server draft's token too, or the next autosave
+      // would resurrect the very draft the customer just discarded. The
+      // row itself is left to expire on its own schedule rather than
+      // deleted from a public endpoint.
+      window.localStorage.removeItem(serverDraftKey);
     } catch {
       // ignore
     }
+    serverDraftTokenRef.current = null;
+    setServerDraft(null);
     setDraftAvailable(false);
   }
 
@@ -452,10 +669,20 @@ export function ServiceIntakeWizard({
     };
   }, [requirementsEndpoint]);
 
-  const documentSlots: DocumentSlot[] = requirements.map((requirement) => ({
-    requirement,
-    files: documentFilesByRequirement[requirement.id] ?? [],
-  }));
+  // Smart Case Operations — Release A. Only DOCUMENT-type, currently-
+  // applicable requirements become an upload slot; TEXT/NUMBER/DATE/SELECT/
+  // YES_NO requirements become an answerSlot instead (rendered further
+  // below). Every requirement predating this release is type "DOCUMENT"
+  // with no condition, so this is exactly documentSlots' old behavior for
+  // every existing checklist.
+  const applicableRequirements = requirements.filter((r) => requirementApplies(r, answers));
+  const documentSlots: DocumentSlot[] = applicableRequirements
+    .filter((r) => r.type === "DOCUMENT")
+    .map((requirement) => ({
+      requirement,
+      files: documentFilesByRequirement[requirement.id] ?? [],
+    }));
+  const answerSlots: PublicRequirement[] = applicableRequirements.filter((r) => r.type !== "DOCUMENT");
 
   const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
 
@@ -507,6 +734,72 @@ export function ServiceIntakeWizard({
       while (next.length < clamped) next.push({ fullName: "", passportNo: "", nationality: "" });
       return next.slice(0, clamped);
     });
+  }
+
+  // Smart Case Operations — Release B (passport-first). The customer
+  // photographs the passport once and the MRZ fills the traveler's fields,
+  // instead of typing what the document already says. Two rules make this
+  // safe to offer:
+  //
+  //  1. It only ever *prefills*. Every field stays editable and nothing is
+  //     submitted until the customer confirms — the confirmed value is the
+  //     one they stand behind, and staff see any disagreement with OCR as a
+  //     warning rather than the platform silently picking a side.
+  //  2. It needs a server draft, because OCR runs on the server against the
+  //     stored file. When there is no draft yet (autosave hasn't run, or
+  //     the server is unreachable) the control simply isn't offered — the
+  //     customer types as before rather than being shown a broken button.
+  const [scanningTraveler, setScanningTraveler] = React.useState<number | null>(null);
+  const [scanMessageByTraveler, setScanMessageByTraveler] = React.useState<Record<number, string>>({});
+
+  async function scanPassport(index: number, file: File) {
+    const token = serverDraftTokenRef.current;
+    if (!token) return;
+
+    setScanningTraveler(index);
+    setScanMessageByTraveler((current) => ({ ...current, [index]: "" }));
+
+    try {
+      const body = new FormData();
+      body.append("label", "جواز السفر");
+      body.append("travelerIndex", String(index));
+      body.append("file", file);
+
+      const res = await fetch(`${API_URL}/intake-drafts/${token}/documents`, { method: "POST", body });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.message || "تعذّرت قراءة الجواز");
+
+      const ocr = payload?.data?.ocrResult;
+      if (!ocr?.documentNumber) {
+        // OCR is strict by design (checksum-valid MRZ only), so "couldn't
+        // read it" is a normal outcome, not an error the customer caused.
+        setScanMessageByTraveler((current) => ({
+          ...current,
+          [index]: "تم حفظ الصورة، لكن تعذّرت قراءة بيانات الجواز تلقائيًا. يمكنك إدخالها يدويًا.",
+        }));
+        return;
+      }
+
+      const fullName = [ocr.givenNames, ocr.surname].filter(Boolean).join(" ").trim();
+      updateTraveler(index, {
+        // Never overwrite something the customer already typed — a scan is
+        // an offer to save them work, not a correction of their own input.
+        ...(fullName && !travelers[index]?.fullName ? { fullName } : {}),
+        ...(ocr.documentNumber && !travelers[index]?.passportNo ? { passportNo: ocr.documentNumber } : {}),
+        ...(ocr.nationality && !travelers[index]?.nationality ? { nationality: ocr.nationality } : {}),
+      });
+      setScanMessageByTraveler((current) => ({
+        ...current,
+        [index]: "تمت قراءة بيانات الجواز — يرجى مراجعتها وتصحيح أي خطأ قبل المتابعة.",
+      }));
+    } catch (err) {
+      setScanMessageByTraveler((current) => ({
+        ...current,
+        [index]: err instanceof Error ? err.message : "تعذّرت قراءة الجواز",
+      }));
+    } finally {
+      setScanningTraveler(null);
+    }
   }
 
   function updateTraveler(index: number, patch: Partial<Traveler>) {
@@ -578,6 +871,20 @@ export function ServiceIntakeWizard({
           notes: notes.trim() || undefined,
         })
       );
+      // Smart Case Operations — Release A. Same traveler data, also sent
+      // through the structured field (createContactRequestSchema's
+      // `travelers`) so the backend creates real Traveler rows — additive:
+      // intakeData.travelers above is unchanged, existing readers of it
+      // keep working exactly as before.
+      if (filledTravelers.length > 0) {
+        formData.append(
+          "travelers",
+          JSON.stringify(filledTravelers.map((t) => ({ fullName: t.fullName, passportNo: t.passportNo || undefined, nationality: t.nationality || undefined })))
+        );
+      }
+      if (Object.keys(answers).length > 0) {
+        formData.append("answers", JSON.stringify(answers));
+      }
 
       // Parallel arrays, same order as the `documents` files — the
       // requirement id lets the backend apply that requirement's own
@@ -708,7 +1015,7 @@ export function ServiceIntakeWizard({
           تمت استعادة بياناتك المحفوظة. يرجى إعادة اختيار أي مستندات مرفقة سابقًا، فهي لا تُحفظ تلقائيًا.
         </div>
       ) : null}
-      <div className="mb-8 flex items-center gap-2" dir="ltr">
+      <div className="mb-2 flex items-center gap-2" dir="ltr">
         {steps.map((s, index) => (
           <div
             key={s}
@@ -716,6 +1023,15 @@ export function ServiceIntakeWizard({
           />
         ))}
       </div>
+      {/* Release B — autosave is worth showing only once it has actually
+          happened. "idle" renders nothing rather than promising a save the
+          customer hasn't got yet, and a failed save says so plainly
+          instead of silently implying their work is safe. */}
+      <p className="mb-6 h-4 text-xs text-muted-foreground" aria-live="polite">
+        {autosaveState === "saving" ? "جارٍ الحفظ…" : null}
+        {autosaveState === "saved" ? "تم حفظ تقدمك تلقائيًا، يمكنك المتابعة لاحقًا." : null}
+        {autosaveState === "offline" ? "تعذّر الحفظ على الخادم — تقدمك محفوظ في هذا المتصفح فقط." : null}
+      </p>
 
       {current === "select" ? (
         <StepShell
@@ -846,6 +1162,27 @@ export function ServiceIntakeWizard({
                     placeholder="الجنسية (اختياري)"
                     className={`${inputClass} h-10 text-xs`}
                   />
+                  {serverDraftTokenRef.current ? (
+                    <div className="sm:col-span-3">
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
+                        {scanningTraveler === index ? "جارٍ قراءة الجواز…" : "تعبئة البيانات من صورة الجواز"}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          disabled={scanningTraveler !== null}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = "";
+                            if (file) void scanPassport(index, file);
+                          }}
+                        />
+                      </label>
+                      {scanMessageByTraveler[index] ? (
+                        <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -874,6 +1211,65 @@ export function ServiceIntakeWizard({
           description="يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."
         >
           <div className="flex flex-col gap-3">
+            {!loadingRequirements && answerSlots.length > 0 ? (
+              <div className="flex flex-col gap-3 rounded-xl border border-border/70 p-3">
+                {answerSlots.map((requirement) => (
+                  <div key={requirement.id} className="flex flex-col gap-1.5">
+                    <label className="text-sm font-semibold text-foreground" htmlFor={`answer-${requirement.id}`}>
+                      {requirement.name}
+                      {requirement.required ? (
+                        <span className="ms-1 text-xs font-bold text-destructive">*</span>
+                      ) : (
+                        <span className="ms-1 text-xs font-normal text-muted-foreground">(اختياري)</span>
+                      )}
+                    </label>
+                    {requirement.description ? (
+                      <p className="text-xs text-muted-foreground">{requirement.description}</p>
+                    ) : null}
+                    {requirement.type === "SELECT" ? (
+                      <select
+                        id={`answer-${requirement.id}`}
+                        value={answers[requirement.id] ?? ""}
+                        onChange={(e) => setAnswers((prev) => ({ ...prev, [requirement.id]: e.target.value }))}
+                        className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary"
+                      >
+                        <option value="">اختر...</option>
+                        {(requirement.options ?? []).map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : requirement.type === "YES_NO" ? (
+                      <div className="flex gap-2">
+                        {(["YES", "NO"] as const).map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setAnswers((prev) => ({ ...prev, [requirement.id]: value }))}
+                            className={`min-h-10 flex-1 rounded-xl border px-4 text-sm font-semibold transition ${
+                              answers[requirement.id] === value
+                                ? "border-primary bg-primary/10 text-primary dark:text-secondary"
+                                : "border-border text-muted-foreground"
+                            }`}
+                          >
+                            {value === "YES" ? "نعم" : "لا"}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <input
+                        id={`answer-${requirement.id}`}
+                        type={requirement.type === "NUMBER" ? "number" : requirement.type === "DATE" ? "date" : "text"}
+                        value={answers[requirement.id] ?? ""}
+                        onChange={(e) => setAnswers((prev) => ({ ...prev, [requirement.id]: e.target.value }))}
+                        className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {loadingRequirements ? (
               <div className="flex justify-center py-6">
                 <Loader2 className="size-6 animate-spin text-primary" />

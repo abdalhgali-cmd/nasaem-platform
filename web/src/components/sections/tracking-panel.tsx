@@ -40,6 +40,47 @@ type TrackedDeliverable = {
   label: string;
 };
 
+// Smart Case Operations — Release D (Customer Portal 2.0). Derived
+// server-side from the request's own requirements snapshot and documents
+// (see customer-checklist.js) so the portal and staff never disagree about
+// what is outstanding. Both fields are absent on requests that carry no
+// checklist at all (plain contact-form submissions), which every read
+// below tolerates.
+type ChecklistState = "MISSING" | "UNDER_REVIEW" | "REJECTED" | "ACCEPTED" | "ANSWERED";
+
+type ChecklistItem = {
+  requirementId: string;
+  label: string;
+  description: string | null;
+  kind: "DOCUMENT" | "ANSWER";
+  required: boolean;
+  state: ChecklistState;
+  documentId?: string | null;
+  reviewNote?: string | null;
+  travelerId?: string | null;
+  travelerName?: string | null;
+  answer?: string | null;
+};
+
+type NextAction = {
+  code: string;
+  requirementId?: string;
+  label: string;
+  reason: string | null;
+};
+
+// Release G — a document this customer already had accepted on an earlier
+// request, offered so they aren't asked to photograph the same passport
+// twice. The number is masked server-side; the file is never auto-attached.
+type ReusableDocument = {
+  id: string;
+  label: string;
+  fileName: string;
+  travelerName: string | null;
+  passportHint: string | null;
+  expiresAt: string | null;
+};
+
 type ClosedOutcome = "COMPLETED" | "REJECTED" | "CANCELLED";
 
 // Phase 1.5 — Service Intake context (Umrah/Visas/Packages). Only the
@@ -87,6 +128,8 @@ type TrackedRequest = {
   selectedOfferId: string | null;
   paymentStatus: PaymentStatus;
   documents: TrackedDocument[];
+  checklist?: ChecklistItem[];
+  nextActions?: NextAction[];
   deliverables: TrackedDeliverable[];
   outcome: ClosedOutcome | null;
   outcomeNote: string | null;
@@ -441,6 +484,111 @@ function RequestTransferAction({
   );
 }
 
+const CHECKLIST_BADGE_CLASS: Record<ChecklistState, string> = {
+  MISSING: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  UNDER_REVIEW: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  REJECTED: "bg-red-500/10 text-red-600 dark:text-red-400",
+  ACCEPTED: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  ANSWERED: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+};
+
+const CHECKLIST_STATE_LABEL: Record<ChecklistState, string> = {
+  MISSING: "مطلوب",
+  UNDER_REVIEW: "قيد المراجعة",
+  REJECTED: "يحتاج إعادة رفع",
+  ACCEPTED: "مكتمل",
+  ANSWERED: "مكتمل",
+};
+
+// Smart Case Operations — Release D. The action-first block: only things
+// the customer can actually unblock, in the order the server ranked them.
+// Anything waiting on staff is deliberately not listed here — it shows up
+// in the checklist below as "قيد المراجعة" instead, so the customer is
+// never asked to do work that isn't theirs.
+function RequestActionPanel({ req }: { req: TrackedRequest }) {
+  const actions = req.nextActions ?? [];
+
+  // Requests that predate the checklist (and plain contact-form
+  // submissions) carry no actions at all — they keep the original
+  // single-line hint rather than rendering an empty box.
+  if (actions.length === 0) {
+    return (
+      <div className="mt-1 rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm text-foreground">
+        <span className="font-bold">الخطوة التالية</span>
+        <p className="mt-1 text-muted-foreground">{getRequestNextAction(req)}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm text-foreground">
+      <span className="font-bold">
+        {actions.length === 1 ? "الخطوة التالية" : `الخطوات المطلوبة منك (${actions.length})`}
+      </span>
+      <ul className="mt-2 flex flex-col gap-2">
+        {actions.map((action, index) => (
+          <li key={`${action.code}-${action.requirementId ?? index}`} className="flex items-start gap-2">
+            <CircleDot className="mt-0.5 size-4 shrink-0 text-accent" />
+            <div>
+              <p className="font-semibold text-foreground">{action.label}</p>
+              {action.reason ? (
+                <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{action.reason}</p>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// The full checklist for the request — including the rows that are already
+// done and the ones sitting with us. Shown so the customer can see the
+// whole picture, not just the outstanding slice in the action block.
+function RequestChecklistPanel({ req }: { req: TrackedRequest }) {
+  const checklist = req.checklist ?? [];
+  if (checklist.length === 0) return null;
+
+  const done = checklist.filter((item) => item.state === "ACCEPTED" || item.state === "ANSWERED").length;
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-foreground">قائمة المتطلبات</span>
+        <span className="text-xs text-muted-foreground">
+          {done} من {checklist.length} مكتمل
+        </span>
+      </div>
+      <ul className="mt-2 flex flex-col gap-2">
+        {checklist.map((item) => (
+          <li key={item.requirementId} className="rounded-lg border border-border/70 p-2 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold text-foreground">
+                {item.label}
+                {item.travelerName ? (
+                  <span className="font-normal text-muted-foreground"> — {item.travelerName}</span>
+                ) : null}
+                {!item.required ? (
+                  <span className="font-normal text-muted-foreground"> (اختياري)</span>
+                ) : null}
+              </span>
+              <span className={`rounded-full px-2 py-0.5 font-semibold ${CHECKLIST_BADGE_CLASS[item.state]}`}>
+                {CHECKLIST_STATE_LABEL[item.state]}
+              </span>
+            </div>
+            {item.description ? (
+              <p className="mt-1 text-muted-foreground">{item.description}</p>
+            ) : null}
+            {item.state === "REJECTED" && item.reviewNote ? (
+              <p className="mt-1 text-red-600 dark:text-red-400">{item.reviewNote}</p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function RequestDocumentsPanel({
   req,
   onActionComplete,
@@ -452,6 +600,41 @@ function RequestDocumentsPanel({
   const [file, setFile] = React.useState<File | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [uploadError, setUploadError] = React.useState("");
+  // Release D — which checklist row this upload answers. "" means the
+  // customer is uploading something outside the checklist and types their
+  // own label, exactly as before this release.
+  const [requirementId, setRequirementId] = React.useState("");
+  // Release G — the customer's own previously-accepted documents. Fetched
+  // lazily, and a failure is silent: reuse is a convenience, so it must
+  // never block the ordinary upload path below.
+  const [reusable, setReusable] = React.useState<ReusableDocument[]>([]);
+
+  // Only rows the customer still has to act on can be tagged; an already
+  // accepted requirement isn't offered, since re-uploading against it is
+  // not what they came here to do.
+  const outstanding = (req.checklist ?? []).filter(
+    (item) => item.kind === "DOCUMENT" && (item.state === "MISSING" || item.state === "REJECTED")
+  );
+
+  React.useEffect(() => {
+    if (outstanding.length === 0) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/tracking/reusable-documents`, { credentials: "include" });
+        if (!res.ok) return;
+        const payload = await res.json().catch(() => null);
+        if (!cancelled) setReusable(payload?.data ?? []);
+      } catch {
+        // Reuse is optional — staying quiet is the right failure here.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [outstanding.length]);
 
   async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -462,7 +645,9 @@ function RequestDocumentsPanel({
 
     try {
       const formData = new FormData();
-      formData.append("label", label);
+      const selected = outstanding.find((item) => item.requirementId === requirementId);
+      formData.append("label", selected ? selected.label : label);
+      if (requirementId) formData.append("requirementId", requirementId);
       formData.append("file", file);
 
       const res = await fetch(`${API_URL}/tracking/requests/${req.id}/documents`, {
@@ -478,6 +663,7 @@ function RequestDocumentsPanel({
 
       setLabel("");
       setFile(null);
+      setRequirementId("");
       e.currentTarget.reset();
       await onActionComplete();
     } catch (err) {
@@ -517,17 +703,57 @@ function RequestDocumentsPanel({
         <LegalDisclosure sensitive />
       </div>
 
+      {reusable.length > 0 ? (
+        <div className="mt-3 rounded-lg border border-border/70 bg-muted/30 p-3 text-xs">
+          <p className="font-semibold text-foreground">مستندات سبق قبولها لك</p>
+          <p className="mt-1 text-muted-foreground">
+            يمكنك ذكر أحدها لموظف خدمة العملاء بدل تصوير المستند من جديد.
+          </p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {reusable.map((doc) => (
+              <li key={doc.id} className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <span className="font-semibold text-foreground">{doc.label}</span>
+                {doc.travelerName ? <span>— {doc.travelerName}</span> : null}
+                {doc.passportHint ? <span dir="ltr">{doc.passportHint}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <form onSubmit={handleUpload} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1">
           <label className="text-xs font-semibold text-foreground">نوع المستند</label>
-          <input
-            type="text"
-            required
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="مثال: جواز السفر"
-            className="h-10 rounded-lg border border-border bg-card px-3 text-xs outline-none transition focus:border-primary"
-          />
+          {outstanding.length > 0 ? (
+            <select
+              value={requirementId}
+              onChange={(e) => setRequirementId(e.target.value)}
+              className="h-10 rounded-lg border border-border bg-card px-3 text-xs outline-none transition focus:border-primary"
+            >
+              <option value="">مستند آخر…</option>
+              {outstanding.map((item) => (
+                <option key={item.requirementId} value={item.requirementId}>
+                  {item.label}
+                  {item.state === "REJECTED" ? " (إعادة رفع)" : ""}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {/* Tagging the upload against a checklist row is what lets staff
+              see the requirement satisfied instead of an untitled file; a
+              customer with something outside the checklist can still name
+              it themselves. */}
+          {requirementId === "" ? (
+            <input
+              type="text"
+              required
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="مثال: جواز السفر"
+              className="h-10 rounded-lg border border-border bg-card px-3 text-xs outline-none transition focus:border-primary"
+            />
+          ) : null}
         </div>
         <div className="flex flex-1 flex-col gap-1">
           <label className="text-xs font-semibold text-foreground">الملف</label>
@@ -876,10 +1102,7 @@ export function TrackingPanel() {
                 </div>
                 <RequestReference requestId={req.id} />
                 <RequestTimeline req={req} />
-                <div className="mt-1 rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm text-foreground">
-                  <span className="font-bold">الخطوة التالية</span>
-                  <p className="mt-1 text-muted-foreground">{getRequestNextAction(req)}</p>
-                </div>
+                <RequestActionPanel req={req} />
                 <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
                 {req.status === "CLOSED" && req.outcomeNote ? (
                   <p className="mt-1 text-sm text-muted-foreground">{req.outcomeNote}</p>
@@ -889,6 +1112,7 @@ export function TrackingPanel() {
                 <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
                 <RequestOffersPanel req={req} onActionComplete={refreshRequests} />
                 <RequestTransferAction req={req} onActionComplete={refreshRequests} />
+                <RequestChecklistPanel req={req} />
                 <RequestDocumentsPanel req={req} onActionComplete={refreshRequests} />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground" dir="ltr">

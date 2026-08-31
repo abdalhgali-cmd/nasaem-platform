@@ -14,6 +14,8 @@ import {
   downloadDeliverableFile,
   downloadDocumentFile,
   getContactRequests,
+  getQueueSummary,
+  patchContactRequestAssignment,
   patchContactRequestStatus,
   previewPricing,
   reviewDocument,
@@ -24,6 +26,19 @@ import {
   storeOffer,
   storeOfferFromPricing,
 } from "./contact-requests.controller.js";
+import {
+  getProviderPackage,
+  getProviderSubmissions,
+  patchProviderSubmission,
+  storeProviderSubmission,
+} from "../provider-submissions/provider-submissions.controller.js";
+import { getCaseWarnings } from "../case-intelligence/case-intelligence.controller.js";
+import { getTimeline } from "../case-timeline/case-timeline.controller.js";
+import {
+  getCaseTasks,
+  patchCaseTaskComplete,
+  storeCaseTask,
+} from "../case-tasks/case-tasks.controller.js";
 
 const router = Router();
 
@@ -72,12 +87,72 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getContactRequests
 );
+// Smart Case Operations — Release G. Declared before "/:id/..." routes so
+// "queue-summary" is never captured as a contact-request id.
+router.get(
+  "/queue-summary",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  getQueueSummary
+);
+// Smart Case Operations — Release G (case intelligence: expiry, OCR
+// mismatch and duplicate warnings — advisory only, never a rejection).
+router.get(
+  "/:id/warnings",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getCaseWarnings
+);
+// Smart Case Operations — the case's own audit trail, readable by the
+// roles that work cases. The unfiltered log (with old/new values) stays
+// SUPER_ADMIN/ADMIN-only on /api/activity.
+router.get(
+  "/:id/timeline",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getTimeline
+);
+// Smart Case Operations — Release E (case tasks).
+router.get(
+  "/:id/tasks",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getCaseTasks
+);
+router.post(
+  "/:id/tasks",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  storeCaseTask
+);
+router.patch(
+  "/:id/tasks/:taskId/complete",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  patchCaseTaskComplete
+);
 router.patch(
   "/:id/status",
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   requireContactRequestOrganization,
   patchContactRequestStatus
+);
+// Smart Case Operations — Release C groundwork. Assignment is a manager
+// action (SUPER_ADMIN/ADMIN) — an EMPLOYEE can see and work their own
+// assigned cases (via GET /?assignedUserId=mine) but can't reassign work,
+// matching the spec's "Managers can assign/reassign" rule.
+router.patch(
+  "/:id/assign",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN"),
+  requireContactRequestOrganization,
+  patchContactRequestAssignment
 );
 router.post(
   "/:id/pricing-preview",
@@ -148,6 +223,38 @@ router.post(
   requireFeatureEnabled("DOCUMENTS"),
   handleDeliverableUpload,
   storeDeliverable
+);
+// Smart Case Operations — Release F (provider operations). Mounted on the
+// case itself rather than a separate provider app: sending a case out is
+// part of working that case. Restricted to the roles that already process
+// cases — CONTENT_MANAGER/ACCOUNTANT never hand work to an external party.
+router.get(
+  "/:id/provider-package",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getProviderPackage
+);
+router.get(
+  "/:id/provider-submissions",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getProviderSubmissions
+);
+router.post(
+  "/:id/provider-submissions",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  storeProviderSubmission
+);
+router.patch(
+  "/:id/provider-submissions/:submissionId",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  patchProviderSubmission
 );
 router.get(
   "/:id/deliverables/:deliverableId/file",

@@ -20,6 +20,7 @@ import activityRoutes from "../modules/activity/activity.routes.js";
 import notificationRoutes from "../modules/notifications/notifications.routes.js";
 import contactRequestRoutes from "../modules/contact-requests/contact-requests.routes.js";
 import contactRequestTrackingRoutes from "../modules/contact-request-tracking/contact-request-tracking.routes.js";
+import intakeDraftRoutes from "../modules/intake-drafts/intake-drafts.routes.js";
 import passportOcrRoutes from "../modules/passport-ocr/passport-ocr.routes.js";
 import siteAssetRoutes from "../modules/site-assets/site-assets.routes.js";
 import flightRoutes from "../modules/flights/flights.routes.js";
@@ -66,6 +67,9 @@ router.use("/activity-logs", activityRoutes);
 router.use("/notifications", notificationRoutes);
 router.use("/contact-requests", contactRequestRoutes);
 router.use("/tracking", contactRequestTrackingRoutes);
+// Smart Case Operations — Release B: server-side intake drafts (public,
+// authorized by the draft's own unguessable token — see the module's routes).
+router.use("/intake-drafts", intakeDraftRoutes);
 router.use("/payment-accounts", paymentAccountRoutes);
 router.use("/payment-accounts/public", paymentAccountPublicRoutes);
 router.use("/passport-ocr", passportOcrRoutes);

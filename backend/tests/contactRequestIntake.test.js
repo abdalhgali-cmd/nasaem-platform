@@ -51,18 +51,23 @@ describe("service intake — public catalog", () => {
     ]);
 
     const packages = res.body.data.services.filter((s) => s.category === "package");
-    assert.equal(packages.length, 6, "expected the 6 seeded package services (3 general + 3 Umrah)");
-    assert.deepEqual(
-      packages.map((pkg) => pkg.code).sort(),
-      [
-        "SVC-PKG-FAMILY",
-        "SVC-PKG-HONEYMOON",
-        "SVC-PKG-BUSINESS",
-        "SVC-UMRAH-VISA",
-        "SVC-UMRAH-SERVICES",
-        "SVC-UMRAH-GROUP",
-      ].sort()
-    );
+    // Subset, not exact-count: the test database is shared across test
+    // files that run in parallel, and services.test.js legitimately creates
+    // active `category: "package"` services of its own. Asserting a global
+    // count of 6 made this pass or fail on scheduling order alone. What
+    // this test is actually about is that the seeded catalog is published,
+    // so that is what it checks.
+    const packageCodes = packages.map((pkg) => pkg.code);
+    for (const code of [
+      "SVC-PKG-FAMILY",
+      "SVC-PKG-HONEYMOON",
+      "SVC-PKG-BUSINESS",
+      "SVC-UMRAH-VISA",
+      "SVC-UMRAH-SERVICES",
+      "SVC-UMRAH-GROUP",
+    ]) {
+      assert.ok(packageCodes.includes(code), `expected the seeded package service ${code} in the public catalog`);
+    }
 
     const visaTypes = res.body.data.visaTypes;
     const expectedVisaCodes = [

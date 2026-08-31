@@ -1,14 +1,17 @@
 import {
+  assignContactRequestSchema,
   createContactRequestSchema,
   createInvoiceSchema,
   createOfferSchema,
   updateContactRequestStatusSchema,
 } from "./contact-requests.validators.js";
 import {
+  assignContactRequest,
   confirmContactRequestPayment,
   createContactRequest,
   createOffer,
   createOrUpdateInvoice,
+  getOperationsQueueSummary,
   listContactRequests,
   updateContactRequestStatus,
 } from "./contact-requests.service.js";
@@ -41,6 +44,8 @@ const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
   FILE_TOO_LARGE: "One of the uploaded files exceeds the maximum size allowed for its requirement",
   MAX_FILES_REACHED: "Too many files were uploaded for one of the requirements",
   FEATURE_DISABLED: "This service is currently unavailable",
+  // Smart Case Operations — Release A.
+  TRAVELER_NOT_FOUND: "One of the uploaded documents references a traveler that wasn't submitted",
 };
 
 export async function storeContactRequest(req, res, next) {
@@ -89,10 +94,20 @@ export async function storeContactRequest(req, res, next) {
 
 export async function getContactRequests(req, res, next) {
   try {
+    // Smart Case Operations — Release C groundwork. `assignedUserId=mine`
+    // is the "My Applications" work-queue view — resolved to the acting
+    // staff member's own id here rather than trusting a client-supplied id
+    // to mean "me" (that's just the plain assignedUserId=<id> filter,
+    // already scoped to this organization by listContactRequests' where
+    // clause below).
+    const assignedUserId =
+      req.query.assignedUserId === "mine" ? req.user.id : req.query.assignedUserId;
+
     const { data, meta } = await listContactRequests({
       ...parsePagination(req.query),
       status: req.query.status,
       organizationId: req.user.organizationId,
+      assignedUserId,
     });
 
     return res.status(200).json({
@@ -100,6 +115,17 @@ export async function getContactRequests(req, res, next) {
       data,
       meta,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Smart Case Operations — Release G. Operations metrics for the management
+// dashboard, scoped to the acting staff member's own organization.
+export async function getQueueSummary(req, res, next) {
+  try {
+    const data = await getOperationsQueueSummary(req.user.organizationId);
+    return res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -131,6 +157,34 @@ export async function patchContactRequestStatus(req, res, next) {
       success: true,
       data: contactRequest,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function patchContactRequestAssignment(req, res, next) {
+  try {
+    const { id } = req.params;
+    const parsed = assignContactRequestSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const result = await assignContactRequest(id, parsed.data.assignedUserId, req.user.id, req.user.organizationId);
+
+    if (result.error === "NOT_FOUND") {
+      return res.status(404).json({ success: false, message: "Contact request not found" });
+    }
+    if (result.error === "ASSIGNEE_NOT_FOUND") {
+      return res.status(404).json({ success: false, message: "Assignee not found in this organization" });
+    }
+
+    return res.status(200).json({ success: true, data: result.contactRequest });
   } catch (error) {
     next(error);
   }

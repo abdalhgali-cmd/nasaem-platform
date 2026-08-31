@@ -11,6 +11,7 @@ import {
 } from "../contact-request-documents/contact-request-documents.service.js";
 import { getContactRequestDeliverableFile } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
+import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-checklist.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -57,6 +58,11 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       documents: { orderBy: { createdAt: "desc" } },
       deliverables: { orderBy: { createdAt: "desc" } },
       offers: { orderBy: { createdAt: "desc" } },
+      // Smart Case Operations — Release A. The customer's own travelers for
+      // their own request (already scoped by phoneNormalized ownership
+      // above) — lets /track show which traveler a document/replacement
+      // request belongs to once the frontend is updated to use it.
+      travelers: { orderBy: { sortOrder: "asc" } },
       serviceRef: { select: { id: true, name: true, category: true } },
       visaType: { select: { id: true, name: true, country: true } },
     },
@@ -79,8 +85,14 @@ export async function listContactRequestsForPhone(phoneNormalized) {
   return requests.map((request) => {
     const selectedOffer = request.offers.find((offer) => offer.id === request.selectedOfferId);
     const paymentCurrency = request.invoice?.currency || selectedOffer?.currency || null;
+    // Smart Case Operations — Release D. Derived from the snapshot and the
+    // documents already loaded above; no extra query, and nothing the
+    // customer could not already see about their own request.
+    const checklist = buildCustomerChecklist(request);
     return {
       ...request,
+      checklist,
+      nextActions: buildCustomerNextActions(request, checklist),
       statusLabel: deriveTrackingStatusLabel(request),
       paymentCurrency,
       paymentAccounts: paymentCurrency
@@ -97,10 +109,10 @@ async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
   });
 }
 
-export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file, requirementId }) {
+export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file, requirementId, travelerId }) {
   const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
   if (!contactRequest) return { error: "NOT_FOUND" };
-  return createContactRequestDocument(contactRequestId, { label, file, requirementId });
+  return createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId });
 }
 
 export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, file) {
@@ -111,6 +123,11 @@ export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, fi
   const result = await createContactRequestDocument(contactRequestId, {
     label: "إشعار الدفع",
     file,
+    // Smart Case Operations — Release F: a payment receipt is a financial
+    // record, so it is excluded from provider packages by default (sending
+    // a customer's transfer receipt to an embassy would be a real privacy
+    // incident). See provider-submissions.service.js.
+    classification: "FINANCIAL_DOCUMENT",
   });
 
   logActivity({ action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED", entity: "ContactRequest", entityId: contactRequestId });
