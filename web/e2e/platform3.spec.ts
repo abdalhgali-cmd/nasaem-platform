@@ -751,3 +751,449 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
     }
   });
 });
+
+// Direct-service-access routing (resolveServiceHref, lib/service-routes.ts)
+// — clicking a specific service/visa type must land on its own dedicated
+// page in one click, never on a general catalog the customer has to search
+// again. Covers the two real customer-facing surfaces that used to hardcode
+// a generic "/visas?visaType=...#book" destination for every visa type
+// regardless of whether it had a dedicated page: the homepage's Services
+// grid (services.tsx) and the /visas page's own catalog
+// (dynamic-visa-catalog.tsx). "Navigation" in the routing spec maps onto
+// this app's actual architecture as the /visas listing catalog — the top
+// nav bar only ever held category-level links (التأشيرات), never
+// individual service links, on this site.
+test.describe("Direct service routing — no intermediate catalog browsing", () => {
+  test("homepage Services grid: Egypt Security Approval card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
+    await page.locator("a").filter({ hasText: "الموافقة الأمنية لمصر" }).first().click();
+    await expect(page).toHaveURL(/\/visas\/egypt-security-approval$/);
+    await expect(page.locator("h1")).toContainText("الموافقة الأمنية");
+  });
+
+  test("homepage Services grid: Family Visit card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
+    await page.locator("a").filter({ hasText: "الزيارة العائلية" }).first().click();
+    await expect(page).toHaveURL(/\/visas\/saudi-family-visit$/);
+    await expect(page.locator("h1")).toContainText("الزيارة العائلية");
+  });
+
+  test("/visas catalog: Egypt Security Approval's own card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/visas", { waitUntil: "networkidle" });
+    const card = page.locator("article").filter({ hasText: "الموافقة الأمنية لمصر" }).first();
+    await card.scrollIntoViewIfNeeded();
+    await card.getByRole("link", { name: "قدّم الآن" }).click();
+    await expect(page).toHaveURL(/\/visas\/egypt-security-approval$/);
+  });
+
+  test("/visas catalog: Family Visit's own card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/visas", { waitUntil: "networkidle" });
+    const card = page.locator("article").filter({ hasText: "الزيارة العائلية" }).first();
+    await card.scrollIntoViewIfNeeded();
+    await card.getByRole("link", { name: "قدّم الآن" }).click();
+    await expect(page).toHaveURL(/\/visas\/saudi-family-visit$/);
+  });
+
+  test("a service with no dedicated page routes to the generic dynamic service template", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-GENERIC-${Date.now()}`;
+    const name = `خدمة عامة للاختبار ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name, category: "e2e_generic_category", description: "خدمة بدون تجربة مخصصة", basePrice: 0, currency: "SAR", active: true, features: [] },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+    const expectedSlug = code.toLowerCase();
+
+    try {
+      await pollByReloading(
+        page,
+        (timeoutMs) => page.locator("a").filter({ hasText: name }).first().getAttribute("href", { timeout: timeoutMs }),
+        (href) => href === `/services/${expectedSlug}`,
+        "generic service homepage card href"
+      );
+
+      await page.goto(`/services/${expectedSlug}`, { waitUntil: "networkidle" });
+      await expect(page.locator("h1")).toContainText(name);
+      await expect(page.getByText("يتم تحديد التكلفة بعد مراجعة الطلب")).toBeVisible();
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+
+  test("old query-param visa URLs keep working (no unexpected 404s from the routing change)", async ({ page }) => {
+    const response = await page.goto("/visas?visaType=VISA-EGYPT-CLEARANCE&visaCategory=OTHER#book", { waitUntil: "networkidle" });
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { name: "اختر نوع التأشيرة", exact: true })).toBeVisible({ timeout: 15_000 });
+  });
+});
+
+test.describe("Service media — admin-controlled icon and safe fallbacks", () => {
+  test("admin sets a service's icon and the public homepage card renders it", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-ICON-${Date.now()}`;
+    const name = `خدمة أيقونة الاختبار ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name, category: "e2e_icon_category", basePrice: 0, currency: "SAR", active: true, iconKey: "ship", features: [] },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+
+    try {
+      const card = await pollByReloading(
+        page,
+        async (timeoutMs) => {
+          const link = page.locator("a").filter({ hasText: name }).first();
+          await link.waitFor({ timeout: timeoutMs });
+          return link;
+        },
+        () => true,
+        "generic service card"
+      );
+      // No image was uploaded — the card must render the chosen icon, never
+      // a broken <img>.
+      await expect(card.locator("img")).toHaveCount(0);
+      await expect(card.locator("svg.lucide-ship")).toBeVisible();
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+
+  test("a service with neither icon nor image falls back to the default catalog icon, never a broken image", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-FALLBACK-${Date.now()}`;
+    const name = `خدمة بدون صورة ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name, category: "e2e_fallback_category", basePrice: 0, currency: "SAR", active: true, features: [] },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+
+    try {
+      const card = await pollByReloading(
+        page,
+        async (timeoutMs) => {
+          const link = page.locator("a").filter({ hasText: name }).first();
+          await link.waitFor({ timeout: timeoutMs });
+          return link;
+        },
+        () => true,
+        "fallback service card"
+      );
+      await expect(card.locator("img")).toHaveCount(0);
+      // The default Package icon specifically — the card's "اعرف المزيد"
+      // arrow icon is also an <svg>, so plain `svg` would match both.
+      await expect(card.locator("svg.lucide-package")).toBeVisible();
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+});
+
+test.describe("Egypt hero motion — respects prefers-reduced-motion", () => {
+  test("the departing-plane animation runs by default and stops under prefers-reduced-motion", async ({ browser }) => {
+    const normalContext = await browser.newContext();
+    const normalPage = await normalContext.newPage();
+    await normalPage.goto("/visas/egypt-security-approval", { waitUntil: "networkidle" });
+    const runningAnimationName = await normalPage.locator(".animate-fly-route").evaluate((el) => getComputedStyle(el).animationName);
+    expect(runningAnimationName).toBe("fly-route");
+    await normalContext.close();
+
+    const reducedContext = await browser.newContext({ reducedMotion: "reduce" });
+    const reducedPage = await reducedContext.newPage();
+    await reducedPage.goto("/visas/egypt-security-approval", { waitUntil: "networkidle" });
+    const stoppedAnimationName = await reducedPage.locator(".animate-fly-route").evaluate((el) => getComputedStyle(el).animationName);
+    expect(stoppedAnimationName).toBe("none");
+    await reducedContext.close();
+  });
+});
+
+// Comprehensive service experience pass — SEO metadata + related services
+// added to every dedicated/generic service page, and a sanity check that
+// the pre-existing direct routes (Umrah, Flights, Ferries — never hardcoded
+// to the generic visa flow to begin with) are untouched by this work.
+test.describe("Service page SEO metadata and related services", () => {
+  test("Egypt page has a canonical link, OpenGraph tags, and a related-services section that links elsewhere", async ({ page }) => {
+    await page.goto("/visas/egypt-security-approval", { waitUntil: "networkidle" });
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/visas\/egypt-security-approval$/);
+    await expect(page.locator('meta[property="og:title"]')).toHaveCount(1);
+    await expect(page.locator('meta[property="og:description"]')).toHaveCount(1);
+    const relatedSection = page.locator("section", { has: page.getByText("قد تهمك أيضًا") });
+    await expect(relatedSection).toBeVisible();
+    // At least one related-service card must link somewhere other than this same page.
+    const relatedHrefs = await relatedSection.locator("a").evaluateAll((els) => els.map((el) => el.getAttribute("href")));
+    expect(relatedHrefs.some((href) => href && !href.includes("egypt-security-approval"))).toBeTruthy();
+  });
+
+  test("Saudi Family Visit page has a canonical link and OpenGraph tags", async ({ page }) => {
+    await page.goto("/visas/saudi-family-visit", { waitUntil: "networkidle" });
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/visas\/saudi-family-visit$/);
+    await expect(page.locator('meta[property="og:title"]')).toHaveCount(1);
+  });
+
+  test("a generic service page has a canonical link and OpenGraph tags matching its slug", async ({ page }) => {
+    test.setTimeout(180_000);
+    await loginAsSeededAdmin(page);
+    const code = `E2E-SEO-${Date.now()}`;
+    const name = `خدمة اختبار السيو ${Date.now()}`;
+    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name, category: "e2e_seo_category", basePrice: 0, currency: "SAR", active: true, features: [] },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const created = (await createRes.json()).data;
+    const slug = code.toLowerCase();
+
+    try {
+      const deadline = Date.now() + 150_000;
+      let status = 0;
+      while (Date.now() < deadline) {
+        const resp = await page.goto(`/services/${slug}`, { waitUntil: "networkidle" });
+        status = resp?.status() ?? 0;
+        if (status === 200) break;
+        await page.waitForTimeout(3_000);
+      }
+      expect(status).toBe(200);
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", new RegExp(`/services/${slug}$`));
+      await expect(page.locator('meta[property="og:title"]')).toHaveCount(1);
+    } finally {
+      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+    }
+  });
+
+  test("Umrah, Flights, and Ferries keep their own dedicated pages, unaffected by the routing change", async ({ page }) => {
+    for (const path of ["/umrah", "/flights", "/ferries"]) {
+      const response = await page.goto(path, { waitUntil: "networkidle" });
+      expect(response?.ok(), `${path} should load`).toBeTruthy();
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", new RegExp(`${path}$`));
+    }
+  });
+});
+
+// A prior pass routed every VisaType without a dedicated page (and Tasheel,
+// a Service) to the shared /visas?visaType=...#book catalog — a customer
+// still had to land on a general page. These real, already-seeded catalog
+// entries (backend/prisma/seed.js) must now each resolve to their own
+// /services/[slug] page instead, and VISA-UMRAH (Umrah's VisaType record)
+// must resolve to Umrah's actual dedicated page.
+test.describe("Every named service opens its own page — no generic-catalog dead ends", () => {
+  const cases: { path: string; expectedHeading: string }[] = [
+    { path: "/services/international", expectedHeading: "التأشيرات الدولية" },
+    { path: "/services/work", expectedHeading: "تأشيرة العمل" },
+    { path: "/services/work-visa", expectedHeading: "تأشيرة العمل" },
+    { path: "/services/intl-visa", expectedHeading: "التأشيرات الدولية" },
+    { path: "/services/tasheel", expectedHeading: "حجز مواعيد تساهيل" },
+  ];
+
+  for (const { path, expectedHeading } of cases) {
+    test(`${path} renders its own service page (real seeded catalog entry)`, async ({ page }) => {
+      const response = await page.goto(path, { waitUntil: "networkidle" });
+      expect(response?.ok(), `${path} should load`).toBeTruthy();
+      await expect(page.locator("h1")).toContainText(expectedHeading);
+      // Never a bare "not found" / fallback to a generic catalog page.
+      await expect(page.locator("h1")).not.toContainText("اختر نوع التأشيرة");
+    });
+  }
+
+  test("VISA-UMRAH (Umrah's visa-type card, e.g. from the /visas catalog) routes to Umrah's own dedicated page", async ({ page }) => {
+    const servicesRes = await page.request.get(`${BACKEND_URL}/api/services/public`);
+    const payload = await servicesRes.json();
+    const umrahVisaType = payload.data.visaTypes.find((v: { code: string }) => v.code === "VISA-UMRAH");
+    expect(umrahVisaType, "VISA-UMRAH must be seeded").toBeTruthy();
+
+    await page.goto("/visas", { waitUntil: "networkidle" });
+    const card = page.locator("article").filter({ hasText: umrahVisaType.name }).first();
+    await card.scrollIntoViewIfNeeded();
+    const href = await card.getByRole("link", { name: "قدّم الآن" }).getAttribute("href");
+    expect(href).toBe("/umrah");
+  });
+
+  test("homepage Services grid sends International Visa, Work Visa, and Tasheel to their own pages, not a shared catalog", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
+    const hrefs = await section.locator("a").evaluateAll((els) =>
+      Object.fromEntries(els.map((el) => [el.querySelector("h3")?.textContent ?? "", el.getAttribute("href")]))
+    );
+    for (const [name, href] of Object.entries(hrefs)) {
+      if (["التأشيرات الدولية", "تأشيرة العمل", "حجز مواعيد تساهيل"].includes(name)) {
+        expect(href, `${name} must not land on the shared /visas catalog`).not.toMatch(/^\/visas\?/);
+        expect(href, `${name} must not land on the dead-end /contact fallback`).not.toMatch(/^\/contact\?/);
+        expect(href).toMatch(/^\/services\//);
+      }
+    }
+  });
+});
+
+// Regression for a real pre-existing bug found during responsive QA: at
+// exactly 1024px the desktop nav (11 items) didn't fit under the old `lg:`
+// breakpoint, and a long, unbroken footer email address overflowed its
+// column — both pushed document.documentElement.scrollWidth past the
+// viewport with no visible scrollbar warning. Neither was introduced by
+// this PR's own routing/media work, but both are now fixed (site-header.tsx
+// moved its desktop-nav breakpoint to `xl:`; site-footer.tsx wraps the long
+// email in break-all) as part of satisfying the "responsive PASS at 1024px"
+// requirement.
+test.describe("No horizontal overflow at 1024px (and neighboring breakpoints)", () => {
+  for (const width of [360, 390, 430, 768, 1024, 1280, 1440]) {
+    test(`/  and /about have no horizontal overflow at ${width}px`, async ({ browser }) => {
+      const context = await browser.newContext({ viewport: { width, height: 900 } });
+      const page = await context.newPage();
+      for (const path of ["/", "/about"]) {
+        await page.goto(path, { waitUntil: "networkidle" });
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+        );
+        expect(overflow, `${path} at ${width}px should not overflow horizontally`).toBeLessThanOrEqual(1);
+      }
+      await context.close();
+    });
+  }
+
+  test("the desktop nav is reachable via the hamburger menu at 1024px and directly visible at 1280px+", async ({ browser }) => {
+    const narrowContext = await browser.newContext({ viewport: { width: 1024, height: 900 } });
+    const narrowPage = await narrowContext.newPage();
+    await narrowPage.goto("/", { waitUntil: "networkidle" });
+    await expect(narrowPage.getByRole("button", { name: "فتح القائمة" })).toBeVisible();
+    await expect(narrowPage.locator('nav[aria-label="التصفح الرئيسي"]')).toBeHidden();
+    await narrowContext.close();
+
+    const wideContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const widePage = await wideContext.newPage();
+    await widePage.goto("/", { waitUntil: "networkidle" });
+    await expect(widePage.locator('nav[aria-label="التصفح الرئيسي"]')).toBeVisible();
+    await wideContext.close();
+  });
+});
+
+// Admin-managed hero visual identity (comprehensive service experience
+// gap #2) — a service's hero image, mobile hero override, and motion
+// (video clip or the built-in CSS fallback, gated on motionEnabled) must
+// be settable purely through the admin UI/API and reused instantly by the
+// generic /services/[slug] template, without a code change or migration
+// beyond the one applied locally for this PR.
+test.describe("Admin-managed service hero media (generic /services/[slug] template)", () => {
+  test("uploading a hero image/mobile-hero and enabling motion is reflected on the service's public page", async ({ page }) => {
+    test.setTimeout(180_000);
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now();
+    const code = `E2E-HERO-MEDIA-${suffix}`;
+
+    const createRes = await admin.post(`${BACKEND_URL}/api/services`, {
+      data: { code, name: `خدمة وسائط E2E ${suffix}`, category: "qa-test-category", basePrice: 10, active: true },
+    });
+    expect(createRes.ok(), await createRes.text()).toBeTruthy();
+    const service = (await createRes.json()).data;
+    const slug = code.replace(/^(SVC|VISA)-/i, "").toLowerCase();
+
+    try {
+      const heroRes = await admin.post(`${BACKEND_URL}/api/services/${service.id}/hero-image`, {
+        multipart: { image: { name: "hero.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+      });
+      expect(heroRes.ok(), await heroRes.text()).toBeTruthy();
+      const mobileRes = await admin.post(`${BACKEND_URL}/api/services/${service.id}/hero-image-mobile`, {
+        multipart: { image: { name: "hero-mobile.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+      });
+      expect(mobileRes.ok(), await mobileRes.text()).toBeTruthy();
+      const motionRes = await admin.post(`${BACKEND_URL}/api/services/${service.id}/motion-video`, {
+        multipart: { video: { name: "hero.mp4", mimeType: "video/mp4", buffer: Buffer.from([0x00, 0x00, 0x00, 0x18]) } },
+      });
+      expect(motionRes.ok(), await motionRes.text()).toBeTruthy();
+      const enableRes = await admin.patch(`${BACKEND_URL}/api/services/${service.id}`, { data: { motionEnabled: true } });
+      expect(enableRes.ok(), await enableRes.text()).toBeTruthy();
+      const updated = (await enableRes.json()).data;
+
+      // The generic service page fetches the public catalog with a 60s
+      // fetch cache — poll real navigations until the change lands, same
+      // approach this file already uses for the homepage/settings tests.
+      // Checking page.content() (not a locator) is deliberate: until the
+      // catalog cache catches up the route 404s, and PageHero only renders
+      // its background div at all once a hero image is present — a locator
+      // wait would hang on an element that may never exist on a given
+      // attempt, instead of failing that attempt fast so the loop retries.
+      await pollByReloading(
+        page,
+        async () => {
+          await page.goto(`/services/${slug}`, { waitUntil: "domcontentloaded" });
+          return page.content();
+        },
+        (html) => html.includes(updated.heroImageKey),
+        "hero image on generic service page"
+      );
+
+      // Mobile hero override: a real mobile viewport must render the
+      // mobile-specific background, not silently fall back to desktop.
+      const mobileContext = await page.context().browser()!.newContext({ viewport: { width: 390, height: 844 } });
+      const mobilePage = await mobileContext.newPage();
+      await mobilePage.goto(`/services/${slug}`, { waitUntil: "networkidle" });
+      const mobileHtml = await mobilePage.content();
+      expect(mobileHtml).toContain(updated.heroImageMobileKey);
+      await mobileContext.close();
+
+      // Motion enabled + a clip uploaded → the clip plays and is hidden
+      // under prefers-reduced-motion (never removed outright — same
+      // posture as the Egypt hero's CSS animation).
+      await expect(page.locator("video")).toHaveCount(1);
+      await expect(page.locator("video")).toBeVisible();
+
+      const reducedContext = await page.context().browser()!.newContext({ reducedMotion: "reduce" });
+      const reducedPage = await reducedContext.newPage();
+      await reducedPage.goto(`/services/${slug}`, { waitUntil: "networkidle" });
+      await expect(reducedPage.locator("video")).toBeHidden();
+      await reducedContext.close();
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/services/${service.id}`).catch(() => {});
+    }
+  });
+
+  test("the admin Services panel exposes hero/mobile-hero/motion-video upload controls and a motion-enabled checkbox", async ({ page }) => {
+    await loginAsSeededAdmin(page);
+    await page.goto("/admin/services", { waitUntil: "networkidle" });
+
+    const row = page.locator("tbody tr").first();
+    await expect(row.getByText("صورة الغلاف", { exact: true })).toBeVisible();
+    await expect(row.getByText("صورة الغلاف (جوال)", { exact: true })).toBeVisible();
+    await expect(row.getByText("فيديو الحركة", { exact: true })).toBeVisible();
+
+    await row.getByRole("button", { name: "تعديل" }).click();
+    await expect(page.getByText("تفعيل الحركة في صفحة الخدمة")).toBeVisible();
+  });
+
+  test("EMPLOYEE cannot upload service hero/mobile-hero/motion media (RBAC)", async ({ page }) => {
+    const admin = await loginAsSeededAdmin(page).then(() => page.request);
+    const suffix = Date.now();
+    const email = `hero-media-employee-${suffix}@nasaem-platform.local`;
+    await admin.post(`${BACKEND_URL}/api/users`, {
+      data: { fullName: "Hero Media RBAC Employee", email, password: "TestPass@12345", role: "EMPLOYEE" },
+    });
+    const createRes = await admin.post(`${BACKEND_URL}/api/services`, {
+      data: { code: `E2E-HERO-RBAC-${suffix}`, name: `RBAC ${suffix}`, category: "qa-test-category", basePrice: 1 },
+    });
+    const service = (await createRes.json()).data;
+
+    try {
+      const employeeContext = await page.context().browser()!.newContext();
+      const employeePage = await employeeContext.newPage();
+      const loginRes = await employeePage.request.post(`${BACKEND_URL}/api/auth/login`, {
+        data: { email, password: "TestPass@12345" },
+      });
+      expect(loginRes.ok()).toBeTruthy();
+
+      const heroRes = await employeePage.request.post(`${BACKEND_URL}/api/services/${service.id}/hero-image`, {
+        multipart: { image: { name: "hero.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") } },
+      });
+      expect(heroRes.status()).toBe(403);
+
+      const motionRes = await employeePage.request.post(`${BACKEND_URL}/api/services/${service.id}/motion-video`, {
+        multipart: { video: { name: "hero.mp4", mimeType: "video/mp4", buffer: Buffer.from([0x00, 0x00, 0x00, 0x18]) } },
+      });
+      expect(motionRes.status()).toBe(403);
+      await employeeContext.close();
+    } finally {
+      await admin.delete(`${BACKEND_URL}/api/services/${service.id}`).catch(() => {});
+    }
+  });
+});

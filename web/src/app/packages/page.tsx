@@ -7,11 +7,13 @@ import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard
 import { DynamicUmrahPackages } from "@/components/sections/dynamic-umrah-packages";
 import { Button } from "@/components/ui/button";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildPageMetadata({
+  path: "/packages",
   title: "باقات السفر",
   description: "باقات سفر محدثة من كتالوج نسائم الحرمين الرسمي مع أسعار واضحة وخيارات تناسب احتياجاتك.",
-};
+});
 
 const whyUs = [
   { icon: Gem, title: "مراجعة تفاصيل الباقة", description: "نوضح تفاصيل الباقة والخدمات المشمولة قبل اعتماد العرض." },

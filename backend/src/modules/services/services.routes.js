@@ -1,7 +1,10 @@
 import { Router } from "express";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
-import { uploadSiteAsset as uploadSiteAssetMiddleware } from "../../middleware/upload.middleware.js";
+import {
+  uploadSiteAsset as uploadSiteAssetMiddleware,
+  uploadSiteMotionAsset as uploadSiteMotionAssetMiddleware,
+} from "../../middleware/upload.middleware.js";
 import {
   getPublicCatalog,
   getPublicPackages,
@@ -11,7 +14,10 @@ import {
   patchService,
   removeService,
   storeService,
+  uploadServiceHeroImage,
+  uploadServiceHeroImageMobile,
   uploadServiceImage,
+  uploadServiceMotionVideo,
 } from "./services.controller.js";
 import { makeRequirementsController } from "../requirements/requirements.controller.js";
 
@@ -30,6 +36,13 @@ const {
 
 function handleUpload(req, res, next) {
   uploadSiteAssetMiddleware(req, res, (error) => {
+    if (error) return res.status(400).json({ success: false, message: error.message || "File upload failed" });
+    next();
+  });
+}
+
+function handleMotionUpload(req, res, next) {
+  uploadSiteMotionAssetMiddleware(req, res, (error) => {
     if (error) return res.status(400).json({ success: false, message: error.message || "File upload failed" });
     next();
   });
@@ -55,6 +68,9 @@ router.post("/", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), storeSe
 router.patch("/:id", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchService);
 router.delete("/:id", requireRole("SUPER_ADMIN"), removeService);
 router.post("/:id/image", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), handleUpload, uploadServiceImage);
+router.post("/:id/hero-image", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), handleUpload, uploadServiceHeroImage);
+router.post("/:id/hero-image-mobile", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), handleUpload, uploadServiceHeroImageMobile);
+router.post("/:id/motion-video", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), handleMotionUpload, uploadServiceMotionVideo);
 
 router.get("/:serviceId/requirements", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"), getRequirements);
 router.post("/:serviceId/requirements", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), storeRequirement);

@@ -8,9 +8,15 @@ import {
   listServices,
   reorderServices,
   setServiceImageKey,
+  setServiceMediaKey,
   updateService,
 } from "./services.service.js";
-import { serviceImageKey } from "./services.constants.js";
+import {
+  serviceHeroImageKey,
+  serviceHeroImageMobileKey,
+  serviceImageKey,
+  serviceMotionVideoKey,
+} from "./services.constants.js";
 import { upsertSiteAsset } from "../site-assets/site-assets.service.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { parsePagination } from "../../utils/pagination.js";
@@ -195,3 +201,33 @@ export async function uploadServiceImage(req, res, next) {
     next(error);
   }
 }
+
+// Shared body for the three hero/motion media uploads below — each just
+// differs in which SiteAsset key namespace and which Service column it
+// writes to. Kept as one factory (mirroring makeRequirementsController's
+// pattern elsewhere in this module tree) instead of three near-duplicate
+// copies of uploadServiceImage above.
+function makeServiceMediaUploadHandler(field, buildKey, { missingMessage = "No file uploaded" } = {}) {
+  return async function uploadServiceMedia(req, res, next) {
+    try {
+      if (!req.file) return res.status(400).json({ success: false, message: missingMessage });
+
+      const exists = await prisma.service.findUnique({ where: { id: req.params.id }, select: { id: true } });
+      if (!exists) return res.status(404).json({ success: false, message: "Service not found" });
+
+      const key = buildKey(req.params.id);
+      await upsertSiteAsset(key, req.file, req);
+      const service = await setServiceMediaKey(req.params.id, field, key);
+
+      return res.status(200).json({ success: true, data: service });
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+export const uploadServiceHeroImage = makeServiceMediaUploadHandler("heroImageKey", serviceHeroImageKey);
+export const uploadServiceHeroImageMobile = makeServiceMediaUploadHandler("heroImageMobileKey", serviceHeroImageMobileKey);
+export const uploadServiceMotionVideo = makeServiceMediaUploadHandler("motionVideoKey", serviceMotionVideoKey, {
+  missingMessage: "No video uploaded",
+});

@@ -21,7 +21,7 @@ describe("public settings allowlist", () => {
     assert.equal(response.status, 200);
     const settings = response.body.data;
     assert.ok(settings.some((setting) => setting.key === publicKey));
-    assert.ok(settings.every((setting) => ["CONTACT_PHONE", "CONTACT_EMAIL", "CONTACT_ADDRESS", "WHATSAPP_NUMBER", "INSTAGRAM_URL", "FACEBOOK_URL", "X_URL", "SEO_TITLE", "SEO_DESCRIPTION"].includes(setting.key)));
+    assert.ok(settings.every((setting) => ["CONTACT_PHONE", "CONTACT_EMAIL", "CONTACT_ADDRESS", "WHATSAPP_NUMBER", "INSTAGRAM_URL", "FACEBOOK_URL", "X_URL", "SEO_TITLE", "SEO_DESCRIPTION", "EGYPT_CLEARANCE_FAQ", "SAUDI_FAMILY_VISIT_FAQ"].includes(setting.key)));
     assert.ok(!settings.some((setting) => setting.key === internalKey));
     assert.ok(!JSON.stringify(response.body).includes("must-not-be-public"));
   });
@@ -30,5 +30,34 @@ describe("public settings allowlist", () => {
     const response = await request(app).get("/api/settings/public");
     assert.notEqual(response.status, 401);
     assert.equal(response.status, 200);
+  });
+
+  // Egypt Security Approval landing page FAQ (Setting key EGYPT_CLEARANCE_FAQ)
+  // reuses this same allowlisted-Setting infrastructure rather than a new
+  // FAQ module — this is the evidence that an admin can actually change it
+  // through the existing generic settings write endpoint, and that the
+  // public read endpoint serves the update back out immediately.
+  test("EGYPT_CLEARANCE_FAQ is admin-editable through the generic settings endpoint and publicly readable", async () => {
+    const faq = [{ question: `Q ${uniqueSuffix()}`, answer: "A" }];
+    const writeRes = await agent.post("/api/settings").send({ key: "EGYPT_CLEARANCE_FAQ", value: JSON.stringify(faq) });
+    assert.equal(writeRes.status, 200, JSON.stringify(writeRes.body));
+
+    const publicRes = await request(app).get("/api/settings/public");
+    assert.equal(publicRes.status, 200);
+    const entry = publicRes.body.data.find((setting) => setting.key === "EGYPT_CLEARANCE_FAQ");
+    assert.ok(entry, "expected EGYPT_CLEARANCE_FAQ in the public settings response");
+    assert.deepEqual(JSON.parse(entry.value), faq);
+  });
+
+  test("SAUDI_FAMILY_VISIT_FAQ is admin-editable through the generic settings endpoint and publicly readable", async () => {
+    const faq = [{ question: `Q ${uniqueSuffix()}`, answer: "A" }];
+    const writeRes = await agent.post("/api/settings").send({ key: "SAUDI_FAMILY_VISIT_FAQ", value: JSON.stringify(faq) });
+    assert.equal(writeRes.status, 200, JSON.stringify(writeRes.body));
+
+    const publicRes = await request(app).get("/api/settings/public");
+    assert.equal(publicRes.status, 200);
+    const entry = publicRes.body.data.find((setting) => setting.key === "SAUDI_FAMILY_VISIT_FAQ");
+    assert.ok(entry, "expected SAUDI_FAMILY_VISIT_FAQ in the public settings response");
+    assert.deepEqual(JSON.parse(entry.value), faq);
   });
 });

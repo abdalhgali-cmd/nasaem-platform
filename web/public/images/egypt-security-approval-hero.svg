@@ -1,0 +1,80 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sky" x1="800" y1="0" x2="800" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDEBFA"/>
+      <stop offset="0.52" stop-color="#F7E7CB"/>
+      <stop offset="1" stop-color="#D7A75C"/>
+    </linearGradient>
+    <linearGradient id="sand" x1="800" y1="520" x2="800" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D8B06A"/>
+      <stop offset="1" stop-color="#9E6A2C"/>
+    </linearGradient>
+    <linearGradient id="nile" x1="1030" y1="590" x2="1320" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7DB5D8"/>
+      <stop offset="1" stop-color="#285A83"/>
+    </linearGradient>
+    <linearGradient id="cityFade" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#6B6A68" stop-opacity="0"/>
+      <stop offset="0.38" stop-color="#6B6A68" stop-opacity="0.52"/>
+      <stop offset="1" stop-color="#494A4A" stop-opacity="0.82"/>
+    </linearGradient>
+    <filter id="blur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#sky)"/>
+  <circle cx="1160" cy="230" r="92" fill="#FFF5D8" fill-opacity="0.76" filter="url(#blur)"/>
+
+  <!-- distant Cairo skyline -->
+  <g opacity="0.64">
+    <rect x="1070" y="400" width="46" height="170" rx="4" fill="#777471"/>
+    <rect x="1124" y="360" width="62" height="210" rx="4" fill="#696764"/>
+    <rect x="1195" y="430" width="54" height="140" rx="4" fill="#7D7974"/>
+    <rect x="1260" y="390" width="75" height="180" rx="4" fill="#64625F"/>
+    <rect x="1345" y="445" width="52" height="125" rx="4" fill="#7C7974"/>
+    <rect x="1408" y="410" width="74" height="160" rx="4" fill="#696663"/>
+    <path d="M1240 570H1525V600H1240V570Z" fill="url(#cityFade)"/>
+  </g>
+
+  <!-- Cairo Tower inspired silhouette, stylized and non-official -->
+  <g opacity="0.72" fill="#555451">
+    <rect x="1450" y="242" width="14" height="330" rx="7"/>
+    <path d="M1430 332C1430 306 1448 282 1457 274C1466 282 1484 306 1484 332C1484 358 1470 378 1457 390C1444 378 1430 358 1430 332Z"/>
+    <rect x="1441" y="254" width="32" height="14" rx="7"/>
+    <path d="M1457 204L1461 250H1453L1457 204Z"/>
+  </g>
+
+  <!-- desert -->
+  <path d="M0 560C250 510 480 520 720 550C930 576 1160 612 1600 566V900H0V560Z" fill="url(#sand)"/>
+
+  <!-- pyramids -->
+  <path d="M108 650L410 250L712 650H108Z" fill="#B7833F"/>
+  <path d="M410 250L712 650H555L410 250Z" fill="#96652D"/>
+  <path d="M450 688L650 414L850 688H450Z" fill="#C39450"/>
+  <path d="M650 414L850 688H750L650 414Z" fill="#9E6B30"/>
+  <path d="M720 705L855 520L990 705H720Z" fill="#D2A45E"/>
+  <path d="M855 520L990 705H925L855 520Z" fill="#AA7432"/>
+
+  <!-- stylized sphinx silhouette -->
+  <g fill="#98703A" opacity="0.98">
+    <path d="M150 705C175 675 218 658 267 661C302 663 326 678 338 701L365 705L381 731H128L150 705Z"/>
+    <path d="M245 640C245 601 271 574 305 574C336 574 355 595 355 626C355 645 345 660 331 670L277 667C257 661 245 653 245 640Z"/>
+    <path d="M272 574L304 535L336 574H272Z"/>
+    <path d="M171 704L118 724L143 737L210 727L171 704Z"/>
+  </g>
+
+  <!-- Nile foreground -->
+  <path d="M1005 610C1125 598 1220 620 1295 665C1370 710 1450 755 1600 760V900H1130C1115 820 1080 742 1005 610Z" fill="url(#nile)" opacity="0.92"/>
+  <path d="M1100 665C1220 676 1305 722 1390 762" stroke="#E6F4FF" stroke-opacity="0.4" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Egyptian tricolor ribbon without emblem -->
+  <g transform="translate(72 82)">
+    <rect width="224" height="20" rx="10" fill="#CE1126"/>
+    <rect y="20" width="224" height="20" fill="#F7F7F7"/>
+    <rect y="40" width="224" height="20" rx="10" fill="#171717"/>
+  </g>
+
+  <!-- warm haze -->
+  <rect width="1600" height="900" fill="#FFF4D8" fill-opacity="0.08"/>
+</svg>

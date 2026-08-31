@@ -133,3 +133,23 @@ export const uploadSiteAsset = multer({
   fileFilter: imageFileFilter,
   limits: { fileSize: 5 * 1024 * 1024 },
 }).single("image");
+
+const MOTION_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm"]);
+
+function motionVideoFileFilter(req, file, cb) {
+  if (!MOTION_VIDEO_MIME_TYPES.has(file.mimetype)) {
+    return cb(new Error("Unsupported file type. Allowed: MP4, WEBM."));
+  }
+
+  cb(null, true);
+}
+
+// A service's optional decorative motion clip (e.g. a short looping hero
+// background video) — same site-assets directory/storage as uploadSiteAsset
+// above (it's still public marketing media, never a customer document), just
+// a video-only MIME allow-list and a larger size ceiling for clip length.
+export const uploadSiteMotionAsset = multer({
+  storage: siteAssetStorage,
+  fileFilter: motionVideoFileFilter,
+  limits: { fileSize: 20 * 1024 * 1024 },
+}).single("video");

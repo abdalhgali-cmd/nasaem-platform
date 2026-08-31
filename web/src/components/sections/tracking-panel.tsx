@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, CheckCircle2, Copy, Download, Loader2, LogOut, MessageCircle, PhoneCall, ShieldCheck } from "lucide-react";
+import { Check, CheckCircle2, Circle, CircleDot, Copy, Download, Loader2, LogOut, MessageCircle, PhoneCall, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
@@ -148,6 +148,105 @@ function getRequestNextAction(req: TrackedRequest) {
   if (req.offers.length > 0 && !req.selectedOfferId) return "راجع العروض واختر العرض المناسب لك.";
   if (req.documents.some((doc) => doc.status === "PENDING")) return "انتظر مراجعة المستندات المرفوعة.";
   return "لا يوجد إجراء مطلوب منك حاليًا. سنخبرك عند الحاجة.";
+}
+
+type TimelineStepState = "done" | "current" | "upcoming";
+type TimelineStep = { label: string; state: TimelineStepState };
+
+// Milestones are derived only from fields staff/the system have actually
+// recorded (status, documents, offers, invoice, paymentStatus,
+// deliverables) — never inferred or guessed, so this can never show a step
+// as complete (e.g. a pricing or security approval) before that happens on
+// the backend. Steps that don't apply to a given request (no offers, no
+// invoice, no payment required) are omitted rather than shown as N/A.
+function getRequestTimeline(req: TrackedRequest): TimelineStep[] {
+  const steps: TimelineStep[] = [{ label: "تم استلام الطلب", state: "done" }];
+
+  const reviewStarted = req.status !== "NEW";
+  steps.push({ label: "قيد المراجعة من الفريق", state: reviewStarted ? "done" : "current" });
+
+  if (req.documents.length > 0) {
+    const hasUnresolved = req.documents.some((doc) => doc.status === "PENDING" || doc.status === "REJECTED");
+    steps.push({
+      label: "مراجعة المستندات",
+      state: hasUnresolved ? (reviewStarted ? "current" : "upcoming") : "done",
+    });
+  }
+
+  if (req.offers.length > 0) {
+    steps.push({ label: "اختيار العرض المناسب", state: req.selectedOfferId ? "done" : "current" });
+  }
+
+  if (req.invoice) {
+    steps.push({
+      label: "اعتماد السعر",
+      state: req.invoice.status === "APPROVED" ? "done" : req.invoice.status === "PENDING" ? "current" : "upcoming",
+    });
+  }
+
+  if (req.paymentStatus !== "NOT_REQUIRED") {
+    const paymentCurrent = req.paymentStatus === "AWAITING_TRANSFER" || req.paymentStatus === "UNDER_REVIEW";
+    steps.push({
+      label: "الدفع",
+      state: req.paymentStatus === "CONFIRMED" ? "done" : paymentCurrent ? "current" : "upcoming",
+    });
+  }
+
+  steps.push({ label: "استلام الوثيقة النهائية", state: req.deliverables.length > 0 ? "done" : "upcoming" });
+
+  if (req.status === "CLOSED") {
+    const closedLabel =
+      req.outcome === "COMPLETED"
+        ? "اكتمل الطلب"
+        : req.outcome === "REJECTED"
+          ? "تم رفض الطلب"
+          : req.outcome === "CANCELLED"
+            ? "تم إلغاء الطلب"
+            : "تم إغلاق الطلب";
+    steps.push({ label: closedLabel, state: "done" });
+  }
+
+  return steps;
+}
+
+const TIMELINE_STEP_ICON_CLASS: Record<TimelineStepState, string> = {
+  done: "text-emerald-600 dark:text-emerald-400",
+  current: "text-primary dark:text-secondary",
+  upcoming: "text-muted-foreground/40",
+};
+
+function RequestTimeline({ req }: { req: TrackedRequest }) {
+  const steps = getRequestTimeline(req);
+
+  return (
+    <ol className="mt-3 flex flex-col gap-0">
+      {steps.map((step, index) => (
+        <li key={step.label} className="flex gap-3">
+          <div className="flex flex-col items-center">
+            {step.state === "done" ? (
+              <CheckCircle2 className={`size-5 ${TIMELINE_STEP_ICON_CLASS.done}`} />
+            ) : step.state === "current" ? (
+              <CircleDot className={`size-5 ${TIMELINE_STEP_ICON_CLASS.current}`} />
+            ) : (
+              <Circle className={`size-5 ${TIMELINE_STEP_ICON_CLASS.upcoming}`} />
+            )}
+            {index < steps.length - 1 ? (
+              <span
+                className={`mt-0.5 h-6 w-px flex-1 ${step.state === "done" ? "bg-emerald-500/40" : "bg-border"}`}
+              />
+            ) : null}
+          </div>
+          <span
+            className={`pb-4 text-xs font-semibold ${
+              step.state === "upcoming" ? "text-muted-foreground/60" : "text-foreground"
+            }`}
+          >
+            {step.label}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 // Shared by every panel below that posts a tracking action (invoice
@@ -776,7 +875,8 @@ export function TrackingPanel() {
                   </span>
                 </div>
                 <RequestReference requestId={req.id} />
-                <div className="mt-3 rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm text-foreground">
+                <RequestTimeline req={req} />
+                <div className="mt-1 rounded-xl border border-accent/30 bg-accent/5 p-3 text-sm text-foreground">
                   <span className="font-bold">الخطوة التالية</span>
                   <p className="mt-1 text-muted-foreground">{getRequestNextAction(req)}</p>
                 </div>

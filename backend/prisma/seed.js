@@ -9,7 +9,11 @@ const SERVICE_CATEGORIES = [
   { code: "SVC-UMRAH", name: "خدمات العمرة", category: "umrah" },
   { code: "SVC-FAMILY-VISIT", name: "تأشيرة الزيارة العائلية", category: "family_visit" },
   { code: "SVC-WORK-VISA", name: "تأشيرة العمل", category: "work_visa" },
-  { code: "SVC-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", category: "egypt_clearance" },
+  // motionEnabled seeds true here only because this dedicated page already
+  // shipped with an always-on CSS plane animation before the admin toggle
+  // (Service.motionEnabled) existed — every other service defaults to the
+  // column's own default (false) and is opted in by an admin instead.
+  { code: "SVC-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", category: "egypt_clearance", motionEnabled: true },
   { code: "SVC-FERRY", name: "حجز العبارات", category: "ferry" },
   { code: "SVC-INTL-VISA", name: "التأشيرات الدولية", category: "intl_visa" },
   { code: "SVC-TASHEEL", name: "حجز مواعيد تساهيل", category: "tasheel" },
@@ -75,6 +79,7 @@ async function seedServiceCategories() {
         category: svc.category,
         basePrice: 0,
         currency: "SAR",
+        motionEnabled: Boolean(svc.motionEnabled),
       },
     });
   }
@@ -118,7 +123,7 @@ const VISA_TYPES = [
   { code: "VISA-FAMILY-VISIT", name: "الزيارة العائلية", country: "السعودية", serviceCode: "SVC-FAMILY-VISIT", category: "FAMILY_VISIT" },
   { code: "VISA-WORK", name: "تأشيرة العمل", country: "السعودية", serviceCode: "SVC-WORK-VISA", category: "OTHER" },
   { code: "VISA-INTERNATIONAL", name: "التأشيرات الدولية", country: "دولي", serviceCode: "SVC-INTL-VISA", category: "INTERNATIONAL" },
-  { code: "VISA-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", country: "مصر", serviceCode: "SVC-EGYPT-CLEARANCE", category: "OTHER" },
+  { code: "VISA-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", country: "مصر", serviceCode: "SVC-EGYPT-CLEARANCE", category: "OTHER", currency: "SDG" },
 ];
 
 async function seedVisaTypes() {
@@ -132,7 +137,7 @@ async function seedVisaTypes() {
         name: visa.name,
         country: visa.country,
         basePrice: 0,
-        currency: "SAR",
+        currency: visa.currency || "SAR",
         serviceId: service?.id ?? null,
         category: visa.category,
       },
@@ -262,6 +267,94 @@ async function seedFeatureFlags() {
   console.log(`Seeded ${FEATURE_FLAG_KEYS.length} feature flags.`);
 }
 
+// Default FAQ for the Egypt Security Approval landing page
+// (EGYPT_CLEARANCE_FAQ, see settings.service.js's PUBLIC_SETTING_KEYS).
+// Answers deliberately never invent processing durations or government
+// requirements not already present in the seeded VisaRequirement
+// checklist — they point the customer back to the checklist/support
+// channels instead of guessing at rules this platform doesn't own.
+const EGYPT_CLEARANCE_FAQ_DEFAULT = [
+  {
+    question: "ما هي المستندات المطلوبة؟",
+    answer: "قائمة المستندات المطلوبة تظهر لك مباشرة داخل نموذج التقديم، وتختلف حسب حالتك. أرفق كل مستند كما هو موضح في كل خطوة.",
+  },
+  {
+    question: "كيف أقدّم الطلب؟",
+    answer: "اضغط على زر «ابدأ طلبك» وأكمل الخطوات بالترتيب: بياناتك، بيانات السفر، المستندات، ثم المراجعة والإرسال.",
+  },
+  {
+    question: "كيف أتابع حالة طلبي؟",
+    answer: "استخدم رقم هاتفك من صفحة «تتبع الطلب» لعرض حالة طلبك الحالية والخطوة التالية المطلوبة منك، إن وُجدت.",
+  },
+  {
+    question: "كيف أعرف أن هناك مستندًا ناقصًا أو مرفوضًا؟",
+    answer: "ستظهر حالة كل مستند (قيد المراجعة / مقبول / مرفوض) في صفحة التتبع، مع ملاحظة توضح سبب الرفض إن وُجد، وزر لإعادة الرفع.",
+  },
+  {
+    question: "كيف أدفع؟",
+    answer: "بعد مراجعة طلبك سيصلك السعر المعتمد، ويمكنك الاطلاع على طرق الدفع المعتمدة من صفحة التتبع بعد اعتماد السعر.",
+  },
+  {
+    question: "كيف أستلم الوثيقة بعد اكتمال المعاملة؟",
+    answer: "ستصلك الوثيقة النهائية كملف قابل للتنزيل من صفحة تتبع طلبك فور رفعها من فريقنا، مع إشعار لك بذلك.",
+  },
+  {
+    question: "هل يمكنني العودة لإكمال الطلب لاحقًا؟",
+    answer: "نعم، يحفظ النموذج تقدّمك تلقائيًا في متصفحك، ويمكنك المتابعة من نفس النقطة عند العودة إلى صفحة الطلب.",
+  },
+];
+
+async function seedEgyptClearanceFaq() {
+  await prisma.setting.upsert({
+    where: { key: "EGYPT_CLEARANCE_FAQ" },
+    // Never overwrite content an admin has already edited via the
+    // back-office Settings screen — only create it if it doesn't exist.
+    update: {},
+    create: { key: "EGYPT_CLEARANCE_FAQ", value: JSON.stringify(EGYPT_CLEARANCE_FAQ_DEFAULT) },
+  });
+  console.log("Seeded default Egypt Security Approval FAQ setting.");
+}
+
+// Default FAQ for the Saudi Family Visit landing page (SAUDI_FAMILY_VISIT_FAQ)
+// — same rationale as EGYPT_CLEARANCE_FAQ_DEFAULT above: answers point back
+// to the live checklist/tracking/support surfaces rather than inventing
+// requirements or durations this platform doesn't own.
+const SAUDI_FAMILY_VISIT_FAQ_DEFAULT = [
+  {
+    question: "ما هي المستندات المطلوبة؟",
+    answer: "قائمة المستندات المطلوبة تظهر لك مباشرة داخل نموذج التقديم، وتختلف حسب حالتك. أرفق كل مستند كما هو موضح في كل خطوة.",
+  },
+  {
+    question: "كيف أقدّم الطلب؟",
+    answer: "اضغط على زر «ابدأ الطلب» وأكمل الخطوات بالترتيب: بياناتك، بيانات السفر، المستندات، ثم المراجعة والإرسال.",
+  },
+  {
+    question: "كيف أتابع حالة طلبي؟",
+    answer: "استخدم رقم هاتفك من صفحة «تتبع الطلب» لعرض حالة طلبك الحالية والخطوة التالية المطلوبة منك، إن وُجدت.",
+  },
+  {
+    question: "هل يمكنني تقديم طلب لعدة أفراد من العائلة؟",
+    answer: "نعم، يمكنك إضافة بيانات أكثر من مسافر داخل نفس الطلب من خطوة «بيانات السفر».",
+  },
+  {
+    question: "كيف أدفع؟",
+    answer: "بعد مراجعة طلبك سيصلك السعر المعتمد، ويمكنك الاطلاع على طرق الدفع المعتمدة من صفحة التتبع بعد اعتماد السعر.",
+  },
+  {
+    question: "هل يمكنني العودة لإكمال الطلب لاحقًا؟",
+    answer: "نعم، يحفظ النموذج تقدّمك تلقائيًا في متصفحك، ويمكنك المتابعة من نفس النقطة عند العودة إلى صفحة الطلب.",
+  },
+];
+
+async function seedSaudiFamilyVisitFaq() {
+  await prisma.setting.upsert({
+    where: { key: "SAUDI_FAMILY_VISIT_FAQ" },
+    update: {},
+    create: { key: "SAUDI_FAMILY_VISIT_FAQ", value: JSON.stringify(SAUDI_FAMILY_VISIT_FAQ_DEFAULT) },
+  });
+  console.log("Seeded default Saudi Family Visit FAQ setting.");
+}
+
 async function main() {
   await seedDefaultOrganization();
   await seedSuperAdmin();
@@ -271,6 +364,8 @@ async function main() {
   await seedVisaRequirements();
   await seedHomepageSections();
   await seedFeatureFlags();
+  await seedEgyptClearanceFaq();
+  await seedSaudiFamilyVisitFaq();
 }
 
 main()

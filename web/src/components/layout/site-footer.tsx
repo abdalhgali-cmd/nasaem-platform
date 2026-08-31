@@ -124,13 +124,13 @@ export function SiteFooter({
             </li>
             <li className="flex items-center gap-2.5">
               <Phone className="size-4 shrink-0 text-accent" />
-              <a href={`tel:${phone.replace(/\s/g, "")}`} dir="ltr" className="hover:text-primary">
-                {phone}
+              <a href={`tel:${phone.replace(/\s/g, "")}`} className="hover:text-primary">
+                <span dir="ltr">{phone}</span>
               </a>
             </li>
             <li className="flex items-center gap-2.5">
               <Mail className="size-4 shrink-0 text-accent" />
-              <a href={`mailto:${email}`} className="hover:text-primary">
+              <a href={`mailto:${email}`} className="break-all hover:text-primary">
                 {email}
               </a>
             </li>

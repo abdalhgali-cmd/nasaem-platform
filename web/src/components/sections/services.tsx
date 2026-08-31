@@ -6,16 +6,7 @@ import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { getSiteAssetUrls } from "@/lib/site-assets";
 import { getPublicServices, type PublicService } from "@/lib/services";
 import { resolveHomepageIcon } from "@/lib/homepage-icons";
-
-function serviceHref(service: PublicService) {
-  const category = service.category.toLowerCase();
-  if (category.includes("ferry")) return "/ferries";
-  if (category.includes("flight")) return "/flights";
-  if (category.includes("hotel")) return "/hotels";
-  if (category.includes("package") || category === "umrah") return `/umrah?package=${encodeURIComponent(service.code)}#book`;
-  if (category.includes("visa") || category.includes("visit") || category.includes("tasheel") || category.includes("clearance")) return `/visas?visaType=${encodeURIComponent(service.code)}#book`;
-  return `/contact?service=${encodeURIComponent(service.code)}#book`;
-}
+import { resolveServiceHref } from "@/lib/service-routes";
 
 type DisplayService = PublicService & { icon: LucideIcon; href: string; imageUrl?: string };
 
@@ -24,7 +15,7 @@ export async function Services() {
   const displayServices: DisplayService[] = services.map((service) => ({
     ...service,
     icon: resolveHomepageIcon(service.iconKey),
-    href: serviceHref(service),
+    href: resolveServiceHref(service),
     imageUrl: service.imageKey ? assetUrls[service.imageKey] : undefined,
   }));
 
@@ -55,7 +46,7 @@ export async function Services() {
                   >
                     {service.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element -- backend-hosted, dynamic key, not in next.config's remotePatterns.
-                      <img src={service.imageUrl} alt="" className="h-32 w-full rounded-2xl object-cover" />
+                      <img src={service.imageUrl} alt={service.name} className="h-32 w-full rounded-2xl object-cover" />
                     ) : (
                       <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-secondary/10 transition-transform duration-300 group-hover:scale-105">
                         <ServiceIcon className="size-10 stroke-[1.7] text-primary" aria-hidden="true" />

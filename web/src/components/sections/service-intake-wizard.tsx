@@ -89,6 +89,28 @@ const DEFAULT_ATTACHMENT_ACCEPT = "image/jpeg,image/png,image/webp,application/p
 // reject outright.
 const MAX_TOTAL_DOCUMENTS = 6;
 
+// `attachmentType` is free text set per-requirement by staff (see the
+// Requirements Engine) and is usually left empty, so passport-specific
+// guidance is detected from the requirement's own admin-authored name/
+// description instead of a fixed enum. This only ever nudges the customer
+// on photo quality (lighting, all four corners visible, correct page) —
+// never a legal claim like validity duration, which nobody here is
+// qualified to invent.
+const PASSPORT_KEYWORD_PATTERN = /جواز|passport/i;
+
+function isPassportRequirement(requirement: PublicRequirement) {
+  return (
+    PASSPORT_KEYWORD_PATTERN.test(requirement.attachmentType || "") ||
+    PASSPORT_KEYWORD_PATTERN.test(requirement.name) ||
+    PASSPORT_KEYWORD_PATTERN.test(requirement.description || "")
+  );
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} ميغابايت`;
+  return `${Math.max(1, Math.round(bytes / 1024))} كيلوبايت`;
+}
+
 const SERVICE_TITLES: Record<IntakeServiceKind, string> = {
   umrah: "العمرة",
   visa: "التأشيرة",
@@ -200,11 +222,127 @@ export function ServiceIntakeWizard({
   const [documentFilesByRequirement, setDocumentFilesByRequirement] = React.useState<
     Record<string, File[]>
   >({});
+  const [documentErrorsByRequirement, setDocumentErrorsByRequirement] = React.useState<
+    Record<string, string>
+  >({});
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState("");
   const [result, setResult] = React.useState<{ id: string } | null>(null);
   const [copiedRequestNumber, setCopiedRequestNumber] = React.useState(false);
+
+  // Draft save/resume (per-browser, via localStorage — no account or
+  // backend change required). File objects can't be serialized, so only
+  // the typed-in fields are restored; the customer is told to re-attach
+  // documents after resuming rather than the wizard silently pretending
+  // they're still there.
+  const draftKey = React.useMemo(
+    () => `nasaem-intake-draft:${service}:${initialServiceCode || "default"}`,
+    [service, initialServiceCode]
+  );
+  const [draftAvailable, setDraftAvailable] = React.useState(false);
+  const [draftRestored, setDraftRestored] = React.useState(false);
+  // Guards against the autosave effect's very first run (triggered by the
+  // same mount that also runs the draft-detection effect below, in the same
+  // commit) treating the form's still-blank initial state as "the user
+  // cleared everything" and deleting the very draft it just detected.
+  const skipNextAutosaveRef = React.useRef(true);
+
+  type DraftShape = {
+    step: number;
+    selectedServiceId: string;
+    selectedVisaTypeId: string;
+    name: string;
+    phone: string;
+    email: string;
+    travelerCount: number;
+    travelers: Traveler[];
+    notes: string;
+  };
+
+  function readDraft(): DraftShape | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      return raw ? (JSON.parse(raw) as DraftShape) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  React.useEffect(() => {
+    setDraftAvailable(Boolean(readDraft()));
+    // Re-arm the skip for this (possibly new) draft slot — its first
+    // autosave run should observe, not overwrite, whatever is on disk.
+    skipNextAutosaveRef.current = true;
+    // Only re-check when the draft slot itself changes (e.g. deep-linking
+    // into a different package/visa type) — not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  React.useEffect(() => {
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false;
+      return;
+    }
+    if (result || typeof window === "undefined") return;
+    const draft: DraftShape = {
+      step,
+      selectedServiceId,
+      selectedVisaTypeId,
+      name,
+      phone,
+      email,
+      travelerCount,
+      travelers,
+      notes,
+    };
+    // A completely untouched form has nothing worth saving yet.
+    const isEmpty =
+      !name && !phone && !email && !notes && !selectedServiceId && !selectedVisaTypeId &&
+      travelers.every((t) => !t.fullName && !t.passportNo && !t.nationality);
+    try {
+      if (isEmpty && step === 0) window.localStorage.removeItem(draftKey);
+      else window.localStorage.setItem(draftKey, JSON.stringify(draft));
+    } catch {
+      // Storage can legitimately be unavailable (private browsing, quota) —
+      // the wizard must keep working without persistence either way.
+    }
+  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, result]);
+
+  function resumeDraft() {
+    const draft = readDraft();
+    if (!draft) return;
+    setSelectedServiceId(draft.selectedServiceId || "");
+    setSelectedVisaTypeId(draft.selectedVisaTypeId || "");
+    setName(draft.name || "");
+    setPhone(draft.phone || "");
+    setEmail(draft.email || "");
+    setTravelerCount(draft.travelerCount || 1);
+    setTravelers(draft.travelers?.length ? draft.travelers : [{ fullName: "", passportNo: "", nationality: "" }]);
+    setNotes(draft.notes || "");
+    setStep(Math.max(0, draft.step || 0));
+    setDraftAvailable(false);
+    setDraftRestored(true);
+  }
+
+  function discardDraft() {
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      // ignore
+    }
+    setDraftAvailable(false);
+  }
+
+  React.useEffect(() => {
+    if (!result) return;
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      // ignore
+    }
+  }, [result, draftKey]);
 
   React.useEffect(() => {
     let ignore = false;
@@ -261,6 +399,15 @@ export function ServiceIntakeWizard({
   const selectedPackage = packageServices.find((p) => p.id === effectiveServiceId);
   const selectedVisaType = visaTypes.find((v) => v.id === effectiveVisaTypeId);
 
+  // The single source of truth for the price shown to the customer is
+  // whatever Pricing/Admin published against this Service/VisaType — never
+  // a value invented here. A published price of 0 reads the same as "not
+  // published yet" (the review step must not claim a free service by
+  // accident), so both fall back to the same "price pending review" copy.
+  const selectedPriceItem: PublicService | PublicVisaType | undefined =
+    service === "umrah" ? umrahService : service === "package" ? selectedPackage : selectedVisaType;
+  const hasPublishedPrice = Boolean(selectedPriceItem && Number(selectedPriceItem.basePrice) > 0);
+
   // Umrah and Package are Services; Visa uses the selected VisaType — each
   // has its own Requirements Engine endpoint (both backed by the same
   // checklist model, see backend/src/modules/requirements). Only the id
@@ -312,7 +459,23 @@ export function ServiceIntakeWizard({
 
   const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
 
-  function addDocumentFile(requirementId: string, file: File) {
+  // Mirrors the checks upload.middleware.js applies server-side (MIME
+  // allowlist + size cap, both sourced from this same requirement) so a
+  // customer finds out immediately instead of after submitting.
+  function validateDocumentFile(requirement: PublicRequirement, file: File): string | null {
+    if (requirement.allowedMimeTypes.length && !requirement.allowedMimeTypes.includes(file.type)) {
+      return "نوع الملف غير مدعوم. يرجى رفع صورة (JPG/PNG) أو ملف PDF.";
+    }
+    if (requirement.maxSizeBytes && file.size > requirement.maxSizeBytes) {
+      return `حجم الملف كبير جدًا. الحد الأقصى ${formatFileSize(requirement.maxSizeBytes)}.`;
+    }
+    return null;
+  }
+
+  function addDocumentFile(requirementId: string, requirement: PublicRequirement, file: File) {
+    const error = validateDocumentFile(requirement, file);
+    setDocumentErrorsByRequirement((prev) => ({ ...prev, [requirementId]: error || "" }));
+    if (error) return;
     setDocumentFilesByRequirement((prev) => ({
       ...prev,
       [requirementId]: [...(prev[requirementId] ?? []), file],
@@ -527,6 +690,24 @@ export function ServiceIntakeWizard({
 
   return (
     <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-8">
+      {draftAvailable ? (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm">
+          <span className="font-semibold text-foreground">لديك طلب غير مكتمل — هل تريد متابعته؟</span>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" variant="gold" onClick={resumeDraft}>
+              متابعة الطلب
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={discardDraft}>
+              بدء طلب جديد
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {draftRestored ? (
+        <div className="mb-6 rounded-2xl border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+          تمت استعادة بياناتك المحفوظة. يرجى إعادة اختيار أي مستندات مرفقة سابقًا، فهي لا تُحفظ تلقائيًا.
+        </div>
+      ) : null}
       <div className="mb-8 flex items-center gap-2" dir="ltr">
         {steps.map((s, index) => (
           <div
@@ -731,7 +912,7 @@ export function ServiceIntakeWizard({
                             className="hidden"
                             onChange={(e) => {
                               const file = e.target.files?.[0] ?? null;
-                              if (file) addDocumentFile(slot.requirement.id, file);
+                              if (file) addDocumentFile(slot.requirement.id, slot.requirement, file);
                               e.target.value = "";
                             }}
                           />
@@ -740,6 +921,17 @@ export function ServiceIntakeWizard({
                     </div>
                     {slot.requirement.description ? (
                       <p className="text-xs text-muted-foreground">{slot.requirement.description}</p>
+                    ) : null}
+                    {isPassportRequirement(slot.requirement) ? (
+                      <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground">
+                        نصيحة: صوّر صفحة البيانات في الجواز كاملة وبإضاءة جيدة، بحيث تظهر الأركان
+                        الأربعة وجميع الكتابة بوضوح دون انعكاس ضوئي أو اهتزاز.
+                      </p>
+                    ) : null}
+                    {documentErrorsByRequirement[slot.requirement.id] ? (
+                      <p className="text-xs font-semibold text-destructive">
+                        {documentErrorsByRequirement[slot.requirement.id]}
+                      </p>
                     ) : null}
                     {slot.files.length > 0 ? (
                       <ul className="flex flex-col gap-1">
@@ -793,6 +985,25 @@ export function ServiceIntakeWizard({
                     <span key={i}>— {t.fullName}</span>
                   ))}
                 {notes ? <span>ملاحظات: {notes}</span> : null}
+              </div>
+            </div>
+            <div className="rounded-xl border border-accent/40 bg-accent/5 p-4">
+              <span className="font-bold text-foreground">التكلفة</span>
+              <div className="mt-2 flex flex-col gap-1">
+                {hasPublishedPrice && selectedPriceItem ? (
+                  <>
+                    <span className="font-bold text-foreground" dir="ltr">
+                      {Number(selectedPriceItem.basePrice).toLocaleString("en-US")} {selectedPriceItem.currency}
+                    </span>
+                    {selectedPriceItem.currency !== "SDG" && selectedPriceItem.priceSdg != null ? (
+                      <span className="text-xs text-muted-foreground">
+                        يعادل {Math.round(selectedPriceItem.priceSdg).toLocaleString("en-US")} جنيه سوداني
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="text-sm text-muted-foreground">يتم تحديد التكلفة بعد مراجعة الطلب</span>
+                )}
               </div>
             </div>
             <div className="rounded-xl border border-border/70 p-4">

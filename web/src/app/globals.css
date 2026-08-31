@@ -80,6 +80,10 @@
   --animate-fade-up: fade-up 0.7s ease-out both;
   --animate-float: float 6s ease-in-out infinite;
   --animate-shimmer: shimmer 2.5s linear infinite;
+  /* Egypt hero's departing-plane motif — pure CSS, no video/Lottie asset.
+     Paired with the `motion-reduce:animate-none` utility wherever it's
+     used, so prefers-reduced-motion gets a static plane instead. */
+  --animate-fly-route: fly-route 7s ease-in-out infinite;
 
   @keyframes fade-up {
     from {
@@ -106,6 +110,26 @@
     }
     100% {
       background-position: 200% 0;
+    }
+  }
+  @keyframes fly-route {
+    0% {
+      transform: translate(0, 0) rotate(-38deg);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.9;
+    }
+    50% {
+      transform: translate(-90px, -56px) rotate(-38deg);
+      opacity: 0.9;
+    }
+    90% {
+      opacity: 0.9;
+    }
+    100% {
+      transform: translate(-190px, -122px) rotate(-38deg);
+      opacity: 0;
     }
   }
   @keyframes accordion-down {

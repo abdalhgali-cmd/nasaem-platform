@@ -13,6 +13,7 @@ export const createServiceSchema = z.object({
   active: z.coerce.boolean().optional(),
   sortOrder: z.coerce.number().int().optional(),
   iconKey: z.enum(ICON_KEYS).optional().nullable(),
+  motionEnabled: z.coerce.boolean().optional(),
   features: featuresSchema,
   processingTime: z.string().trim().max(100).optional().nullable(),
 });
