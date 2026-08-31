@@ -123,7 +123,7 @@ const VISA_TYPES = [
   { code: "VISA-FAMILY-VISIT", name: "الزيارة العائلية", country: "السعودية", serviceCode: "SVC-FAMILY-VISIT", category: "FAMILY_VISIT" },
   { code: "VISA-WORK", name: "تأشيرة العمل", country: "السعودية", serviceCode: "SVC-WORK-VISA", category: "OTHER" },
   { code: "VISA-INTERNATIONAL", name: "التأشيرات الدولية", country: "دولي", serviceCode: "SVC-INTL-VISA", category: "INTERNATIONAL" },
-  { code: "VISA-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", country: "مصر", serviceCode: "SVC-EGYPT-CLEARANCE", category: "OTHER" },
+  { code: "VISA-EGYPT-CLEARANCE", name: "الموافقة الأمنية لمصر", country: "مصر", serviceCode: "SVC-EGYPT-CLEARANCE", category: "OTHER", currency: "SDG" },
 ];
 
 async function seedVisaTypes() {
@@ -137,7 +137,7 @@ async function seedVisaTypes() {
         name: visa.name,
         country: visa.country,
         basePrice: 0,
-        currency: "SAR",
+        currency: visa.currency || "SAR",
         serviceId: service?.id ?? null,
         category: visa.category,
       },
