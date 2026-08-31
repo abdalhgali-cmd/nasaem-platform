@@ -5,11 +5,13 @@ import { SectionHeading } from "@/components/section-heading";
 import { PageHero } from "@/components/sections/page-hero";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { siteConfig } from "@/lib/site-config";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildPageMetadata({
+  path: "/about",
   title: "من نحن",
   description: "تعرّف على طريقة عمل نسائم الحرمين في تنظيم طلبات السفر والتأشيرات والعمرة بوضوح ومتابعة مباشرة.",
-};
+});
 
 const values = [
   { icon: ShieldCheck, title: "وضوح الإجراءات", description: "نوضح الخطوات والمستندات والتكلفة المنشورة قبل بدء الطلب." },
