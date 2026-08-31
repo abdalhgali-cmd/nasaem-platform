@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
 import { requireTrackingAuth } from "./tracking-auth.middleware.js";
+import { getMyReusableDocuments } from "../case-intelligence/case-intelligence.controller.js";
 import { uploadContactRequestDocument } from "../../middleware/upload.middleware.js";
 import { requireFeatureEnabled } from "../feature-flags/feature-flags.middleware.js";
 import {
@@ -35,6 +36,10 @@ const verifyCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, stand
 router.post("/request-code", requestCodeLimiter, requestCode);
 router.post("/verify-code", verifyCodeLimiter, verifyCode);
 router.get("/requests", requireTrackingAuth, getMyRequests);
+// Smart Case Operations — Release G (document reuse). The caller's own
+// previously-accepted documents, offered for explicit reuse — scoped to the
+// phone this session is authenticated as, never a client-supplied id.
+router.get("/reusable-documents", requireTrackingAuth, getMyReusableDocuments);
 router.get("/payment-accounts", requireTrackingAuth, getMyPaymentAccounts);
 router.post("/requests/:id/invoice/approve", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_APPROVAL"), approveMyInvoice);
 router.post("/requests/:id/invoice/reject", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_APPROVAL"), rejectMyInvoice);

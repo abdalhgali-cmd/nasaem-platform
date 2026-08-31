@@ -32,6 +32,7 @@ import {
   patchProviderSubmission,
   storeProviderSubmission,
 } from "../provider-submissions/provider-submissions.controller.js";
+import { getCaseWarnings } from "../case-intelligence/case-intelligence.controller.js";
 import {
   getCaseTasks,
   patchCaseTaskComplete,
@@ -92,6 +93,15 @@ router.get(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getQueueSummary
+);
+// Smart Case Operations — Release G (case intelligence: expiry, OCR
+// mismatch and duplicate warnings — advisory only, never a rejection).
+router.get(
+  "/:id/warnings",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getCaseWarnings
 );
 // Smart Case Operations — Release E (case tasks).
 router.get(
