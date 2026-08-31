@@ -60,14 +60,8 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       documents: { orderBy: { createdAt: "desc" } },
       deliverables: { orderBy: { createdAt: "desc" } },
       offers: { orderBy: { createdAt: "desc" } },
-      // Smart Case Operations — Release A. The customer's own travelers for
-      // their own request (already scoped by phoneNormalized ownership
-      // above) — lets /track show which traveler a document/replacement
-      // request belongs to once the frontend is updated to use it.
       travelers: { orderBy: { sortOrder: "asc" } },
       serviceRef: { select: { id: true, name: true, category: true } },
-      // code is exposed here only so the customer UI can activate the
-      // service-specific Egypt travel/circular panel for the correct case.
       visaType: { select: { id: true, code: true, name: true, country: true } },
     },
   });
@@ -89,27 +83,26 @@ export async function listContactRequestsForPhone(phoneNormalized) {
   return requests.map((request) => {
     const selectedOffer = request.offers.find((offer) => offer.id === request.selectedOfferId);
     const paymentCurrency = request.invoice?.currency || selectedOffer?.currency || null;
-    // Smart Case Operations — Release D. Derived from the snapshot and the
-    // documents already loaded above; no extra query, and nothing the
-    // customer could not already see about their own request.
     const checklist = buildCustomerChecklist(request);
 
-    // Egypt travel data lives on the same case. Re-derive its circular
-    // status every time tracking is read so issuing the approval deliverable
-    // or simply getting closer to the trip cannot leave a stale READY state
-    // stored in intakeData.
     const storedEgyptTravel = request.intakeData?.egyptTravel || null;
-    const liveEgyptTravel =
-      request.visaType?.code === EGYPT_CLEARANCE_CODE && storedEgyptTravel?.entryDate && storedEgyptTravel?.bookingStatus
-        ? {
-            ...storedEgyptTravel,
-            ...deriveEgyptCircularStatus({
-              entryDate: storedEgyptTravel.entryDate,
-              bookingStatus: storedEgyptTravel.bookingStatus,
-              approvalIssued: request.deliverables.length > 0,
-            }),
-          }
-        : storedEgyptTravel;
+    let liveEgyptTravel = storedEgyptTravel;
+    if (
+      request.visaType?.code === EGYPT_CLEARANCE_CODE &&
+      storedEgyptTravel?.entryDate &&
+      storedEgyptTravel?.bookingStatus
+    ) {
+      const liveCircular = deriveEgyptCircularStatus({
+        entryDate: storedEgyptTravel.entryDate,
+        bookingStatus: storedEgyptTravel.bookingStatus,
+        approvalIssued: request.deliverables.length > 0,
+      });
+      liveEgyptTravel = {
+        ...storedEgyptTravel,
+        circularStatus: liveCircular.status,
+        daysUntilEntry: liveCircular.daysUntilEntry,
+      };
+    }
 
     return {
       ...request,
@@ -148,10 +141,6 @@ export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, fi
   const result = await createContactRequestDocument(contactRequestId, {
     label: "إشعار الدفع",
     file,
-    // Smart Case Operations — Release F: a payment receipt is a financial
-    // record, so it is excluded from provider packages by default (sending
-    // a customer's transfer receipt to an embassy would be a real privacy
-    // incident). See provider-submissions.service.js.
     classification: "FINANCIAL_DOCUMENT",
   });
 
