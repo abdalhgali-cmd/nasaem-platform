@@ -295,7 +295,40 @@ export function ServiceIntakeWizard({
     travelerCount: number;
     travelers: Traveler[];
     notes: string;
+    // Smart Case Operations — Release A/B. Answer-type requirements are
+    // part of what the customer has filled in, so a resumed draft that
+    // dropped them would silently lose work.
+    answers?: Record<string, string>;
   };
+
+  // Smart Case Operations — Release B (server-side drafts). localStorage
+  // above keeps the wizard resilient with no network at all; this mirrors
+  // the same state to the server so a customer can resume on another
+  // device, or after clearing this browser. The two are complementary, and
+  // a server failure never blocks the wizard — the local draft still works.
+  //
+  // The token is the draft's only authorization (see intake-drafts.routes.js),
+  // so it is held exactly where the local draft is and never put in a URL.
+  const serverDraftKey = `${draftKey}:token`;
+  const serverDraftTokenRef = React.useRef<string | null>(null);
+  const [autosaveState, setAutosaveState] = React.useState<"idle" | "saving" | "saved" | "offline">("idle");
+
+  // Mirrors DRAFT_PUBLIC_SELECT (intake-drafts.service.js). Every field is
+  // optional because a draft is saved partially by design, from whatever
+  // step the customer reached.
+  type ServerDraft = {
+    serviceId?: string | null;
+    visaTypeId?: string | null;
+    step?: number | null;
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    travelerCount?: number | null;
+    notes?: string | null;
+    answers?: Record<string, string> | null;
+    travelers?: Traveler[] | null;
+  };
+  const [serverDraft, setServerDraft] = React.useState<ServerDraft | null>(null);
 
   function readDraft(): DraftShape | null {
     if (typeof window === "undefined") return null;
@@ -333,6 +366,7 @@ export function ServiceIntakeWizard({
       travelerCount,
       travelers,
       notes,
+      answers,
     };
     // A completely untouched form has nothing worth saving yet.
     const isEmpty =
@@ -345,10 +379,149 @@ export function ServiceIntakeWizard({
       // Storage can legitimately be unavailable (private browsing, quota) —
       // the wizard must keep working without persistence either way.
     }
-  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, result]);
+  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, answers, result]);
+
+  // Mirrors the local draft to the server, debounced so typing doesn't
+  // produce a request per keystroke. Every failure path here is silent by
+  // design: server-side resume is an enhancement, and a customer must never
+  // be shown a network error for something they didn't ask for.
+  React.useEffect(() => {
+    if (result || typeof window === "undefined") return;
+
+    const isEmpty =
+      !name && !phone && !email && !notes && !selectedServiceId && !selectedVisaTypeId &&
+      travelers.every((t) => !t.fullName && !t.passportNo && !t.nationality);
+    if (isEmpty) return;
+
+    const timer = window.setTimeout(async () => {
+      setAutosaveState("saving");
+      try {
+        if (!serverDraftTokenRef.current) {
+          const existing = window.localStorage.getItem(serverDraftKey);
+          if (existing) serverDraftTokenRef.current = existing;
+        }
+
+        if (!serverDraftTokenRef.current) {
+          const createRes = await fetch(`${API_URL}/intake-drafts`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              serviceKind: service,
+              serviceId: selectedServiceId || undefined,
+              visaTypeId: selectedVisaTypeId || undefined,
+            }),
+          });
+          if (!createRes.ok) throw new Error("draft create failed");
+          const payload = await createRes.json();
+          const token = payload?.data?.token;
+          if (!token) throw new Error("draft create returned no token");
+          serverDraftTokenRef.current = token;
+          try {
+            window.localStorage.setItem(serverDraftKey, token);
+          } catch {
+            // Same tolerance as the local draft: storage may be unavailable.
+          }
+        }
+
+        const patchRes = await fetch(`${API_URL}/intake-drafts/${serverDraftTokenRef.current}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            step,
+            serviceKind: service,
+            serviceId: selectedServiceId || undefined,
+            visaTypeId: selectedVisaTypeId || undefined,
+            name,
+            phone,
+            email,
+            travelerCount,
+            notes,
+            answers,
+            travelers,
+          }),
+        });
+        if (!patchRes.ok) {
+          // A draft that expired or was already submitted must not be
+          // retried forever — drop the token and let the next save start a
+          // fresh one.
+          if (patchRes.status === 404 || patchRes.status === 409) {
+            serverDraftTokenRef.current = null;
+            try {
+              window.localStorage.removeItem(serverDraftKey);
+            } catch {
+              // ignore
+            }
+          }
+          throw new Error("draft save failed");
+        }
+        setAutosaveState("saved");
+      } catch {
+        setAutosaveState("offline");
+      }
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+    // Deliberately keyed on the same values as the local autosave above, so
+    // the two persist exactly the same snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, answers, result]);
+
+  // Resume from the server when this browser has no local draft but does
+  // still hold a token (e.g. localStorage was partially cleared, or the
+  // customer returned after the local draft expired).
+  React.useEffect(() => {
+    if (typeof window === "undefined" || draftRestored || readDraft()) return;
+    let token: string | null = null;
+    try {
+      token = window.localStorage.getItem(serverDraftKey);
+    } catch {
+      return;
+    }
+    if (!token) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/intake-drafts/${token}`);
+        if (!res.ok) return;
+        const payload = await res.json();
+        const draft = payload?.data;
+        if (!draft || cancelled) return;
+        serverDraftTokenRef.current = token;
+        // Surface it the same way a local draft is surfaced — the customer
+        // chooses to resume; nothing is silently repopulated underneath them.
+        setServerDraft(draft);
+        setDraftAvailable(true);
+      } catch {
+        // Offline resume simply isn't offered.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverDraftKey]);
 
   function resumeDraft() {
-    const draft = readDraft();
+    const local = readDraft();
+    // The server draft is only ever used when this browser has no local one
+    // (see the effect above), so local wins whenever both exist — it is the
+    // more recent of the two by construction.
+    const draft: DraftShape | null = local ?? (serverDraft
+      ? {
+          step: serverDraft.step ?? 0,
+          selectedServiceId: serverDraft.serviceId ?? "",
+          selectedVisaTypeId: serverDraft.visaTypeId ?? "",
+          name: serverDraft.name ?? "",
+          phone: serverDraft.phone ?? "",
+          email: serverDraft.email ?? "",
+          travelerCount: serverDraft.travelerCount ?? 1,
+          travelers: serverDraft.travelers ?? [],
+          notes: serverDraft.notes ?? "",
+          answers: serverDraft.answers ?? {},
+        }
+      : null);
     if (!draft) return;
     setSelectedServiceId(draft.selectedServiceId || "");
     setSelectedVisaTypeId(draft.selectedVisaTypeId || "");
@@ -358,6 +531,7 @@ export function ServiceIntakeWizard({
     setTravelerCount(draft.travelerCount || 1);
     setTravelers(draft.travelers?.length ? draft.travelers : [{ fullName: "", passportNo: "", nationality: "" }]);
     setNotes(draft.notes || "");
+    setAnswers(draft.answers || {});
     setStep(Math.max(0, draft.step || 0));
     setDraftAvailable(false);
     setDraftRestored(true);
@@ -366,9 +540,16 @@ export function ServiceIntakeWizard({
   function discardDraft() {
     try {
       window.localStorage.removeItem(draftKey);
+      // Release B — drop the server draft's token too, or the next autosave
+      // would resurrect the very draft the customer just discarded. The
+      // row itself is left to expire on its own schedule rather than
+      // deleted from a public endpoint.
+      window.localStorage.removeItem(serverDraftKey);
     } catch {
       // ignore
     }
+    serverDraftTokenRef.current = null;
+    setServerDraft(null);
     setDraftAvailable(false);
   }
 
@@ -769,7 +950,7 @@ export function ServiceIntakeWizard({
           تمت استعادة بياناتك المحفوظة. يرجى إعادة اختيار أي مستندات مرفقة سابقًا، فهي لا تُحفظ تلقائيًا.
         </div>
       ) : null}
-      <div className="mb-8 flex items-center gap-2" dir="ltr">
+      <div className="mb-2 flex items-center gap-2" dir="ltr">
         {steps.map((s, index) => (
           <div
             key={s}
@@ -777,6 +958,15 @@ export function ServiceIntakeWizard({
           />
         ))}
       </div>
+      {/* Release B — autosave is worth showing only once it has actually
+          happened. "idle" renders nothing rather than promising a save the
+          customer hasn't got yet, and a failed save says so plainly
+          instead of silently implying their work is safe. */}
+      <p className="mb-6 h-4 text-xs text-muted-foreground" aria-live="polite">
+        {autosaveState === "saving" ? "جارٍ الحفظ…" : null}
+        {autosaveState === "saved" ? "تم حفظ تقدمك تلقائيًا، يمكنك المتابعة لاحقًا." : null}
+        {autosaveState === "offline" ? "تعذّر الحفظ على الخادم — تقدمك محفوظ في هذا المتصفح فقط." : null}
+      </p>
 
       {current === "select" ? (
         <StepShell

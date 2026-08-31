@@ -11,6 +11,7 @@ import {
 } from "../contact-request-documents/contact-request-documents.service.js";
 import { getContactRequestDeliverableFile } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
+import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-checklist.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -84,8 +85,14 @@ export async function listContactRequestsForPhone(phoneNormalized) {
   return requests.map((request) => {
     const selectedOffer = request.offers.find((offer) => offer.id === request.selectedOfferId);
     const paymentCurrency = request.invoice?.currency || selectedOffer?.currency || null;
+    // Smart Case Operations — Release D. Derived from the snapshot and the
+    // documents already loaded above; no extra query, and nothing the
+    // customer could not already see about their own request.
+    const checklist = buildCustomerChecklist(request);
     return {
       ...request,
+      checklist,
+      nextActions: buildCustomerNextActions(request, checklist),
       statusLabel: deriveTrackingStatusLabel(request),
       paymentCurrency,
       paymentAccounts: paymentCurrency
