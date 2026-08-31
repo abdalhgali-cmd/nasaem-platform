@@ -57,7 +57,10 @@ type Traveler = {
 // GET /api/visa-types/:id/requirements/public and
 // GET /api/services/:id/requirements/public) — admin-configured per visa
 // type or service, replacing what used to be a static, hand-maintained
-// document list here.
+// document list here. type/scope/options/condition* are Smart Case
+// Operations Release A (see backend/prisma/schema.prisma's VisaRequirement
+// comment) — every requirement predating that release has type "DOCUMENT",
+// so filtering on it below changes nothing for existing checklists.
 type PublicRequirement = {
   id: string;
   name: string;
@@ -69,12 +72,41 @@ type PublicRequirement = {
   allowedMimeTypes: string[];
   maxSizeBytes: number | null;
   ocrEnabled: boolean;
+  type: "TEXT" | "NUMBER" | "DATE" | "SELECT" | "YES_NO" | "DOCUMENT";
+  scope: "CUSTOMER" | "TRAVELER" | "CASE";
+  options: { value: string; label: string }[] | null;
+  conditionRequirementId: string | null;
+  conditionOperator: "EQUALS" | "NOT_EQUALS" | "GREATER_THAN" | "LESS_THAN" | null;
+  conditionValue: string | null;
 };
 
 type DocumentSlot = {
   requirement: PublicRequirement;
   files: File[];
 };
+
+// Mirrors backend/src/modules/requirements/requirements.service.js's
+// requirementApplies() exactly — kept as a small standalone pure function
+// here (not imported; the web app doesn't share a package with the
+// backend) purely for live show/hide responsiveness as the customer
+// answers. The server re-validates independently and is the actual
+// authority — this is UX only.
+function requirementApplies(requirement: PublicRequirement, answers: Record<string, string>): boolean {
+  if (!requirement.conditionRequirementId || !requirement.conditionOperator) return true;
+
+  const actual = answers[requirement.conditionRequirementId];
+  const expected = requirement.conditionValue;
+
+  if (requirement.conditionOperator === "EQUALS") return String(actual ?? "") === String(expected ?? "");
+  if (requirement.conditionOperator === "NOT_EQUALS") return String(actual ?? "") !== String(expected ?? "");
+
+  const actualNumber = Number(actual);
+  const expectedNumber = Number(expected);
+  if (Number.isNaN(actualNumber) || Number.isNaN(expectedNumber)) return false;
+  if (requirement.conditionOperator === "GREATER_THAN") return actualNumber > expectedNumber;
+  if (requirement.conditionOperator === "LESS_THAN") return actualNumber < expectedNumber;
+  return true;
+}
 
 // Same MIME allowlist the backend's upload middleware enforces for every
 // contact-request document (backend/src/middleware/upload.middleware.js) —
@@ -225,6 +257,11 @@ export function ServiceIntakeWizard({
   const [documentErrorsByRequirement, setDocumentErrorsByRequirement] = React.useState<
     Record<string, string>
   >({});
+  // Smart Case Operations — Release A. Answers to non-DOCUMENT requirement
+  // types (TEXT/NUMBER/DATE/SELECT/YES_NO), keyed by requirement id — sent
+  // to the backend as-is (see handleSubmit) and also used locally to
+  // evaluate requirementApplies() for conditional requirements.
+  const [answers, setAnswers] = React.useState<Record<string, string>>({});
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState("");
@@ -452,10 +489,20 @@ export function ServiceIntakeWizard({
     };
   }, [requirementsEndpoint]);
 
-  const documentSlots: DocumentSlot[] = requirements.map((requirement) => ({
-    requirement,
-    files: documentFilesByRequirement[requirement.id] ?? [],
-  }));
+  // Smart Case Operations — Release A. Only DOCUMENT-type, currently-
+  // applicable requirements become an upload slot; TEXT/NUMBER/DATE/SELECT/
+  // YES_NO requirements become an answerSlot instead (rendered further
+  // below). Every requirement predating this release is type "DOCUMENT"
+  // with no condition, so this is exactly documentSlots' old behavior for
+  // every existing checklist.
+  const applicableRequirements = requirements.filter((r) => requirementApplies(r, answers));
+  const documentSlots: DocumentSlot[] = applicableRequirements
+    .filter((r) => r.type === "DOCUMENT")
+    .map((requirement) => ({
+      requirement,
+      files: documentFilesByRequirement[requirement.id] ?? [],
+    }));
+  const answerSlots: PublicRequirement[] = applicableRequirements.filter((r) => r.type !== "DOCUMENT");
 
   const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
 
@@ -578,6 +625,20 @@ export function ServiceIntakeWizard({
           notes: notes.trim() || undefined,
         })
       );
+      // Smart Case Operations — Release A. Same traveler data, also sent
+      // through the structured field (createContactRequestSchema's
+      // `travelers`) so the backend creates real Traveler rows — additive:
+      // intakeData.travelers above is unchanged, existing readers of it
+      // keep working exactly as before.
+      if (filledTravelers.length > 0) {
+        formData.append(
+          "travelers",
+          JSON.stringify(filledTravelers.map((t) => ({ fullName: t.fullName, passportNo: t.passportNo || undefined, nationality: t.nationality || undefined })))
+        );
+      }
+      if (Object.keys(answers).length > 0) {
+        formData.append("answers", JSON.stringify(answers));
+      }
 
       // Parallel arrays, same order as the `documents` files — the
       // requirement id lets the backend apply that requirement's own
@@ -874,6 +935,65 @@ export function ServiceIntakeWizard({
           description="يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."
         >
           <div className="flex flex-col gap-3">
+            {!loadingRequirements && answerSlots.length > 0 ? (
+              <div className="flex flex-col gap-3 rounded-xl border border-border/70 p-3">
+                {answerSlots.map((requirement) => (
+                  <div key={requirement.id} className="flex flex-col gap-1.5">
+                    <label className="text-sm font-semibold text-foreground" htmlFor={`answer-${requirement.id}`}>
+                      {requirement.name}
+                      {requirement.required ? (
+                        <span className="ms-1 text-xs font-bold text-destructive">*</span>
+                      ) : (
+                        <span className="ms-1 text-xs font-normal text-muted-foreground">(اختياري)</span>
+                      )}
+                    </label>
+                    {requirement.description ? (
+                      <p className="text-xs text-muted-foreground">{requirement.description}</p>
+                    ) : null}
+                    {requirement.type === "SELECT" ? (
+                      <select
+                        id={`answer-${requirement.id}`}
+                        value={answers[requirement.id] ?? ""}
+                        onChange={(e) => setAnswers((prev) => ({ ...prev, [requirement.id]: e.target.value }))}
+                        className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary"
+                      >
+                        <option value="">اختر...</option>
+                        {(requirement.options ?? []).map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : requirement.type === "YES_NO" ? (
+                      <div className="flex gap-2">
+                        {(["YES", "NO"] as const).map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setAnswers((prev) => ({ ...prev, [requirement.id]: value }))}
+                            className={`min-h-10 flex-1 rounded-xl border px-4 text-sm font-semibold transition ${
+                              answers[requirement.id] === value
+                                ? "border-primary bg-primary/10 text-primary dark:text-secondary"
+                                : "border-border text-muted-foreground"
+                            }`}
+                          >
+                            {value === "YES" ? "نعم" : "لا"}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <input
+                        id={`answer-${requirement.id}`}
+                        type={requirement.type === "NUMBER" ? "number" : requirement.type === "DATE" ? "date" : "text"}
+                        value={answers[requirement.id] ?? ""}
+                        onChange={(e) => setAnswers((prev) => ({ ...prev, [requirement.id]: e.target.value }))}
+                        className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {loadingRequirements ? (
               <div className="flex justify-center py-6">
                 <Loader2 className="size-6 animate-spin text-primary" />
