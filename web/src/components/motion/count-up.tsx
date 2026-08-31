@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useInView, useReducedMotion, animate } from "framer-motion";
+import { useInView, animate } from "framer-motion";
+import { useHydrationSafeReducedMotion } from "@/lib/use-hydration-safe-reduced-motion";
 
 export function CountUp({
   value,
@@ -16,7 +17,7 @@ export function CountUp({
 }) {
   const ref = React.useRef<HTMLSpanElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-60px" });
-  const shouldReduceMotion = useReducedMotion();
+  const shouldReduceMotion = useHydrationSafeReducedMotion();
   const [display, setDisplay] = React.useState(0);
 
   React.useEffect(() => {
@@ -31,8 +32,9 @@ export function CountUp({
     return () => controls.stop();
   }, [isInView, value, duration, shouldReduceMotion]);
 
-  // When motion is reduced, skip the animated state entirely and derive the
-  // shown value straight from render instead of mirroring it into state.
+  // The hydration-safe preference remains false for the server render and the
+  // first browser render. Reduced-motion users switch directly to the final
+  // value only after hydration has completed.
   const shown = shouldReduceMotion && isInView ? value : display;
 
   return (

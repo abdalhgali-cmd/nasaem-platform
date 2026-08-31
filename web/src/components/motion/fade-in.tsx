@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { motion, useReducedMotion, type Variants } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useHydrationSafeReducedMotion } from "@/lib/use-hydration-safe-reduced-motion";
 
 type FadeInProps = {
   children: React.ReactNode;
@@ -19,7 +20,7 @@ export function FadeIn({
   direction = "up",
   as = "div",
 }: FadeInProps) {
-  const shouldReduceMotion = useReducedMotion();
+  const shouldReduceMotion = useHydrationSafeReducedMotion();
 
   const variants: Variants = {
     hidden: {
@@ -29,7 +30,7 @@ export function FadeIn({
     visible: {
       opacity: 1,
       y: 0,
-      transition: { duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] },
+      transition: { duration: shouldReduceMotion ? 0 : 0.6, delay: shouldReduceMotion ? 0 : delay, ease: [0.22, 1, 0.36, 1] },
     },
   };
 
