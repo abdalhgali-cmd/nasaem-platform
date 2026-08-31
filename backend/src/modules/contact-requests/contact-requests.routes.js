@@ -33,6 +33,7 @@ import {
   storeProviderSubmission,
 } from "../provider-submissions/provider-submissions.controller.js";
 import { getCaseWarnings } from "../case-intelligence/case-intelligence.controller.js";
+import { getTimeline } from "../case-timeline/case-timeline.controller.js";
 import {
   getCaseTasks,
   patchCaseTaskComplete,
@@ -102,6 +103,16 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   requireContactRequestOrganization,
   getCaseWarnings
+);
+// Smart Case Operations — the case's own audit trail, readable by the
+// roles that work cases. The unfiltered log (with old/new values) stays
+// SUPER_ADMIN/ADMIN-only on /api/activity.
+router.get(
+  "/:id/timeline",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getTimeline
 );
 // Smart Case Operations — Release E (case tasks).
 router.get(

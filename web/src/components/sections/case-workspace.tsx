@@ -147,6 +147,39 @@ type Warning = {
 
 type StaffUser = { id: string; fullName: string; role: string };
 
+type TimelineEntry = {
+  id: string;
+  action: string;
+  createdAt: string;
+  user: { id: string; fullName: string } | null;
+};
+
+// The audit trail records machine actions; staff read Arabic. An action
+// with no entry here falls back to its raw name rather than being hidden —
+// a timeline that silently drops events it doesn't recognise is worse than
+// one that occasionally shows a code.
+const ACTION_LABEL: Record<string, string> = {
+  CONTACT_REQUEST_RECEIVED: "استلام الطلب",
+  CONTACT_REQUEST_STATUS_CHANGED: "تغيير حالة الطلب",
+  CONTACT_REQUEST_ASSIGNED: "إسناد الطلب لموظف",
+  CONTACT_REQUEST_UNASSIGNED: "إلغاء إسناد الطلب",
+  CONTACT_REQUEST_DOCUMENT_UPLOADED: "رفع مستند",
+  CONTACT_REQUEST_DOCUMENT_REVIEWED: "مراجعة مستند",
+  CONTACT_REQUEST_INVOICE_SET: "تحديد السعر",
+  CONTACT_REQUEST_INVOICE_APPROVED: "موافقة العميل على السعر",
+  CONTACT_REQUEST_INVOICE_REJECTED: "رفض العميل للسعر",
+  CONTACT_REQUEST_OFFER_ADDED: "إضافة عرض",
+  CONTACT_REQUEST_OFFER_SELECTED: "اختيار العميل لعرض",
+  CONTACT_REQUEST_TRANSFER_MARKED_SENT: "إعلان العميل عن التحويل",
+  CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED: "رفع إشعار الدفع",
+  CONTACT_REQUEST_PAYMENT_CONFIRMED: "تأكيد الدفع",
+  CONTACT_REQUEST_AUTO_COMPLETED: "إغلاق تلقائي بعد التسليم",
+  TASK_CREATED: "إنشاء مهمة",
+  TASK_COMPLETED: "إنهاء مهمة",
+  PROVIDER_SUBMISSION_CREATED: "تجهيز إرسال للجهة",
+  PROVIDER_SUBMITTED: "إرسال الحالة للجهة",
+};
+
 function formatDate(value: string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleString("ar-SD", { dateStyle: "short", timeStyle: "short", calendar: "gregory" });
@@ -395,7 +428,7 @@ function CaseDetail({
   staff: StaffUser[];
   onChanged: () => void;
 }) {
-  const [tab, setTab] = React.useState<"overview" | "travelers" | "documents" | "tasks" | "provider">("overview");
+  const [tab, setTab] = React.useState<"overview" | "travelers" | "documents" | "tasks" | "provider" | "activity">("overview");
   const [warnings, setWarnings] = React.useState<Warning[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [actionError, setActionError] = React.useState("");
@@ -437,6 +470,7 @@ function CaseDetail({
     { key: "documents" as const, label: `المستندات (${caseRow.documents.filter((d) => !d.supersededAt).length})` },
     { key: "tasks" as const, label: `المهام (${caseRow.tasks.length})` },
     { key: "provider" as const, label: "الجهة المنفّذة" },
+    { key: "activity" as const, label: "السجل" },
   ];
 
   return (
@@ -512,6 +546,7 @@ function CaseDetail({
         {tab === "documents" ? <DocumentsTab caseRow={caseRow} busy={busy} run={run} /> : null}
         {tab === "tasks" ? <TasksTab caseRow={caseRow} busy={busy} run={run} /> : null}
         {tab === "provider" ? <ProviderTab caseRow={caseRow} /> : null}
+        {tab === "activity" ? <ActivityTab caseId={caseRow.id} /> : null}
       </div>
     </div>
   );
@@ -872,5 +907,44 @@ function ProviderTab({ caseRow }: { caseRow: CaseRow }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function ActivityTab({ caseId }: { caseId: string }) {
+  const [entries, setEntries] = React.useState<TimelineEntry[] | null>(null);
+  const [failed, setFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/contact-requests/${caseId}/timeline`, { credentials: "include" });
+        const payload = await readJson(res);
+        if (!cancelled) setEntries(payload.data ?? []);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [caseId]);
+
+  if (failed) return <p className="text-sm text-muted-foreground">تعذّر تحميل سجل الحالة.</p>;
+  if (entries === null) return <p className="text-sm text-muted-foreground">جاري تحميل السجل…</p>;
+  if (entries.length === 0) return <p className="text-sm text-muted-foreground">لا توجد أحداث مسجّلة على هذه الحالة.</p>;
+
+  return (
+    <ol className="flex flex-col gap-2">
+      {entries.map((entry) => (
+        <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/70 p-3 text-xs">
+          <span className="text-sm font-semibold">{ACTION_LABEL[entry.action] ?? entry.action}</span>
+          <span className="text-muted-foreground">
+            {entry.user?.fullName ? `${entry.user.fullName} · ` : ""}
+            {formatDate(entry.createdAt)}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
