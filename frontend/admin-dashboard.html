@@ -129,6 +129,23 @@
         <button type="button" data-mgmt="umrah-groups">أفواج العمرة</button>
       </div>
 
+      <!-- Flight bookings and flight inventory are standalone admin pages
+           (own header/back button), not data-mgmt panels like the sections
+           above — linked here so staff can actually reach them instead of
+           needing the direct URL. -->
+      <div class="card" style="margin-top: 12px">
+        <div class="stack" style="justify-content: space-between; align-items: center">
+          <div>
+            <h2 style="margin: 0">أدوات تشغيل الطيران</h2>
+            <p class="muted">إدارة رحلات الطيران المدخلة يدويًا وأسعار الصرف، ومتابعة طلبات حجز الطيران حتى إصدار التذكرة.</p>
+          </div>
+          <div class="stack">
+            <a class="btn secondary" href="/flight-management.html" style="text-decoration: none">إدارة الرحلات</a>
+            <a class="btn secondary" href="/flight-bookings.html" style="text-decoration: none">طلبات حجز الطيران</a>
+          </div>
+        </div>
+      </div>
+
       <div id="mgmt-alert"></div>
 
       <!-- Branches -->
