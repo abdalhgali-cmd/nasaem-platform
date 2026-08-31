@@ -5,6 +5,7 @@ import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { signTrackingToken } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { deriveTrackingStatusLabel } from "./contact-request-tracking.status.js";
+import { deriveEgyptCircularStatus } from "./egypt-clearance-travel.service.js";
 import {
   createContactRequestDocument,
   getContactRequestDocumentFile,
@@ -15,6 +16,7 @@ import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-che
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
+const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
 
 export async function requestLoginCode(rawPhone) {
   const phone = normalizePhone(rawPhone);
@@ -64,7 +66,9 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       // request belongs to once the frontend is updated to use it.
       travelers: { orderBy: { sortOrder: "asc" } },
       serviceRef: { select: { id: true, name: true, category: true } },
-      visaType: { select: { id: true, name: true, country: true } },
+      // code is exposed here only so the customer UI can activate the
+      // service-specific Egypt travel/circular panel for the correct case.
+      visaType: { select: { id: true, code: true, name: true, country: true } },
     },
   });
 
@@ -89,8 +93,29 @@ export async function listContactRequestsForPhone(phoneNormalized) {
     // documents already loaded above; no extra query, and nothing the
     // customer could not already see about their own request.
     const checklist = buildCustomerChecklist(request);
+
+    // Egypt travel data lives on the same case. Re-derive its circular
+    // status every time tracking is read so issuing the approval deliverable
+    // or simply getting closer to the trip cannot leave a stale READY state
+    // stored in intakeData.
+    const storedEgyptTravel = request.intakeData?.egyptTravel || null;
+    const liveEgyptTravel =
+      request.visaType?.code === EGYPT_CLEARANCE_CODE && storedEgyptTravel?.entryDate && storedEgyptTravel?.bookingStatus
+        ? {
+            ...storedEgyptTravel,
+            ...deriveEgyptCircularStatus({
+              entryDate: storedEgyptTravel.entryDate,
+              bookingStatus: storedEgyptTravel.bookingStatus,
+              approvalIssued: request.deliverables.length > 0,
+            }),
+          }
+        : storedEgyptTravel;
+
     return {
       ...request,
+      intakeData: request.intakeData
+        ? { ...request.intakeData, ...(liveEgyptTravel ? { egyptTravel: liveEgyptTravel } : {}) }
+        : request.intakeData,
       checklist,
       nextActions: buildCustomerNextActions(request, checklist),
       statusLabel: deriveTrackingStatusLabel(request),
