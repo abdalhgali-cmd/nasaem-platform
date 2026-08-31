@@ -228,6 +228,30 @@ model Supplier {
   submissions ProviderSubmission[]
 }
 
+// Smart Case Operations — Release E (internal work management). A small,
+// fixed set of case tasks — deliberately NOT a BPM engine: no branching,
+// no configurable workflows, no per-tenant task designer. Each value is
+// one concrete thing a person does next on a case.
+enum CaseTaskType {
+  REVIEW_DOCUMENTS
+  CHECK_PAYMENT
+  PROCESS_APPLICATION
+  FOLLOW_UP_PROVIDER
+  OTHER
+}
+
+enum CaseTaskStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+// Whether the platform opened this task off a case event, or a person did.
+enum CaseTaskSource {
+  SYSTEM
+  MANUAL
+}
+
 // How a case is handed to an external provider. EMAIL and MANUAL_PORTAL
 // are implemented (see provider-submissions.service.js and
 // utils/providerEmail.js); API and OFFLINE exist so a provider can be
@@ -252,6 +276,39 @@ enum ProviderSubmissionStatus {
 // creates a NEW row rather than mutating this one — submission history is
 // append-only, so "what did we send them, when, and who did it" survives
 // every later correction.
+// One unit of work on a case. Kept intentionally thin — a task is a
+// pointer to the case plus who owns it and when it's due; the actual state
+// of the work lives on the case itself (documents, payment, readiness),
+// never duplicated here where it could drift.
+model CaseTask {
+  id                String         @id @default(cuid())
+  contactRequestId  String
+  type              CaseTaskType
+  title             String
+  status            CaseTaskStatus @default(OPEN)
+  source            CaseTaskSource @default(SYSTEM)
+  assignedUserId    String?
+  dueAt             DateTime?
+  completedAt       DateTime?
+  completedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  assignedUser   User?          @relation("CaseTaskAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  completedBy    User?          @relation("CaseTaskCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  createdBy      User?          @relation("CaseTaskCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  // A given system task exists at most once per case in an OPEN state —
+  // enforced in caseTasks.service.js rather than by a partial unique index,
+  // since a completed task of the same type may legitimately recur later.
+  @@index([contactRequestId])
+  @@index([assignedUserId])
+  @@index([status])
+  @@index([dueAt])
+}
+
 model ProviderSubmission {
   id                String                   @id @default(cuid())
   contactRequestId  String
@@ -330,6 +387,9 @@ model User {
   contactRequestDeliverablesUploaded ContactRequestDeliverable[] @relation("ContactRequestDeliverableUploadedBy")
   couponsCreated                     Coupon[]                    @relation("CouponCreatedBy")
   providerSubmissionsCreated         ProviderSubmission[]        @relation("ProviderSubmissionCreatedBy")
+  caseTasksAssigned                  CaseTask[]                  @relation("CaseTaskAssignee")
+  caseTasksCompleted                 CaseTask[]                  @relation("CaseTaskCompletedBy")
+  caseTasksCreated                   CaseTask[]                  @relation("CaseTaskCreatedBy")
 
   @@index([role])
   @@index([status])
@@ -1155,6 +1215,10 @@ model ContactRequest {
   // past cases, just unassign them). Null means unassigned (the only value
   // every request had before this release).
   assignedUserId      String?
+  // Smart Case Operations — Release E (SLA). When this case is expected to
+  // be finished. Null means "no expectation recorded" — never a guess, and
+  // never surfaced to a customer as a promise (see deriveSlaState).
+  dueAt               DateTime?
   organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   serviceRef          Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   visaType            VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
@@ -1168,6 +1232,7 @@ model ContactRequest {
   selectedOffer       ContactRequestOffer?        @relation("SelectedOffer", fields: [selectedOfferId], references: [id], onDelete: SetNull)
   travelers           Traveler[]
   providerSubmissions ProviderSubmission[]
+  tasks               CaseTask[]
 
   @@index([status])
   @@index([createdAt])

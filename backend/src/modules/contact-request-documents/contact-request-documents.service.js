@@ -4,7 +4,7 @@ import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
-import { describeRequest, notifyAdmins } from "../contact-requests/contact-requests.service.js";
+import { describeRequest, notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
 
@@ -130,6 +130,9 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
     type: "CONTACT_REQUEST_DOCUMENT_UPLOADED",
   });
 
+  // Release E: a new upload is new review work.
+  await refreshCaseTasks(contactRequestId);
+
   return { document };
 }
 
@@ -184,6 +187,10 @@ export async function updateContactRequestDocumentStatus(
     entity: "ContactRequest",
     entityId: contactRequestId,
   });
+
+  // Release E: a review decision can complete "review documents" or open
+  // "check payment" — keep the case's open tasks in step with it.
+  await refreshCaseTasks(contactRequestId);
 
   // Guarded on the review status actually changing — re-saving the same
   // decision (e.g. staff re-submitting a rejection with just an edited

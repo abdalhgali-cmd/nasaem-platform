@@ -14,6 +14,7 @@ import {
   downloadDeliverableFile,
   downloadDocumentFile,
   getContactRequests,
+  getQueueSummary,
   patchContactRequestAssignment,
   patchContactRequestStatus,
   previewPricing,
@@ -31,6 +32,11 @@ import {
   patchProviderSubmission,
   storeProviderSubmission,
 } from "../provider-submissions/provider-submissions.controller.js";
+import {
+  getCaseTasks,
+  patchCaseTaskComplete,
+  storeCaseTask,
+} from "../case-tasks/case-tasks.controller.js";
 
 const router = Router();
 
@@ -78,6 +84,36 @@ router.get(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getContactRequests
+);
+// Smart Case Operations — Release G. Declared before "/:id/..." routes so
+// "queue-summary" is never captured as a contact-request id.
+router.get(
+  "/queue-summary",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  getQueueSummary
+);
+// Smart Case Operations — Release E (case tasks).
+router.get(
+  "/:id/tasks",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getCaseTasks
+);
+router.post(
+  "/:id/tasks",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  storeCaseTask
+);
+router.patch(
+  "/:id/tasks/:taskId/complete",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  patchCaseTaskComplete
 );
 router.patch(
   "/:id/status",

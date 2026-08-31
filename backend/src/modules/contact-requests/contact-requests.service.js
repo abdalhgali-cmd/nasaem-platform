@@ -12,6 +12,7 @@ import {
 } from "../contact-request-tracking/contact-request-tracking.status.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist, requirementApplies } from "../requirements/requirements.service.js";
+import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 
@@ -312,20 +313,32 @@ export function computeReadiness(contactRequest) {
   // contact-request-tracking.status.js's deriveTrackingStatusLabel (most
   // actionable/blocking state wins), just for the internal, not
   // customer-facing, view.
+  // Release F: a case already sent to a provider is waiting on them, not
+  // on us — that outranks "ready to process", which it no longer is.
+  const awaitingProvider = (contactRequest.providerSubmissions || []).some((s) => s.status !== "FAILED");
+  // Release E: results are in once the customer has something to collect.
+  const hasDeliverable = (contactRequest.deliverables || []).length > 0;
+
   let queue = "READY_FOR_PROCESSING";
   if (contactRequest.status === "CLOSED") queue = "COMPLETED";
+  else if (hasDeliverable) queue = "RESULTS_READY";
   else if (documentsRejected) queue = "WAITING_CUSTOMER";
   else if (documentsUnderReview) queue = "NEEDS_REVIEW";
   else if (!documentsComplete || !answersComplete) queue = "MISSING_DOCUMENTS";
   else if (!paymentReady) queue = "WAITING_PAYMENT";
+  else if (awaitingProvider) queue = "WAITING_PROVIDER";
 
   return {
     documentsComplete,
     answersComplete,
     paymentReady,
     documentsUnderReview,
+    awaitingProvider,
     overall: ready ? "READY_FOR_PROCESSING" : "NOT_READY",
     queue,
+    // Release E (SLA). Null whenever the case carries no recorded
+    // expectation — never an invented deadline.
+    sla: deriveSlaState(contactRequest.dueAt),
   };
 }
 
@@ -366,6 +379,18 @@ export async function listContactRequests({ page, limit, skip, status, organizat
         visaType: { select: { id: true, name: true, country: true } },
         // Smart Case Operations — Release C groundwork.
         assignedUser: { select: safeUserSelect },
+        // Release F/E: needed by computeReadiness's WAITING_PROVIDER bucket
+        // and by the case workspace's Provider/Activity sections. Selected
+        // fields only — the full submission detail has its own endpoint.
+        providerSubmissions: {
+          orderBy: { createdAt: "desc" },
+          select: { id: true, status: true, channel: true, submittedAt: true, externalReference: true, supplierId: true },
+        },
+        tasks: {
+          where: { status: "OPEN" },
+          orderBy: { createdAt: "asc" },
+          select: { id: true, type: true, title: true, status: true, dueAt: true, assignedUserId: true },
+        },
       },
     }),
     prisma.contactRequest.count({ where }),
@@ -374,6 +399,96 @@ export async function listContactRequests({ page, limit, skip, status, organizat
   return {
     data: data.map((contactRequest) => ({ ...contactRequest, readiness: computeReadiness(contactRequest) })),
     meta: buildPaginationMeta(page, limit, total),
+  };
+}
+
+// Smart Case Operations — Release E. Recomputes a single case's readiness
+// and brings its open system tasks in line with it. Called from the events
+// that can change readiness (a document review decision, a payment
+// confirmation) so a queue never shows work that's already done, or misses
+// work that just appeared. Best-effort by design: a task-sync failure must
+// never fail the staff action that triggered it.
+export async function refreshCaseTasks(contactRequestId) {
+  try {
+    const contactRequest = await prisma.contactRequest.findUnique({
+      where: { id: contactRequestId },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+        dueAt: true,
+        assignedUserId: true,
+        requirementsSnapshot: true,
+        intakeData: true,
+        documents: { where: { supersededAt: null }, select: { requirementId: true, status: true, supersededAt: true } },
+        deliverables: { select: { id: true } },
+        providerSubmissions: { select: { status: true } },
+      },
+    });
+    if (!contactRequest) return;
+
+    await syncCaseTasks(contactRequestId, computeReadiness(contactRequest), {
+      assignedUserId: contactRequest.assignedUserId,
+    });
+  } catch {
+    // Intentionally swallowed — see this function's comment.
+  }
+}
+
+// Smart Case Operations — Release G (management operations metrics). Counts
+// of open work per queue bucket, for the operations dashboard. Computed off
+// the same computeReadiness() every case list already uses, so the numbers a
+// manager sees can never disagree with the queues employees actually work.
+//
+// Deliberately bounded: it reads the open (non-CLOSED) cases for the
+// organization with only the fields readiness needs — not every column, not
+// every closed case in history — and counts them in memory. Closed/completed
+// totals come from a plain indexed count rather than being materialized.
+export async function getOperationsQueueSummary(organizationId) {
+  const [openCases, completedCount] = await Promise.all([
+    prisma.contactRequest.findMany({
+      where: { organizationId, status: { not: "CLOSED" } },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+        dueAt: true,
+        requirementsSnapshot: true,
+        intakeData: true,
+        assignedUserId: true,
+        documents: { where: { supersededAt: null }, select: { requirementId: true, status: true, supersededAt: true } },
+        deliverables: { select: { id: true } },
+        providerSubmissions: { select: { status: true } },
+      },
+    }),
+    prisma.contactRequest.count({ where: { organizationId, status: "CLOSED" } }),
+  ]);
+
+  const queues = {
+    MISSING_DOCUMENTS: 0,
+    NEEDS_REVIEW: 0,
+    WAITING_CUSTOMER: 0,
+    WAITING_PAYMENT: 0,
+    READY_FOR_PROCESSING: 0,
+    WAITING_PROVIDER: 0,
+    RESULTS_READY: 0,
+  };
+  let overdue = 0;
+  let unassigned = 0;
+
+  for (const contactRequest of openCases) {
+    const readiness = computeReadiness(contactRequest);
+    if (queues[readiness.queue] !== undefined) queues[readiness.queue] += 1;
+    if (readiness.sla === "OVERDUE") overdue += 1;
+    if (!contactRequest.assignedUserId) unassigned += 1;
+  }
+
+  return {
+    queues,
+    open: openCases.length,
+    unassigned,
+    overdue,
+    completed: completedCount,
   };
 }
 
@@ -657,6 +772,10 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
     entity: "ContactRequest",
     entityId: contactRequestId,
   });
+
+  // Release E: payment confirmation closes "check payment" and can open
+  // "process application".
+  await refreshCaseTasks(contactRequestId);
 
   // Not awaited: same rationale as elsewhere in this module.
   sendWhatsAppMessage(

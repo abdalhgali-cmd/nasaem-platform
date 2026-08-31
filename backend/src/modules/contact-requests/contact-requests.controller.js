@@ -11,6 +11,7 @@ import {
   createContactRequest,
   createOffer,
   createOrUpdateInvoice,
+  getOperationsQueueSummary,
   listContactRequests,
   updateContactRequestStatus,
 } from "./contact-requests.service.js";
@@ -114,6 +115,17 @@ export async function getContactRequests(req, res, next) {
       data,
       meta,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Smart Case Operations — Release G. Operations metrics for the management
+// dashboard, scoped to the acting staff member's own organization.
+export async function getQueueSummary(req, res, next) {
+  try {
+    const data = await getOperationsQueueSummary(req.user.organizationId);
+    return res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }
