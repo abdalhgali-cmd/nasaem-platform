@@ -1,4 +1,5 @@
 import {
+  egyptTravelPlanSchema,
   requestCodeSchema,
   verifyCodeSchema,
 } from "./contact-request-tracking.validators.js";
@@ -15,6 +16,7 @@ import {
   getMyDocumentFile,
   getMyDeliverableFile,
 } from "./contact-request-tracking.service.js";
+import { saveMyEgyptTravelPlan } from "./egypt-clearance-travel.service.js";
 import { listActivePaymentAccounts } from "../payment-accounts/payment-accounts.service.js";
 import { uploadContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
 import { getTrackingTokenMaxAgeMs } from "../../utils/jwt.js";
@@ -47,6 +49,39 @@ const UPLOAD_ERROR_MESSAGES = {
   TRAVELER_NOT_FOUND: "This traveler does not belong to this request",
 };
 export async function uploadDocument(req, res, next) { try { const parsed = uploadContactRequestDocumentSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() }); if (!req.file) return res.status(400).json({ success: false, message: "A file is required" }); const result = await uploadMyDocument(req.trackingPhone, req.params.id, { label: parsed.data.label, file: req.file, requirementId: parsed.data.requirementId, travelerId: parsed.data.travelerId }); if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" }); if (result.error && UPLOAD_ERROR_MESSAGES[result.error]) return res.status(400).json({ success: false, message: UPLOAD_ERROR_MESSAGES[result.error], details: result.details }); return res.status(201).json({ success: true, data: result.document }); } catch (error) { next(error); } }
+
+const EGYPT_TRAVEL_ERROR_RESPONSES = {
+  NOT_FOUND: { status: 404, message: "الطلب غير موجود" },
+  WRONG_SERVICE: { status: 400, message: "هذه الخطوة متاحة فقط لطلبات الموافقة الأمنية لمصر" },
+  INVALID_DATE: { status: 400, message: "تاريخ الدخول غير صالح" },
+  ENTRY_DATE_PASSED: { status: 400, message: "تاريخ الدخول لا يمكن أن يكون في الماضي" },
+  BOOKING_DOCUMENT_REQUIRED: { status: 400, message: "ارفع صورة أو PDF للتذكرة/الحجز قبل حفظ بيانات التعميم" },
+};
+
+export async function saveEgyptTravelPlan(req, res, next) {
+  try {
+    const parsed = egyptTravelPlanSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+
+    const result = await saveMyEgyptTravelPlan(req.trackingPhone, req.params.id, parsed.data, req.file);
+    const mapped = EGYPT_TRAVEL_ERROR_RESPONSES[result.error];
+    if (mapped) return res.status(mapped.status).json({ success: false, message: mapped.message, details: result.details });
+    if (result.error) return res.status(400).json({ success: false, message: "تعذّر حفظ بيانات السفر", details: result.details });
+
+    return res.status(200).json({
+      success: true,
+      message: result.plan.bookingStatus === "NEEDS_NASAEM"
+        ? "تم إرسال طلب الحجز إلى فريق نسائم الحرمين"
+        : "تم حفظ بيانات السفر وربط الحجز بنفس طلب الموافقة",
+      data: result.plan,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function downloadMyDocumentFile(req, res, next) { try { const file = await getMyDocumentFile(req.trackingPhone, req.params.id, req.params.documentId); if (!file) return res.status(404).json({ success: false, message: "Document not found" }); return res.sendFile(file.absolutePath, { headers: { "Content-Type": file.mimeType } }); } catch (error) { next(error); } }
 export async function downloadMyDeliverableFile(req, res, next) { try { const file = await getMyDeliverableFile(req.trackingPhone, req.params.id, req.params.deliverableId); if (!file) return res.status(404).json({ success: false, message: "Deliverable not found" }); return res.sendFile(file.absolutePath, { headers: { "Content-Type": file.mimeType } }); } catch (error) { next(error); } }
 export async function logout(req, res, next) { try { res.clearCookie("trackingAccessToken", TRACKING_COOKIE_OPTIONS); return res.status(200).json({ success: true, message: "تم تسجيل الخروج" }); } catch (error) { next(error); } }
