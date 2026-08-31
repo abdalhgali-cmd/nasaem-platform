@@ -132,6 +132,7 @@ model Organization {
   orders          Order[]
   contactRequests ContactRequest[]
   activityLogs    ActivityLog[]
+  intakeDrafts    IntakeDraft[]
 }
 
 model Branch {
@@ -1126,9 +1127,66 @@ enum ContactRequestDocumentStatus {
   REJECTED
 }
 
+// Smart Case Operations — Release B (server-side drafts). The authoritative
+// pre-submission state for an in-progress intake, so a customer on a weak
+// connection can resume where they left off instead of relying on
+// localStorage alone (which the wizard keeps as a local convenience).
+//
+// Deliberately NOT a second application system: a draft holds only what the
+// wizard has collected so far and converts into exactly one ContactRequest
+// on submit (submittedContactRequestId), after which it is read-only. It is
+// kept separate from ContactRequest on purpose — creating the
+// ContactRequest early would fire the staff/WhatsApp/admin notifications
+// and put half-finished rows in every staff queue and count.
+//
+// `token` is the customer's only credential for an anonymous draft, so it
+// is generated server-side from crypto random bytes and never derived from
+// anything guessable (see intake-drafts.service.js).
+model IntakeDraft {
+  id                        String   @id @default(cuid())
+  token                     String   @unique
+  organizationId            String   @default("org_nasaem_default")
+  // Set once the customer types a phone — lets an OTP-verified customer
+  // recover a draft whose token they no longer have (cleared browser).
+  phoneNormalized           String?
+  serviceKind               String?
+  serviceId                 String?
+  visaTypeId                String?
+  step                      Int      @default(0)
+  name                      String?
+  phone                     String?
+  email                     String?
+  travelerCount             Int?
+  notes                     String?
+  answers                   Json?
+  travelers                 Json?
+  // { [documentId]: travelerIndex } — which entry of `travelers` above owns
+  // each uploaded draft document. Held here rather than on the document row
+  // because ContactRequestDocument.travelerId is a real FK and the Traveler
+  // rows don't exist until the draft is submitted; submitDraft() resolves
+  // these indexes to the created Traveler ids.
+  documentTravelerRefs      Json?
+  submittedContactRequestId String?  @unique
+  expiresAt                 DateTime
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  documents    ContactRequestDocument[]
+
+  @@index([phoneNormalized])
+  @@index([expiresAt])
+}
+
 model ContactRequestDocument {
   id               String                       @id @default(cuid())
-  contactRequestId String
+  // Nullable since Release B: a document uploaded during an intake draft
+  // has no ContactRequest yet (draftId below holds it instead), and is
+  // re-pointed here when the draft is submitted. Every pre-existing row
+  // keeps its value, and every existing query by contactRequestId is
+  // unaffected.
+  contactRequestId String?
+  draftId          String?
   label            String
   fileName         String
   storagePath      String
@@ -1167,12 +1225,14 @@ model ContactRequestDocument {
   createdAt        DateTime                     @default(now())
   updatedAt        DateTime                     @updatedAt
 
-  contactRequest ContactRequest   @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  contactRequest ContactRequest?  @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  draft          IntakeDraft?     @relation(fields: [draftId], references: [id], onDelete: Cascade)
   reviewedBy     User?            @relation("ContactRequestDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
   requirement    VisaRequirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
   traveler       Traveler?        @relation(fields: [travelerId], references: [id], onDelete: SetNull)
 
   @@index([contactRequestId])
+  @@index([draftId])
   @@index([status])
   @@index([reviewedByUserId])
   @@index([requirementId])

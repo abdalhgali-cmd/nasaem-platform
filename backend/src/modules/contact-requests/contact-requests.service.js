@@ -230,6 +230,18 @@ export async function createContactRequest(data, req, files = []) {
           return created;
         });
 
+  await announceNewContactRequest(contactRequest, { documentCount: files.length, req, customerId: req.customer?.id });
+
+  return contactRequest;
+}
+
+// Everything that must happen once a ContactRequest exists, regardless of
+// which path created it — the public form/wizard (createContactRequest
+// above) or a submitted server-side draft (Release B, see
+// intake-drafts.service.js). Extracted so a draft submission can never
+// silently skip the staff notification/audit trail a direct submission
+// gets.
+export async function announceNewContactRequest(contactRequest, { documentCount = 0, req = undefined, customerId = null } = {}) {
   logActivity({
     action: "CONTACT_REQUEST_RECEIVED",
     entity: "ContactRequest",
@@ -238,7 +250,7 @@ export async function createContactRequest(data, req, files = []) {
   });
 
   await createNotification({
-    customerId: req.customer?.id,
+    customerId: customerId || undefined,
     title: "تم استلام طلبك",
     message: `تم استلام طلب الخدمة رقم ${contactRequest.id} وسيتم التواصل معك عند وجود تحديث.`,
     type: "CONTACT_REQUEST_RECEIVED",
@@ -249,7 +261,7 @@ export async function createContactRequest(data, req, files = []) {
     title: "طلب تواصل جديد من الموقع",
     message:
       `${contactRequest.name} (${contactRequest.phone}) — ${contactRequest.message.slice(0, 120)}` +
-      (files.length ? ` — مع ${files.length} مستند(ات) مرفق(ة)` : ""),
+      (documentCount ? ` — مع ${documentCount} مستند(ات) مرفق(ة)` : ""),
     type: "CONTACT_REQUEST",
   });
 
@@ -260,8 +272,6 @@ export async function createContactRequest(data, req, files = []) {
     process.env.WHATSAPP_ADMIN_NUMBER,
     `طلب تواصل جديد من الموقع\nالاسم: ${contactRequest.name}\nالهاتف: ${contactRequest.phone}\nالرسالة: ${contactRequest.message.slice(0, 200)}`
   );
-
-  return contactRequest;
 }
 
 // Smart Case Operations — Release C groundwork (readiness engine). Purely
