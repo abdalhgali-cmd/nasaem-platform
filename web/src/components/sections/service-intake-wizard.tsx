@@ -2,7 +2,6 @@
 
 import * as React from "react";
 
-/* eslint-disable react-hooks/set-state-in-effect -- checklist state synchronizes with the selected API-backed service. */
 import Link from "next/link";
 import {
   Check,
@@ -737,6 +736,72 @@ export function ServiceIntakeWizard({
     });
   }
 
+  // Smart Case Operations — Release B (passport-first). The customer
+  // photographs the passport once and the MRZ fills the traveler's fields,
+  // instead of typing what the document already says. Two rules make this
+  // safe to offer:
+  //
+  //  1. It only ever *prefills*. Every field stays editable and nothing is
+  //     submitted until the customer confirms — the confirmed value is the
+  //     one they stand behind, and staff see any disagreement with OCR as a
+  //     warning rather than the platform silently picking a side.
+  //  2. It needs a server draft, because OCR runs on the server against the
+  //     stored file. When there is no draft yet (autosave hasn't run, or
+  //     the server is unreachable) the control simply isn't offered — the
+  //     customer types as before rather than being shown a broken button.
+  const [scanningTraveler, setScanningTraveler] = React.useState<number | null>(null);
+  const [scanMessageByTraveler, setScanMessageByTraveler] = React.useState<Record<number, string>>({});
+
+  async function scanPassport(index: number, file: File) {
+    const token = serverDraftTokenRef.current;
+    if (!token) return;
+
+    setScanningTraveler(index);
+    setScanMessageByTraveler((current) => ({ ...current, [index]: "" }));
+
+    try {
+      const body = new FormData();
+      body.append("label", "جواز السفر");
+      body.append("travelerIndex", String(index));
+      body.append("file", file);
+
+      const res = await fetch(`${API_URL}/intake-drafts/${token}/documents`, { method: "POST", body });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.message || "تعذّرت قراءة الجواز");
+
+      const ocr = payload?.data?.ocrResult;
+      if (!ocr?.documentNumber) {
+        // OCR is strict by design (checksum-valid MRZ only), so "couldn't
+        // read it" is a normal outcome, not an error the customer caused.
+        setScanMessageByTraveler((current) => ({
+          ...current,
+          [index]: "تم حفظ الصورة، لكن تعذّرت قراءة بيانات الجواز تلقائيًا. يمكنك إدخالها يدويًا.",
+        }));
+        return;
+      }
+
+      const fullName = [ocr.givenNames, ocr.surname].filter(Boolean).join(" ").trim();
+      updateTraveler(index, {
+        // Never overwrite something the customer already typed — a scan is
+        // an offer to save them work, not a correction of their own input.
+        ...(fullName && !travelers[index]?.fullName ? { fullName } : {}),
+        ...(ocr.documentNumber && !travelers[index]?.passportNo ? { passportNo: ocr.documentNumber } : {}),
+        ...(ocr.nationality && !travelers[index]?.nationality ? { nationality: ocr.nationality } : {}),
+      });
+      setScanMessageByTraveler((current) => ({
+        ...current,
+        [index]: "تمت قراءة بيانات الجواز — يرجى مراجعتها وتصحيح أي خطأ قبل المتابعة.",
+      }));
+    } catch (err) {
+      setScanMessageByTraveler((current) => ({
+        ...current,
+        [index]: err instanceof Error ? err.message : "تعذّرت قراءة الجواز",
+      }));
+    } finally {
+      setScanningTraveler(null);
+    }
+  }
+
   function updateTraveler(index: number, patch: Partial<Traveler>) {
     setTravelers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
   }
@@ -1097,6 +1162,27 @@ export function ServiceIntakeWizard({
                     placeholder="الجنسية (اختياري)"
                     className={`${inputClass} h-10 text-xs`}
                   />
+                  {serverDraftTokenRef.current ? (
+                    <div className="sm:col-span-3">
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
+                        {scanningTraveler === index ? "جارٍ قراءة الجواز…" : "تعبئة البيانات من صورة الجواز"}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          disabled={scanningTraveler !== null}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = "";
+                            if (file) void scanPassport(index, file);
+                          }}
+                        />
+                      </label>
+                      {scanMessageByTraveler[index] ? (
+                        <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
