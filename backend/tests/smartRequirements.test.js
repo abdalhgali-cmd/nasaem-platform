@@ -95,6 +95,25 @@ describe("smart requirements — type/scope/options/condition CRUD", () => {
     assert.equal(res.body.data.scope, "CASE");
   });
 
+  // What the admin requirement form actually sends for a non-SELECT
+  // requirement with no condition: explicit nulls rather than omitted keys.
+  test("accepts explicit nulls for options and the condition trio", async () => {
+    const res = await agent.post(`/api/services/${service.id}/requirements`).send({
+      name: "مهنة مقدم الطلب",
+      type: "TEXT",
+      scope: "CUSTOMER",
+      options: null,
+      conditionRequirementId: null,
+      conditionOperator: null,
+      conditionValue: null,
+    });
+
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.data.type, "TEXT");
+    assert.equal(res.body.data.options, null);
+    assert.equal(res.body.data.conditionRequirementId, null);
+  });
+
   test("a conditional YES_NO requirement can reference another requirement, and rejects a half-set condition", async () => {
     const parentRes = await agent.post(`/api/services/${service.id}/requirements`).send({
       name: "هل تقيم خارج السودان؟",
