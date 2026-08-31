@@ -6,6 +6,7 @@ const routes = [
   "/umrah",
   "/visas",
   "/flights",
+  "/ferries",
   "/hotels",
   "/packages",
   "/about",
