@@ -12,6 +12,7 @@ import {
   submitDraft,
   updateDraft,
 } from "./intake-drafts.service.js";
+import { validateEgyptClearanceDraft } from "./egypt-clearance-draft.js";
 
 // Smart Case Operations — Release B. Every draft error maps to a clean
 // status here rather than leaking through as a 500, mirroring how the
@@ -22,6 +23,10 @@ const DRAFT_ERROR_RESPONSES = {
   EXPIRED: { status: 410, message: "This draft has expired, please start a new request" },
   ALREADY_SUBMITTED: { status: 409, message: "This draft was already submitted" },
   INCOMPLETE_DRAFT: { status: 400, message: "الاسم ورقم الهاتف مطلوبان قبل إرسال الطلب" },
+  EGYPT_CLEARANCE_INCOMPLETE: {
+    status: 400,
+    message: "يرجى إكمال بيانات الموافقة الأساسية ورفع صورة الجواز قبل إرسال الطلب",
+  },
   DOCUMENT_NOT_FOUND: { status: 404, message: "Document not found on this draft" },
   REQUIREMENT_NOT_FOUND: { status: 400, message: "This requirement does not belong to the selected service" },
   INVALID_MIME: { status: 400, message: "This file type isn't allowed for this requirement" },
@@ -43,8 +48,6 @@ export async function storeDraft(req, res, next) {
     }
 
     const { draft, token } = await createDraft(parsed.data);
-    // The token is returned exactly once, at creation — the client stores
-    // it and sends it as the path parameter on every later call.
     return res.status(201).json({ success: true, data: { ...draft, token } });
   } catch (error) {
     next(error);
@@ -119,6 +122,17 @@ export async function submitDraftController(req, res, next) {
     const parsed = submitDraftSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+
+    // Egypt Security Approval has a dedicated approval-first customer journey.
+    // Enforce its small set of mandatory approval facts on the server too;
+    // UI-required attributes alone are not a security/business-rule boundary.
+    const draft = await getDraftByToken(req.params.token);
+    if (!draft) return res.status(404).json({ success: false, message: "Draft not found" });
+    const egyptValidation = await validateEgyptClearanceDraft(draft);
+    if (egyptValidation) {
+      const errorResponse = respondToDraftError(res, egyptValidation);
+      if (errorResponse) return errorResponse;
     }
 
     const result = await submitDraft(req.params.token, { message: parsed.data.message });
