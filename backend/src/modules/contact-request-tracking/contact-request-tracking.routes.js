@@ -15,6 +15,7 @@ import {
   markMyTransferSent,
   rejectMyInvoice,
   requestCode,
+  saveEgyptTravelPlan,
   selectMyOffer,
   uploadDocument,
   uploadPaymentReceipt,
@@ -47,6 +48,10 @@ router.post("/requests/:id/offers/:offerId/select", requireTrackingAuth, selectM
 router.post("/requests/:id/payment-receipt", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_UPLOAD"), handleUpload, uploadPaymentReceipt);
 router.post("/requests/:id/mark-transfer-sent", requireTrackingAuth, markMyTransferSent);
 router.post("/requests/:id/documents", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_UPLOAD"), handleUpload, uploadDocument);
+// Egypt Security Approval — post-approval travel/circular stage. The same
+// authenticated customer updates the same case; an optional booking file is
+// accepted in the same multipart request when they already booked elsewhere.
+router.post("/requests/:id/egypt-travel-plan", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_UPLOAD"), handleUpload, saveEgyptTravelPlan);
 router.get("/requests/:id/documents/:documentId/file", requireTrackingAuth, downloadMyDocumentFile);
 router.get("/requests/:id/deliverables/:deliverableId/file", requireTrackingAuth, downloadMyDeliverableFile);
 router.post("/logout", requireTrackingAuth, logout);

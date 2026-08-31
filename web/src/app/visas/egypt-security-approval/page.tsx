@@ -1,18 +1,13 @@
 import type { Metadata } from "next";
-import {
-  Bell,
-  Clock3,
-  FileCheck2,
-  FileText,
-  MessageCircle,
-  Phone,
-  ShieldCheck,
-  Wallet,
-} from "lucide-react";
+import { Clock3, FileCheck2, MessageCircle, Phone, ShieldCheck, Wallet } from "lucide-react";
+
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { EgyptClearanceHero } from "@/components/sections/egypt-clearance-hero";
-import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
+import {
+  EgyptClearanceIntake,
+  type EgyptClearanceRequirement,
+} from "@/components/sections/egypt-clearance-intake";
 import { Faq, type FaqItem } from "@/components/sections/faq";
 import { RelatedServices } from "@/components/sections/related-services";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
@@ -22,14 +17,11 @@ import { getPublicSiteSettings } from "@/lib/public-settings";
 import { buildPageMetadata } from "@/lib/seo";
 import { resolveServiceHeroMedia, type ServiceHeroMedia } from "@/lib/service-hero-media";
 
-// The VisaType code seeded for this service (backend/prisma/seed.js) —
-// admins can rename/re-price/re-describe it freely from the Visa Types
-// admin UI; this page only ever reads that data, never hardcodes it.
 const VISA_CODE = "VISA-EGYPT-CLEARANCE";
 const PAGE_PATH = "/visas/egypt-security-approval";
 const FALLBACK_TITLE = "الموافقة الأمنية للسفر إلى مصر";
 const FALLBACK_DESCRIPTION =
-  "قدّم طلب الموافقة الأمنية للسفر إلى مصر إلكترونيًا من هاتفك، وتابع حالته خطوة بخطوة حتى استلام الوثيقة النهائية.";
+  "قدّم طلب الموافقة الأمنية لمصر الآن حتى لو لم تحدد موعد السفر بعد، ثم أكمل الحجز والتعميم لاحقًا من نفس الطلب.";
 
 type PublicVisaType = {
   id: string;
@@ -48,13 +40,6 @@ type PublicVisaType = {
 };
 
 type PublicService = { id: string } & ServiceHeroMedia;
-
-type PublicRequirement = {
-  id: string;
-  name: string;
-  description: string | null;
-  required: boolean;
-};
 
 async function getCatalog(): Promise<{ services: PublicService[]; visaTypes: PublicVisaType[] }> {
   try {
@@ -83,22 +68,19 @@ export async function generateMetadata(): Promise<Metadata> {
   });
 }
 
-async function getRequirements(visaTypeId: string): Promise<PublicRequirement[]> {
+async function getRequirements(visaTypeId: string): Promise<EgyptClearanceRequirement[]> {
   try {
     const response = await fetch(`${API_URL}/visa-types/${visaTypeId}/requirements/public`, {
       next: { revalidate: 60 },
     });
     if (!response.ok) return [];
-    const payload = (await response.json()) as { data?: PublicRequirement[] };
+    const payload = (await response.json()) as { data?: EgyptClearanceRequirement[] };
     return payload.data ?? [];
   } catch {
     return [];
   }
 }
 
-// EGYPT_CLEARANCE_FAQ (see backend/src/modules/settings/settings.service.js)
-// is a Setting row an admin edits through the existing free-form Settings
-// editor — no dedicated FAQ module for this one service.
 async function getEgyptClearanceFaq(): Promise<FaqItem[]> {
   try {
     const response = await fetch(`${API_URL}/settings/public`, { next: { revalidate: 60 } });
@@ -118,36 +100,18 @@ async function getEgyptClearanceFaq(): Promise<FaqItem[]> {
   }
 }
 
-const steps = [
-  { title: "بياناتك", description: "أدخل اسمك ورقم هاتفك للتواصل بخصوص طلبك." },
-  { title: "بيانات السفر", description: "بيانات المسافر ورقم الجواز إن توفر لديك." },
-  { title: "المستندات", description: "أرفق المستندات المطلوبة، أو أرسل الطلب وارفعها لاحقًا من صفحة التتبع." },
-  { title: "المراجعة والإرسال", description: "راجع بياناتك ثم أرسل الطلب لتصلك حالته وخطوته التالية أولًا بأول." },
-];
-
-// A fixed, honest list of what NASAEM's existing systems actually do for
-// this request — never a superlative or unverifiable promise ("ضمان
-// الموافقة"، "بدون أخطاء"، إلخ) per the platform's marketing-claims policy.
-const whyNasaem = [
+const journey = [
   {
-    icon: Bell,
-    title: "خطوة تالية واضحة دائمًا",
-    description: "تعرف بالضبط ما هو المطلوب منك الآن، دون الحاجة للاتصال للسؤال.",
+    title: "قدّم الموافقة الآن",
+    description: "أدخل بياناتك الأساسية وارفع الجواز. لا نطلب حجزًا أو تاريخ سفر في هذه المرحلة.",
   },
   {
-    icon: ShieldCheck,
-    title: "وصول آمن لمستنداتك فقط",
-    description: "لا يمكن لأي عميل آخر الوصول إلى مستنداتك أو وثيقتك النهائية.",
+    title: "حدّد السفر عندما تكون جاهزًا",
+    description: "يمكن أن يكون سفرك لاحقًا حتى بعد عدة أشهر. عندما تحدد الموعد تكمل نفس الطلب، ولا تبدأ معاملة جديدة.",
   },
   {
-    icon: FileText,
-    title: "تسليم إلكتروني للوثيقة النهائية",
-    description: "تصلك الوثيقة كملف قابل للتنزيل من صفحة تتبع طلبك فور اعتمادها.",
-  },
-  {
-    icon: Clock3,
-    title: "متابعة حالة الطلب في أي وقت",
-    description: "استخدم رقم هاتفك لعرض حالة طلبك وحالة كل مستند من صفحة التتبع.",
+    title: "أكمل الحجز والتعميم",
+    description: "إذا كنت حاجزًا ترفع التذكرة، وإن لم تكن حاجزًا يمكنك طلب حجز جوي أو بري من نسائم الحرمين. التعميم يُجهّز قبل الرحلة بمدة لا تقل عن 72 ساعة.",
   },
 ];
 
@@ -158,24 +122,15 @@ export default async function EgyptSecurityApprovalPage() {
   ]);
   const visaType = visaTypes.find((visa) => visa.code === VISA_CODE) ?? null;
   const relatedVisaTypes = visaTypes.filter((visa) => visa.code !== VISA_CODE).slice(0, 3);
-  const linkedService = visaType?.serviceId ? (services.find((s) => s.id === visaType.serviceId) ?? null) : null;
+  const linkedService = visaType?.serviceId ? (services.find((service) => service.id === visaType.serviceId) ?? null) : null;
   const heroMedia = resolveServiceHeroMedia(linkedService, API_URL);
   const [requirements, faqItems] = await Promise.all([
-    visaType ? getRequirements(visaType.id) : Promise.resolve<PublicRequirement[]>([]),
+    visaType ? getRequirements(visaType.id) : Promise.resolve<EgyptClearanceRequirement[]>([]),
     getEgyptClearanceFaq(),
   ]);
 
   const numericPrice = visaType ? Number(visaType.basePrice) : NaN;
   const hasPublishedPrice = Number.isFinite(numericPrice) && numericPrice > 0;
-
-  const quickFacts = [
-    visaType?.processingTime ? { label: "مدة المعالجة", value: visaType.processingTime } : null,
-    visaType?.validity ? { label: "صلاحية الموافقة", value: visaType.validity } : null,
-    visaType?.stayDuration ? { label: "مدة الإقامة", value: visaType.stayDuration } : null,
-  ].filter(Boolean) as { label: string; value: string }[];
-
-  // Same price source as the quick-facts card below (Pricing/Admin via the
-  // VisaType record) — just formatted as short hero copy instead of a card.
   const heroPriceLabel =
     hasPublishedPrice && visaType
       ? `${numericPrice.toLocaleString("en-US")} ${visaType.currency}`
@@ -188,11 +143,8 @@ export default async function EgyptSecurityApprovalPage() {
   return (
     <>
       <EgyptClearanceHero
-        title={visaType?.name || "الموافقة الأمنية للسفر إلى مصر"}
-        description={
-          visaType?.description ||
-          "قدّم بياناتك ومستنداتك إلكترونيًا، وتابع حالة طلبك خطوة بخطوة حتى استلام الموافقة، دون الحاجة للاتصال بنا لمعرفة ماذا يلي."
-        }
+        title={visaType?.name || FALLBACK_TITLE}
+        description={visaType?.description || FALLBACK_DESCRIPTION}
         priceLabel={heroPriceLabel}
         priceSubLabel={heroPriceSubLabel}
         isAccepting={Boolean(visaType)}
@@ -202,137 +154,98 @@ export default async function EgyptSecurityApprovalPage() {
         motionVideoUrl={heroMedia.motionVideoUrl}
       />
 
-      <section className="py-16">
+      <section id="book" className="scroll-mt-24 py-12 sm:py-16">
         <Container>
-          <div className="grid gap-6 sm:grid-cols-3">
+          <SectionHeading
+            eyebrow="ابدأ مباشرة"
+            title="قدّم طلب الموافقة الأمنية"
+            description="الموافقة لا تتطلب وجود حجز سفر الآن. أدخل بيانات المسافر وارفع الجواز، ثم تابع بقية الرحلة من نفس الطلب لاحقًا."
+          />
+          <div className="mt-9">
+            {visaType ? (
+              <EgyptClearanceIntake
+                visaTypeId={visaType.id}
+                serviceId={visaType.serviceId}
+                requirements={requirements}
+              />
+            ) : (
+              <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+                استقبال طلبات هذه الخدمة متوقف مؤقتًا. يرجى التواصل معنا للمساعدة.
+              </div>
+            )}
+          </div>
+        </Container>
+      </section>
+
+      <section className="bg-section py-16 sm:py-20">
+        <Container>
+          <SectionHeading eyebrow="كيف تعمل الخدمة؟" title="الموافقة أولًا، والسفر لاحقًا" />
+          <Stagger className="mt-10 grid gap-5 lg:grid-cols-3">
+            {journey.map((item, index) => (
+              <FadeIn key={item.title} delay={index * 0.06}>
+                <div className="h-full rounded-3xl border border-border bg-card p-6 shadow-sm">
+                  <span className="flex size-10 items-center justify-center rounded-xl bg-primary text-sm font-extrabold text-primary-foreground">
+                    {index + 1}
+                  </span>
+                  <h3 className="mt-4 text-base font-bold text-foreground">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{item.description}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </Stagger>
+        </Container>
+      </section>
+
+      <section className="py-16 sm:py-20">
+        <Container>
+          <div className="grid gap-5 lg:grid-cols-3">
             <div className="rounded-3xl border border-accent/40 bg-accent/5 p-6 text-center">
-              <span className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                <Wallet className="size-4" />
-                التكلفة
-              </span>
-              {hasPublishedPrice && visaType ? (
-                <>
-                  <p className="mt-2 text-2xl font-extrabold text-primary dark:text-secondary" dir="ltr">
-                    {numericPrice.toLocaleString("en-US")} {visaType.currency}
-                  </p>
-                  {visaType.currency !== "SDG" && visaType.priceSdg != null ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      يعادل {Math.round(visaType.priceSdg).toLocaleString("en-US")} جنيه سوداني
-                    </p>
-                  ) : null}
-                </>
-              ) : (
-                <p className="mt-2 text-sm font-semibold text-muted-foreground">يتم تحديد التكلفة بعد مراجعة الطلب</p>
-              )}
+              <Wallet className="mx-auto size-5 text-primary dark:text-secondary" />
+              <p className="mt-2 text-xs font-semibold text-muted-foreground">التكلفة</p>
+              <p className="mt-2 text-xl font-extrabold text-foreground" dir="ltr">{heroPriceLabel}</p>
+              {heroPriceSubLabel ? <p className="mt-1 text-xs text-muted-foreground">{heroPriceSubLabel}</p> : null}
             </div>
-            {quickFacts.map((fact) => (
-              <div key={fact.label} className="rounded-3xl border border-border bg-card p-6 text-center">
-                <span className="text-xs font-semibold text-muted-foreground">{fact.label}</span>
-                <p className="mt-2 text-lg font-bold text-foreground">{fact.value}</p>
+            <div className="rounded-3xl border border-border bg-card p-6 text-center">
+              <ShieldCheck className="mx-auto size-5 text-primary dark:text-secondary" />
+              <p className="mt-2 text-sm font-bold text-foreground">المطلوب للبدء</p>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">بيانات المسافر + طريقة الدخول + صورة الجواز. الحجز ليس شرطًا الآن.</p>
+            </div>
+            <div className="rounded-3xl border border-border bg-card p-6 text-center">
+              <Clock3 className="mx-auto size-5 text-primary dark:text-secondary" />
+              <p className="mt-2 text-sm font-bold text-foreground">قاعدة التعميم</p>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">ترتبط بموعد الرحلة فقط، ويجب تجهيزها قبل الدخول بمدة لا تقل عن 72 ساعة.</p>
+            </div>
+          </div>
+        </Container>
+      </section>
+
+      <section className="bg-section py-16 sm:py-20">
+        <Container>
+          <SectionHeading eyebrow="المطلوب الآن" title="متطلبات طلب الموافقة الأساسية" />
+          <div className="mt-10 grid gap-4 sm:grid-cols-2">
+            {requirements.filter((requirement) => requirement.required).map((requirement) => (
+              <div key={requirement.id} className="flex items-start gap-3 rounded-2xl border border-border bg-card p-5">
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary dark:text-secondary">
+                  <FileCheck2 className="size-4" />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-foreground">{requirement.name}</p>
+                  {requirement.description ? <p className="mt-1 text-xs text-muted-foreground">{requirement.description}</p> : null}
+                </div>
               </div>
             ))}
           </div>
         </Container>
       </section>
 
-      <section className="bg-section py-24">
-        <Container>
-          <SectionHeading eyebrow="خطوات بسيطة" title="كيف تقدّم طلبك؟" />
-          <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {steps.map((step, index) => (
-              <FadeIn key={step.title} delay={index * 0.06}>
-                <div className="relative rounded-3xl border border-border bg-card p-6 shadow-sm">
-                  <span className="flex size-10 items-center justify-center rounded-xl bg-primary text-sm font-extrabold text-primary-foreground">
-                    {index + 1}
-                  </span>
-                  <h3 className="mt-4 text-base font-bold text-foreground">{step.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{step.description}</p>
-                </div>
-              </FadeIn>
-            ))}
-          </Stagger>
-        </Container>
-      </section>
-
-      <section className="py-24">
-        <Container>
-          <SectionHeading
-            eyebrow="المستندات المطلوبة"
-            title="جهّز هذه المستندات مسبقًا"
-            description="القائمة أدناه محدثة من فريق الإدارة، وقد تظهر لك تفاصيل إضافية داخل نموذج التقديم حسب حالتك."
-          />
-          <Stagger className="mt-12 grid gap-4 sm:grid-cols-2">
-            {requirements.length ? (
-              requirements.map((requirement) => (
-                <FadeIn key={requirement.id}>
-                  <div className="flex items-start gap-3 rounded-2xl border border-border bg-card p-5">
-                    <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary dark:text-secondary">
-                      <FileCheck2 className="size-4" />
-                    </span>
-                    <div>
-                      <p className="text-sm font-bold text-foreground">
-                        {requirement.name}
-                        {requirement.required ? (
-                          <span className="ms-1 text-xs font-bold text-destructive">*</span>
-                        ) : (
-                          <span className="ms-1 text-xs font-normal text-muted-foreground">(اختياري)</span>
-                        )}
-                      </p>
-                      {requirement.description ? (
-                        <p className="mt-1 text-xs text-muted-foreground">{requirement.description}</p>
-                      ) : null}
-                    </div>
-                  </div>
-                </FadeIn>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground sm:col-span-2">
-                سيتم عرض المستندات المطلوبة هنا فور اعتمادها من فريق الإدارة.
-              </p>
-            )}
-          </Stagger>
-        </Container>
-      </section>
-
-      <section className="bg-section py-24">
-        <Container>
-          <SectionHeading eyebrow="لماذا نسائم الحرمين" title="كيف نساعدك في هذا الطلب تحديدًا" />
-          <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {whyNasaem.map((item, index) => (
-              <FadeIn key={item.title} delay={index * 0.06}>
-                <div className="flex h-full flex-col items-center rounded-3xl border border-border bg-card p-6 text-center shadow-sm">
-                  <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary dark:text-secondary">
-                    <item.icon className="size-6" />
-                  </span>
-                  <h3 className="mt-4 text-sm font-bold text-foreground">{item.title}</h3>
-                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{item.description}</p>
-                </div>
-              </FadeIn>
-            ))}
-          </Stagger>
-        </Container>
-      </section>
-
-      <section id="book" className="scroll-mt-24 py-24">
-        <Container>
-          <SectionHeading eyebrow="ابدأ الآن" title="قدّم طلب الموافقة الأمنية" />
-          <div className="mt-12">
-            <ServiceIntakeWizard service="visa" initialServiceCode={VISA_CODE} />
-          </div>
-        </Container>
-      </section>
-
       <Faq items={faqItems} />
-
       <RelatedServices items={relatedVisaTypes} />
 
       <section className="py-16">
         <Container>
           <div className="rounded-3xl border border-border bg-card p-8 text-center shadow-sm">
-            <h2 className="text-xl font-bold text-foreground">تحتاج مساعدة؟</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              تواصل معنا مباشرة وسيساعدك فريقنا في أي خطوة من طلبك.
-            </p>
+            <h2 className="text-xl font-bold text-foreground">تحتاج مساعدة في الطلب؟</h2>
+            <p className="mt-2 text-sm text-muted-foreground">فريق نسائم الحرمين متاح لمساعدتك في الموافقة، الحجز، والتعميم.</p>
             <div className="mt-6 flex flex-wrap justify-center gap-4">
               <Button asChild variant="gold" size="lg">
                 <a href={`https://wa.me/${settings.whatsapp}`} target="_blank" rel="noopener noreferrer">

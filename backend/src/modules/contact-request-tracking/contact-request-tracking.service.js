@@ -5,6 +5,7 @@ import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { signTrackingToken } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { deriveTrackingStatusLabel } from "./contact-request-tracking.status.js";
+import { deriveEgyptCircularStatus } from "./egypt-clearance-travel.service.js";
 import {
   createContactRequestDocument,
   getContactRequestDocumentFile,
@@ -15,6 +16,7 @@ import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-che
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
+const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
 
 export async function requestLoginCode(rawPhone) {
   const phone = normalizePhone(rawPhone);
@@ -58,13 +60,9 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       documents: { orderBy: { createdAt: "desc" } },
       deliverables: { orderBy: { createdAt: "desc" } },
       offers: { orderBy: { createdAt: "desc" } },
-      // Smart Case Operations — Release A. The customer's own travelers for
-      // their own request (already scoped by phoneNormalized ownership
-      // above) — lets /track show which traveler a document/replacement
-      // request belongs to once the frontend is updated to use it.
       travelers: { orderBy: { sortOrder: "asc" } },
       serviceRef: { select: { id: true, name: true, category: true } },
-      visaType: { select: { id: true, name: true, country: true } },
+      visaType: { select: { id: true, code: true, name: true, country: true } },
     },
   });
 
@@ -85,12 +83,32 @@ export async function listContactRequestsForPhone(phoneNormalized) {
   return requests.map((request) => {
     const selectedOffer = request.offers.find((offer) => offer.id === request.selectedOfferId);
     const paymentCurrency = request.invoice?.currency || selectedOffer?.currency || null;
-    // Smart Case Operations — Release D. Derived from the snapshot and the
-    // documents already loaded above; no extra query, and nothing the
-    // customer could not already see about their own request.
     const checklist = buildCustomerChecklist(request);
+
+    const storedEgyptTravel = request.intakeData?.egyptTravel || null;
+    let liveEgyptTravel = storedEgyptTravel;
+    if (
+      request.visaType?.code === EGYPT_CLEARANCE_CODE &&
+      storedEgyptTravel?.entryDate &&
+      storedEgyptTravel?.bookingStatus
+    ) {
+      const liveCircular = deriveEgyptCircularStatus({
+        entryDate: storedEgyptTravel.entryDate,
+        bookingStatus: storedEgyptTravel.bookingStatus,
+        approvalIssued: request.deliverables.length > 0,
+      });
+      liveEgyptTravel = {
+        ...storedEgyptTravel,
+        circularStatus: liveCircular.status,
+        daysUntilEntry: liveCircular.daysUntilEntry,
+      };
+    }
+
     return {
       ...request,
+      intakeData: request.intakeData
+        ? { ...request.intakeData, ...(liveEgyptTravel ? { egyptTravel: liveEgyptTravel } : {}) }
+        : request.intakeData,
       checklist,
       nextActions: buildCustomerNextActions(request, checklist),
       statusLabel: deriveTrackingStatusLabel(request),
@@ -123,10 +141,6 @@ export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, fi
   const result = await createContactRequestDocument(contactRequestId, {
     label: "إشعار الدفع",
     file,
-    // Smart Case Operations — Release F: a payment receipt is a financial
-    // record, so it is excluded from provider packages by default (sending
-    // a customer's transfer receipt to an embassy would be a real privacy
-    // incident). See provider-submissions.service.js.
     classification: "FINANCIAL_DOCUMENT",
   });
 
