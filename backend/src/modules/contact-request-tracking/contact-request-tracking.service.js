@@ -116,6 +116,11 @@ export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, fi
   const result = await createContactRequestDocument(contactRequestId, {
     label: "إشعار الدفع",
     file,
+    // Smart Case Operations — Release F: a payment receipt is a financial
+    // record, so it is excluded from provider packages by default (sending
+    // a customer's transfer receipt to an embassy would be a real privacy
+    // incident). See provider-submissions.service.js.
+    classification: "FINANCIAL_DOCUMENT",
   });
 
   logActivity({ action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED", entity: "ContactRequest", entityId: contactRequestId });

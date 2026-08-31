@@ -25,6 +25,12 @@ import {
   storeOffer,
   storeOfferFromPricing,
 } from "./contact-requests.controller.js";
+import {
+  getProviderPackage,
+  getProviderSubmissions,
+  patchProviderSubmission,
+  storeProviderSubmission,
+} from "../provider-submissions/provider-submissions.controller.js";
 
 const router = Router();
 
@@ -160,6 +166,38 @@ router.post(
   requireFeatureEnabled("DOCUMENTS"),
   handleDeliverableUpload,
   storeDeliverable
+);
+// Smart Case Operations — Release F (provider operations). Mounted on the
+// case itself rather than a separate provider app: sending a case out is
+// part of working that case. Restricted to the roles that already process
+// cases — CONTENT_MANAGER/ACCOUNTANT never hand work to an external party.
+router.get(
+  "/:id/provider-package",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getProviderPackage
+);
+router.get(
+  "/:id/provider-submissions",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getProviderSubmissions
+);
+router.post(
+  "/:id/provider-submissions",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  storeProviderSubmission
+);
+router.patch(
+  "/:id/provider-submissions/:submissionId",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  patchProviderSubmission
 );
 router.get(
   "/:id/deliverables/:deliverableId/file",

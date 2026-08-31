@@ -197,19 +197,105 @@ model PaymentAccount {
   @@index([sortOrder])
 }
 
+// Smart Case Operations — Release F extends this existing entity rather
+// than adding a parallel "Provider" model: a Supplier already is the
+// external party a case is handed to (embassy, agency, carrier), it just
+// had no way to describe HOW work is sent to it. Everything below is
+// additive and null/default on every existing row, which keeps behaving
+// exactly as before (an unconfigured supplier simply can't be selected as
+// a submission target — see provider-submissions.service.js).
 model Supplier {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  type      String
-  phone     String?
-  email     String?
-  notes     String?
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                     String           @id @default(cuid())
+  code                   String           @unique
+  name                   String
+  type                   String
+  phone                  String?
+  email                  String?
+  notes                  String?
+  active                 Boolean          @default(true)
+  submissionChannel      ProviderChannel?
+  // Where an EMAIL-channel submission is actually sent — deliberately
+  // separate from the general `email` contact above, so routing work to a
+  // provider is an explicit configuration decision rather than silently
+  // reusing whatever address someone once recorded as a contact.
+  submissionEmail        String?
+  portalUrl              String?
+  expectedProcessingDays Int?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
-  orderItems OrderItem[]
+  orderItems  OrderItem[]
+  submissions ProviderSubmission[]
+}
+
+// How a case is handed to an external provider. EMAIL and MANUAL_PORTAL
+// are implemented (see provider-submissions.service.js and
+// utils/providerEmail.js); API and OFFLINE exist so a provider can be
+// configured/recorded honestly today and get an adapter later, rather than
+// the model having to change when one arrives.
+enum ProviderChannel {
+  EMAIL
+  MANUAL_PORTAL
+  API
+  OFFLINE
+}
+
+enum ProviderSubmissionStatus {
+  // MANUAL_PORTAL: recorded when the employee starts working the external
+  // portal, before they've finished there.
+  IN_PROGRESS
+  SUBMITTED
+  FAILED
+}
+
+// One auditable record per attempt to hand a case to a provider. A resend
+// creates a NEW row rather than mutating this one — submission history is
+// append-only, so "what did we send them, when, and who did it" survives
+// every later correction.
+model ProviderSubmission {
+  id                String                   @id @default(cuid())
+  contactRequestId  String
+  supplierId        String
+  channel           ProviderChannel
+  status            ProviderSubmissionStatus @default(IN_PROGRESS)
+  createdByUserId   String
+  // Snapshot of where this actually went (the email address used, or the
+  // portal URL the employee worked) — kept on the row so changing the
+  // provider's configuration later never rewrites what history says.
+  recipient         String?
+  externalReference String?
+  notes             String?
+  failureReason     String?
+  submittedAt       DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  contactRequest ContactRequest               @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  supplier       Supplier                     @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy      User                         @relation("ProviderSubmissionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  documents      ProviderSubmissionDocument[]
+
+  @@index([contactRequestId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([createdByUserId])
+}
+
+// Exactly which documents went out in a given submission. A join row, not
+// a copy of the file: the package references the customer's existing
+// document, so nothing is duplicated on disk and a later view of the
+// submission shows precisely what was sent.
+model ProviderSubmissionDocument {
+  id           String @id @default(cuid())
+  submissionId String
+  documentId   String
+
+  submission ProviderSubmission     @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  document   ContactRequestDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, documentId])
+  @@index([submissionId])
+  @@index([documentId])
 }
 
 model User {
@@ -243,6 +329,7 @@ model User {
   contactRequestOffersCreated        ContactRequestOffer[]       @relation("ContactRequestOfferCreatedBy")
   contactRequestDeliverablesUploaded ContactRequestDeliverable[] @relation("ContactRequestDeliverableUploadedBy")
   couponsCreated                     Coupon[]                    @relation("CouponCreatedBy")
+  providerSubmissionsCreated         ProviderSubmission[]        @relation("ProviderSubmissionCreatedBy")
 
   @@index([role])
   @@index([status])
@@ -1061,25 +1148,26 @@ model ContactRequest {
 
   organizationId String @default("org_nasaem_default")
 
-  customerId      String?
+  customerId          String?
   // Smart Case Operations — Release C groundwork. Which staff member owns
   // this case — mirrors Order.assignedUserId's existing pattern exactly
   // (same onDelete: SetNull — an employee leaving must never delete their
   // past cases, just unassign them). Null means unassigned (the only value
   // every request had before this release).
-  assignedUserId  String?
-  organization    Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  serviceRef      Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  visaType        VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
-  customer        Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  assignedUser    User?                       @relation("ContactRequestAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  invoice         Invoice?
-  documents       ContactRequestDocument[]
-  deliverables    ContactRequestDeliverable[]
-  offers          ContactRequestOffer[]       @relation("ContactRequestOffers")
-  selectedOfferId String?                     @unique
-  selectedOffer   ContactRequestOffer?        @relation("SelectedOffer", fields: [selectedOfferId], references: [id], onDelete: SetNull)
-  travelers       Traveler[]
+  assignedUserId      String?
+  organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  serviceRef          Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  visaType            VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
+  customer            Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedUser        User?                       @relation("ContactRequestAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  invoice             Invoice?
+  documents           ContactRequestDocument[]
+  deliverables        ContactRequestDeliverable[]
+  offers              ContactRequestOffer[]       @relation("ContactRequestOffers")
+  selectedOfferId     String?                     @unique
+  selectedOffer       ContactRequestOffer?        @relation("SelectedOffer", fields: [selectedOfferId], references: [id], onDelete: SetNull)
+  travelers           Traveler[]
+  providerSubmissions ProviderSubmission[]
 
   @@index([status])
   @@index([createdAt])
@@ -1125,6 +1213,20 @@ enum ContactRequestDocumentStatus {
   PENDING
   ACCEPTED
   REJECTED
+}
+
+// Smart Case Operations — Release F. What a document IS, which decides
+// whether it may leave the platform in a provider package.
+// CUSTOMER_DOCUMENT is the default and describes every row created before
+// this release (customer-submitted intake attachments). FINANCIAL_DOCUMENT
+// covers payment receipts, INTERNAL_DOCUMENT staff-only working files —
+// neither is ever included in a provider package unless an employee
+// explicitly overrides it (see buildProviderPackage).
+enum DocumentClassification {
+  CUSTOMER_DOCUMENT
+  INTERNAL_DOCUMENT
+  FINANCIAL_DOCUMENT
+  PROVIDER_DOCUMENT
 }
 
 // Smart Case Operations — Release B (server-side drafts). The authoritative
@@ -1207,6 +1309,9 @@ model ContactRequestDocument {
   // version" is simply the row (per requirement+traveler) with
   // supersededAt null. Null on every pre-existing row (all still current).
   supersededAt     DateTime?
+  // Smart Case Operations — Release F. Gates whether this document may
+  // leave the platform in a provider package; see DocumentClassification.
+  classification   DocumentClassification       @default(CUSTOMER_DOCUMENT)
   // Platform 3.0 Phase 6 (Attachment Engine) — links this upload to the
   // specific VisaRequirement checklist item it satisfies, so the upload
   // can actually be validated against that requirement's own allowedMime/
@@ -1225,11 +1330,12 @@ model ContactRequestDocument {
   createdAt        DateTime                     @default(now())
   updatedAt        DateTime                     @updatedAt
 
-  contactRequest ContactRequest?  @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
-  draft          IntakeDraft?     @relation(fields: [draftId], references: [id], onDelete: Cascade)
-  reviewedBy     User?            @relation("ContactRequestDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
-  requirement    VisaRequirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
-  traveler       Traveler?        @relation(fields: [travelerId], references: [id], onDelete: SetNull)
+  contactRequest      ContactRequest?              @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  draft               IntakeDraft?                 @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  reviewedBy          User?                        @relation("ContactRequestDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  requirement         VisaRequirement?             @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  traveler            Traveler?                    @relation(fields: [travelerId], references: [id], onDelete: SetNull)
+  providerSubmissions ProviderSubmissionDocument[]
 
   @@index([contactRequestId])
   @@index([draftId])

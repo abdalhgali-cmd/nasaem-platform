@@ -52,7 +52,7 @@ async function validateRequirementUpload(contactRequest, requirementId, file) {
   return { requirement };
 }
 
-export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId }) {
+export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, classification }) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
   });
@@ -101,6 +101,9 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
       label,
       requirementId: requirementId || null,
       travelerId: travelerId || null,
+      // Defaults to CUSTOMER_DOCUMENT at the schema level — only callers
+      // that know better (e.g. a payment receipt) pass something else.
+      ...(classification ? { classification } : {}),
       ocrResult: ocrResult ?? undefined,
       fileName: file.originalname,
       // Relative to the uploads root, not the absolute server path — same
