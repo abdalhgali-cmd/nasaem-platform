@@ -1,6 +1,7 @@
 import path from "path";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
@@ -263,8 +264,20 @@ export async function createContactRequest(data, req, files = []) {
   return contactRequest;
 }
 
-export async function listContactRequests({ page, limit, skip, status, organizationId }) {
-  const where = { organizationId, ...(status ? { status } : {}) };
+// Smart Case Operations — Release C groundwork. `assignedUserId` accepts a
+// real user id (exact match), or the sentinel "unassigned" for the "New" /
+// unowned work-queue view — kept as one filter param rather than a second
+// boolean flag, mirroring how `status` already works here.
+export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId }) {
+  const where = {
+    organizationId,
+    ...(status ? { status } : {}),
+    ...(assignedUserId === "unassigned"
+      ? { assignedUserId: null }
+      : assignedUserId
+        ? { assignedUserId }
+        : {}),
+  };
 
   const [data, total] = await Promise.all([
     prisma.contactRequest.findMany({
@@ -286,12 +299,47 @@ export async function listContactRequests({ page, limit, skip, status, organizat
         // for a Service Intake submission, not the full catalog row.
         serviceRef: { select: { id: true, name: true, category: true } },
         visaType: { select: { id: true, name: true, country: true } },
+        // Smart Case Operations — Release C groundwork.
+        assignedUser: { select: safeUserSelect },
       },
     }),
     prisma.contactRequest.count({ where }),
   ]);
 
   return { data, meta: buildPaginationMeta(page, limit, total) };
+}
+
+// Smart Case Operations — Release C groundwork (employee assignment).
+// assignedUserId null clears the assignment (unassigns). The target user,
+// when set, must be real, active staff in this same organization — never
+// trusted as an opaque id, same posture as every other cross-entity
+// reference in this module.
+export async function assignContactRequest(id, assignedUserId, actingUserId, organizationId) {
+  const contactRequest = await prisma.contactRequest.findFirst({ where: { id, organizationId } });
+  if (!contactRequest) return { error: "NOT_FOUND" };
+
+  if (assignedUserId) {
+    const assignee = await prisma.user.findFirst({
+      where: { id: assignedUserId, organizationId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (!assignee) return { error: "ASSIGNEE_NOT_FOUND" };
+  }
+
+  const updated = await prisma.contactRequest.update({
+    where: { id },
+    data: { assignedUserId: assignedUserId || null },
+    include: { assignedUser: { select: safeUserSelect } },
+  });
+
+  logActivity({
+    userId: actingUserId,
+    action: assignedUserId ? "CONTACT_REQUEST_ASSIGNED" : "CONTACT_REQUEST_UNASSIGNED",
+    entity: "ContactRequest",
+    entityId: id,
+  });
+
+  return { contactRequest: updated };
 }
 
 // outcome/outcomeNote/closedAt only mean anything while the request is

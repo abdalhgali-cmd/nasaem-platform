@@ -105,6 +105,13 @@ export const createContactRequestSchema = z.object({
   ),
 });
 
+// Smart Case Operations — Release C groundwork. Null/omitted clears the
+// assignment (unassigns) — this is a plain body, not .partial(), so an
+// empty {} body already means "unassign" rather than "no-op".
+export const assignContactRequestSchema = z.object({
+  assignedUserId: z.string().trim().min(1).optional().nullable(),
+});
+
 export const updateContactRequestStatusSchema = z
   .object({
     status: z.enum(["NEW", "CONTACTED", "CLOSED"]),

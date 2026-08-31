@@ -230,6 +230,7 @@ model User {
   organization                       Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   branch                             Branch?                     @relation(fields: [branchId], references: [id], onDelete: SetNull)
   assignedOrders                     Order[]                     @relation("AssignedOrders")
+  assignedContactRequests            ContactRequest[]            @relation("ContactRequestAssignedUser")
   uploadedDocuments                  Document[]                  @relation("UploadedDocuments")
   notes                              Note[]
   activityLogs                       ActivityLog[]
@@ -1060,10 +1061,17 @@ model ContactRequest {
   organizationId String @default("org_nasaem_default")
 
   customerId      String?
+  // Smart Case Operations — Release C groundwork. Which staff member owns
+  // this case — mirrors Order.assignedUserId's existing pattern exactly
+  // (same onDelete: SetNull — an employee leaving must never delete their
+  // past cases, just unassign them). Null means unassigned (the only value
+  // every request had before this release).
+  assignedUserId  String?
   organization    Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   serviceRef      Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   visaType        VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
   customer        Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedUser    User?                       @relation("ContactRequestAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
   invoice         Invoice?
   documents       ContactRequestDocument[]
   deliverables    ContactRequestDeliverable[]
@@ -1079,6 +1087,7 @@ model ContactRequest {
   @@index([serviceId])
   @@index([visaTypeId])
   @@index([organizationId])
+  @@index([assignedUserId])
 }
 
 // Smart Case Operations — Release A. A person the request/case is for, once

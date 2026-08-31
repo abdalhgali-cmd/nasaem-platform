@@ -14,6 +14,7 @@ import {
   downloadDeliverableFile,
   downloadDocumentFile,
   getContactRequests,
+  patchContactRequestAssignment,
   patchContactRequestStatus,
   previewPricing,
   reviewDocument,
@@ -78,6 +79,17 @@ router.patch(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   requireContactRequestOrganization,
   patchContactRequestStatus
+);
+// Smart Case Operations — Release C groundwork. Assignment is a manager
+// action (SUPER_ADMIN/ADMIN) — an EMPLOYEE can see and work their own
+// assigned cases (via GET /?assignedUserId=mine) but can't reassign work,
+// matching the spec's "Managers can assign/reassign" rule.
+router.patch(
+  "/:id/assign",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN"),
+  requireContactRequestOrganization,
+  patchContactRequestAssignment
 );
 router.post(
   "/:id/pricing-preview",
