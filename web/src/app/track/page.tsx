@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Container } from "@/components/container";
 import { PageHero } from "@/components/sections/page-hero";
 import { TrackingPanel } from "@/components/sections/tracking-panel";
+import { EgyptClearanceTravelFollowup } from "@/components/sections/egypt-clearance-travel-followup";
 import { PaymentAccountsPanel } from "@/components/sections/payment-accounts-panel";
 import { buildPageMetadata } from "@/lib/seo";
 
@@ -24,6 +25,7 @@ export default function TrackPage() {
       <section className="py-24">
         <Container>
           <TrackingPanel />
+          <EgyptClearanceTravelFollowup />
         </Container>
       </section>
       <PaymentAccountsPanel />
