@@ -11,7 +11,7 @@ import {
   STATUS_LABELS,
 } from "../contact-request-tracking/contact-request-tracking.status.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
-import { getPublicChecklist } from "../requirements/requirements.service.js";
+import { getPublicChecklist, requirementApplies } from "../requirements/requirements.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 
@@ -264,6 +264,61 @@ export async function createContactRequest(data, req, files = []) {
   return contactRequest;
 }
 
+// Smart Case Operations — Release C groundwork (readiness engine). Purely
+// computed from data that already exists — requirementsSnapshot (the
+// point-in-time checklist captured at submission), the request's own
+// documents, and paymentStatus — never stored, so it can never go stale
+// and needs no migration. Deterministic business rules only, no AI.
+//
+// requirementsSnapshot rows captured before Release A have no `type` field
+// at all — treated as "DOCUMENT" (matches VisaRequirement.type's own
+// default, i.e. exactly what every requirement meant before that field
+// existed).
+export function computeReadiness(contactRequest) {
+  const answers = contactRequest.intakeData?.answers || {};
+  const applicableRequired = (contactRequest.requirementsSnapshot || []).filter(
+    (r) => r.required && requirementApplies(r, answers)
+  );
+
+  const currentDocuments = contactRequest.documents.filter((d) => !d.supersededAt);
+
+  const missingDocumentRequirement = applicableRequired
+    .filter((r) => !r.type || r.type === "DOCUMENT")
+    .find((r) => !currentDocuments.some((d) => d.requirementId === r.id && d.status === "ACCEPTED"));
+
+  const missingAnswer = applicableRequired
+    .filter((r) => r.type && r.type !== "DOCUMENT")
+    .find((r) => answers[r.id] === undefined || answers[r.id] === "" || answers[r.id] === null);
+
+  const documentsUnderReview = currentDocuments.some((d) => d.status === "PENDING");
+  const documentsRejected = currentDocuments.some((d) => d.status === "REJECTED");
+  const paymentReady = contactRequest.paymentStatus === "CONFIRMED" || contactRequest.paymentStatus === "NOT_REQUIRED";
+
+  const documentsComplete = !missingDocumentRequirement;
+  const answersComplete = !missingAnswer;
+  const ready = documentsComplete && answersComplete && paymentReady && !documentsUnderReview;
+
+  // Staff-facing work-queue bucket — precedence roughly mirrors
+  // contact-request-tracking.status.js's deriveTrackingStatusLabel (most
+  // actionable/blocking state wins), just for the internal, not
+  // customer-facing, view.
+  let queue = "READY_FOR_PROCESSING";
+  if (contactRequest.status === "CLOSED") queue = "COMPLETED";
+  else if (documentsRejected) queue = "WAITING_CUSTOMER";
+  else if (documentsUnderReview) queue = "NEEDS_REVIEW";
+  else if (!documentsComplete || !answersComplete) queue = "MISSING_DOCUMENTS";
+  else if (!paymentReady) queue = "WAITING_PAYMENT";
+
+  return {
+    documentsComplete,
+    answersComplete,
+    paymentReady,
+    documentsUnderReview,
+    overall: ready ? "READY_FOR_PROCESSING" : "NOT_READY",
+    queue,
+  };
+}
+
 // Smart Case Operations — Release C groundwork. `assignedUserId` accepts a
 // real user id (exact match), or the sentinel "unassigned" for the "New" /
 // unowned work-queue view — kept as one filter param rather than a second
@@ -306,7 +361,10 @@ export async function listContactRequests({ page, limit, skip, status, organizat
     prisma.contactRequest.count({ where }),
   ]);
 
-  return { data, meta: buildPaginationMeta(page, limit, total) };
+  return {
+    data: data.map((contactRequest) => ({ ...contactRequest, readiness: computeReadiness(contactRequest) })),
+    meta: buildPaginationMeta(page, limit, total),
+  };
 }
 
 // Smart Case Operations — Release C groundwork (employee assignment).
