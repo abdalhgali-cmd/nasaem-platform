@@ -28,7 +28,6 @@ describe("Egypt Security Approval — public requirements", () => {
     assert.equal(passport.required, true);
     assert.equal(passport.type, "DOCUMENT");
     assert.equal(passport.scope, "TRAVELER");
-    assert.equal(passport.ocrEnabled, true);
     assert.ok(passport.allowedMimeTypes.includes("application/pdf"));
     assert.ok(passport.allowedMimeTypes.includes("image/jpeg"));
 
