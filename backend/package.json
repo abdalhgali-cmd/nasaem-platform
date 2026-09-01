@@ -15,7 +15,7 @@
     "prisma:seed": "prisma db seed"
   },
   "prisma": {
-    "seed": "node prisma/seed.js"
+    "seed": "node prisma/seed.js && node prisma/seed-egypt-clearance.js"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
@@ -23,14 +23,14 @@
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
     "express": "^5.0.0",
     "express-rate-limit": "^7.4.1",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "jsonwebtoken": "^9.0.2",
     "mrz": "^5.0.2",
-    "ms": "^2.1.3",
+    "ms": "^2.1.0",
     "multer": "^2.0.1",
     "tesseract.js": "^7.0.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
