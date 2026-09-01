@@ -51,14 +51,7 @@ jobs:
       - name: Seed database
         run: npm run prisma:seed
       - name: Run tests
-        run: npm test 2>&1 | tee test-output.txt
-      - name: Upload backend test output on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-test-output
-          path: backend/test-output.txt
-          retention-days: 7
+        run: npm test
 
   backup_restore:
     name: PostgreSQL backup + restore drill
