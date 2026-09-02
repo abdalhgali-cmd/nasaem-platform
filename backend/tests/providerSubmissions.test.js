@@ -98,6 +98,33 @@ describe("provider package builder", () => {
     const customer = pkg.documents.find((d) => d.id === customerDoc.id);
     assert.equal(customer.travelerName, "Traveler One");
   });
+
+  test("case workers can list only active configured providers through the safe projection", async () => {
+    const visible = await createProvider(agent);
+    await createProvider(agent, { active: false });
+    await createProvider(agent, { submissionChannel: null, submissionEmail: null });
+    const { contactRequest } = await createCaseWithDocuments();
+
+    const suffix = uniqueSuffix();
+    const email = `provider-employee-${suffix}@nasaem-platform.local`;
+    const created = await agent.post("/api/users").send({
+      fullName: "Provider Case Employee",
+      email,
+      password: "TestPass@12345",
+      role: "EMPLOYEE",
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const employeeAgent = request.agent(app);
+    const login = await employeeAgent.post("/api/auth/login").send({ email, password: "TestPass@12345" });
+    assert.equal(login.status, 200, JSON.stringify(login.body));
+
+    const res = await employeeAgent.get(`/api/contact-requests/${contactRequest.id}/providers`);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.ok(res.body.data.some((provider) => provider.id === visible.id));
+    assert.ok(res.body.data.every((provider) => provider.submissionChannel));
+    assert.ok(res.body.data.every((provider) => !Object.hasOwn(provider, "submissionEmail")));
+    assert.ok(res.body.data.every((provider) => !Object.hasOwn(provider, "portalUrl")));
+  });
 });
 
 describe("provider submissions — EMAIL channel", () => {
