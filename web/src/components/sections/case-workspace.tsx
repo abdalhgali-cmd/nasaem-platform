@@ -116,6 +116,25 @@ type ProviderSubmission = {
   channel: string;
   submittedAt: string | null;
   externalReference: string | null;
+  failureReason?: string | null;
+  supplier?: { name: string } | null;
+};
+
+type AvailableProvider = {
+  id: string;
+  name: string;
+  type: string;
+  submissionChannel: "EMAIL" | "MANUAL_PORTAL" | "API" | "OFFLINE";
+  expectedProcessingDays: number | null;
+};
+
+type ProviderPackageDocument = {
+  id: string;
+  label: string;
+  fileName: string;
+  status: string;
+  eligibleByDefault: boolean;
+  excludedReason: string | null;
 };
 
 type CaseRow = {
@@ -545,7 +564,7 @@ function CaseDetail({
         {tab === "travelers" ? <TravelersTab caseRow={caseRow} /> : null}
         {tab === "documents" ? <DocumentsTab caseRow={caseRow} busy={busy} run={run} /> : null}
         {tab === "tasks" ? <TasksTab caseRow={caseRow} busy={busy} run={run} /> : null}
-        {tab === "provider" ? <ProviderTab caseRow={caseRow} /> : null}
+        {tab === "provider" ? <ProviderTab caseRow={caseRow} busy={busy} run={run} /> : null}
         {tab === "activity" ? <ActivityTab caseId={caseRow.id} /> : null}
       </div>
     </div>
@@ -878,35 +897,199 @@ function TasksTab({
   );
 }
 
-function ProviderTab({ caseRow }: { caseRow: CaseRow }) {
-  if (caseRow.providerSubmissions.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        <Send className="mx-auto size-5" />
-        <p className="mt-2">لم تُرسل هذه الحالة إلى أي جهة منفّذة بعد.</p>
-      </div>
-    );
-  }
+function ProviderTab({
+  caseRow,
+  busy,
+  run,
+}: {
+  caseRow: CaseRow;
+  busy: boolean;
+  run: (action: () => Promise<void>) => Promise<void>;
+}) {
+  const [providers, setProviders] = React.useState<AvailableProvider[]>([]);
+  const [documents, setDocuments] = React.useState<ProviderPackageDocument[]>([]);
+  const [providerId, setProviderId] = React.useState("");
+  const [selectedDocuments, setSelectedDocuments] = React.useState<string[]>([]);
+  const [notes, setNotes] = React.useState("");
+  const [referenceBySubmission, setReferenceBySubmission] = React.useState<Record<string, string>>({});
+  const [loadingSetup, setLoadingSetup] = React.useState(true);
+  const [setupError, setSetupError] = React.useState("");
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [providersRes, packageRes] = await Promise.all([
+          fetch(`${API_URL}/contact-requests/${caseRow.id}/providers`, { credentials: "include" }),
+          fetch(`${API_URL}/contact-requests/${caseRow.id}/provider-package`, { credentials: "include" }),
+        ]);
+        const providersPayload = await readJson(providersRes);
+        const packagePayload = await readJson(packageRes);
+        if (cancelled) return;
+        const available = providersPayload.data ?? [];
+        const packageDocuments = packagePayload.data?.documents ?? [];
+        setProviders(available);
+        setProviderId(available[0]?.id ?? "");
+        setDocuments(packageDocuments);
+        setSelectedDocuments(packagePayload.data?.defaultSelectedDocumentIds ?? []);
+      } catch (err) {
+        if (!cancelled) setSetupError(err instanceof Error ? err.message : "تعذر تجهيز ملف الإرسال");
+      } finally {
+        if (!cancelled) setLoadingSetup(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [caseRow.id]);
+
+  const statusLabel: Record<string, string> = {
+    IN_PROGRESS: "جارٍ التجهيز",
+    SUBMITTED: "تم الإرسال",
+    FAILED: "فشل الإرسال",
+  };
 
   return (
-    <ul className="flex flex-col gap-2">
-      {caseRow.providerSubmissions.map((submission) => (
-        <li key={submission.id} className="rounded-xl border border-border/70 p-3 text-xs">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-semibold">
-              {submission.channel === "EMAIL" ? "إرسال بالبريد" : "تسليم يدوي / بوابة"}
-            </span>
-            <span className="rounded-full bg-muted px-2 py-0.5 font-bold text-muted-foreground">{submission.status}</span>
+    <div className="flex flex-col gap-4">
+      <div className="rounded-2xl border border-border/70 p-4">
+        <h3 className="text-sm font-black">إرسال الحالة إلى الجهة</h3>
+        {loadingSetup ? <p className="mt-3 text-sm text-muted-foreground">جاري تجهيز ملف الإرسال…</p> : null}
+        {setupError ? <p className="mt-3 text-sm font-bold text-destructive">{setupError}</p> : null}
+        {!loadingSetup && !setupError && providers.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">لا توجد جهة نشطة ومهيأة للإرسال. يضيفها المدير من قسم الموردين.</p>
+        ) : null}
+        {!loadingSetup && providers.length > 0 ? (
+          <form
+            className="mt-3 flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!providerId) return;
+              void run(async () => {
+                const res = await fetch(`${API_URL}/contact-requests/${caseRow.id}/provider-submissions`, {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ supplierId: providerId, documentIds: selectedDocuments, notes }),
+                });
+                await readJson(res);
+                setNotes("");
+              });
+            }}
+          >
+            <label className="text-xs font-bold text-muted-foreground">
+              الجهة المنفّذة
+              <select
+                value={providerId}
+                onChange={(event) => setProviderId(event.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-semibold outline-none"
+              >
+                {providers.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.name} · {provider.submissionChannel === "EMAIL" ? "بريد" : "بوابة/يدوي"}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <fieldset>
+              <legend className="text-xs font-bold text-muted-foreground">المستندات المرسلة</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {documents.map((document) => (
+                  <label key={document.id} className="flex items-start gap-2 rounded-lg border border-border/70 p-2 text-xs">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={selectedDocuments.includes(document.id)}
+                      disabled={!document.eligibleByDefault}
+                      onChange={(event) =>
+                        setSelectedDocuments((current) =>
+                          event.target.checked
+                            ? [...current, document.id]
+                            : current.filter((id) => id !== document.id)
+                        )
+                      }
+                    />
+                    <span>
+                      <span className="font-bold">{document.label}</span>
+                      <span className="mt-0.5 block text-muted-foreground">
+                        {document.eligibleByDefault ? document.fileName : document.excludedReason}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="ملاحظة للجهة (اختياري)"
+              maxLength={2000}
+              className="min-h-20 rounded-lg border border-border bg-background p-3 text-sm outline-none"
+            />
+            <Button type="submit" size="sm" className="w-fit" disabled={busy || selectedDocuments.length === 0}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              تجهيز وإرسال
+            </Button>
+          </form>
+        ) : null}
+      </div>
+
+      <div className="rounded-2xl border border-border/70 p-4">
+        <h3 className="text-sm font-black">سجل الإرسال</h3>
+        {caseRow.providerSubmissions.length === 0 ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            <Send className="mx-auto size-5" />
+            <p className="mt-2">لم تُرسل هذه الحالة إلى أي جهة منفّذة بعد.</p>
           </div>
-          <p className="mt-1 text-muted-foreground">أُرسلت: {formatDate(submission.submittedAt)}</p>
-          {submission.externalReference ? (
-            <p className="mt-1 text-muted-foreground" dir="ltr">
-              {submission.externalReference}
-            </p>
-          ) : null}
-        </li>
-      ))}
-    </ul>
+        ) : (
+          <ul className="mt-3 flex flex-col gap-2">
+            {caseRow.providerSubmissions.map((submission) => (
+              <li key={submission.id} className="rounded-xl border border-border/70 p-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold">
+                    {submission.supplier?.name || (submission.channel === "EMAIL" ? "إرسال بالبريد" : "تسليم يدوي / بوابة")}
+                  </span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 font-bold text-muted-foreground">
+                    {statusLabel[submission.status] ?? submission.status}
+                  </span>
+                </div>
+                <p className="mt-1 text-muted-foreground">أُرسلت: {formatDate(submission.submittedAt)}</p>
+                {submission.externalReference ? <p className="mt-1 font-mono text-muted-foreground" dir="ltr">{submission.externalReference}</p> : null}
+                {submission.failureReason ? <p className="mt-1 font-bold text-destructive">{submission.failureReason}</p> : null}
+                {submission.status === "IN_PROGRESS" ? (
+                  <form
+                    className="mt-3 flex flex-wrap gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void run(async () => {
+                        const res = await fetch(`${API_URL}/contact-requests/${caseRow.id}/provider-submissions/${submission.id}`, {
+                          method: "PATCH",
+                          credentials: "include",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ externalReference: referenceBySubmission[submission.id] ?? "" }),
+                        });
+                        await readJson(res);
+                      });
+                    }}
+                  >
+                    <input
+                      value={referenceBySubmission[submission.id] ?? ""}
+                      onChange={(event) => setReferenceBySubmission((current) => ({ ...current, [submission.id]: event.target.value }))}
+                      placeholder="رقم المعاملة أو المرجع"
+                      maxLength={200}
+                      className="h-9 min-w-52 flex-1 rounded-lg border border-border bg-background px-3 outline-none"
+                      dir="ltr"
+                    />
+                    <Button type="submit" size="sm" variant="outline" disabled={busy}>تأكيد الإرسال</Button>
+                  </form>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }
 
