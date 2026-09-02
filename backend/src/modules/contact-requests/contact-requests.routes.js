@@ -27,6 +27,7 @@ import {
   storeOfferFromPricing,
 } from "./contact-requests.controller.js";
 import {
+  getAvailableProviders,
   getProviderPackage,
   getProviderSubmissions,
   patchProviderSubmission,
@@ -228,6 +229,13 @@ router.post(
 // case itself rather than a separate provider app: sending a case out is
 // part of working that case. Restricted to the roles that already process
 // cases — CONTENT_MANAGER/ACCOUNTANT never hand work to an external party.
+router.get(
+  "/:id/providers",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getAvailableProviders
+);
 router.get(
   "/:id/provider-package",
   requireAuth,
