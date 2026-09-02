@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import prisma from "../src/config/database.js";
 import { nextSequence } from "../src/utils/sequence.js";
 import { FEATURE_FLAG_DESCRIPTIONS, FEATURE_FLAG_KEYS } from "../src/modules/feature-flags/feature-flags.constants.js";
+import { reconcileEgyptClearanceRequirements } from "./seed-egypt-clearance.js";
 
 const SERVICE_CATEGORIES = [
   { code: "SVC-FLIGHT", name: "تذاكر الطيران", category: "flight" },
@@ -366,6 +367,10 @@ async function main() {
   await seedFeatureFlags();
   await seedEgyptClearanceFaq();
   await seedSaudiFamilyVisitFaq();
+  // Must run last: seedVisaRequirements() writes the historical Egypt checklist
+  // (a plain case-scoped passport document plus the legacy ticket), and this
+  // reconciles it into the structured approval-first shape the journey needs.
+  await reconcileEgyptClearanceRequirements();
 }
 
 main()

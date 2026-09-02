@@ -1,10 +1,12 @@
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import prisma from "../src/config/database.js";
 
 const EGYPT_CODE = "VISA-EGYPT-CLEARANCE";
 const MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
-async function reconcileEgyptClearanceRequirements() {
+export async function reconcileEgyptClearanceRequirements() {
   const visaType = await prisma.visaType.findUnique({ where: { code: EGYPT_CODE } });
   if (!visaType) {
     console.log("Egypt clearance visa type not found; skipping structured requirement reconciliation.");
@@ -113,8 +115,17 @@ async function reconcileEgyptClearanceRequirements() {
   console.log("Reconciled Egypt clearance passport, entry-mode, and approval-first ticket requirements.");
 }
 
-try {
-  await reconcileEgyptClearanceRequirements();
-} finally {
-  await prisma.$disconnect();
+// Also runnable on its own (`node prisma/seed-egypt-clearance.js`) so the
+// reconciliation can be applied to an existing database without re-running the
+// whole seed. When imported by seed.js the module must not run or disconnect on
+// import, hence the direct-invocation guard.
+const invokedDirectly =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (invokedDirectly) {
+  try {
+    await reconcileEgyptClearanceRequirements();
+  } finally {
+    await prisma.$disconnect();
+  }
 }
