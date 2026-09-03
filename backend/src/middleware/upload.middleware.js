@@ -3,7 +3,10 @@ import fs from "fs";
 import path from "path";
 import multer from "multer";
 
-const UPLOAD_DIR = path.resolve("uploads", "documents");
+const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_ROOT || "uploads");
+const uploadDir = (...parts) => path.join(UPLOAD_ROOT, ...parts);
+
+const UPLOAD_DIR = uploadDir("documents");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -37,7 +40,7 @@ export const uploadDocument = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 }).single("file");
 
-const CONTACT_REQUEST_DOCUMENT_DIR = path.resolve("uploads", "contact-request-documents");
+const CONTACT_REQUEST_DOCUMENT_DIR = uploadDir("contact-request-documents");
 fs.mkdirSync(CONTACT_REQUEST_DOCUMENT_DIR, { recursive: true });
 
 const contactRequestDocumentStorage = multer.diskStorage({
@@ -70,7 +73,7 @@ export const uploadContactRequestIntakeDocuments = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 }).array("documents", 6);
 
-const CONTACT_REQUEST_DELIVERABLE_DIR = path.resolve("uploads", "contact-request-deliverables");
+const CONTACT_REQUEST_DELIVERABLE_DIR = uploadDir("contact-request-deliverables");
 fs.mkdirSync(CONTACT_REQUEST_DELIVERABLE_DIR, { recursive: true });
 
 const contactRequestDeliverableStorage = multer.diskStorage({
@@ -111,7 +114,7 @@ export const uploadPassportImage = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
 }).single("image");
 
-const SITE_ASSET_DIR = path.resolve("uploads", "site-assets");
+const SITE_ASSET_DIR = uploadDir("site-assets");
 fs.mkdirSync(SITE_ASSET_DIR, { recursive: true });
 
 const siteAssetStorage = multer.diskStorage({
