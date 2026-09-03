@@ -3,7 +3,7 @@ import path from "path";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
 
-const UPLOAD_ROOT = path.resolve("uploads");
+import { UPLOAD_ROOT } from "../../config/uploadRoot.js";
 
 export async function listSiteAssets() {
   return prisma.siteAsset.findMany({ orderBy: { key: "asc" } });
