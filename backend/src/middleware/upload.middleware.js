@@ -1,9 +1,31 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import dotenv from "dotenv";
 import multer from "multer";
 
-const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_ROOT || "uploads");
+// This module is imported before app.js top-level code runs, so load .env here
+// before reading UPLOAD_ROOT. Railway/Vercel-style injected environment
+// variables still take precedence because dotenv does not overwrite them.
+dotenv.config();
+
+const configuredUploadRoot = process.env.UPLOAD_ROOT?.trim();
+
+if (process.env.NODE_ENV === "production") {
+  if (!configuredUploadRoot) {
+    throw new Error(
+      "Unsafe production storage configuration: UPLOAD_ROOT is required. Mount persistent storage and set UPLOAD_ROOT to its absolute path before starting the API.",
+    );
+  }
+
+  if (!path.isAbsolute(configuredUploadRoot)) {
+    throw new Error(
+      "Unsafe production storage configuration: UPLOAD_ROOT must be an absolute path on the mounted persistent volume.",
+    );
+  }
+}
+
+const UPLOAD_ROOT = path.resolve(configuredUploadRoot || "uploads");
 const uploadDir = (...parts) => path.join(UPLOAD_ROOT, ...parts);
 
 const UPLOAD_DIR = uploadDir("documents");
