@@ -1,32 +1,15 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import dotenv from "dotenv";
 import multer from "multer";
+import { resolveUploadPath } from "../config/uploadRoot.js";
 
-// This module is imported before app.js top-level code runs, so load .env here
-// before reading UPLOAD_ROOT. Railway/Vercel-style injected environment
-// variables still take precedence because dotenv does not overwrite them.
-dotenv.config();
-
-const configuredUploadRoot = process.env.UPLOAD_ROOT?.trim();
-
-if (process.env.NODE_ENV === "production") {
-  if (!configuredUploadRoot) {
-    throw new Error(
-      "Unsafe production storage configuration: UPLOAD_ROOT is required. Mount persistent storage and set UPLOAD_ROOT to its absolute path before starting the API.",
-    );
-  }
-
-  if (!path.isAbsolute(configuredUploadRoot)) {
-    throw new Error(
-      "Unsafe production storage configuration: UPLOAD_ROOT must be an absolute path on the mounted persistent volume.",
-    );
-  }
-}
-
-const UPLOAD_ROOT = path.resolve(configuredUploadRoot || "uploads");
-const uploadDir = (...parts) => path.join(UPLOAD_ROOT, ...parts);
+// UPLOAD_ROOT resolution (including the production fail-closed check)
+// lives in ../config/uploadRoot.js — every module that later reads,
+// serves, or deletes a stored file imports UPLOAD_ROOT from that same
+// module, so the write path here can never disagree with a read/delete
+// path about where the persistent volume is mounted.
+const uploadDir = resolveUploadPath;
 
 const UPLOAD_DIR = uploadDir("documents");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
