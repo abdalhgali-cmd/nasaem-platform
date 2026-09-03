@@ -4,7 +4,7 @@ import prisma from "../../config/database.js";
 import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 
-const UPLOAD_ROOT = path.resolve("uploads");
+import { UPLOAD_ROOT } from "../../config/uploadRoot.js";
 
 export async function listDocuments({ page, limit, skip, organizationId }) {
   const where = organizationId ? { order: { organizationId } } : {};

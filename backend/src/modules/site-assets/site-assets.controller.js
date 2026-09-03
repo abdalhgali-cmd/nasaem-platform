@@ -2,7 +2,7 @@ import path from "path";
 import { siteAssetFileKeyParamSchema, siteAssetKeyParamSchema } from "./site-assets.validators.js";
 import { getSiteAssetByKey, listSiteAssets, upsertSiteAsset } from "./site-assets.service.js";
 
-const UPLOAD_ROOT = path.resolve("uploads");
+import { UPLOAD_ROOT } from "../../config/uploadRoot.js";
 
 export async function getSiteAssets(req, res, next) {
   try {
