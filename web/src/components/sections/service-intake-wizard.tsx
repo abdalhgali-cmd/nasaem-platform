@@ -310,6 +310,7 @@ export function ServiceIntakeWizard({
   // so it is held exactly where the local draft is and never put in a URL.
   const serverDraftKey = `${draftKey}:token`;
   const serverDraftTokenRef = React.useRef<string | null>(null);
+  const draftTokenRequestRef = React.useRef<Promise<string> | null>(null);
   const [autosaveState, setAutosaveState] = React.useState<"idle" | "saving" | "saved" | "offline">("idle");
 
   // Mirrors DRAFT_PUBLIC_SELECT (intake-drafts.service.js). Every field is
@@ -752,14 +753,60 @@ export function ServiceIntakeWizard({
   const [scanningTraveler, setScanningTraveler] = React.useState<number | null>(null);
   const [scanMessageByTraveler, setScanMessageByTraveler] = React.useState<Record<number, string>>({});
 
-  async function scanPassport(index: number, file: File) {
-    const token = serverDraftTokenRef.current;
-    if (!token) return;
+  async function ensureServerDraftToken(): Promise<string> {
+    const current = serverDraftTokenRef.current;
+    if (current) return current;
 
+    if (typeof window !== "undefined") {
+      try {
+        const existing = window.localStorage.getItem(serverDraftKey);
+        if (existing) {
+          serverDraftTokenRef.current = existing;
+          return existing;
+        }
+      } catch {
+        // Continue by creating a server draft when localStorage is unavailable.
+      }
+    }
+
+    if (!draftTokenRequestRef.current) {
+      draftTokenRequestRef.current = (async () => {
+        const createRes = await fetch(`${API_URL}/intake-drafts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            serviceKind: service,
+            serviceId: selectedServiceId || undefined,
+            visaTypeId: selectedVisaTypeId || undefined,
+          }),
+        });
+        const payload = await createRes.json().catch(() => null);
+        if (!createRes.ok) throw new Error(payload?.message || "تعذّر تجهيز رفع الجواز");
+        const token = payload?.data?.token;
+        if (!token) throw new Error("تعذّر تجهيز رفع الجواز");
+        serverDraftTokenRef.current = token;
+        try {
+          window.localStorage.setItem(serverDraftKey, token);
+        } catch {
+          // The in-memory ref is enough for this session when storage is unavailable.
+        }
+        return token;
+      })();
+    }
+
+    try {
+      return await draftTokenRequestRef.current;
+    } finally {
+      draftTokenRequestRef.current = null;
+    }
+  }
+
+  async function scanPassport(index: number, file: File) {
     setScanningTraveler(index);
     setScanMessageByTraveler((current) => ({ ...current, [index]: "" }));
 
     try {
+      const token = await ensureServerDraftToken();
       const body = new FormData();
       body.append("label", "جواز السفر");
       body.append("travelerIndex", String(index));
@@ -1162,8 +1209,7 @@ export function ServiceIntakeWizard({
                     placeholder="الجنسية (اختياري)"
                     className={`${inputClass} h-10 text-xs`}
                   />
-                  {serverDraftTokenRef.current ? (
-                    <div className="sm:col-span-3">
+                  <div className="sm:col-span-3">
                       <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
                         {scanningTraveler === index ? "جارٍ قراءة الجواز…" : "تعبئة البيانات من صورة الجواز"}
                         <input
@@ -1178,11 +1224,10 @@ export function ServiceIntakeWizard({
                           }}
                         />
                       </label>
-                      {scanMessageByTraveler[index] ? (
-                        <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
-                      ) : null}
-                    </div>
-                  ) : null}
+                    {scanMessageByTraveler[index] ? (
+                      <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>

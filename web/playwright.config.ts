@@ -60,7 +60,7 @@ export default defineConfig({
       // backend/admin calls go through page.request with an absolute
       // localhost:5000 URL, same pattern as web.spec.ts already uses.
       name: "platform3",
-      testMatch: /platform3\.spec\.ts/,
+      testMatch: [/platform3\.spec\.ts/, /egypt-passport-upload\.spec\.ts/],
       use: { ...devices["Desktop Chrome"], baseURL: "http://localhost:3000" },
     },
     {

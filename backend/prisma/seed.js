@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import prisma from "../src/config/database.js";
 import { nextSequence } from "../src/utils/sequence.js";
 import { FEATURE_FLAG_DESCRIPTIONS, FEATURE_FLAG_KEYS } from "../src/modules/feature-flags/feature-flags.constants.js";
+import { reconcileEgyptClearanceRequirements } from "./seed-egypt-clearance.js";
 
 const SERVICE_CATEGORIES = [
   { code: "SVC-FLIGHT", name: "تذاكر الطيران", category: "flight" },
@@ -206,7 +207,20 @@ async function seedRequirementsForScope(scope, names) {
   for (let index = 0; index < names.length; index += 1) {
     const name = names[index];
     const existing = await prisma.visaRequirement.findFirst({ where: { ...scope, name } });
-    if (existing) continue;
+    if (existing) {
+      // Update existing to ensure it has correct allowedMimeTypes (idempotent)
+      // This handles cases where the requirement exists but data may be incomplete
+      if (!existing.allowedMimeTypes || existing.allowedMimeTypes.length === 0) {
+        await prisma.visaRequirement.update({
+          where: { id: existing.id },
+          data: {
+            allowedMimeTypes: ATTACHMENT_MIME_TYPES,
+            maxSizeBytes: MAX_ATTACHMENT_SIZE_BYTES,
+          },
+        });
+      }
+      continue;
+    }
 
     await prisma.visaRequirement.create({
       data: {
@@ -366,6 +380,10 @@ async function main() {
   await seedFeatureFlags();
   await seedEgyptClearanceFaq();
   await seedSaudiFamilyVisitFaq();
+  // Must run last: seedVisaRequirements() writes the historical Egypt checklist
+  // (a plain case-scoped passport document plus the legacy ticket), and this
+  // reconciles it into the structured approval-first shape the journey needs.
+  await reconcileEgyptClearanceRequirements();
 }
 
 main()
