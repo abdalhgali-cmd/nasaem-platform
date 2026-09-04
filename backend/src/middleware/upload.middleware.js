@@ -24,10 +24,28 @@ const storage = multer.diskStorage({
 });
 
 function fileFilter(req, file, cb) {
-  if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+  let mimeType = file.mimetype;
+
+  // Fallback: detect MIME type from file extension if not set correctly by browser/multer
+  const ext = path.extname(file.originalname).toLowerCase();
+  const extensionMimeMap = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
+  };
+
+  if (!mimeType || !ALLOWED_MIME_TYPES.has(mimeType)) {
+    mimeType = extensionMimeMap[ext] || mimeType;
+  }
+
+  if (!mimeType || !ALLOWED_MIME_TYPES.has(mimeType)) {
     return cb(new Error("Unsupported file type. Allowed: JPEG, PNG, WEBP, PDF."));
   }
 
+  // Store corrected MIME type on the file object for later use
+  file.mimetype = mimeType;
   cb(null, true);
 }
 

@@ -268,7 +268,15 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
 
       const response = await fetch(`${API_URL}/intake-drafts/${token}/documents`, { method: "POST", body });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.message || "تعذّر رفع صورة الجواز");
+      if (!response.ok) {
+        // Provide detailed error message for debugging
+        let errorMessage = "تعذّر رفع صورة الجواز";
+        if (payload?.message) errorMessage = payload.message;
+        if (payload?.details?.receivedMimeType && payload?.details?.allowedMimeTypes) {
+          errorMessage = `نوع الملف ${payload.details.receivedMimeType} غير مدعوم. الأنواع المسموحة: ${payload.details.allowedMimeTypes.join(", ")}`;
+        }
+        throw new Error(errorMessage);
+      }
 
       // storeDraftDocument returns the document itself under data.
       const document = payload?.data;

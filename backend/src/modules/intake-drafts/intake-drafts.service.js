@@ -165,7 +165,14 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
     if (!belongsToDraft) return { error: "REQUIREMENT_NOT_FOUND" };
 
     if (requirement.allowedMimeTypes.length > 0 && !requirement.allowedMimeTypes.includes(file.mimetype)) {
-      return { error: "INVALID_MIME", details: { allowedMimeTypes: requirement.allowedMimeTypes } };
+      return {
+        error: "INVALID_MIME",
+        details: {
+          receivedMimeType: file.mimetype,
+          allowedMimeTypes: requirement.allowedMimeTypes,
+          fileName: file.originalname
+        }
+      };
     }
     if (requirement.maxSizeBytes && file.size > requirement.maxSizeBytes) {
       return { error: "FILE_TOO_LARGE", details: { maxSizeBytes: requirement.maxSizeBytes } };
