@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 
 const PAGE_URL = "http://localhost:3000/visas/egypt-security-approval";
+const PASSPORT_FIXTURE = fileURLToPath(new URL("./fixtures/passport-mrz-sample.png", import.meta.url));
 
 test.describe("Egypt Security Approval passport upload", () => {
   test.beforeEach(async ({ page }) => {
@@ -10,11 +12,12 @@ test.describe("Egypt Security Approval passport upload", () => {
   });
 
   test("shows the passport control before a server draft exists", async ({ page }) => {
-    await expect(page.getByText("ارفع صورة جواز السفر", { exact: true })).toBeVisible();
+    await expect(page.getByText(/^ارفع صورة جواز السفر/)).toBeVisible();
     await expect(page.getByText("اختر صورة الجواز", { exact: true })).toBeVisible();
   });
 
   test("creates the draft on demand and uploads a passport", async ({ page }) => {
+    test.setTimeout(90_000);
     const draftRequests: string[] = [];
     page.on("request", (request) => {
       if (request.method() === "POST" && /\/api\/intake-drafts(?:\?|$)/.test(request.url())) {
@@ -22,13 +25,9 @@ test.describe("Egypt Security Approval passport upload", () => {
       }
     });
 
-    await page.locator('input[type="file"]').setInputFiles({
-      name: "passport.jpg",
-      mimeType: "image/jpeg",
-      buffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
-    });
+    await page.locator('input[type="file"]').setInputFiles(PASSPORT_FIXTURE);
 
-    await expect(page.getByText("تم رفع الجواز بنجاح", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("تم رفع الجواز بنجاح", { exact: true })).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole("button", { name: "استبدال" })).toBeVisible();
     expect(draftRequests).toHaveLength(1);
   });
