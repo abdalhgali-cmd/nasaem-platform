@@ -162,17 +162,21 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
     if (typeof window === "undefined" || hydratedRef.current) return;
     hydratedRef.current = true;
 
+    let cancelled = false;
     let token: string | null = null;
     try {
       const raw = window.localStorage.getItem(LOCAL_KEY);
       if (raw) {
         const local = JSON.parse(raw) as Partial<LocalSnapshot>;
-        setName(local.name ?? "");
-        setPhone(local.phone ?? "");
-        setEmail(local.email ?? "");
-        setPassportNo(local.passportNo ?? "");
-        setBirthDate(local.birthDate ?? "");
-        setEntryMode(local.entryMode ?? "");
+        queueMicrotask(() => {
+          if (cancelled) return;
+          setName(local.name ?? "");
+          setPhone(local.phone ?? "");
+          setEmail(local.email ?? "");
+          setPassportNo(local.passportNo ?? "");
+          setBirthDate(local.birthDate ?? "");
+          setEntryMode(local.entryMode ?? "");
+        });
       }
       token = window.localStorage.getItem(TOKEN_KEY);
       if (token) draftTokenRef.current = token;
@@ -180,14 +184,14 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       // Local persistence is optional.
     }
 
-    if (!token) return;
+    if (!token) return () => { cancelled = true; };
     void (async () => {
       try {
         const response = await fetch(`${API_URL}/intake-drafts/${token}`);
         if (!response.ok) return;
         const payload = await response.json();
         const draft = payload?.data;
-        if (!draft) return;
+        if (!draft || cancelled) return;
 
         const traveler = Array.isArray(draft.travelers) ? draft.travelers[0] : null;
         if (traveler) {
@@ -201,8 +205,8 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
           setEntryMode((value) => value || draft.answers[entryRequirement.id]);
         }
         const passportDoc = Array.isArray(draft.documents)
-          ? draft.documents.find((doc: { requirementId?: string | null }) =>
-              passportRequirement ? doc.requirementId === passportRequirement.id : false
+          ? draft.documents.find(
+              (doc: { requirementId?: string | null }) => doc.requirementId === passportRequirement?.id
             )
           : null;
         if (passportDoc) {
@@ -215,7 +219,8 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
         // A resume failure must not block a fresh request.
       }
     })();
-  }, [entryRequirement?.id, passportRequirement?.id]);
+    return () => { cancelled = true; };
+  }, [entryRequirement?.id, passportRequirement]);
 
   React.useEffect(() => {
     if (!hydratedRef.current || resultId) return;

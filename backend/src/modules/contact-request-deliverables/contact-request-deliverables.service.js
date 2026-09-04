@@ -11,7 +11,7 @@ import {
   generateUniqueFilename,
   saveBufferToDirectory,
 } from "../../middleware/upload.middleware.js";
-import { UPLOAD_ROOT } from "../../config/uploadRoot.js";
+import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
 
 export async function createContactRequestDeliverable(contactRequestId, { label, file }, uploadedByUserId) {
   const contactRequest = await prisma.contactRequest.findUnique({
@@ -83,7 +83,7 @@ export async function getContactRequestDeliverableFile(contactRequestId, deliver
   }
 
   return {
-    absolutePath: path.join(UPLOAD_ROOT, deliverable.storagePath),
+    absolutePath: resolveStoredUploadPath(deliverable.storagePath),
     fileName: deliverable.fileName,
     mimeType: deliverable.mimeType,
   };

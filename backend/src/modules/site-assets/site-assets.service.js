@@ -3,7 +3,7 @@ import path from "path";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
 
-import { UPLOAD_ROOT } from "../../config/uploadRoot.js";
+import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
 
 export async function listSiteAssets() {
   return prisma.siteAsset.findMany({ orderBy: { key: "asc" } });
@@ -38,7 +38,7 @@ export async function upsertSiteAsset(key, file, req) {
   if (existing) {
     // Best-effort cleanup of the file it replaced — the DB row (now
     // pointing at the new file) is the source of truth either way.
-    await fs.unlink(path.join(UPLOAD_ROOT, existing.storagePath)).catch(() => {});
+    await fs.unlink(resolveStoredUploadPath(existing.storagePath)).catch(() => {});
   }
 
   // fileName/storagePath/mimeType/sizeBytes are metadata, never the file's

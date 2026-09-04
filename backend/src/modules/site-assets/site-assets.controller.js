@@ -1,8 +1,7 @@
-import path from "path";
 import { siteAssetFileKeyParamSchema, siteAssetKeyParamSchema } from "./site-assets.validators.js";
 import { getSiteAssetByKey, listSiteAssets, upsertSiteAsset } from "./site-assets.service.js";
 
-import { UPLOAD_ROOT } from "../../config/uploadRoot.js";
+import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
 
 export async function getSiteAssets(req, res, next) {
   try {
@@ -39,7 +38,7 @@ export async function getSiteAssetFile(req, res, next) {
     // tag — this route exists specifically to be embedded cross-origin.
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
-    return res.sendFile(path.join(UPLOAD_ROOT, asset.storagePath), (error) => {
+    return res.sendFile(resolveStoredUploadPath(asset.storagePath), (error) => {
       if (error && !res.headersSent) {
         res.status(404).json({ success: false, message: "Asset file missing on disk" });
       }
