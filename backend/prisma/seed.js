@@ -207,7 +207,20 @@ async function seedRequirementsForScope(scope, names) {
   for (let index = 0; index < names.length; index += 1) {
     const name = names[index];
     const existing = await prisma.visaRequirement.findFirst({ where: { ...scope, name } });
-    if (existing) continue;
+    if (existing) {
+      // Update existing to ensure it has correct allowedMimeTypes (idempotent)
+      // This handles cases where the requirement exists but data may be incomplete
+      if (!existing.allowedMimeTypes || existing.allowedMimeTypes.length === 0) {
+        await prisma.visaRequirement.update({
+          where: { id: existing.id },
+          data: {
+            allowedMimeTypes: ATTACHMENT_MIME_TYPES,
+            maxSizeBytes: MAX_ATTACHMENT_SIZE_BYTES,
+          },
+        });
+      }
+      continue;
+    }
 
     await prisma.visaRequirement.create({
       data: {

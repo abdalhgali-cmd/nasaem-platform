@@ -6,7 +6,11 @@ import {
   describeRequest,
   maybeAutoCompleteContactRequest,
 } from "../contact-requests/contact-requests.service.js";
-
+import {
+  CONTACT_REQUEST_DELIVERABLE_DIR,
+  generateUniqueFilename,
+  saveBufferToDirectory,
+} from "../../middleware/upload.middleware.js";
 import { UPLOAD_ROOT } from "../../config/uploadRoot.js";
 
 export async function createContactRequestDeliverable(contactRequestId, { label, file }, uploadedByUserId) {
@@ -18,6 +22,15 @@ export async function createContactRequestDeliverable(contactRequestId, { label,
     return { error: "NOT_FOUND" };
   }
 
+  let storagePath;
+  if (file.buffer) {
+    const filename = generateUniqueFilename(file.originalname);
+    saveBufferToDirectory(file.buffer, CONTACT_REQUEST_DELIVERABLE_DIR, filename);
+    storagePath = path.join("contact-request-deliverables", filename);
+  } else {
+    storagePath = path.join("contact-request-deliverables", file.filename);
+  }
+
   const deliverable = await prisma.contactRequestDeliverable.create({
     data: {
       contactRequestId,
@@ -26,7 +39,7 @@ export async function createContactRequestDeliverable(contactRequestId, { label,
       // Relative to the uploads root, not the absolute server path — same
       // convention as documents/contact-request-documents, so API responses
       // never leak server directory layout.
-      storagePath: path.join("contact-request-deliverables", file.filename),
+      storagePath,
       mimeType: file.mimetype,
       sizeBytes: file.size,
       uploadedByUserId,
