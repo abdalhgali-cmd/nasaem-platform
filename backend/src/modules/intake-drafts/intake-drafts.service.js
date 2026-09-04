@@ -6,6 +6,7 @@ import { normalizePhone } from "../../utils/phone.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
+import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 
 // Smart Case Operations — Release B (server-side intake drafts). The
 // authoritative pre-submission state for an in-progress intake, so a weak
@@ -188,6 +189,15 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
 
   const ocrResult = await maybeRunPassportOcr(requirement, file);
 
+  let storagePath;
+  if (file.buffer) {
+    const filename = generateUniqueFilename(file.originalname);
+    saveBufferToDirectory(file.buffer, CONTACT_REQUEST_DOCUMENT_DIR, filename);
+    storagePath = path.join("contact-request-documents", filename);
+  } else {
+    storagePath = path.join("contact-request-documents", file.filename);
+  }
+
   const document = await prisma.contactRequestDocument.create({
     data: {
       draftId: draft.id,
@@ -200,7 +210,7 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
       travelerId: null,
       ocrResult: ocrResult ?? undefined,
       fileName: file.originalname,
-      storagePath: path.join("contact-request-documents", file.filename),
+      storagePath,
       mimeType: file.mimetype,
       sizeBytes: file.size,
     },
