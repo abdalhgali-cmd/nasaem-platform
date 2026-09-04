@@ -2,8 +2,16 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import multer from "multer";
+import { resolveUploadPath } from "../config/uploadRoot.js";
 
-const UPLOAD_DIR = path.resolve("uploads", "documents");
+// UPLOAD_ROOT resolution (including the production fail-closed check)
+// lives in ../config/uploadRoot.js — every module that later reads,
+// serves, or deletes a stored file imports UPLOAD_ROOT from that same
+// module, so the write path here can never disagree with a read/delete
+// path about where the persistent volume is mounted.
+const uploadDir = resolveUploadPath;
+
+const UPLOAD_DIR = uploadDir("documents");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -37,7 +45,7 @@ export const uploadDocument = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 }).single("file");
 
-const CONTACT_REQUEST_DOCUMENT_DIR = path.resolve("uploads", "contact-request-documents");
+const CONTACT_REQUEST_DOCUMENT_DIR = uploadDir("contact-request-documents");
 fs.mkdirSync(CONTACT_REQUEST_DOCUMENT_DIR, { recursive: true });
 
 const contactRequestDocumentStorage = multer.diskStorage({
@@ -70,7 +78,7 @@ export const uploadContactRequestIntakeDocuments = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 }).array("documents", 6);
 
-const CONTACT_REQUEST_DELIVERABLE_DIR = path.resolve("uploads", "contact-request-deliverables");
+const CONTACT_REQUEST_DELIVERABLE_DIR = uploadDir("contact-request-deliverables");
 fs.mkdirSync(CONTACT_REQUEST_DELIVERABLE_DIR, { recursive: true });
 
 const contactRequestDeliverableStorage = multer.diskStorage({
@@ -111,7 +119,7 @@ export const uploadPassportImage = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
 }).single("image");
 
-const SITE_ASSET_DIR = path.resolve("uploads", "site-assets");
+const SITE_ASSET_DIR = uploadDir("site-assets");
 fs.mkdirSync(SITE_ASSET_DIR, { recursive: true });
 
 const siteAssetStorage = multer.diskStorage({

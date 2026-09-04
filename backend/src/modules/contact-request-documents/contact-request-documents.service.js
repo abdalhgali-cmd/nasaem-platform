@@ -6,7 +6,7 @@ import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { describeRequest, notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
 
-const UPLOAD_ROOT = path.resolve("uploads");
+import { UPLOAD_ROOT } from "../../config/uploadRoot.js";
 
 // Platform 3.0 Phase 6 (Attachment Engine) — when an upload is tied to a
 // specific VisaRequirement, validates it against that requirement's own

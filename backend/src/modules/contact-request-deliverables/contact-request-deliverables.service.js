@@ -7,7 +7,7 @@ import {
   maybeAutoCompleteContactRequest,
 } from "../contact-requests/contact-requests.service.js";
 
-const UPLOAD_ROOT = path.resolve("uploads");
+import { UPLOAD_ROOT } from "../../config/uploadRoot.js";
 
 export async function createContactRequestDeliverable(contactRequestId, { label, file }, uploadedByUserId) {
   const contactRequest = await prisma.contactRequest.findUnique({
