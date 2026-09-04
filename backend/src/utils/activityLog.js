@@ -1,4 +1,6 @@
-import { Prisma } from "@prisma/client";
+import prismaPackage from "@prisma/client";
+
+const { Prisma } = prismaPackage;
 import prisma from "../config/database.js";
 
 // Platform 3.0 Phase 16 — matched case-insensitively against object keys
