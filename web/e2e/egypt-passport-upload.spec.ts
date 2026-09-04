@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 const PAGE_URL = "http://localhost:3000/visas/egypt-security-approval";
-const PASSPORT_FIXTURE = fileURLToPath(new URL("./fixtures/passport-mrz-sample.png", import.meta.url));
+const PASSPORT_FIXTURE = path.join(__dirname, "fixtures", "passport-mrz-sample.png");
 
 test.describe("Egypt Security Approval passport upload", () => {
   test.beforeEach(async ({ page }) => {
