@@ -21,7 +21,8 @@ import { listActivePaymentAccounts } from "../payment-accounts/payment-accounts.
 import { uploadContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
 import { getTrackingTokenMaxAgeMs } from "../../utils/jwt.js";
 
-const TRACKING_COOKIE_OPTIONS = { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" };
+const isProduction = process.env.NODE_ENV === "production";
+const TRACKING_COOKIE_OPTIONS = { httpOnly: true, sameSite: isProduction ? "none" : "lax", secure: isProduction };
 
 export async function requestCode(req, res, next) {
   try { const parsed = requestCodeSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() }); const { debugCode } = await requestLoginCode(parsed.data.phone); return res.status(200).json({ success: true, message: "إذا كان الرقم مسجلاً، سيصلك رمز التحقق عبر واتساب", ...(debugCode ? { debugCode } : {}) }); } catch (error) { next(error); }
