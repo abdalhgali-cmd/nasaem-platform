@@ -20,19 +20,20 @@ export async function Services() {
   }));
 
   return (
-    <section className="bg-section py-24">
+    <section id="services" className="scroll-mt-24 bg-section py-24">
       <Container>
         <SectionHeading
           eyebrow="خدماتنا"
           title="كل ما تحتاجه لرحلتك في مكان واحد"
-          description="استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM، ثم اختر المسار المناسب لطلبك."
+          description="اختر الخدمة التي تحتاجها، واطّلع على تفاصيلها وخطوات تقديم الطلب."
         />
 
         {displayServices.length === 0 ? (
           <div className="mt-14 rounded-3xl border border-border bg-card p-10 text-center">
             <BriefcaseBusiness className="mx-auto size-10 text-muted-foreground" aria-hidden="true" />
-            <p className="mt-4 font-bold">لا توجد خدمات متاحة حاليًا</p>
-            <p className="mt-2 text-sm text-muted-foreground">سيظهر الكتالوج هنا فور تفعيل الخدمات من لوحة الإدارة.</p>
+            <p className="mt-4 font-bold">الخدمات غير ظاهرة الآن</p>
+            <p className="mt-2 text-sm text-muted-foreground">تواصل معنا وسنساعدك في معرفة التفاصيل وتقديم طلبك.</p>
+            <Link href="/contact" className="mt-5 inline-flex min-h-11 items-center font-bold text-primary underline underline-offset-4">تواصل مع نسائم الحرمين</Link>
           </div>
         ) : (
           <Stagger className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -55,7 +56,7 @@ export async function Services() {
                     <h3 className="mt-5 text-lg font-bold text-foreground">{service.name}</h3>
                     <p className="mt-2.5 flex-1 text-sm leading-relaxed text-muted-foreground">{service.description || "تفاصيل الخدمة وخطوات طلبها متاحة عبر فريق NASAEM."}</p>
                     <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-bold text-primary dark:text-secondary">
-                      اعرف المزيد
+                      تفاصيل الخدمة والتقديم
                       <ArrowLeft className="size-4 transition-transform duration-300 group-hover:-translate-x-1" />
                     </span>
                   </Link>

@@ -5,16 +5,16 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, ClipboardCheck, MessageCircle, ShieldCheck, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
 
 const journeySteps = [
   { icon: MessageCircle, value: "01", label: "أرسل طلبك" },
   { icon: Tag, value: "02", label: "راجع العرض" },
   { icon: ClipboardCheck, value: "03", label: "اعتمد بعد التوفر" },
-  { icon: ShieldCheck, value: "04", label: "تابع الحالة" },
+  { icon: ShieldCheck, value: "04", label: "تابع طلبك" },
 ];
 
 type HeroContentProps = {
+  servicePicker: ReactNode;
   title?: string;
   description?: string;
   ctaLabel?: string;
@@ -27,7 +27,7 @@ type HeroContentProps = {
 // Client component so the framer-motion entrance animations survive —
 // Hero itself (the parent) is a server component that fetches admin
 // content, and passes the resolved (or default) values down here.
-export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp, defaultTitleNode, defaultDescription }: HeroContentProps) {
+export function HeroContent({ servicePicker, title, description, ctaLabel, ctaTarget, whatsapp, defaultTitleNode, defaultDescription }: HeroContentProps) {
   return (
     <>
       <motion.span
@@ -37,7 +37,7 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-white/5 px-4 py-2 text-xs font-bold text-accent backdrop-blur-sm"
       >
         <span className="size-1.5 animate-pulse rounded-full bg-accent" />
-        رحلتك إلى بيت الله الحرام تبدأ من هنا
+        نسائم الحرمين — اختيارك الآمن للسفر
       </motion.span>
 
       <motion.h1
@@ -65,8 +65,8 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         className="mt-9 flex flex-wrap items-center justify-center gap-4"
       >
         <Button asChild variant="gold" size="lg">
-          <Link href={ctaTarget || "/packages"}>
-            {ctaLabel || "استكشف الباقات"}
+          <Link href={ctaTarget || "/#services"}>
+            {ctaLabel || "اختر خدمتك"}
             <ArrowLeft className="size-4" />
           </Link>
         </Button>
@@ -83,7 +83,7 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         transition={{ duration: 0.7, delay: 0.4 }}
         className="mt-14 w-full"
       >
-        <BookingSearchWidget />
+        {servicePicker}
       </motion.div>
 
       <motion.dl

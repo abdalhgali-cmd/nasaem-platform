@@ -85,11 +85,12 @@ export function SiteHeader({
           </a>
           <ThemeToggle />
           <Button asChild variant="gold" size="default">
-            <Link href="/contact">احجز الآن</Link>
+            <Link href="/#services">اختر خدمتك</Link>
           </Button>
         </div>
 
         <div className="flex items-center gap-1 xl:hidden">
+          <Link href="/track" className="inline-flex min-h-11 items-center rounded-full px-2 text-xs font-bold text-primary dark:text-secondary">تابع طلبك</Link>
           <ThemeToggle />
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
@@ -138,7 +139,9 @@ export function SiteHeader({
                   <span dir="ltr">{contactPhone ?? siteConfig.phone}</span>
                 </a>
                 <Button asChild variant="gold" size="lg" className="w-full">
-                  <Link href="/contact">احجز الآن</Link>
+                  <SheetClose asChild>
+                    <Link href="/#services">اختر خدمتك</Link>
+                  </SheetClose>
                 </Button>
               </div>
             </SheetContent>
