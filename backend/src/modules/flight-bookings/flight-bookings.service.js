@@ -10,8 +10,51 @@ function badRequest(message) { const error = new Error(message); error.statusCod
 function safeName(name) { return String(name || "file").replace(/[^a-zA-Z0-9._-]/g, "_"); }
 function normalizePhone(value) { return String(value || "").replace(/[^0-9+]/g, "").replace(/^00/, "+"); }
 async function saveFile(file, bookingNumberValue, prefix) { if (!file) throw badRequest("File is required"); await fs.mkdir(path.join(UPLOAD_DIR, bookingNumberValue), { recursive: true }); const filename = `${prefix}-${Date.now()}-${safeName(file.originalname)}`; const fullPath = path.join(UPLOAD_DIR, bookingNumberValue, filename); await fs.writeFile(fullPath, file.buffer); return { path: path.relative(process.cwd(), fullPath), name: file.originalname }; }
-async function ensureOrderAndCustomer(input) { let customer = input.customerId ? await prisma.customer.findUnique({ where: { id: input.customerId } }) : null; if (!customer) { const passportNo = String(input.contact?.passportNo || input.passengers?.[0]?.passportNo || "").trim(); if (passportNo) customer = await prisma.customer.findUnique({ where: { passportNo } }); } if (!customer) { const passportNo = `${String(input.contact?.passportNo || input.passengers?.[0]?.passportNo || "TEMP-")}-${Date.now()}`; customer = await prisma.customer.create({ data: { customerNo: `CUS-${Date.now().toString(36).toUpperCase()}`, fullName: String(input.contact?.fullName || `${input.passengers?.[0]?.firstName || ""} ${input.passengers?.[0]?.lastName || ""}`).trim(), passportNo, nationality: String(input.passengers?.[0]?.nationality || "UNKNOWN").trim(), birthDate: input.passengers?.[0]?.birthDate ? new Date(input.passengers[0].birthDate) : null, gender: input.passengers?.[0]?.gender || null, phone: input.contact?.phone || null, email: input.contact?.email || null } }); } const order = await prisma.order.create({ data: { orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}`, customerId: customer.id, status: "NEW", paymentStatus: "UNPAID", totalAmount: Number(input.amount || 0), currency: input.currency || "SDG" } }); return { customer, order }; }
-export async function createFlightBooking(input) { const flightIds = Array.isArray(input.flightIds) && input.flightIds.length ? input.flightIds.map(String) : input.flightId ? [String(input.flightId)] : []; if (!flightIds.length) throw badRequest("At least one flight is required"); if (!Array.isArray(input.passengers) || !input.passengers.length) throw badRequest("At least one passenger is required"); if (!input.contact?.phone) throw badRequest("Phone is required"); const amount = Number(input.amount); if (!Number.isFinite(amount) || amount <= 0) throw badRequest("Valid booking amount is required"); const { customer, order } = await ensureOrderAndCustomer({ ...input, amount }); const id = crypto.randomUUID(); const number = bookingNumber(); await prisma.$executeRawUnsafe(`INSERT INTO flight_bookings (id,booking_number,order_id,customer_id,flight_id,status,passengers,amount,currency,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6::jsonb,$7,$8,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, id, number, order.id, customer.id, JSON.stringify(flightIds), JSON.stringify(input.passengers), amount, input.currency || "SDG"); return getFlightBooking(id); }
+// This endpoint is public/unauthenticated (mounted before requireAuth in
+// flight-bookings.routes.js), so the submitted amount is not trustworthy —
+// it must be recomputed from flight_inventory.price_sdg, the same figure
+// the booking UI itself displays and sums (flight-booking-client.tsx).
+// Only SDG is verifiable this way (price_sdg is always expressed in SDG),
+// which matches the only currency the current UI ever submits.
+const AMOUNT_TOLERANCE_SDG = 1;
+async function verifyBookingAmount(flightIds, currency, submittedAmount) {
+  if (String(currency || "SDG").toUpperCase() !== "SDG") throw badRequest("Only SDG bookings can be verified");
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, price_sdg FROM flight_inventory WHERE id = ANY($1::text[]) AND active = true`,
+    flightIds
+  );
+  if (rows.length !== flightIds.length) throw badRequest("One or more selected flights are no longer available");
+  let expected = 0;
+  for (const row of rows) {
+    const priceSdg = row.price_sdg == null ? NaN : Number(row.price_sdg);
+    if (!Number.isFinite(priceSdg) || priceSdg <= 0) throw badRequest("Selected flight pricing is unavailable");
+    expected += priceSdg;
+  }
+  if (Math.abs(submittedAmount - expected) > AMOUNT_TOLERANCE_SDG) throw badRequest("Booking amount does not match current flight pricing");
+  return expected;
+}
+// Public/unauthenticated, so a client-supplied customerId or passport
+// number is never trusted to pick whose account this order lands on — that
+// would let anyone attach fraudulent bookings to a stranger's customer
+// record by guessing/knowing their id or passport. A passport match is
+// only reused when the submitted phone also matches that record, so a
+// genuine repeat customer still gets deduped onto their own row.
+async function ensureOrderAndCustomer(input) {
+  const passportNo = String(input.contact?.passportNo || input.passengers?.[0]?.passportNo || "").trim();
+  const phone = normalizePhone(input.contact?.phone);
+  let customer = null;
+  if (passportNo) {
+    const existing = await prisma.customer.findUnique({ where: { passportNo } });
+    if (existing && phone && normalizePhone(existing.phone) === phone) customer = existing;
+  }
+  if (!customer) {
+    const newPassportNo = `${passportNo || "TEMP-"}-${Date.now()}`;
+    customer = await prisma.customer.create({ data: { customerNo: `CUS-${Date.now().toString(36).toUpperCase()}`, fullName: String(input.contact?.fullName || `${input.passengers?.[0]?.firstName || ""} ${input.passengers?.[0]?.lastName || ""}`).trim(), passportNo: newPassportNo, nationality: String(input.passengers?.[0]?.nationality || "UNKNOWN").trim(), birthDate: input.passengers?.[0]?.birthDate ? new Date(input.passengers[0].birthDate) : null, gender: input.passengers?.[0]?.gender || null, phone: input.contact?.phone || null, email: input.contact?.email || null } });
+  }
+  const order = await prisma.order.create({ data: { orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}`, customerId: customer.id, status: "NEW", paymentStatus: "UNPAID", totalAmount: Number(input.amount || 0), currency: input.currency || "SDG" } });
+  return { customer, order };
+}
+export async function createFlightBooking(input) { const flightIds = Array.isArray(input.flightIds) && input.flightIds.length ? input.flightIds.map(String) : input.flightId ? [String(input.flightId)] : []; if (!flightIds.length) throw badRequest("At least one flight is required"); if (!Array.isArray(input.passengers) || !input.passengers.length) throw badRequest("At least one passenger is required"); if (!input.contact?.phone) throw badRequest("Phone is required"); const amount = Number(input.amount); if (!Number.isFinite(amount) || amount <= 0) throw badRequest("Valid booking amount is required"); const verifiedAmount = await verifyBookingAmount(flightIds, input.currency, amount); const { customer, order } = await ensureOrderAndCustomer({ ...input, amount: verifiedAmount }); const id = crypto.randomUUID(); const number = bookingNumber(); await prisma.$executeRawUnsafe(`INSERT INTO flight_bookings (id,booking_number,order_id,customer_id,flight_id,status,passengers,amount,currency,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6::jsonb,$7,$8,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, id, number, order.id, customer.id, JSON.stringify(flightIds), JSON.stringify(input.passengers), verifiedAmount, "SDG"); return getFlightBooking(id); }
 // Platform 3.0 Phase 17: shared by getFlightBooking and listFlightBookings
 // so a list of N bookings maps N already-fetched rows in memory instead of
 // re-querying each one individually (that re-query was the exact same JOIN
