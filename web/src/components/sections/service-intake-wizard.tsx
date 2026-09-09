@@ -1004,7 +1004,7 @@ export function ServiceIntakeWizard({
           <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
             <li><span className="font-semibold text-foreground">1.</span> سنراجع بيانات طلبك والمستندات المرفقة.</li>
             <li><span className="font-semibold text-foreground">2.</span> سيتواصل معك فريقنا عند الحاجة إلى معلومة أو مستند إضافي.</li>
-            <li><span className="font-semibold text-foreground">3.</span> يمكنك متابعة الحالة باستخدام رقم الطلب من صفحة التتبع.</li>
+            <li><span className="font-semibold text-foreground">3.</span> يمكنك متابعة الحالة من صفحة التتبع باستخدام نفس رقم الهاتف والتحقق عبر واتساب.</li>
           </ol>
           <p className="mt-3 text-xs text-muted-foreground">هذا طلب خدمة أولي، وليس عملية دفع أو طلبًا مؤكدًا داخل حساب العميل.</p>
         </div>

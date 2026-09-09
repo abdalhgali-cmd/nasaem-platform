@@ -1,8 +1,11 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { RequestConfirmation } from "./request-confirmation";
+import { readRequestReference, uncertainRequestMessage } from "@/lib/request-response";
 
-import { CheckCircle2, Loader2, Send } from "lucide-react";
+import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { LegalDisclosure } from "@/components/legal-disclosure";
@@ -13,6 +16,8 @@ type PublicService = { id: string; name: string; category: string; active: boole
 const OTHER_SERVICE = "استفسار آخر";
 
 export function ContactForm() {
+  const submitLock = React.useRef(false);
+  const [requestId, setRequestId] = React.useState("");
   const [status, setStatus] = React.useState<Status>("idle");
   const [errorMessage, setErrorMessage] = React.useState("");
   const [services, setServices] = React.useState<PublicService[]>([]);
@@ -32,6 +37,8 @@ export function ContactForm() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (submitLock.current) return;
+    submitLock.current = true;
     setStatus("submitting");
     setErrorMessage("");
 
@@ -41,6 +48,7 @@ export function ContactForm() {
     try {
       const response = await fetch(`${API_URL}/contact-requests`, {
         method: "POST",
+        signal: AbortSignal.timeout(30_000),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: formData.get("name"),
@@ -54,47 +62,27 @@ export function ContactForm() {
         }),
       });
 
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
-      }
+      setRequestId(await readRequestReference(response));
 
       setStatus("success");
       form.reset();
     } catch (error) {
       setStatus("error");
       setErrorMessage(
-        error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى"
+        (error instanceof TypeError || error instanceof DOMException) ? uncertainRequestMessage : error instanceof Error ? error.message : uncertainRequestMessage
       );
+    } finally {
+      submitLock.current = false;
     }
   }
 
   if (status === "success") {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-3xl border border-success/30 bg-success/5 p-10 text-center">
-        <CheckCircle2 className="size-12 text-success" />
-        <h3 className="mt-4 text-lg font-bold text-foreground">
-          تم استلام طلبك بنجاح
-        </h3>
-        <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-          شكرًا لتواصلك معنا. سيقوم أحد أعضاء فريقنا بالتواصل معك في أقرب وقت
-          ممكن.
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-6"
-          onClick={() => setStatus("idle")}
-        >
-          إرسال طلب آخر
-        </Button>
-      </div>
-    );
+    return <RequestConfirmation requestId={requestId} onNewRequest={() => { setRequestId(""); setStatus("idle"); }} />;
   }
 
   return (
     <form
+      aria-busy={status === "submitting"}
       onSubmit={handleSubmit}
       className="rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-8"
     >
@@ -108,8 +96,9 @@ export function ContactForm() {
       </div>
 
       {status === "error" ? (
-        <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+        <div role="alert" className="mb-5 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
           {errorMessage}
+          <Link href="/track" className="mt-2 block font-bold underline">تحقق من طلباتك قبل إعادة الإرسال</Link>
         </div>
       ) : null}
 
@@ -121,6 +110,9 @@ export function ContactForm() {
           <input
             id="name"
             name="name"
+            minLength={2}
+            maxLength={120}
+            autoComplete="name"
             required
             className="h-12 rounded-xl border border-border bg-background px-4 text-sm outline-none transition focus:border-primary"
             placeholder="اسمك الكامل"
@@ -134,6 +126,9 @@ export function ContactForm() {
             id="phone"
             name="phone"
             type="tel"
+            minLength={6}
+            maxLength={30}
+            autoComplete="tel"
             required
             dir="ltr"
             className="h-12 rounded-xl border border-border bg-background px-4 text-end text-sm outline-none transition focus:border-primary"
@@ -142,7 +137,7 @@ export function ContactForm() {
         </div>
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <label htmlFor="email" className="text-sm font-semibold text-foreground">
-            البريد الإلكتروني
+            البريد الإلكتروني (اختياري)
           </label>
           <input
             id="email"
@@ -177,6 +172,8 @@ export function ContactForm() {
           <textarea
             id="message"
             name="message"
+            minLength={5}
+            maxLength={2000}
             required
             rows={4}
             className="resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none transition focus:border-primary"
