@@ -73,7 +73,7 @@ test.describe("service request recovery and confirmation on mobile", () => {
     await customer(page);
     await page.getByLabel("رسالتك").fill("أرغب في الاستفسار عن خدمة سفر.");
     await page.getByRole("button", { name: "إرسال الطلب", exact: true }).click();
-    await expect(page.getByRole("alert")).toContainText("تعذر تأكيد استلام الطلب");
+    await expect(page.locator("form").getByRole("alert")).toContainText("تعذر تأكيد استلام الطلب");
     await expect(page.getByLabel("الاسم الكامل", { exact: true })).toHaveValue("عميل اختبار");
     await expect(page.getByRole("heading", { name: "تم استلام طلبك بنجاح" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "تحقق من طلباتك قبل إعادة الإرسال" })).toHaveAttribute("href", "/track");

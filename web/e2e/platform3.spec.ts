@@ -766,16 +766,16 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
 test.describe("Direct service routing — no intermediate catalog browsing", () => {
   test("homepage Services grid: Egypt Security Approval card goes straight to its dedicated page", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
-    await page.locator("a").filter({ hasText: "الموافقة الأمنية لمصر" }).first().click();
+    await page.locator("#services").scrollIntoViewIfNeeded();
+    await page.locator("#services").getByRole("link", { name: /الموافقة الأمنية لمصر/ }).click();
     await expect(page).toHaveURL(/\/visas\/egypt-security-approval$/);
     await expect(page.locator("h1")).toContainText("الموافقة الأمنية");
   });
 
   test("homepage Services grid: Family Visit card goes straight to its dedicated page", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
-    await page.locator("a").filter({ hasText: "الزيارة العائلية" }).first().click();
+    await page.locator("#services").scrollIntoViewIfNeeded();
+    await page.locator("#services").getByRole("link", { name: /الزيارة العائلية/ }).click();
     await expect(page).toHaveURL(/\/visas\/saudi-family-visit$/);
     await expect(page.locator("h1")).toContainText("الزيارة العائلية");
   });
