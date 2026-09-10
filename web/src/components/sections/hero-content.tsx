@@ -7,6 +7,12 @@ import { ArrowLeft, ClipboardCheck, MessageCircle, Search, ShieldCheck } from "l
 import { Button } from "@/components/ui/button";
 import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
 
+const trustSignals = [
+  { icon: ShieldCheck, label: "اختيار الخدمة بوضوح" },
+  { icon: ClipboardCheck, label: "المستندات داخل مسار الطلب" },
+  { icon: Search, label: "تتبع حالة الطلب" },
+];
+
 const journeySteps = [
   { icon: Search, value: "01", label: "اختر الخدمة" },
   { icon: ClipboardCheck, value: "02", label: "أكمل الطلب" },
@@ -80,11 +86,30 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         </Button>
       </motion.div>
 
+      <motion.ul
+        data-testid="homepage-trust-signals"
+        aria-label="مزايا بدء الطلب من الموقع"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.38 }}
+        className="mt-6 grid w-full max-w-3xl gap-2 sm:grid-cols-3"
+      >
+        {trustSignals.map(({ icon: Icon, label }) => (
+          <li
+            key={label}
+            className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium text-white/85 backdrop-blur-sm"
+          >
+            <Icon className="size-4 shrink-0 text-accent" aria-hidden="true" />
+            <span>{label}</span>
+          </li>
+        ))}
+      </motion.ul>
+
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.7, delay: 0.4 }}
-        className="mt-14 w-full"
+        transition={{ duration: 0.7, delay: 0.45 }}
+        className="mt-10 w-full"
       >
         <BookingSearchWidget />
       </motion.div>

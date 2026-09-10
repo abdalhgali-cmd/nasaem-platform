@@ -14,6 +14,16 @@ test.describe("Homepage — primary service entry", () => {
     await expect(page.getByRole("link", { name: "تتبع طلبك" }).first()).toHaveAttribute("href", "/track");
   });
 
+  test("shows concise first-view trust signals without marketing claims", async ({ page }) => {
+    await page.goto("/");
+
+    const trustSignals = page.getByTestId("homepage-trust-signals");
+    await expect(trustSignals).toBeVisible();
+    await expect(trustSignals.getByText("اختيار الخدمة بوضوح")).toBeVisible();
+    await expect(trustSignals.getByText("المستندات داخل مسار الطلب")).toBeVisible();
+    await expect(trustSignals.getByText("تتبع حالة الطلب")).toBeVisible();
+  });
+
   test("visa entry exposes the dedicated family-visit and Egypt flows", async ({ page }) => {
     await page.goto("/");
     const entry = page.locator("#start-request");
