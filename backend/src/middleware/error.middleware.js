@@ -1,4 +1,6 @@
-import { Prisma } from "@prisma/client";
+import prismaPackage from "@prisma/client";
+
+const { Prisma } = prismaPackage;
 
 // Maps a Prisma unique-constraint violation to a clean, user-facing message
 // instead of leaking the raw ORM error text (which includes internal query

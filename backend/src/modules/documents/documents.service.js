@@ -1,10 +1,9 @@
 import fs from "fs/promises";
-import path from "path";
 import prisma from "../../config/database.js";
 import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 
-const UPLOAD_ROOT = path.resolve("uploads");
+import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
 
 export async function listDocuments({ page, limit, skip, organizationId }) {
   const where = organizationId ? { order: { organizationId } } : {};
@@ -57,7 +56,7 @@ export async function deleteDocument(id, organizationId) {
   const document = await prisma.document.findFirst({ where: { id, ...(organizationId ? { order: { organizationId } } : {}) } });
   if (!document) return null;
   await prisma.document.delete({ where: { id } });
-  const absolutePath = path.join(UPLOAD_ROOT, document.storagePath);
+  const absolutePath = resolveStoredUploadPath(document.storagePath);
   await fs.unlink(absolutePath).catch(() => {});
   return document;
 }

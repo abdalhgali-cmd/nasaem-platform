@@ -99,7 +99,17 @@ export async function storeDraftDocument(req, res, next) {
     const errorResponse = respondToDraftError(res, result);
     if (errorResponse) return errorResponse;
 
-    return res.status(201).json({ success: true, data: result.document });
+    // Ensure response shape matches frontend expectations:
+    // Frontend checks for payload?.data?.id
+    const responseDocument = result.document || {};
+    return res.status(201).json({
+      success: true,
+      data: {
+        ...responseDocument,
+        // Ensure sizeBytes is also returned as fileSize for backwards compatibility
+        fileSize: responseDocument.sizeBytes,
+      }
+    });
   } catch (error) {
     next(error);
   }
