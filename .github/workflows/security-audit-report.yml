@@ -1,0 +1,30 @@
+name: Security audit report
+
+on:
+  push:
+    branches:
+      - security/nextjs-16.3.4
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install exact web dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts
+      - name: Print npm audit report
+        working-directory: web
+        shell: bash
+        run: |
+          npm audit --omit=optional || true
