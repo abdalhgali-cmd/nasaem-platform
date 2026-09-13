@@ -1,10 +1,12 @@
 import "./env.js";
+import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { after, describe, test } from "node:test";
 import assert from "node:assert/strict";
+import sharp from "sharp";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
-import { comparePassportDataToCustomer, terminateOcrWorker } from "../src/modules/passport-ocr/passport-ocr.service.js";
+import { comparePassportDataToCustomer, prepareImageForOcr, terminateOcrWorker } from "../src/modules/passport-ocr/passport-ocr.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLE_MRZ_IMAGE = path.join(__dirname, "fixtures", "passport-mrz-sample.png");
@@ -133,6 +135,36 @@ describe("passport OCR", () => {
       .attach("image", SAMPLE_MRZ_IMAGE);
 
     assert.equal(res.status, 404);
+  });
+});
+
+describe("prepareImageForOcr", () => {
+  // Guards the OOM-crash fix: a full-resolution phone photo (routinely
+  // 4000-8000px on the long edge) reproducibly killed the whole backend
+  // process when fed straight into tesseract.js. This asserts the cap
+  // actually applies without needing the OCR worker itself.
+  test("downscales an oversized image to the OCR dimension cap", async () => {
+    const big = await sharp({
+      create: { width: 4000, height: 3000, channels: 3, background: { r: 255, g: 255, b: 255 } },
+    })
+      .png()
+      .toBuffer();
+
+    const prepared = await prepareImageForOcr(big);
+    const meta = await sharp(prepared).metadata();
+
+    assert.ok(meta.width <= 2000 && meta.height <= 2000, `expected both dimensions <= 2000, got ${meta.width}x${meta.height}`);
+  });
+
+  test("never enlarges an already-small image", async () => {
+    const original = await fs.readFile(SAMPLE_MRZ_IMAGE);
+    const originalMeta = await sharp(original).metadata();
+
+    const prepared = await prepareImageForOcr(original);
+    const preparedMeta = await sharp(prepared).metadata();
+
+    assert.equal(preparedMeta.width, originalMeta.width);
+    assert.equal(preparedMeta.height, originalMeta.height);
   });
 });
 
