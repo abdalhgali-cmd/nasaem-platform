@@ -73,6 +73,52 @@ describe("flight booking workflow", () => {
     assert.ok(finalPublic.body.booking.final_ticket_path);
   });
 
+  // Regression: POST /api/flight-bookings is unauthenticated, and used to
+  // trust a client-supplied customerId outright — anyone who knew or
+  // guessed an existing customer's id could attach a fabricated booking
+  // (and its order) to that stranger's record with no ownership check.
+  test("ignores a spoofed customerId whose phone doesn't match the request's contact phone", async () => {
+    const targetPhone = `24994${uniqueSuffix().slice(-7)}`;
+    const targetCustomer = await admin.post("/api/customers").send({ fullName: "Real Owner", passportNo: `P${uniqueSuffix()}`, nationality: "Sudan", phone: targetPhone });
+    assert.equal(targetCustomer.status, 201);
+
+    const spoofedPhone = `24995${uniqueSuffix().slice(-7)}`;
+    const createRes = await request(app).post("/api/flight-bookings").send({
+      flightId,
+      amount: 1500000,
+      currency: "SDG",
+      customerId: targetCustomer.body.data.id,
+      contact: { fullName: "Attacker", phone: spoofedPhone },
+      passengers: [{ firstName: "ATTACKER", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }],
+    });
+    assert.equal(createRes.status, 201);
+
+    const fetched = await admin.get(`/api/flight-bookings/${createRes.body.booking.id}`);
+    assert.equal(fetched.status, 200);
+    assert.notEqual(fetched.body.booking.customer_id, targetCustomer.body.data.id);
+    assert.equal(fetched.body.booking.customer_phone, spoofedPhone);
+  });
+
+  test("reuses the customer record when customerId's phone matches the request's contact phone", async () => {
+    const ownerPhone = `24996${uniqueSuffix().slice(-7)}`;
+    const owner = await admin.post("/api/customers").send({ fullName: "Returning Customer", passportNo: `P${uniqueSuffix()}`, nationality: "Sudan", phone: ownerPhone });
+    assert.equal(owner.status, 201);
+
+    const createRes = await request(app).post("/api/flight-bookings").send({
+      flightId,
+      amount: 1500000,
+      currency: "SDG",
+      customerId: owner.body.data.id,
+      contact: { fullName: "Returning Customer", phone: ownerPhone },
+      passengers: [{ firstName: "RETURNING", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }],
+    });
+    assert.equal(createRes.status, 201);
+
+    const fetched = await admin.get(`/api/flight-bookings/${createRes.body.booking.id}`);
+    assert.equal(fetched.status, 200);
+    assert.equal(fetched.body.booking.customer_id, owner.body.data.id);
+  });
+
   test("rejects payment receipt upload before provisional ticket", async () => {
     const testPhone = `24992${uniqueSuffix().slice(-7)}`;
     const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "Early Receipt Test", phone: testPhone }, passengers: [{ firstName: "EARLY", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }] });
