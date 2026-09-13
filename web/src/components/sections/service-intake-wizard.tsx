@@ -80,9 +80,33 @@ type PublicRequirement = {
 };
 
 type DocumentSlot = {
+  // Composite for a TRAVELER-scoped requirement (`${requirementId}::${travelerIndex}`,
+  // where travelerIndex is the index into `filledTravelers`), or just the
+  // requirement id for a CUSTOMER/CASE-scoped one — so each traveler gets
+  // their own independent upload slot instead of one shared slot silently
+  // collecting whichever traveler's file was attached last.
+  key: string;
   requirement: PublicRequirement;
+  travelerIndex: number | null;
   files: File[];
 };
+
+const TRAVELER_ORDINALS = [
+  "الأول",
+  "الثاني",
+  "الثالث",
+  "الرابع",
+  "الخامس",
+  "السادس",
+  "السابع",
+  "الثامن",
+  "التاسع",
+  "العاشر",
+];
+
+function travelerOrdinalLabel(index: number) {
+  return TRAVELER_ORDINALS[index] ? `المسافر ${TRAVELER_ORDINALS[index]}` : `المسافر رقم ${index + 1}`;
+}
 
 // Mirrors backend/src/modules/requirements/requirements.service.js's
 // requirementApplies() exactly — kept as a small standalone pure function
@@ -242,6 +266,17 @@ export function ServiceIntakeWizard({
   ]);
   const [notes, setNotes] = React.useState("");
 
+  // The traveler list actually sent on submission (see handleSubmit) — a
+  // blank row a customer hasn't filled in yet is never sent as a real
+  // Traveler, so this is also the index space `documentSlots` below must
+  // use for a TRAVELER-scoped upload slot's travelerIndex, or a document
+  // could end up tagged with an index the backend's `travelers` array
+  // doesn't have.
+  const filledTravelers = React.useMemo(
+    () => travelers.filter((t) => t.fullName.trim().length > 0),
+    [travelers]
+  );
+
   // Documents (step "documents") — the live checklist fetched from the
   // Requirements Engine for whichever service/visa type is selected, and
   // the files attached against each checklist item's id (keyed by
@@ -250,10 +285,10 @@ export function ServiceIntakeWizard({
   // under a stale label).
   const [requirements, setRequirements] = React.useState<PublicRequirement[]>([]);
   const [loadingRequirements, setLoadingRequirements] = React.useState(false);
-  const [documentFilesByRequirement, setDocumentFilesByRequirement] = React.useState<
+  const [documentFilesBySlotKey, setDocumentFilesBySlotKey] = React.useState<
     Record<string, File[]>
   >({});
-  const [documentErrorsByRequirement, setDocumentErrorsByRequirement] = React.useState<
+  const [documentErrorsBySlotKey, setDocumentErrorsBySlotKey] = React.useState<
     Record<string, string>
   >({});
   // Smart Case Operations — Release A. Answers to non-DOCUMENT requirement
@@ -645,12 +680,12 @@ export function ServiceIntakeWizard({
 
     if (!requirementsEndpoint) {
       setRequirements([]);
-      setDocumentFilesByRequirement({});
+      setDocumentFilesBySlotKey({});
       return;
     }
 
     setLoadingRequirements(true);
-    setDocumentFilesByRequirement({});
+    setDocumentFilesBySlotKey({});
 
     fetch(`${API_URL}/${requirementsEndpoint}/requirements/public`)
       .then((res) => res.json())
@@ -677,12 +712,24 @@ export function ServiceIntakeWizard({
   // with no condition, so this is exactly documentSlots' old behavior for
   // every existing checklist.
   const applicableRequirements = requirements.filter((r) => requirementApplies(r, answers));
+  // A TRAVELER-scoped DOCUMENT requirement (e.g. "صورة الجواز") expands into
+  // one independent slot per traveler who has a name filled in — each with
+  // its own key, files and errors — instead of a single slot the whole
+  // party shares. A requirement stays TRAVELER-scoped with no travelers
+  // filled in yet falls back to one generic slot so the upload control
+  // never simply disappears.
   const documentSlots: DocumentSlot[] = applicableRequirements
     .filter((r) => r.type === "DOCUMENT")
-    .map((requirement) => ({
-      requirement,
-      files: documentFilesByRequirement[requirement.id] ?? [],
-    }));
+    .flatMap((requirement): DocumentSlot[] => {
+      if (requirement.scope === "TRAVELER" && filledTravelers.length > 0) {
+        return filledTravelers.map((_, travelerIndex) => {
+          const key = `${requirement.id}::${travelerIndex}`;
+          return { key, requirement, travelerIndex, files: documentFilesBySlotKey[key] ?? [] };
+        });
+      }
+      const key = requirement.id;
+      return [{ key, requirement, travelerIndex: null, files: documentFilesBySlotKey[key] ?? [] }];
+    });
   const answerSlots: PublicRequirement[] = applicableRequirements.filter((r) => r.type !== "DOCUMENT");
 
   const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
@@ -700,21 +747,102 @@ export function ServiceIntakeWizard({
     return null;
   }
 
-  function addDocumentFile(requirementId: string, requirement: PublicRequirement, file: File) {
+  function addDocumentFile(slotKey: string, requirement: PublicRequirement, file: File) {
     const error = validateDocumentFile(requirement, file);
-    setDocumentErrorsByRequirement((prev) => ({ ...prev, [requirementId]: error || "" }));
+    setDocumentErrorsBySlotKey((prev) => ({ ...prev, [slotKey]: error || "" }));
     if (error) return;
-    setDocumentFilesByRequirement((prev) => ({
+    setDocumentFilesBySlotKey((prev) => ({
       ...prev,
-      [requirementId]: [...(prev[requirementId] ?? []), file],
+      [slotKey]: [...(prev[slotKey] ?? []), file],
     }));
   }
 
-  function removeDocumentFile(requirementId: string, index: number) {
-    setDocumentFilesByRequirement((prev) => ({
+  function removeDocumentFile(slotKey: string, index: number) {
+    setDocumentFilesBySlotKey((prev) => ({
       ...prev,
-      [requirementId]: (prev[requirementId] ?? []).filter((_, i) => i !== index),
+      [slotKey]: (prev[slotKey] ?? []).filter((_, i) => i !== index),
     }));
+  }
+
+  function renderDocumentSlot(slot: DocumentSlot) {
+    const remainingSlots = Math.max(
+      0,
+      Math.min(slot.requirement.maxFiles - slot.files.length, MAX_TOTAL_DOCUMENTS - totalAttachedDocuments)
+    );
+    const accept = slot.requirement.allowedMimeTypes.length
+      ? slot.requirement.allowedMimeTypes.join(",")
+      : DEFAULT_ATTACHMENT_ACCEPT;
+    const error = documentErrorsBySlotKey[slot.key];
+
+    return (
+      <div key={slot.key} className="flex flex-col gap-2 rounded-xl border border-border/70 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-foreground">
+            {slot.requirement.name}
+            {slot.requirement.required ? (
+              <span className="ms-1 text-xs font-bold text-destructive">*</span>
+            ) : (
+              <span className="ms-1 text-xs font-normal text-muted-foreground">(اختياري)</span>
+            )}
+          </span>
+          {remainingSlots > 0 ? (
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+              <Upload className="size-4" />
+              اختر ملفًا
+              <input
+                type="file"
+                accept={accept}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  if (file) addDocumentFile(slot.key, slot.requirement, file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          ) : null}
+        </div>
+        {slot.requirement.description ? (
+          <p className="text-xs text-muted-foreground">{slot.requirement.description}</p>
+        ) : null}
+        {isPassportRequirement(slot.requirement) ? (
+          <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground">
+            نصيحة: صوّر صفحة البيانات في الجواز كاملة وبإضاءة جيدة، بحيث تظهر الأركان
+            الأربعة وجميع الكتابة بوضوح دون انعكاس ضوئي أو اهتزاز.
+          </p>
+        ) : null}
+        {error ? <p className="text-xs font-semibold text-destructive">{error}</p> : null}
+        {slot.files.length > 0 ? (
+          <ul className="flex flex-col gap-1">
+            {slot.files.map((file, index) => (
+              <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 text-xs text-foreground">
+                <CheckCircle2 className="size-3.5 shrink-0 text-success" />
+                <span className="flex-1 truncate">{file.name}</span>
+                <label className="cursor-pointer font-bold text-primary hover:underline dark:text-secondary">
+                  استبدال
+                  <input
+                    type="file"
+                    accept={accept}
+                    className="hidden"
+                    onChange={(e) => {
+                      const replacement = e.target.files?.[0] ?? null;
+                      if (replacement) {
+                        removeDocumentFile(slot.key, index);
+                        addDocumentFile(slot.key, slot.requirement, replacement);
+                      }
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <button type="button" onClick={() => removeDocumentFile(slot.key, index)} className="font-bold text-destructive">
+                  إزالة
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    );
   }
 
   // "select" step only applies to visa/package (Umrah has no sub-type to
@@ -910,7 +1038,6 @@ export function ServiceIntakeWizard({
 
       formData.append("travelerCount", String(travelerCount));
 
-      const filledTravelers = travelers.filter((t) => t.fullName.trim().length > 0);
       formData.append(
         "intakeData",
         JSON.stringify({
@@ -937,18 +1064,29 @@ export function ServiceIntakeWizard({
       // requirement id lets the backend apply that requirement's own
       // MIME/size/max-files rules and (when configured) run passport OCR
       // against the right file, instead of the upload being unlabeled.
+      // documentTravelerIndexes is what actually ties a TRAVELER-scoped
+      // slot's file to the right Traveler row server-side (index into the
+      // `travelers` array above) — "" means case/customer-scoped, matching
+      // createContactRequestSchema's documentTravelerIndexes contract.
       const documentLabels: string[] = [];
       const documentRequirementIds: string[] = [];
+      const documentTravelerIndexes: string[] = [];
       const documentFilesToSend: File[] = [];
       for (const slot of documentSlots) {
         for (const file of slot.files) {
-          documentLabels.push(slot.requirement.name);
+          documentLabels.push(
+            slot.travelerIndex !== null
+              ? `${slot.requirement.name} — ${travelerOrdinalLabel(slot.travelerIndex)}`
+              : slot.requirement.name
+          );
           documentRequirementIds.push(slot.requirement.id);
+          documentTravelerIndexes.push(slot.travelerIndex !== null ? String(slot.travelerIndex) : "");
           documentFilesToSend.push(file);
         }
       }
       formData.append("documentLabels", JSON.stringify(documentLabels));
       formData.append("documentRequirementIds", JSON.stringify(documentRequirementIds));
+      formData.append("documentTravelerIndexes", JSON.stringify(documentTravelerIndexes));
       documentFilesToSend.forEach((file) => formData.append("documents", file));
 
       const response = await fetch(`${API_URL}/contact-requests`, {
@@ -1320,79 +1458,42 @@ export function ServiceIntakeWizard({
                 <Loader2 className="size-6 animate-spin text-primary" />
               </div>
             ) : (
-              documentSlots.map((slot) => {
-                const remainingSlots = Math.max(
-                  0,
-                  Math.min(
-                    slot.requirement.maxFiles - slot.files.length,
-                    MAX_TOTAL_DOCUMENTS - totalAttachedDocuments
-                  )
-                );
-                const accept = slot.requirement.allowedMimeTypes.length
-                  ? slot.requirement.allowedMimeTypes.join(",")
-                  : DEFAULT_ATTACHMENT_ACCEPT;
-
-                return (
-                  <div key={slot.requirement.id} className="flex flex-col gap-2 rounded-xl border border-border/70 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-foreground">
-                        {slot.requirement.name}
-                        {slot.requirement.required ? (
-                          <span className="ms-1 text-xs font-bold text-destructive">*</span>
-                        ) : (
-                          <span className="ms-1 text-xs font-normal text-muted-foreground">(اختياري)</span>
-                        )}
-                      </span>
-                      {remainingSlots > 0 ? (
-                        <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                          <Upload className="size-4" />
-                          اختر ملفًا
-                          <input
-                            type="file"
-                            accept={accept}
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0] ?? null;
-                              if (file) addDocumentFile(slot.requirement.id, slot.requirement, file);
-                              e.target.value = "";
-                            }}
-                          />
-                        </label>
-                      ) : null}
+              <>
+                {/* Each traveler's own documents (e.g. their passport copy) are
+                    grouped under their own name so it's never ambiguous whose
+                    file is whose — the fix for documents silently being shared
+                    across travelers. */}
+                {filledTravelers.map((traveler, travelerIndex) => {
+                  const slotsForTraveler = documentSlots.filter((slot) => slot.travelerIndex === travelerIndex);
+                  if (slotsForTraveler.length === 0) return null;
+                  return (
+                    <div
+                      key={`traveler-documents-${travelerIndex}`}
+                      className="flex flex-col gap-3 rounded-2xl border border-primary/25 bg-primary/[0.03] p-3"
+                    >
+                      <h3 className="text-sm font-bold text-foreground">
+                        {travelerOrdinalLabel(travelerIndex)}
+                        <span className="ms-1.5 font-normal text-muted-foreground">— {traveler.fullName}</span>
+                      </h3>
+                      <div className="flex flex-col gap-3">{slotsForTraveler.map((slot) => renderDocumentSlot(slot))}</div>
                     </div>
-                    {slot.requirement.description ? (
-                      <p className="text-xs text-muted-foreground">{slot.requirement.description}</p>
-                    ) : null}
-                    {isPassportRequirement(slot.requirement) ? (
-                      <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground">
-                        نصيحة: صوّر صفحة البيانات في الجواز كاملة وبإضاءة جيدة، بحيث تظهر الأركان
-                        الأربعة وجميع الكتابة بوضوح دون انعكاس ضوئي أو اهتزاز.
-                      </p>
-                    ) : null}
-                    {documentErrorsByRequirement[slot.requirement.id] ? (
-                      <p className="text-xs font-semibold text-destructive">
-                        {documentErrorsByRequirement[slot.requirement.id]}
-                      </p>
-                    ) : null}
-                    {slot.files.length > 0 ? (
-                      <ul className="flex flex-col gap-1">
-                        {slot.files.map((file, index) => (
-                          <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 text-xs text-foreground">
-                            <span className="truncate">{file.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => removeDocumentFile(slot.requirement.id, index)}
-                              className="font-bold text-destructive"
-                            >
-                              إزالة
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                );
-              })
+                  );
+                })}
+
+                {(() => {
+                  const generalSlots = documentSlots.filter((slot) => slot.travelerIndex === null);
+                  if (generalSlots.length === 0) return null;
+                  const hasTravelerGroups = documentSlots.some((slot) => slot.travelerIndex !== null);
+                  return (
+                    <div className="flex flex-col gap-3">
+                      {hasTravelerGroups ? (
+                        <h3 className="text-sm font-bold text-foreground">مستندات عامة</h3>
+                      ) : null}
+                      {generalSlots.map((slot) => renderDocumentSlot(slot))}
+                    </div>
+                  );
+                })()}
+              </>
             )}
             {!loadingRequirements && documentSlots.length === 0 ? (
               <p className="text-sm text-muted-foreground">لا توجد مستندات مطلوبة مسبقًا لهذه الخدمة.</p>
@@ -1430,17 +1531,35 @@ export function ServiceIntakeWizard({
             </div>
             <div className="rounded-xl border border-accent/40 bg-accent/5 p-4">
               <span className="font-bold text-foreground">التكلفة</span>
-              <div className="mt-2 flex flex-col gap-1">
+              <div className="mt-2 flex flex-col gap-1.5">
                 {hasPublishedPrice && selectedPriceItem ? (
                   <>
-                    <span className="font-bold text-foreground" dir="ltr">
-                      {Number(selectedPriceItem.basePrice).toLocaleString("en-US")} {selectedPriceItem.currency}
-                    </span>
-                    {selectedPriceItem.currency !== "SDG" && selectedPriceItem.priceSdg != null ? (
-                      <span className="text-xs text-muted-foreground">
-                        يعادل {Math.round(selectedPriceItem.priceSdg).toLocaleString("en-US")} جنيه سوداني
-                      </span>
+                    {travelerCount > 1 ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>سعر الفرد</span>
+                        <span dir="ltr">
+                          {Number(selectedPriceItem.basePrice).toLocaleString("en-US")} {selectedPriceItem.currency}
+                        </span>
+                      </div>
                     ) : null}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">{travelerCount > 1 ? "الإجمالي" : "السعر"}</span>
+                      <span className="font-bold text-foreground" dir="ltr">
+                        {(Number(selectedPriceItem.basePrice) * travelerCount).toLocaleString("en-US")}{" "}
+                        {selectedPriceItem.currency}
+                      </span>
+                    </div>
+                    {selectedPriceItem.currency !== "SDG" && selectedPriceItem.priceSdg != null ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>السعر التقريبي بالجنيه</span>
+                        <span dir="ltr">
+                          يعادل تقريبًا {Math.round(selectedPriceItem.priceSdg * travelerCount).toLocaleString("en-US")} ج.س
+                        </span>
+                      </div>
+                    ) : null}
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      السعر المعروض من تسعير الإدارة الحالي، والمبلغ النهائي يُعتمد بعد مراجعة طلبك.
+                    </p>
                   </>
                 ) : (
                   <span className="text-sm text-muted-foreground">يتم تحديد التكلفة بعد مراجعة الطلب</span>
@@ -1454,8 +1573,11 @@ export function ServiceIntakeWizard({
                   <span>لا توجد مستندات</span>
                 ) : (
                   documentSlots.map((slot) => (
-                    <span key={slot.requirement.id}>
-                      {slot.requirement.name}: {slot.files.length > 0 ? `تم إرفاق ${slot.files.length}` : "لم يُرفق بعد"}
+                    <span key={slot.key}>
+                      {slot.travelerIndex !== null
+                        ? `${slot.requirement.name} — ${travelerOrdinalLabel(slot.travelerIndex)}`
+                        : slot.requirement.name}
+                      : {slot.files.length > 0 ? `تم إرفاق ${slot.files.length}` : "لم يُرفق بعد"}
                     </span>
                   ))
                 )}

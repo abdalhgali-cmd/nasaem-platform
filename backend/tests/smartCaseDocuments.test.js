@@ -157,4 +157,50 @@ describe("document versioning and traveler-scoped document ownership", () => {
     assert.equal(uploadRes.status, 201, JSON.stringify(uploadRes.body));
     assert.equal(uploadRes.body.data.travelerId, travelerId);
   });
+
+  // Regression test for the Service Intake wizard bug where every traveler
+  // shared one upload slot per requirement: a TRAVELER-scoped requirement's
+  // maxFiles was enforced once across the whole submission instead of once
+  // PER TRAVELER, so a second traveler's passport was rejected as
+  // MAX_FILES_REACHED even though neither traveler had exceeded their own
+  // limit. Also asserts each file lands on the correct Traveler row, not a
+  // shared/ambiguous one.
+  test("a TRAVELER-scoped requirement's maxFiles is enforced per traveler, not once for the whole party", async () => {
+    const travelerReqRes = await agent.post(`/api/services/${service.id}/requirements`).send({
+      name: "صورة الجواز",
+      type: "DOCUMENT",
+      scope: "TRAVELER",
+      maxFiles: 1,
+    });
+    assert.equal(travelerReqRes.status, 201, JSON.stringify(travelerReqRes.body));
+    const travelerRequirementId = travelerReqRes.body.data.id;
+
+    const phone = `090${uniqueSuffix()}`;
+    const createRes = await request(app)
+      .post("/api/contact-requests")
+      .field("name", "Two Travelers Own Passports")
+      .field("phone", phone)
+      .field("message", "طلب لمسافرين، لكل منهما صورة جواز خاصة به")
+      .field("serviceId", service.id)
+      .field("travelers", JSON.stringify([{ fullName: "Traveler One" }, { fullName: "Traveler Two" }]))
+      .field("documentLabels", JSON.stringify(["صورة الجواز — المسافر الأول", "صورة الجواز — المسافر الثاني"]))
+      .field("documentRequirementIds", JSON.stringify([travelerRequirementId, travelerRequirementId]))
+      .field("documentTravelerIndexes", JSON.stringify(["0", "1"]))
+      .attach("documents", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01]), { filename: "t1.png", contentType: "image/png" })
+      .attach("documents", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x02]), { filename: "t2.png", contentType: "image/png" });
+
+    assert.equal(createRes.status, 201, JSON.stringify(createRes.body));
+
+    const listRes = await agent.get("/api/contact-requests?limit=50");
+    const found = listRes.body.data.find((r) => r.id === createRes.body.data.id);
+    assert.equal(found.documents.length, 2, "both travelers' passports were accepted, not just one");
+
+    const travelerOneId = found.travelers.find((t) => t.fullName === "Traveler One").id;
+    const travelerTwoId = found.travelers.find((t) => t.fullName === "Traveler Two").id;
+    const docForOne = found.documents.find((d) => d.fileName === "t1.png");
+    const docForTwo = found.documents.find((d) => d.fileName === "t2.png");
+    assert.equal(docForOne.travelerId, travelerOneId, "traveler one's document is owned by traveler one");
+    assert.equal(docForTwo.travelerId, travelerTwoId, "traveler two's document is owned by traveler two, not traveler one");
+    assert.notEqual(docForOne.travelerId, docForTwo.travelerId, "the two travelers never share a document");
+  });
 });

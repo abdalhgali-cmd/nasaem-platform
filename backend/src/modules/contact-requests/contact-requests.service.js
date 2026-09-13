@@ -127,8 +127,16 @@ export async function createContactRequest(data, req, files = []) {
         return { error: "FILE_TOO_LARGE", details: { requirementId, maxSizeBytes: requirement.maxSizeBytes } };
       }
 
-      const seenCount = (countByRequirement.get(requirementId) || 0) + 1;
-      countByRequirement.set(requirementId, seenCount);
+      // A TRAVELER-scoped requirement (e.g. "passport copy") is satisfied
+      // once PER TRAVELER, not once total — each traveler independently
+      // gets up to maxFiles for it. Counting by requirementId alone would
+      // reject traveler #2's passport as MAX_FILES_REACHED once traveler
+      // #1's was already attached. CUSTOMER/CASE-scoped requirements keep
+      // the original single, request-wide count.
+      const countKey =
+        requirement.scope === "TRAVELER" ? `${requirementId}::${documentTravelerIndexes[i] ?? ""}` : requirementId;
+      const seenCount = (countByRequirement.get(countKey) || 0) + 1;
+      countByRequirement.set(countKey, seenCount);
       if (seenCount > requirement.maxFiles) {
         return { error: "MAX_FILES_REACHED", details: { requirementId, maxFiles: requirement.maxFiles } };
       }
