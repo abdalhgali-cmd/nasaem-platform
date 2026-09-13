@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import prisma from "../../config/database.js";
+import { getCurrencyRates } from "../flights/flights.service.js";
 
 const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads", "flight-bookings"));
 const STATUS_LABELS_AR = { REQUESTED: "تم استلام الطلب", RESERVATION_PENDING: "جاري الحجز المبدئي", PROVISIONAL_TICKET: "تم إصدار الحجز المبدئي", PAYMENT_PENDING: "بانتظار الدفع", PAYMENT_UNDER_REVIEW: "إشعار الدفع قيد المراجعة", PAYMENT_CONFIRMED: "تم تأكيد الدفع", FINAL_TICKET_ISSUED: "تم إصدار الحجز النهائي", CANCELLED: "ملغي" };
@@ -18,7 +19,35 @@ async function saveFile(file, bookingNumberValue, prefix) { if (!file) throw bad
 // applies to reading a booking back (getPublicFlightBooking) and to
 // submitting its payment receipt.
 async function ensureOrderAndCustomer(input) { let customer = null; if (input.customerId) { const candidate = await prisma.customer.findUnique({ where: { id: input.customerId } }); const candidatePhone = candidate ? normalizePhone(candidate.phone) : ""; if (candidatePhone && candidatePhone === normalizePhone(input.contact?.phone)) customer = candidate; } if (!customer) { const passportNo = String(input.contact?.passportNo || input.passengers?.[0]?.passportNo || "").trim(); if (passportNo) customer = await prisma.customer.findUnique({ where: { passportNo } }); } if (!customer) { const passportNo = `${String(input.contact?.passportNo || input.passengers?.[0]?.passportNo || "TEMP-")}-${Date.now()}`; customer = await prisma.customer.create({ data: { customerNo: `CUS-${Date.now().toString(36).toUpperCase()}`, fullName: String(input.contact?.fullName || `${input.passengers?.[0]?.firstName || ""} ${input.passengers?.[0]?.lastName || ""}`).trim(), passportNo, nationality: String(input.passengers?.[0]?.nationality || "UNKNOWN").trim(), birthDate: input.passengers?.[0]?.birthDate ? new Date(input.passengers[0].birthDate) : null, gender: input.passengers?.[0]?.gender || null, phone: input.contact?.phone || null, email: input.contact?.email || null } }); } const order = await prisma.order.create({ data: { orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}`, customerId: customer.id, status: "NEW", paymentStatus: "UNPAID", totalAmount: Number(input.amount || 0), currency: input.currency || "SDG" } }); return { customer, order }; }
-export async function createFlightBooking(input) { const flightIds = Array.isArray(input.flightIds) && input.flightIds.length ? input.flightIds.map(String) : input.flightId ? [String(input.flightId)] : []; if (!flightIds.length) throw badRequest("At least one flight is required"); if (!Array.isArray(input.passengers) || !input.passengers.length) throw badRequest("At least one passenger is required"); if (!input.contact?.phone) throw badRequest("Phone is required"); const amount = Number(input.amount); if (!Number.isFinite(amount) || amount <= 0) throw badRequest("Valid booking amount is required"); const { customer, order } = await ensureOrderAndCustomer({ ...input, amount }); const id = crypto.randomUUID(); const number = bookingNumber(); await prisma.$executeRawUnsafe(`INSERT INTO flight_bookings (id,booking_number,order_id,customer_id,flight_id,status,passengers,amount,currency,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6::jsonb,$7,$8,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, id, number, order.id, customer.id, JSON.stringify(flightIds), JSON.stringify(input.passengers), amount, input.currency || "SDG"); return getFlightBooking(id); }
+// TRIP-sourced ids are prefixed this way by trip.provider.js's
+// normalizeTripFlight; a live TRIP search result has no persisted quote to
+// check a submitted amount against, so it stays trusted as before this fix
+// — see Issue #56 (nasaem-platform) for that separate, larger gap.
+const TRIP_SOURCE_PREFIX = "TRIP:";
+
+// A flightId sourced from our own manually-priced inventory (as opposed to
+// a live TRIP result) has a real price the staff set and stored in
+// flight_inventory. Sums it in SDG (price_sdg is computed once, at the
+// price the staff actually approved, independent of whatever the live FX
+// rate is now) so the submitted amount can be checked against something
+// authoritative instead of trusted as-is. Throws if a referenced manual id
+// doesn't exist, rather than silently skipping the check for it.
+async function sumManualFlightPricesSdg(flightIds) {
+  const manualIds = flightIds.filter((id) => !id.startsWith(TRIP_SOURCE_PREFIX));
+  if (!manualIds.length) return null;
+  const rows = await prisma.$queryRawUnsafe(`SELECT id, price_sdg FROM flight_inventory WHERE id = ANY($1::text[])`, manualIds);
+  if (rows.length !== manualIds.length) throw badRequest("One or more selected flights could not be found");
+  return rows.reduce((sum, row) => sum + Number(row.price_sdg ?? 0), 0);
+}
+
+function convertAmountToSdg(amount, currency, rates) {
+  const code = String(currency || "SDG").toUpperCase();
+  if (code === "SDG") return amount;
+  const rate = Number(rates[code]);
+  return rate ? amount * rate : null;
+}
+
+export async function createFlightBooking(input) { const flightIds = Array.isArray(input.flightIds) && input.flightIds.length ? input.flightIds.map(String) : input.flightId ? [String(input.flightId)] : []; if (!flightIds.length) throw badRequest("At least one flight is required"); if (!Array.isArray(input.passengers) || !input.passengers.length) throw badRequest("At least one passenger is required"); if (!input.contact?.phone) throw badRequest("Phone is required"); const amount = Number(input.amount); if (!Number.isFinite(amount) || amount <= 0) throw badRequest("Valid booking amount is required"); const manualTotalSdg = await sumManualFlightPricesSdg(flightIds); if (manualTotalSdg != null) { const amountSdg = convertAmountToSdg(amount, input.currency, await getCurrencyRates()); const tolerance = Math.max(1, manualTotalSdg * 0.005); if (amountSdg == null || Math.abs(amountSdg - manualTotalSdg) > tolerance) throw badRequest("Submitted amount does not match the selected flight's price"); } const { customer, order } = await ensureOrderAndCustomer({ ...input, amount }); const id = crypto.randomUUID(); const number = bookingNumber(); await prisma.$executeRawUnsafe(`INSERT INTO flight_bookings (id,booking_number,order_id,customer_id,flight_id,status,passengers,amount,currency,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6::jsonb,$7,$8,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, id, number, order.id, customer.id, JSON.stringify(flightIds), JSON.stringify(input.passengers), amount, input.currency || "SDG"); return getFlightBooking(id); }
 // Platform 3.0 Phase 17: shared by getFlightBooking and listFlightBookings
 // so a list of N bookings maps N already-fetched rows in memory instead of
 // re-querying each one individually (that re-query was the exact same JOIN

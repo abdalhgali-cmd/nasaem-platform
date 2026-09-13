@@ -73,6 +73,47 @@ describe("flight booking workflow", () => {
     assert.ok(finalPublic.body.booking.final_ticket_path);
   });
 
+  // Regression: createFlightBooking used to trust a client-supplied amount
+  // outright, even for a flight with a known, staff-set price sitting in
+  // flight_inventory — a customer could book a real flight for an
+  // arbitrary self-reported amount.
+  test("rejects a booking amount that doesn't match the manual flight's price", async () => {
+    const res = await request(app).post("/api/flight-bookings").send({
+      flightId,
+      amount: 1,
+      currency: "SDG",
+      contact: { fullName: "Underpay Test", phone: `24997${uniqueSuffix().slice(-7)}` },
+      passengers: [{ firstName: "UNDERPAY", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }],
+    });
+    assert.equal(res.status, 400);
+  });
+
+  test("rejects a booking referencing a flight id that isn't in inventory", async () => {
+    const res = await request(app).post("/api/flight-bookings").send({
+      flightId: "does-not-exist",
+      amount: 1500000,
+      currency: "SDG",
+      contact: { fullName: "Bad Flight Test", phone: `24998${uniqueSuffix().slice(-7)}` },
+      passengers: [{ firstName: "BADFLIGHT", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }],
+    });
+    assert.equal(res.status, 400);
+  });
+
+  // TRIP-sourced flights have no persisted quote to check against (a
+  // separate, larger gap tracked in Issue #56), so a TRIP-prefixed id
+  // deliberately still bypasses the price check this test file otherwise
+  // exercises above.
+  test("does not price-check a TRIP-sourced flight id", async () => {
+    const res = await request(app).post("/api/flight-bookings").send({
+      flightId: "TRIP:some-external-flight-ref",
+      amount: 1,
+      currency: "SDG",
+      contact: { fullName: "Trip Source Test", phone: `24999${uniqueSuffix().slice(-7)}` },
+      passengers: [{ firstName: "TRIPSOURCE", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }],
+    });
+    assert.equal(res.status, 201);
+  });
+
   // Regression: POST /api/flight-bookings is unauthenticated, and used to
   // trust a client-supplied customerId outright — anyone who knew or
   // guessed an existing customer's id could attach a fabricated booking
