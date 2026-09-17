@@ -40,6 +40,22 @@ cd backend && npm run dev
 cd web && npm run dev
 ```
 
+Heavy manual browsing/testing (many requests in a short window) can trip the
+API's own rate limiters — they're deliberately strict (200 requests/15min
+general, 10 logins/15min) since they're the same ones Production uses, not
+a local-only stub. If you hit "Too many requests", either wait out the
+15-minute window or restart the backend with a higher limit for that
+session only (this is exactly what `.github/workflows/ci.yml`'s own `e2e`
+job does for its Playwright run):
+
+```bash
+API_RATE_LIMIT=5000 npm run dev
+```
+
+The per-login limiter (`auth.routes.js`'s `loginLimiter`, 10/15min) isn't
+configurable — it resets when you restart the backend, same as the general
+one, since both are in-memory.
+
 | Surface | URL |
 |---|---|
 | Customer website (Next.js) | http://localhost:3000 |
