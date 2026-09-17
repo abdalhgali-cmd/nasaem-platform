@@ -19,19 +19,19 @@ import { validateEgyptClearanceDraft } from "./egypt-clearance-draft.js";
 // tracking/contact-request controllers already short-circuit their own
 // service error codes.
 const DRAFT_ERROR_RESPONSES = {
-  NOT_FOUND: { status: 404, message: "Draft not found" },
-  EXPIRED: { status: 410, message: "This draft has expired, please start a new request" },
-  ALREADY_SUBMITTED: { status: 409, message: "This draft was already submitted" },
+  NOT_FOUND: { status: 404, message: "الطلب غير موجود" },
+  EXPIRED: { status: 410, message: "انتهت صلاحية هذا الطلب، يرجى بدء طلب جديد" },
+  ALREADY_SUBMITTED: { status: 409, message: "تم إرسال هذا الطلب بالفعل" },
   INCOMPLETE_DRAFT: { status: 400, message: "الاسم ورقم الهاتف مطلوبان قبل إرسال الطلب" },
   EGYPT_CLEARANCE_INCOMPLETE: {
     status: 400,
     message: "يرجى إكمال بيانات الموافقة الأساسية ورفع صورة الجواز قبل إرسال الطلب",
   },
-  DOCUMENT_NOT_FOUND: { status: 404, message: "Document not found on this draft" },
-  REQUIREMENT_NOT_FOUND: { status: 400, message: "This requirement does not belong to the selected service" },
-  INVALID_MIME: { status: 400, message: "This file type isn't allowed for this requirement" },
-  FILE_TOO_LARGE: { status: 400, message: "This file exceeds the maximum size allowed for this requirement" },
-  MAX_FILES_REACHED: { status: 400, message: "The maximum number of files for this requirement has already been reached" },
+  DOCUMENT_NOT_FOUND: { status: 404, message: "المستند غير موجود في هذا الطلب" },
+  REQUIREMENT_NOT_FOUND: { status: 400, message: "هذا المتطلب لا ينتمي إلى الخدمة المحددة" },
+  INVALID_MIME: { status: 400, message: "نوع هذا الملف غير مسموح به لهذا المتطلب" },
+  FILE_TOO_LARGE: { status: 400, message: "حجم هذا الملف أكبر من الحد المسموح به لهذا المتطلب" },
+  MAX_FILES_REACHED: { status: 400, message: "تم الوصول إلى الحد الأقصى لعدد الملفات المسموح بها لهذا المتطلب" },
 };
 
 function respondToDraftError(res, result) {

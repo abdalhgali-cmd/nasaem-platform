@@ -32,6 +32,12 @@ export const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
 ]);
 
+function unsupportedFileTypeError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
 export function detectMimeTypeFromSignature(buffer) {
   if (!buffer || buffer.length < 4) return null;
 
@@ -75,7 +81,7 @@ function validatedDiskStorage(directory, allowedMimeTypes, allowedLabel) {
             detectedMimeType: detectedMimeType || "unrecognized",
             bufferSize: buffer.length,
           });
-          cb(new Error(`Unsupported file type. Allowed: ${allowedLabel}.`));
+          cb(unsupportedFileTypeError(`نوع الملف غير مدعوم. الأنواع المسموحة: ${allowedLabel}.`));
           return;
         }
 
@@ -93,7 +99,7 @@ function validatedDiskStorage(directory, allowedMimeTypes, allowedLabel) {
 }
 
 export const uploadDocument = multer({
-  storage: validatedDiskStorage(UPLOAD_DIR, ALLOWED_MIME_TYPES, "JPEG, PNG, WEBP, PDF"),
+  storage: validatedDiskStorage(UPLOAD_DIR, ALLOWED_MIME_TYPES, "JPEG وPNG وWEBP وPDF"),
   limits: { fileSize: 10 * 1024 * 1024 },
 }).single("file");
 
@@ -104,7 +110,7 @@ fs.mkdirSync(CONTACT_REQUEST_DOCUMENT_DIR, { recursive: true });
 // staff-side documents, kept in a separate directory since these are
 // unreviewed input from the public until staff accept/reject them.
 export const uploadContactRequestDocument = multer({
-  storage: validatedDiskStorage(CONTACT_REQUEST_DOCUMENT_DIR, ALLOWED_MIME_TYPES, "JPEG, PNG, WEBP, PDF"),
+  storage: validatedDiskStorage(CONTACT_REQUEST_DOCUMENT_DIR, ALLOWED_MIME_TYPES, "JPEG وPNG وWEBP وPDF"),
   limits: { fileSize: 10 * 1024 * 1024 },
 }).single("file");
 
@@ -114,7 +120,7 @@ export const uploadContactRequestDocument = multer({
 // rest of the intake form in one POST /api/contact-requests, before a
 // tracking session (phone verification) exists to own a separate upload.
 export const uploadContactRequestIntakeDocuments = multer({
-  storage: validatedDiskStorage(CONTACT_REQUEST_DOCUMENT_DIR, ALLOWED_MIME_TYPES, "JPEG, PNG, WEBP, PDF"),
+  storage: validatedDiskStorage(CONTACT_REQUEST_DOCUMENT_DIR, ALLOWED_MIME_TYPES, "JPEG وPNG وWEBP وPDF"),
   limits: { fileSize: 10 * 1024 * 1024 },
 }).array("documents", 6);
 
@@ -126,7 +132,7 @@ fs.mkdirSync(CONTACT_REQUEST_DELIVERABLE_DIR, { recursive: true });
 // other document uploads, kept in its own directory since these are
 // trusted staff output, not customer input awaiting review.
 export const uploadContactRequestDeliverable = multer({
-  storage: validatedDiskStorage(CONTACT_REQUEST_DELIVERABLE_DIR, ALLOWED_MIME_TYPES, "JPEG, PNG, WEBP, PDF"),
+  storage: validatedDiskStorage(CONTACT_REQUEST_DELIVERABLE_DIR, ALLOWED_MIME_TYPES, "JPEG وPNG وWEBP وPDF"),
   limits: { fileSize: 10 * 1024 * 1024 },
 }).single("file");
 
@@ -153,7 +159,7 @@ function imageFileFilter(req, file, cb) {
       bufferSize: buffer ? buffer.length : 0,
     };
     console.warn(`[Upload Validation] Image file rejected:`, diagnostics);
-    return cb(new Error("Unsupported file type. Allowed: JPEG, PNG, WEBP."));
+    return cb(unsupportedFileTypeError("نوع الملف غير مدعوم. الأنواع المسموحة: JPEG وPNG وWEBP."));
   }
 
   file.mimetype = resolvedMimeType;
@@ -195,7 +201,7 @@ const MOTION_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm"]);
 
 function motionVideoFileFilter(req, file, cb) {
   if (!MOTION_VIDEO_MIME_TYPES.has(file.mimetype)) {
-    return cb(new Error("Unsupported file type. Allowed: MP4, WEBM."));
+    return cb(unsupportedFileTypeError("نوع الملف غير مدعوم. الأنواع المسموحة: MP4 وWEBM."));
   }
 
   cb(null, true);
