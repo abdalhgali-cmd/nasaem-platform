@@ -23,9 +23,15 @@ const storage = multer.diskStorage({
   },
 });
 
+function unsupportedFileTypeError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
 function fileFilter(req, file, cb) {
   if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-    return cb(new Error("Unsupported file type. Allowed: JPEG, PNG, WEBP, PDF."));
+    return cb(unsupportedFileTypeError("نوع الملف غير مدعوم. الأنواع المسموحة: JPEG وPNG وWEBP وPDF."));
   }
 
   cb(null, true);
@@ -97,7 +103,7 @@ const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function imageFileFilter(req, file, cb) {
   if (!IMAGE_MIME_TYPES.has(file.mimetype)) {
-    return cb(new Error("Unsupported file type. Allowed: JPEG, PNG, WEBP."));
+    return cb(unsupportedFileTypeError("نوع الملف غير مدعوم. الأنواع المسموحة: JPEG وPNG وWEBP."));
   }
 
   cb(null, true);
@@ -138,7 +144,7 @@ const MOTION_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm"]);
 
 function motionVideoFileFilter(req, file, cb) {
   if (!MOTION_VIDEO_MIME_TYPES.has(file.mimetype)) {
-    return cb(new Error("Unsupported file type. Allowed: MP4, WEBM."));
+    return cb(unsupportedFileTypeError("نوع الملف غير مدعوم. الأنواع المسموحة: MP4 وWEBM."));
   }
 
   cb(null, true);
