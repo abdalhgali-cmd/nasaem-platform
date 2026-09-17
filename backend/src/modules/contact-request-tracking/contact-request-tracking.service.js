@@ -28,7 +28,13 @@ export async function requestLoginCode(rawPhone) {
   });
   await prisma.contactRequestLoginCode.create({ data: { phone, code, expiresAt } });
   sendWhatsAppMessage(phone, `رمز التحقق الخاص بك لتتبع طلبك: ${code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.`);
-  return { debugCode: process.env.NODE_ENV === "test" ? code : undefined };
+  // Exposed only under "test" (CI/local test runs) and "development" (local
+  // `npm run dev`, no WhatsApp provider configured) — never in "production",
+  // where NODE_ENV is always "production" and this stays undefined. Lets a
+  // developer complete the tracking OTP flow against localhost without a
+  // real WhatsApp/SMS provider.
+  const isDebugOtpAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
+  return { debugCode: isDebugOtpAllowed ? code : undefined };
 }
 
 export async function verifyLoginCode(rawPhone, code) {
