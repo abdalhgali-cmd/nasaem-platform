@@ -11,7 +11,15 @@ import { resolveServiceHref } from "@/lib/service-routes";
 type DisplayService = PublicService & { icon: LucideIcon; href: string; imageUrl?: string };
 
 export async function Services() {
-  const [services, assetUrls] = await Promise.all([getPublicServices(), getSiteAssetUrls()]);
+  const [allServices, assetUrls] = await Promise.all([getPublicServices(), getSiteAssetUrls()]);
+  // The homepage's primary services grid is meant to be the small set of
+  // top-level entry points (عمرة، فنادق، تأشيرة عمل، ...) a first-time
+  // customer scans in seconds — not every priced package/tier underneath
+  // one of them (e.g. Umrah's 3 SVC-UMRAH-* sub-packages, seeded under
+  // category "package"). Those already get their own presentation via
+  // FeaturedUmrah and each package's own page; listing them again here
+  // turned this into an 11+ card wall duplicating what's below it.
+  const services = allServices.filter((service) => service.category !== "package");
   const displayServices: DisplayService[] = services.map((service) => ({
     ...service,
     icon: resolveHomepageIcon(service.iconKey),

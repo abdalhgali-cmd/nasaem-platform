@@ -1249,7 +1249,7 @@ export function ServiceIntakeWizard({
                       يبدأ من {Number(item.basePrice).toLocaleString("en-US")} {item.currency}
                     </span>
                   ) : null}
-                  {item.currency !== "SDG" && item.priceSdg != null ? (
+                  {Number(item.basePrice) > 0 && item.currency !== "SDG" && item.priceSdg != null ? (
                     <span className="mt-1 block text-xs font-bold text-primary">
                       يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
                     </span>
