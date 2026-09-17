@@ -20,7 +20,7 @@ export function HotelRequestClient() {
     fetch(`${API_URL}/services/public`)
       .then((r) => r.json())
       .then((payload) => {
-        const hotel = (payload?.data?.services ?? []).find((item: any) => item.code === "SVC-HOTEL");
+        const hotel = (payload?.data?.services ?? []).find((item: { code?: string }) => item.code === "SVC-HOTEL");
         setServiceId(hotel?.id ?? "");
       })
       .catch(() => setError("تعذر تحميل خدمة الفنادق، حاول تحديث الصفحة."))
