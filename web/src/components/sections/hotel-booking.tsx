@@ -1,15 +1,19 @@
 import Link from "next/link";
-import { ArrowLeft, Hotel, MapPin, Star } from "lucide-react";
+import { ArrowLeft, Hotel, MapPin } from "lucide-react";
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { Button } from "@/components/ui/button";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 
+// No prices or ratings here: hotels are a request-a-quote flow (see
+// HotelRequestClient/hotels page) — the team checks real availability and
+// price for the requested dates before quoting the customer, so this
+// teaser only lists destinations, never invented numbers.
 const cities = [
-  { city: "مكة المكرمة", note: "بجوار الحرم مباشرة", rating: "4.8", price: "480" },
-  { city: "المدينة المنورة", note: "على مقربة من المسجد النبوي", rating: "4.7", price: "350" },
-  { city: "جدة", note: "بالقرب من الواجهة البحرية", rating: "4.6", price: "290" },
-  { city: "القاهرة", note: "في قلب المدينة", rating: "4.5", price: "210" },
+  { city: "مكة المكرمة", note: "بجوار الحرم مباشرة" },
+  { city: "المدينة المنورة", note: "على مقربة من المسجد النبوي" },
+  { city: "جدة", note: "بالقرب من الواجهة البحرية" },
+  { city: "القاهرة", note: "في قلب المدينة" },
 ];
 
 export function HotelBooking() {
@@ -31,25 +35,14 @@ export function HotelBooking() {
                   <span className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/20 to-transparent" />
                 </div>
                 <div className="flex flex-1 flex-col p-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-foreground">{item.city}</h3>
-                    <span className="flex items-center gap-1 text-xs font-bold text-accent-foreground/80 dark:text-accent">
-                      <Star className="size-3.5 fill-current" />
-                      {item.rating}
-                    </span>
-                  </div>
+                  <h3 className="font-bold text-foreground">{item.city}</h3>
                   <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
                     <MapPin className="size-3.5" />
                     {item.note}
                   </p>
-                  <div className="mt-4 flex items-end justify-between">
-                    <div>
-                      <span className="text-[11px] text-muted-foreground">لليلة الواحدة من</span>
-                      <p className="text-lg font-extrabold text-foreground">
-                        ${item.price}
-                      </p>
-                    </div>
-                  </div>
+                  <p className="mt-4 text-xs font-bold text-primary">
+                    اطلب عرض سعر حسب تواريخك
+                  </p>
                 </div>
               </div>
             </FadeIn>

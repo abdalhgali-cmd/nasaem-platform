@@ -8,32 +8,43 @@ const PRODUCTION_WEB_HOSTS = new Set([
   "nasaem-platform-abdalhgali-cmds-projects.vercel.app",
 ]);
 
+function pointsAtProductionApi(value: string, base = "http://localhost") {
+  try {
+    return new URL(value, base).hostname === PRODUCTION_API_HOST;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Vercel Preview deployments inherit project environment variables unless
- * explicitly overridden. If NEXT_PUBLIC_API_URL points at the production
- * Railway API, a branch preview must never be allowed to write into the
- * production database while somebody is performing QA.
+ * Vercel Preview deployments must never read from or write to Production.
  *
- * On an approved production hostname we keep the configured URL unchanged.
- * On any other browser hostname (PR previews, branch aliases, localhost with a
- * production URL accidentally injected) we fail closed to same-origin /api.
- * Vercel has no backend mounted there, so writes fail safely instead of
- * reaching Production. Server-side rendering keeps the configured URL so
- * public read-only catalogue data can still render; user-triggered mutations
- * happen in the browser and are protected by this guard.
+ * Browser-side protection keeps branch/PR previews from sending requests to
+ * the production Railway API. Server-side protection is stricter: when Vercel
+ * reports a Preview environment and NEXT_PUBLIC_API_URL still points at the
+ * production API, we fail the render/build loudly instead of allowing SSR to
+ * become a read-only window onto Production data.
+ *
+ * Once a dedicated Staging backend exists, set NEXT_PUBLIC_API_URL for the
+ * Vercel Preview environment to that Staging /api URL. Production keeps its
+ * existing Railway URL.
  */
 function resolveApiUrl() {
-  if (typeof window === "undefined") return configuredApiUrl;
-
-  try {
-    const configuredHost = new URL(configuredApiUrl, window.location.origin).hostname;
-    if (configuredHost === PRODUCTION_API_HOST && !PRODUCTION_WEB_HOSTS.has(window.location.hostname)) {
-      return "/api";
+  if (typeof window === "undefined") {
+    if (process.env.VERCEL_ENV === "preview" && pointsAtProductionApi(configuredApiUrl)) {
+      throw new Error(
+        "Unsafe Vercel Preview configuration: NEXT_PUBLIC_API_URL points at the Production API. Configure Preview to use the Staging API before rendering.",
+      );
     }
-  } catch {
-    // Preserve the configured value when it is a relative URL or otherwise
-    // intentionally non-standard. The browser/fetch layer will surface any
-    // actual configuration error.
+
+    return configuredApiUrl;
+  }
+
+  if (
+    pointsAtProductionApi(configuredApiUrl, window.location.origin) &&
+    !PRODUCTION_WEB_HOSTS.has(window.location.hostname)
+  ) {
+    return "/api";
   }
 
   return configuredApiUrl;

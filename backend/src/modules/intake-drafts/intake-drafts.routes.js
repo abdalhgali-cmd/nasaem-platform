@@ -15,7 +15,13 @@ const router = Router();
 
 function handleUpload(req, res, next) {
   uploadContactRequestDocument(req, res, (error) => {
-    if (error) return res.status(400).json({ success: false, message: error.message || "File upload failed" });
+    if (error) {
+      const message =
+        error.code === "LIMIT_FILE_SIZE"
+          ? "حجم الملف أكبر من الحد المسموح به (10 ميغابايت)."
+          : error.message || "تعذّر رفع الملف.";
+      return res.status(400).json({ success: false, message });
+    }
     next();
   });
 }

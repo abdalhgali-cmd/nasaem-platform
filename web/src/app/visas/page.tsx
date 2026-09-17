@@ -8,6 +8,7 @@ import { DynamicVisaCatalog } from "@/components/sections/dynamic-visa-catalog";
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/lib/site-config";
 import { buildPageMetadata } from "@/lib/seo";
+import { resolveServiceHref } from "@/lib/service-routes";
 
 export const metadata: Metadata = buildPageMetadata({
   path: "/visas",
@@ -36,7 +37,13 @@ export default async function VisasPage({
           <SectionHeading eyebrow="أنواع التأشيرات" title="اختر نوع التأشيرة المناسب لرحلتك" />
           <div className="mt-8 flex justify-center">
             <Link
-              href="/visas/egypt-security-approval"
+              // Editorial promo for one specific visa type, so the code is a
+              // literal here rather than a catalog row — but the destination
+              // still comes from resolveServiceHref(), so moving or retiring
+              // Egypt's dedicated page stays a one-line change in
+              // lib/service-routes.ts. category is unused for a code with a
+              // dedicated route; it mirrors the seeded VisaType's own value.
+              href={resolveServiceHref({ code: "VISA-EGYPT-CLEARANCE", category: "OTHER" })}
               className="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/5 px-5 py-2.5 text-sm font-bold text-accent-foreground/90 transition hover:border-accent hover:bg-accent/10 dark:text-accent"
             >
               الموافقة الأمنية للسفر إلى مصر — صفحة تفصيلية بالخطوات والمستندات

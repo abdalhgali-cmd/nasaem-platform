@@ -1,4 +1,6 @@
-import { Prisma } from "@prisma/client";
+import prismaPackage from "@prisma/client";
+
+const { Prisma } = prismaPackage;
 import prisma from "../../config/database.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
