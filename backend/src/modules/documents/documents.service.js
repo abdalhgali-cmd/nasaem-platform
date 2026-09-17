@@ -6,8 +6,19 @@ import { buildPaginationMeta } from "../../utils/pagination.js";
 
 const UPLOAD_ROOT = path.resolve("uploads");
 
+// organizationId is required and checked explicitly (not spread
+// conditionally into `where`) on every function below: Prisma treats
+// `{ organizationId: undefined }` as "no filter on that field", so the old
+// `organizationId ? { ... } : {}` pattern silently fell back to an
+// unscoped, cross-tenant query the moment a caller ever passed a falsy
+// value - it never actually enforced the filter's absence, it just hid it.
+// Failing closed here means a missing organizationId is always treated as
+// "nothing found" (404), the same way a real cross-organization id is,
+// never as "show everything".
+
 export async function listDocuments({ page, limit, skip, organizationId }) {
-  const where = organizationId ? { order: { organizationId } } : {};
+  if (!organizationId) return { data: [], meta: buildPaginationMeta(page, limit, 0) };
+  const where = { order: { organizationId } };
   const [data, total] = await Promise.all([
     prisma.document.findMany({
       where,
@@ -22,15 +33,17 @@ export async function listDocuments({ page, limit, skip, organizationId }) {
 }
 
 export async function getDocumentById(id, organizationId) {
+  if (!organizationId) return null;
   return prisma.document.findFirst({
-    where: { id, ...(organizationId ? { order: { organizationId } } : {}) },
+    where: { id, order: { organizationId } },
     include: { order: true, customer: { select: safeCustomerSelect }, uploadedBy: { select: safeUserSelect } },
   });
 }
 
 export async function createDocument(data, organizationId) {
+  if (!organizationId) throw Object.assign(new Error("Order not found"), { statusCode: 404 });
   const order = await prisma.order.findFirst({
-    where: { id: data.orderId, ...(organizationId ? { organizationId } : {}) },
+    where: { id: data.orderId, organizationId },
     select: { id: true, customerId: true },
   });
   if (!order) throw Object.assign(new Error("Order not found"), { statusCode: 404 });
@@ -54,7 +67,8 @@ export async function createDocument(data, organizationId) {
 }
 
 export async function deleteDocument(id, organizationId) {
-  const document = await prisma.document.findFirst({ where: { id, ...(organizationId ? { order: { organizationId } } : {}) } });
+  if (!organizationId) return null;
+  const document = await prisma.document.findFirst({ where: { id, order: { organizationId } } });
   if (!document) return null;
   await prisma.document.delete({ where: { id } });
   const absolutePath = path.join(UPLOAD_ROOT, document.storagePath);
