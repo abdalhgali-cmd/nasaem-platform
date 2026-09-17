@@ -195,8 +195,106 @@ const VISA_REQUIREMENT_NAMES_BY_CODE = {
   ],
   "VISA-WORK": ["عقد العمل", "صورة الجواز", "الصورة الشخصية"],
   "VISA-INTERNATIONAL": ["صورة الجواز", "الصورة الشخصية"],
-  "VISA-EGYPT-CLEARANCE": ["صورة الجواز", "تذكرة الطيران أو طلب الحجز"],
 };
+
+// VISA-EGYPT-CLEARANCE is seeded separately (not through
+// seedRequirementsForScope/VISA_REQUIREMENT_NAMES_BY_CODE above) because its
+// intake validation (egypt-clearance-draft.js) and customer UI
+// (egypt-clearance-intake.tsx) both key off two specific attachmentType
+// values — "passport_copy" (a DOCUMENT upload) and "egypt_entry_mode" (a
+// SELECT answer with AIR/BORDER options) — neither of which the generic
+// plain-name seeding path ever sets. Without these, no customer can ever
+// pass validation to submit an Egypt Security Approval request.
+async function seedEgyptClearanceRequirements() {
+  const visaType = await prisma.visaType.findUnique({ where: { code: "VISA-EGYPT-CLEARANCE" } });
+  if (!visaType) return 0;
+
+  let created = 0;
+
+  const existingPassport = await prisma.visaRequirement.findFirst({
+    where: { visaTypeId: visaType.id, attachmentType: "passport_copy" },
+  });
+  if (!existingPassport) {
+    // Any environment that already ran the previous version of this seed has
+    // a plain DOCUMENT "صورة الجواز" row with no attachmentType (created by
+    // the now-removed generic VISA_REQUIREMENT_NAMES_BY_CODE entry). Upgrade
+    // that row in place instead of creating a second one, so re-seeding an
+    // already-seeded database never produces a duplicate passport prompt.
+    const legacyPassportRow = await prisma.visaRequirement.findFirst({
+      where: { visaTypeId: visaType.id, name: "صورة الجواز", attachmentType: null },
+    });
+    if (legacyPassportRow) {
+      await prisma.visaRequirement.update({
+        where: { id: legacyPassportRow.id },
+        data: { attachmentType: "passport_copy", type: "DOCUMENT" },
+      });
+    } else {
+      await prisma.visaRequirement.create({
+        data: {
+          visaTypeId: visaType.id,
+          name: "صورة الجواز",
+          required: true,
+          maxFiles: 1,
+          allowedMimeTypes: ATTACHMENT_MIME_TYPES,
+          maxSizeBytes: MAX_ATTACHMENT_SIZE_BYTES,
+          reviewRequired: true,
+          ocrEnabled: false,
+          sortOrder: 0,
+          active: true,
+          type: "DOCUMENT",
+          attachmentType: "passport_copy",
+        },
+      });
+    }
+    created += 1;
+  }
+
+  const existingEntryMode = await prisma.visaRequirement.findFirst({
+    where: { visaTypeId: visaType.id, attachmentType: "egypt_entry_mode" },
+  });
+  if (!existingEntryMode) {
+    await prisma.visaRequirement.create({
+      data: {
+        visaTypeId: visaType.id,
+        name: "طريقة الدخول إلى مصر",
+        required: true,
+        sortOrder: 1,
+        active: true,
+        type: "SELECT",
+        attachmentType: "egypt_entry_mode",
+        options: [
+          { value: "AIR", label: "منفذ جوي" },
+          { value: "BORDER", label: "منفذ بري" },
+        ],
+      },
+    });
+    created += 1;
+  }
+
+  const existingTicket = await prisma.visaRequirement.findFirst({
+    where: { visaTypeId: visaType.id, name: "تذكرة الطيران أو طلب الحجز" },
+  });
+  if (!existingTicket) {
+    await prisma.visaRequirement.create({
+      data: {
+        visaTypeId: visaType.id,
+        name: "تذكرة الطيران أو طلب الحجز",
+        required: false,
+        maxFiles: 1,
+        allowedMimeTypes: ATTACHMENT_MIME_TYPES,
+        maxSizeBytes: MAX_ATTACHMENT_SIZE_BYTES,
+        reviewRequired: true,
+        ocrEnabled: false,
+        sortOrder: 2,
+        active: true,
+        type: "DOCUMENT",
+      },
+    });
+    created += 1;
+  }
+
+  return created;
+}
 
 // No unique constraint ties a VisaRequirement to its (scope, name) pair —
 // checked instead of upserted, same idempotency guarantee as every upsert
@@ -250,6 +348,8 @@ async function seedVisaRequirements() {
       created += await seedRequirementsForScope({ visaTypeId: visaType.id }, names);
     }
   }
+
+  created += await seedEgyptClearanceRequirements();
 
   console.log(`Seeded ${created} visa/service document requirements.`);
 }
