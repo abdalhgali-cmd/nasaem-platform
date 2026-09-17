@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect -- restores the customer's locally-saved draft into form state on mount. */
 
 import * as React from "react";
 import Link from "next/link";
