@@ -75,7 +75,7 @@ describe("upload signature validation", () => {
       });
 
     assert.equal(response.status, 400);
-    assert.match(response.body.message, /Unsupported file type/);
+    assert.match(response.body.message, /نوع الملف غير مدعوم/);
   });
 });
 
