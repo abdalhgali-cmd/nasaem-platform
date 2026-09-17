@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- debounced airport-suggestion lookup synchronizes with the public API. */
 
 import * as React from "react";
 import { CalendarDays, Check, Plane, Plus, Search, Users } from "lucide-react";

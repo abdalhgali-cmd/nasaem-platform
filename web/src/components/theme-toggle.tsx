@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- deliberate mount-gate to keep the first paint's theme icon deterministic and hydration-safe; see comment below. */
 
 import * as React from "react";
 import { useTheme } from "next-themes";
