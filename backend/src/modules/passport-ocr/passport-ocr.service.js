@@ -20,6 +20,20 @@ function getWorker() {
       langPath: LANG_DATA_PATH,
       cachePath: LANG_DATA_PATH,
       gzip: true,
+      // tesseract.js's own worker message handler does two independent
+      // things on a rejected job (a corrupted/unreadable image, e.g. a bad
+      // photo or a non-image file that slipped past the MIME check): it
+      // rejects the job's promise (which extractPassportData/
+      // maybeRunPassportOcr's try/catch below does correctly catch) AND,
+      // with no errorHandler configured, separately `throw`s the same error
+      // synchronously from inside its internal message-event callback -
+      // completely independent of the awaited promise chain, so no
+      // surrounding try/catch can ever catch it. Uncaught, that throw
+      // crashes the entire Node process on a single bad upload (verified:
+      // a truncated/invalid JPEG reproduces this every time). Supplying
+      // this handler is what actually makes "never throws" true; the
+      // promise rejection path continues to do the real error handling.
+      errorHandler: () => {},
     }).then(async (worker) => {
       await worker.setParameters({ tessedit_char_whitelist: MRZ_CHARSET });
       return worker;
