@@ -28,7 +28,7 @@ export default function ServiceDetailsScreen() {
     {!!service?.description&&<Text style={s.description}>{service.description}</Text>}
     <View style={s.card}><Text style={s.label}>السعر الحالي</Text><Text style={s.value}>{price}</Text>{sdg&&<Text style={s.sdg}>{sdg}</Text>}</View>
     {!!service?.processingTime&&<View style={s.card}><Text style={s.label}>مدة المعالجة</Text><Text style={s.value}>{service.processingTime}</Text></View>}
-    <Pressable style={s.button} onPress={()=>kind==="umrah"?router.push("/umrah"):router.push({pathname:"/request/[kind]",params:{kind,serviceId:service?.id??"",serviceName:service?.name??"طلب خدمة"}})}><Text style={s.buttonText}>ابدأ الطلب</Text></Pressable>
+    <Pressable style={s.button} onPress={()=>kind==="umrah"?router.push("/umrah"):kind==="flights"?router.push("/flights"):kind==="ferries"?router.push("/ferries"):router.push({pathname:"/request/[kind]",params:{kind,serviceId:service?.id??"",serviceName:service?.name??"طلب خدمة"}})}><Text style={s.buttonText}>ابدأ الطلب</Text></Pressable>
     <Text style={s.note}>السعر النهائي وتعليمات الدفع تعتمد على مراجعة الوكالة وحالة الطلب.</Text>
   </ScrollView>;
 }
