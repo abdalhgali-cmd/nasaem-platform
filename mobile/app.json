@@ -16,7 +16,8 @@
     },
     "plugins": [
       "expo-router",
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-secure-store"
     ],
     "extra": {
       "apiUrl": "https://adaptable-quietude-staging.up.railway.app"
