@@ -1,17 +1,4 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-
-export default function RootLayout() {
-  return (
-    <>
-      <StatusBar style="dark" />
-      <Stack
-        screenOptions={{
-          headerTitleAlign: "center",
-          headerBackTitle: "رجوع",
-          contentStyle: { backgroundColor: "#F7F8FA" },
-        }}
-      />
-    </>
-  );
-}
+import { colors } from "../src/theme";
+export default function RootLayout(){return <><StatusBar style="dark"/><Stack screenOptions={{headerTitleAlign:"center",headerBackTitle:"رجوع",headerTintColor:colors.navy,headerStyle:{backgroundColor:"#FFF"},contentStyle:{backgroundColor:colors.background}}}><Stack.Screen name="index" options={{headerShown:false}}/><Stack.Screen name="services" options={{title:"الخدمات"}}/><Stack.Screen name="track" options={{title:"تتبع الطلب"}}/><Stack.Screen name="umrah" options={{title:"العمرة"}}/><Stack.Screen name="service/[slug]" options={{title:"تفاصيل الخدمة"}}/></Stack></>}
