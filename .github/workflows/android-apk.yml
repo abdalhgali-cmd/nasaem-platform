@@ -27,6 +27,8 @@ jobs:
           node-version: "22"
       - name: Install mobile dependencies
         run: npm install --no-audit --no-fund
+      - name: Validate bundled JavaScript
+        run: node --check www/app.js
       - name: Generate Android project
         run: npx cap add android
       - name: Sync Capacitor
@@ -70,7 +72,7 @@ jobs:
       - name: Build debug APK
         working-directory: mobile/android
         run: ./gradlew assembleDebug -Pandroid.injected.version.code=29 -Pandroid.injected.version.name=0.2.9
-      - name: Verify APK signature
+      - name: Verify APK manifest\n        run: |\n          SDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"\n          "$SDK_BUILD_TOOLS/aapt" dump badging android/app/build/outputs/apk/debug/app-debug.apk | grep -E "^package:|^application-label:|^application-icon-"\n      - name: Verify APK signature
         run: |
           SDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           "$SDK_BUILD_TOOLS/apksigner" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk
