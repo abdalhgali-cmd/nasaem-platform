@@ -14,6 +14,9 @@ export type PublicRequirement = {
   type?: string;
   scope?: string;
   options?: unknown;
+  conditionRequirementId?: string | null;
+  conditionOperator?: "EQUALS" | "NOT_EQUALS" | "GREATER_THAN" | "LESS_THAN" | null;
+  conditionValue?: string | null;
 };
 
 export type PublicService = {
