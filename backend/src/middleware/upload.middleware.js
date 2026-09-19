@@ -68,7 +68,7 @@ export const uploadContactRequestIntakeDocuments = multer({
   storage: contactRequestDocumentStorage,
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 },
-}).array("documents", 6);
+}).array("documents", 30);
 
 const CONTACT_REQUEST_DELIVERABLE_DIR = path.resolve("uploads", "contact-request-deliverables");
 fs.mkdirSync(CONTACT_REQUEST_DELIVERABLE_DIR, { recursive: true });
