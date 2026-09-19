@@ -40,7 +40,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y imagemagick >/dev/null
-          SRC="../web/src/app/apple-icon.png"
+          SRC="../web/public/logo.png"
+          if [ ! -f "$SRC" ]; then SRC="../web/src/app/apple-icon.png"; fi
           for item in "mipmap-mdpi:48" "mipmap-hdpi:72" "mipmap-xhdpi:96" "mipmap-xxhdpi:144" "mipmap-xxxhdpi:192"; do
             dir="${item%%:*}"; size="${item##*:}"
             mkdir -p "android/app/src/main/res/$dir"
@@ -58,7 +59,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       - name: Build debug APK
         working-directory: mobile/android
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug -Pandroid.injected.version.code=27 -Pandroid.injected.version.name=0.2.7
       - name: Rename APK
         run: |
           mkdir -p dist
