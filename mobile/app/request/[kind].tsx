@@ -40,12 +40,21 @@ function matchesKind(kind:string,category?:string|null,code?:string){
 }
 
 export default function ServiceRequest(){
- const params=useLocalSearchParams<{kind:string;serviceId?:string;visaTypeId?:string;serviceName?:string;country?:string;visaTypeName?:string}>();
+ const params=useLocalSearchParams<{kind:string;serviceId?:string;visaTypeId?:string;serviceName?:string;country?:string;visaTypeName?:string;from?:string;to?:string;date?:string;returnDate?:string;travelers?:string;tripType?:string;selectedFlight?:string;origin?:string;destination?:string;operatorName?:string;scheduleId?:string;departureTime?:string;basePrice?:string;currency?:string}>();
  const kind=params.kind??"generic";
  const meta=META[kind]??META.generic;
  const [values,setValues]=useState<Record<string,string>>(()=>({
    ...(params.country?{"الدولة":params.country}:{}),
    ...(params.visaTypeName?{"نوع التأشيرة":params.visaTypeName}:{}),
+   ...(kind==="flights"&&params.from?{"مدينة المغادرة":params.from}:{}),
+   ...(kind==="flights"&&params.to?{"الوجهة":params.to}:{}),
+   ...(kind==="flights"&&params.date?{"تاريخ السفر":params.date}:{}),
+   ...(kind==="flights"&&params.returnDate?{"تاريخ العودة (اختياري)":params.returnDate}:{}),
+   ...(kind==="flights"&&params.travelers?{"عدد المسافرين":params.travelers}:{}),
+   ...(kind==="ferries"&&params.origin?{"ميناء المغادرة":params.origin}:{}),
+   ...(kind==="ferries"&&params.destination?{"ميناء الوصول":params.destination}:{}),
+   ...(kind==="ferries"&&params.date?{"تاريخ السفر":params.date}:{}),
+   ...(kind==="ferries"&&params.operatorName?{"شركة الباخرة (اختياري)":params.operatorName}:{}),
  }));
  const [serviceId,setServiceId]=useState(params.serviceId??"");
  const [serviceName,setServiceName]=useState(params.serviceName??meta.title);
@@ -91,7 +100,7 @@ export default function ServiceRequest(){
      setBusy(true);setError("");
      const travelerCountRaw=meta.travelerField?Number(values[meta.travelerField]):undefined;
      const traveler=(kind==="visas"||kind==="egypt")?[{fullName:values[meta.nameField],passportNo:values["رقم الجواز"]||undefined,nationality:values["الجنسية"]||undefined,birthDate:values["تاريخ الميلاد"]||undefined,isPrimary:true}]:undefined;
-     const input={name:values[meta.nameField],phone:values[meta.phoneField],service:serviceName||meta.title,message:`طلب ${serviceName||meta.title} عبر تطبيق نسائم الحرمين`,serviceId:serviceId||undefined,visaTypeId:params.visaTypeId||undefined,travelerCount:travelerCountRaw&&travelerCountRaw>0?travelerCountRaw:traveler?.length,intakeData:{kind,fields:values},answers,travelers:traveler};
+     const selectedFlight=(()=>{try{return params.selectedFlight?JSON.parse(params.selectedFlight):undefined;}catch{return undefined;}})();\n     const intakeSelection=kind==="flights"?{tripType:params.tripType,selectedFlight}:kind==="ferries"?{scheduleId:params.scheduleId,operatorName:params.operatorName,departureTime:params.departureTime,basePrice:params.basePrice,currency:params.currency}:undefined;\n     const input={name:values[meta.nameField],phone:values[meta.phoneField],service:serviceName||meta.title,message:`طلب ${serviceName||meta.title} عبر تطبيق نسائم الحرمين`,serviceId:serviceId||undefined,visaTypeId:params.visaTypeId||undefined,travelerCount:travelerCountRaw&&travelerCountRaw>0?travelerCountRaw:traveler?.length,intakeData:{kind,fields:values,...(intakeSelection?{selection:intakeSelection}:{})},answers,travelers:traveler};
      const files=Object.values(docs).filter(Boolean) as UploadAsset[];
      const id=files.length?await submitContactRequestWithDocuments(input,files):await submitContactRequest(input);
      setRequestId(id);
