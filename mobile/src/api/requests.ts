@@ -10,6 +10,7 @@ export type ContactRequestInput = {
   visaTypeId?: string;
   travelerCount?: number;
   intakeData?: Record<string, unknown>;
+  answers?: Record<string, string | number | boolean>;
   travelers?: Array<{
     fullName: string;
     passportNo?: string;
@@ -50,6 +51,7 @@ export async function submitContactRequestWithDocuments(input: ContactRequestInp
   if (input.visaTypeId) body.append("visaTypeId", input.visaTypeId);
   if (input.travelerCount) body.append("travelerCount", String(input.travelerCount));
   if (input.intakeData) body.append("intakeData", JSON.stringify(input.intakeData));
+  if (input.answers && Object.keys(input.answers).length) body.append("answers", JSON.stringify(input.answers));
   if (input.travelers?.length) body.append("travelers", JSON.stringify(input.travelers));
 
   body.append("documentLabels", JSON.stringify(documents.map(d => d.label)));
