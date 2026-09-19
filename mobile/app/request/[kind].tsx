@@ -17,6 +17,18 @@ const META:Record<string,Meta>={
  generic:{title:"طلب خدمة",fields:["الاسم","رقم الهاتف","ملاحظات"],note:"سيتم مراجعة الطلب من الوكالة.",nameField:"الاسم",phoneField:"رقم الهاتف"},
 };
 
+
+function requirementApplies(req:PublicRequirement,answers:Record<string,string>){
+ if(!req.conditionRequirementId||!req.conditionOperator)return true;
+ const actual=answers[req.conditionRequirementId]??"";
+ const expected=req.conditionValue??"";
+ if(req.conditionOperator==="EQUALS")return String(actual)===String(expected);
+ if(req.conditionOperator==="NOT_EQUALS")return String(actual)!==String(expected);
+ const a=Number(actual),e=Number(expected);
+ if(Number.isNaN(a)||Number.isNaN(e))return false;
+ return req.conditionOperator==="GREATER_THAN"?a>e:a<e;
+}
+
 function matchesKind(kind:string,category?:string|null,code?:string){
  const c=(category??"").toLowerCase(),x=(code??"").toUpperCase();
  if(kind==="egypt") return x==="SVC-EGYPT-CLEARANCE";
@@ -62,7 +74,8 @@ export default function ServiceRequest(){
  },[kind,params.visaTypeId]);
 
  const requiredBase=useMemo(()=>meta.fields.filter(x=>!x.includes("اختياري")&&!x.includes("ملاحظات")&&!x.includes("إن وجد")).every(x=>values[x]?.trim()),[values,meta.fields]);
- const requiredDynamic=useMemo(()=>requirements.filter(r=>r.required).every(r=>r.type==="DOCUMENT"?Boolean(docs[r.id]):Boolean(answers[r.id]?.trim())),[requirements,docs,answers]);
+ const activeRequirements=useMemo(()=>requirements.filter(r=>requirementApplies(r,answers)),[requirements,answers]);
+ const requiredDynamic=useMemo(()=>activeRequirements.filter(r=>r.required).every(r=>r.type==="DOCUMENT"?Boolean(docs[r.id]):Boolean(answers[r.id]?.trim())),[activeRequirements,docs,answers]);
  const complete=requiredBase&&requiredDynamic;
 
  async function pickRequirement(req:PublicRequirement){
@@ -88,9 +101,9 @@ export default function ServiceRequest(){
 
  if(requestId)return <SafeAreaView style={s.safe}><View style={s.successPage}><Text style={s.successIcon}>✓</Text><Text style={s.title}>تم استلام طلبك</Text><Text style={s.desc}>تم حفظ الطلب والمستندات فعليًا وسيظهر لفريق الإدارة.</Text><View style={s.requestBox}><Text style={s.label}>رقم الطلب</Text><Text style={s.requestId}>{requestId}</Text></View><Pressable style={s.primary} onPress={()=>router.push({pathname:"/track",params:{requestId,phone:values[meta.phoneField]}})}><Text style={s.primaryText}>متابعة الطلب</Text></Pressable></View></SafeAreaView>;
 
- if(review)return <SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}><Text style={s.title}>مراجعة {serviceName||meta.title}</Text>{meta.fields.map(f=>values[f]?<Review key={f} label={f} value={values[f]}/>:null)}{requirements.map(r=><Review key={r.id} label={r.name} value={r.type==="DOCUMENT"?(docs[r.id]?.name??"غير مرفق"):(answers[r.id]??"")}/>)}<Text style={s.note}>{meta.note}</Text>{!!error&&<Text style={s.error}>{error}</Text>}<View style={s.actions}><Pressable style={s.outline} onPress={()=>setReview(false)} disabled={busy}><Text style={s.outlineText}>تعديل</Text></Pressable><Pressable style={s.primary} onPress={submit} disabled={busy}>{busy?<ActivityIndicator color="#FFF"/>:<Text style={s.primaryText}>إرسال للوكالة</Text>}</Pressable></View></ScrollView></SafeAreaView>;
+ if(review)return <SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}><Text style={s.title}>مراجعة {serviceName||meta.title}</Text>{meta.fields.map(f=>values[f]?<Review key={f} label={f} value={values[f]}/>:null)}{activeRequirements.map(r=><Review key={r.id} label={r.name} value={r.type==="DOCUMENT"?(docs[r.id]?.name??"غير مرفق"):(answers[r.id]??"")}/>)}<Text style={s.note}>{meta.note}</Text>{!!error&&<Text style={s.error}>{error}</Text>}<View style={s.actions}><Pressable style={s.outline} onPress={()=>setReview(false)} disabled={busy}><Text style={s.outlineText}>تعديل</Text></Pressable><Pressable style={s.primary} onPress={submit} disabled={busy}>{busy?<ActivityIndicator color="#FFF"/>:<Text style={s.primaryText}>إرسال للوكالة</Text>}</Pressable></View></ScrollView></SafeAreaView>;
 
- return <SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}><Text style={s.title}>{serviceName||meta.title}</Text><Text style={s.desc}>{meta.note}</Text>{meta.fields.map(f=><View key={f}><Text style={s.label}>{f}</Text><TextInput editable={!(kind==="visas"&&(f==="الدولة"||f==="نوع التأشيرة"))} value={values[f]??""} onChangeText={v=>setValues(x=>({...x,[f]:v}))} placeholder={f} style={[s.input,kind==="visas"&&(f==="الدولة"||f==="نوع التأشيرة")&&s.readonly]} textAlign="right" multiline={f==="ملاحظات"} keyboardType={f.includes("عدد")||f==="رقم الهاتف"?"phone-pad":"default"}/></View>)}{loadingReq?<ActivityIndicator color={colors.navy}/>:requirements.length>0&&<View style={s.requirements}><Text style={s.sectionTitle}>المتطلبات</Text>{requirements.map(r=><RequirementField key={r.id} req={r} answer={answers[r.id]??""} file={docs[r.id]??null} onAnswer={v=>setAnswers(a=>({...a,[r.id]:v}))} onPick={()=>pickRequirement(r)} onRemove={()=>setDocs(d=>({...d,[r.id]:null}))}/>)}</View>}{!!error&&<Text style={s.error}>{error}</Text>}<Pressable disabled={!complete} style={[s.primary,!complete&&s.disabled]} onPress={()=>setReview(true)}><Text style={s.primaryText}>مراجعة الطلب</Text></Pressable></ScrollView></SafeAreaView>;
+ return <SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}><Text style={s.title}>{serviceName||meta.title}</Text><Text style={s.desc}>{meta.note}</Text>{meta.fields.map(f=><View key={f}><Text style={s.label}>{f}</Text><TextInput editable={!(kind==="visas"&&(f==="الدولة"||f==="نوع التأشيرة"))} value={values[f]??""} onChangeText={v=>setValues(x=>({...x,[f]:v}))} placeholder={f} style={[s.input,kind==="visas"&&(f==="الدولة"||f==="نوع التأشيرة")&&s.readonly]} textAlign="right" multiline={f==="ملاحظات"} keyboardType={f.includes("عدد")||f==="رقم الهاتف"?"phone-pad":"default"}/></View>)}{loadingReq?<ActivityIndicator color={colors.navy}/>:activeRequirements.length>0&&<View style={s.requirements}><Text style={s.sectionTitle}>المتطلبات</Text>{activeRequirements.map(r=><RequirementField key={r.id} req={r} answer={answers[r.id]??""} file={docs[r.id]??null} onAnswer={v=>setAnswers(a=>({...a,[r.id]:v}))} onPick={()=>pickRequirement(r)} onRemove={()=>setDocs(d=>({...d,[r.id]:null}))}/>)}</View>}{!!error&&<Text style={s.error}>{error}</Text>}<Pressable disabled={!complete} style={[s.primary,!complete&&s.disabled]} onPress={()=>setReview(true)}><Text style={s.primaryText}>مراجعة الطلب</Text></Pressable></ScrollView></SafeAreaView>;
 }
 
 function RequirementField({req,answer,file,onAnswer,onPick,onRemove}:{req:PublicRequirement;answer:string;file:UploadAsset|null;onAnswer:(v:string)=>void;onPick:()=>void;onRemove:()=>void}){
