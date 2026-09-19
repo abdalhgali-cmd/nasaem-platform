@@ -42,11 +42,18 @@ jobs:
           sudo apt-get install -y imagemagick >/dev/null
           SRC="../web/public/logo.png"
           if [ ! -f "$SRC" ]; then SRC="../web/src/app/apple-icon.png"; fi
+          # Legacy launcher PNGs
           for item in "mipmap-mdpi:48" "mipmap-hdpi:72" "mipmap-xhdpi:96" "mipmap-xxhdpi:144" "mipmap-xxxhdpi:192"; do
             dir="${item%%:*}"; size="${item##*:}"
             mkdir -p "android/app/src/main/res/$dir"
             convert "$SRC" -resize "${size}x${size}" -background white -gravity center -extent "${size}x${size}" "android/app/src/main/res/$dir/ic_launcher.png"
             cp "android/app/src/main/res/$dir/ic_launcher.png" "android/app/src/main/res/$dir/ic_launcher_round.png"
+          done
+          # Adaptive icons use foreground assets on Android 8+; replace those too.
+          for item in "mipmap-mdpi:108" "mipmap-hdpi:162" "mipmap-xhdpi:216" "mipmap-xxhdpi:324" "mipmap-xxxhdpi:432"; do
+            dir="${item%%:*}"; size="${item##*:}"
+            mkdir -p "android/app/src/main/res/$dir"
+            convert "$SRC" -resize "${size}x${size}" -background white -gravity center -extent "${size}x${size}" "android/app/src/main/res/$dir/ic_launcher_foreground.png"
           done
           sed -i 's/@mipmap\/ic_launcher_foreground/@mipmap\/ic_launcher/g' android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml || true
           sed -i 's/@mipmap\/ic_launcher_foreground/@mipmap\/ic_launcher_round/g' android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml || true
@@ -59,7 +66,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       - name: Build debug APK
         working-directory: mobile/android
-        run: ./gradlew assembleDebug -Pandroid.injected.version.code=27 -Pandroid.injected.version.name=0.2.7
+        run: ./gradlew assembleDebug -Pandroid.injected.version.code=28 -Pandroid.injected.version.name=0.2.8
       - name: Rename APK
         run: |
           mkdir -p dist
