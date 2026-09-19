@@ -53,7 +53,7 @@ export const createContactRequestSchema = z.object({
   // label concept already used by contact-request-documents.validators.js.
   documentLabels: z.preprocess(
     parseIfJsonString,
-    z.array(z.string().trim().min(1).max(120)).max(6).optional()
+    z.array(z.string().trim().min(1).max(120)).max(30).optional()
   ),
   // Platform 3.0 Phase 6 — optional parallel array (same order/length as
   // `documents`) linking each uploaded file to the VisaRequirement
@@ -63,7 +63,7 @@ export const createContactRequestSchema = z.object({
   // form, which never sends either.
   documentRequirementIds: z.preprocess(
     parseIfJsonString,
-    z.array(z.string().trim().max(60)).max(6).optional()
+    z.array(z.string().trim().max(60)).max(30).optional()
   ),
   // Smart Case Operations — Release A (Customer/Traveler separation). A
   // structured traveler list — distinct from the existing free-text
@@ -93,7 +93,7 @@ export const createContactRequestSchema = z.object({
   // traveler) or the index into `travelers` above that owns this document.
   documentTravelerIndexes: z.preprocess(
     parseIfJsonString,
-    z.array(z.string().trim().max(10)).max(6).optional()
+    z.array(z.string().trim().max(10)).max(30).optional()
   ),
   // Answers for non-DOCUMENT requirement types (TEXT/NUMBER/DATE/SELECT/
   // YES_NO) — { [requirementId]: value }. Merged into intakeData.answers
