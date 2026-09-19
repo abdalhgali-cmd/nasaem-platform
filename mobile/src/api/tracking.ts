@@ -8,7 +8,7 @@ export type TrackedRequest = {
   service?: string | null;
   status?: string;
   createdAt?: string;
-  invoice?: { amount?: number | string; currency?: string; status?: string } | null;
+  statusLabel?: string;\n  paymentStatus?: string | null;\n  invoice?: { amount?: number | string; currency?: string; status?: string } | null;
   [key: string]: unknown;
 };
 
