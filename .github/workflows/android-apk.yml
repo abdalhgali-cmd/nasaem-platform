@@ -18,47 +18,55 @@ jobs:
     defaults:
       run:
         working-directory: mobile
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: Install mobile dependencies
         run: npm install --no-audit --no-fund
-
       - name: Generate Android project
         run: npx cap add android
-
       - name: Sync Capacitor
         run: npx cap sync android
-
+      - name: Restore stable debug signing key
+        run: |
+          mkdir -p "$HOME/.android"
+          base64 -d android-debug.keystore.b64 > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+      - name: Apply Nasaem launcher icon
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y imagemagick >/dev/null
+          SRC="../web/src/app/apple-icon.png"
+          for item in "mipmap-mdpi:48" "mipmap-hdpi:72" "mipmap-xhdpi:96" "mipmap-xxhdpi:144" "mipmap-xxxhdpi:192"; do
+            dir="${item%%:*}"; size="${item##*:}"
+            mkdir -p "android/app/src/main/res/$dir"
+            convert "$SRC" -resize "${size}x${size}" -background white -gravity center -extent "${size}x${size}" "android/app/src/main/res/$dir/ic_launcher.png"
+            cp "android/app/src/main/res/$dir/ic_launcher.png" "android/app/src/main/res/$dir/ic_launcher_round.png"
+          done
+          sed -i 's/@mipmap\/ic_launcher_foreground/@mipmap\/ic_launcher/g' android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml || true
+          sed -i 's/@mipmap\/ic_launcher_foreground/@mipmap\/ic_launcher_round/g' android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml || true
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
       - name: Build debug APK
         working-directory: mobile/android
         run: ./gradlew assembleDebug
-
       - name: Rename APK
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/Nasaem-AlHaramain-debug.apk
-
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/Nasaem-AlHaramain-V2.apk
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Nasaem-AlHaramain-debug-apk
-          path: mobile/dist/Nasaem-AlHaramain-debug.apk
+          name: Nasaem-AlHaramain-V2-apk
+          path: mobile/dist/Nasaem-AlHaramain-V2.apk
           if-no-files-found: error
           retention-days: 14
