@@ -39,3 +39,39 @@ export async function confirmAdminPayment(id:string){
 export async function reviewAdminDocument(requestId:string,documentId:string,status:"ACCEPTED"|"REJECTED",reviewNote?:string){
   return api(`/api/contact-requests/${encodeURIComponent(requestId)}/documents/${encodeURIComponent(documentId)}/status`,{method:"PATCH",body:JSON.stringify({status,...(reviewNote?{reviewNote}:{})})});
 }
+
+
+export type AdminCatalogItem={
+  id:string;
+  code?:string;
+  name:string;
+  category?:string|null;
+  country?:string;
+  basePrice:number|string;
+  currency:string;
+  active?:boolean;
+  processingTime?:string|null;
+};
+export async function getAdminServices(){
+ const r=await api<{success:boolean;data:AdminCatalogItem[]}>("/api/services?limit=100");
+ return r.data;
+}
+export async function updateAdminService(id:string,patch:Partial<Pick<AdminCatalogItem,"basePrice"|"currency"|"active"|"processingTime">>){
+ return api<{success:boolean;data:AdminCatalogItem}>("/api/services/"+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify(patch)});
+}
+export async function getAdminVisaTypes(){
+ const r=await api<{success:boolean;data:AdminCatalogItem[]}>("/api/visa-types?limit=100");
+ return r.data;
+}
+export async function updateAdminVisaType(id:string,patch:Partial<Pick<AdminCatalogItem,"basePrice"|"currency"|"active"|"processingTime">>){
+ return api<{success:boolean;data:AdminCatalogItem}>("/api/visa-types/"+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify(patch)});
+}
+export type FxRates={USD:number;SAR:number;AED:number;EGP:number};
+export async function getAdminFxRates(){
+ const r=await api<{success:boolean;data:FxRates}>("/api/flights/admin/rates");
+ return r.data;
+}
+export async function updateAdminFxRates(rates:Partial<FxRates>){
+ const r=await api<{success:boolean;data:FxRates}>("/api/flights/admin/rates",{method:"PATCH",body:JSON.stringify(rates)});
+ return r.data;
+}
