@@ -64,9 +64,16 @@ jobs:
           java-version: "21"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+      - name: Verify QA signing key
+        run: |
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -E "SHA256:|Alias name:" || true
       - name: Build debug APK
         working-directory: mobile/android
-        run: ./gradlew assembleDebug -Pandroid.injected.version.code=28 -Pandroid.injected.version.name=0.2.8
+        run: ./gradlew assembleDebug -Pandroid.injected.version.code=29 -Pandroid.injected.version.name=0.2.9
+      - name: Verify APK signature
+        run: |
+          SDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$SDK_BUILD_TOOLS/apksigner" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk
       - name: Rename APK
         run: |
           mkdir -p dist
