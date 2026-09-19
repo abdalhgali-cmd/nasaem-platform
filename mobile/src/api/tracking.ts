@@ -1,63 +1,43 @@
 import { api } from "./client";
+import type { UploadAsset } from "./requests";
 
-let trackingToken: string | null = null;
+let trackingToken:string|null=null;
 
-type VerifyResponse = { success: boolean; data?: { token?: string } };
-export type TrackedRequest = {
-  id: string;
-  service?: string | null;
-  status?: string;
-  createdAt?: string;
-  statusLabel?: string;\n  paymentStatus?: string | null;\n  invoice?: { amount?: number | string; currency?: string; status?: string } | null;
-  [key: string]: unknown;
+type VerifyResponse={success:boolean;data?:{token?:string}};
+export type TrackedOffer={id:string;carrier?:string;amount?:number|string;currency?:string;description?:string|null};
+export type PaymentAccount={id:string;name?:string;bankName?:string|null;accountName?:string|null;accountNumber?:string|null;iban?:string|null;currency?:string};
+export type TrackedRequest={
+ id:string;
+ service?:string|null;
+ status?:string;
+ statusLabel?:string;
+ paymentStatus?:string|null;
+ paymentCurrency?:string|null;
+ createdAt?:string;
+ selectedOfferId?:string|null;
+ invoice?:{amount?:number|string;currency?:string;status?:string}|null;
+ offers?:TrackedOffer[];
+ paymentAccounts?:PaymentAccount[];
+ [key:string]:unknown;
 };
 
-export async function requestTrackingCode(phone: string) {
-  return api<{ success: boolean; message: string; debugCode?: string }>("/api/tracking/request-code", {
-    method: "POST",
-    body: JSON.stringify({ phone }),
-  });
+export async function requestTrackingCode(phone:string){
+ return api<{success:boolean;message:string;debugCode?:string}>("/api/tracking/request-code",{method:"POST",body:JSON.stringify({phone})});
 }
-
-export async function verifyTrackingCode(phone: string, code: string) {
-  const response = await api<VerifyResponse>("/api/tracking/verify-code", {
-    method: "POST",
-    body: JSON.stringify({ phone, code }),
-  });
-  const token = response.data?.token;
-  if (!token) throw new Error("لم يتم استلام جلسة التتبع");
-  trackingToken = token;
+export async function verifyTrackingCode(phone:string,code:string){
+ const response=await api<VerifyResponse>("/api/tracking/verify-code",{method:"POST",body:JSON.stringify({phone,code})});
+ const token=response.data?.token;
+ if(!token)throw new Error("لم يتم استلام جلسة التتبع");
+ trackingToken=token;
 }
-
-function authHeaders() {
-  if (!trackingToken) throw new Error("جلسة التتبع غير موجودة");
-  return { Authorization: `Bearer ${trackingToken}` };
-}
-
-export async function getTrackedRequests() {
-  const response = await api<{ success: boolean; data: TrackedRequest[] }>("/api/tracking/requests", {
-    headers: authHeaders(),
-  });
-  return response.data;
-}
-
-export async function approveTrackedInvoice(id: string) {
-  return api("/api/tracking/requests/" + encodeURIComponent(id) + "/invoice/approve", {
-    method: "POST",
-    headers: authHeaders(),
-  });
-}
-
-export async function rejectTrackedInvoice(id: string) {
-  return api("/api/tracking/requests/" + encodeURIComponent(id) + "/invoice/reject", {
-    method: "POST",
-    headers: authHeaders(),
-  });
-}
-
-export async function markTrackedTransferSent(id: string) {
-  return api("/api/tracking/requests/" + encodeURIComponent(id) + "/mark-transfer-sent", {
-    method: "POST",
-    headers: authHeaders(),
-  });
+function authHeaders(){if(!trackingToken)throw new Error("جلسة التتبع غير موجودة");return {Authorization:`Bearer ${trackingToken}`};}
+export async function getTrackedRequests(){const r=await api<{success:boolean;data:TrackedRequest[]}>("/api/tracking/requests",{headers:authHeaders()});return r.data;}
+export async function approveTrackedInvoice(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/invoice/approve`,{method:"POST",headers:authHeaders()});}
+export async function rejectTrackedInvoice(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/invoice/reject`,{method:"POST",headers:authHeaders()});}
+export async function selectTrackedOffer(id:string,offerId:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/offers/${encodeURIComponent(offerId)}/select`,{method:"POST",headers:authHeaders()});}
+export async function markTrackedTransferSent(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/mark-transfer-sent`,{method:"POST",headers:authHeaders()});}
+export async function uploadTrackedPaymentReceipt(id:string,file:UploadAsset){
+ const body=new FormData();
+ body.append("file",{uri:file.uri,name:file.name,type:file.mimeType||"application/octet-stream"} as unknown as Blob);
+ return api(`/api/tracking/requests/${encodeURIComponent(id)}/payment-receipt`,{method:"POST",headers:authHeaders(),body});
 }
