@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
+  Bell,
   BriefcaseBusiness,
   ImageIcon,
   ClipboardCheck,
@@ -34,6 +35,7 @@ export type AdminUser = {
 
 const navigation = [
   { href: "/admin/operations", label: "مركز العمليات", icon: Gauge, roles: undefined },
+  { href: "/admin/notifications", label: "الإشعارات", icon: Bell, roles: undefined },
   // Smart Case Operations — Release C. The per-case workspace, open to the
   // roles that actually work cases; ACCOUNTANT/CONTENT_MANAGER never do.
   { href: "/admin/cases", label: "مساحة عمل الحالات", icon: ClipboardList, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
@@ -67,6 +69,7 @@ export function AdminShell({ children, title, description }: { children: React.R
   const [user, setUser] = React.useState<AdminUser | null>(null);
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
+  const [unreadCount, setUnreadCount] = React.useState(0);
 
   React.useEffect(() => {
     let active = true;
@@ -84,6 +87,23 @@ export function AdminShell({ children, title, description }: { children: React.R
       });
     return () => { active = false; };
   }, [router]);
+
+  React.useEffect(() => {
+    if (!user) return undefined;
+    let active = true;
+    async function loadUnread() {
+      try {
+        const response = await fetch(`${API_URL}/notifications?limit=1`, { credentials: "include" });
+        const payload = await response.json().catch(() => null);
+        if (active && response.ok && payload?.success) setUnreadCount(payload.meta?.unreadCount ?? 0);
+      } catch {
+        // Best-effort — a failed unread count must never block the dashboard.
+      }
+    }
+    void loadUnread();
+    const interval = setInterval(loadUnread, 60_000);
+    return () => { active = false; clearInterval(interval); };
+  }, [user]);
 
   async function logout() {
     await fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => undefined);
@@ -109,6 +129,14 @@ export function AdminShell({ children, title, description }: { children: React.R
           <div className="flex items-center gap-3">
             {loading ? <span className="hidden text-xs text-muted-foreground sm:inline">جاري التحقق...</span> : null}
             {user ? <div className="hidden text-start sm:block"><p className="text-sm font-black">{user.fullName}</p><p className="text-xs text-muted-foreground">{roleLabels[user.role]}</p></div> : null}
+            <Link href="/admin/notifications" className="relative inline-flex size-10 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition hover:text-primary" aria-label="الإشعارات">
+              <Bell className="size-4" />
+              {unreadCount > 0 ? (
+                <span className="absolute -top-1 -end-1 flex min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              ) : null}
+            </Link>
             <button type="button" className="inline-flex size-10 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition hover:text-destructive" aria-label="تسجيل الخروج" onClick={() => void logout()}>
               <LogOut className="size-4" />
             </button>
