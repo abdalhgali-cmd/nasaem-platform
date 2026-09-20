@@ -40,6 +40,7 @@ import {
   patchCaseTaskComplete,
   storeCaseTask,
 } from "../case-tasks/case-tasks.controller.js";
+import { getCaseNotes, storeCaseNote } from "../case-notes/case-notes.controller.js";
 
 const router = Router();
 
@@ -136,6 +137,22 @@ router.patch(
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   requireContactRequestOrganization,
   patchCaseTaskComplete
+);
+// Internal staff notes — never customer-facing (see CaseNote schema
+// comment). Same role set as tasks/timeline: the roles that work cases.
+router.get(
+  "/:id/notes",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getCaseNotes
+);
+router.post(
+  "/:id/notes",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  storeCaseNote
 );
 router.patch(
   "/:id/status",
