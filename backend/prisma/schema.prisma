@@ -309,6 +309,23 @@ model CaseTask {
   @@index([dueAt])
 }
 
+// Internal staff-only notes on a case — never shown to the customer, never
+// part of any tracking response. Append-only (no edit/delete endpoint):
+// a note is a timestamped record of what staff observed or decided, and
+// history should read as it was written, not be revisable after the fact.
+model CaseNote {
+  id               String   @id @default(cuid())
+  contactRequestId String
+  body             String
+  authorUserId     String
+  createdAt        DateTime @default(now())
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  author         User           @relation("CaseNoteAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([contactRequestId])
+}
+
 model ProviderSubmission {
   id                String                   @id @default(cuid())
   contactRequestId  String
@@ -390,6 +407,7 @@ model User {
   caseTasksAssigned                  CaseTask[]                  @relation("CaseTaskAssignee")
   caseTasksCompleted                 CaseTask[]                  @relation("CaseTaskCompletedBy")
   caseTasksCreated                   CaseTask[]                  @relation("CaseTaskCreatedBy")
+  caseNotesAuthored                  CaseNote[]                  @relation("CaseNoteAuthor")
 
   @@index([role])
   @@index([status])
@@ -1233,6 +1251,7 @@ model ContactRequest {
   travelers           Traveler[]
   providerSubmissions ProviderSubmission[]
   tasks               CaseTask[]
+  notes               CaseNote[]
 
   @@index([status])
   @@index([createdAt])

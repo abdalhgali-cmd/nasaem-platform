@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- NotesTab's initial data loading synchronizes with the API (same pattern as activity-log-manager.tsx). */
 
 import * as React from "react";
 import {
@@ -197,6 +198,14 @@ const ACTION_LABEL: Record<string, string> = {
   TASK_COMPLETED: "إنهاء مهمة",
   PROVIDER_SUBMISSION_CREATED: "تجهيز إرسال للجهة",
   PROVIDER_SUBMITTED: "إرسال الحالة للجهة",
+  CASE_NOTE_ADDED: "إضافة ملاحظة داخلية",
+};
+
+type CaseNoteEntry = {
+  id: string;
+  body: string;
+  createdAt: string;
+  author: { id: string; fullName: string } | null;
 };
 
 function formatDate(value: string | null) {
@@ -447,7 +456,7 @@ function CaseDetail({
   staff: StaffUser[];
   onChanged: () => void;
 }) {
-  const [tab, setTab] = React.useState<"overview" | "travelers" | "documents" | "tasks" | "provider" | "activity">("overview");
+  const [tab, setTab] = React.useState<"overview" | "travelers" | "documents" | "tasks" | "provider" | "notes" | "activity">("overview");
   const [warnings, setWarnings] = React.useState<Warning[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [actionError, setActionError] = React.useState("");
@@ -489,6 +498,7 @@ function CaseDetail({
     { key: "documents" as const, label: `المستندات (${caseRow.documents.filter((d) => !d.supersededAt).length})` },
     { key: "tasks" as const, label: `المهام (${caseRow.tasks.length})` },
     { key: "provider" as const, label: "الجهة المنفّذة" },
+    { key: "notes" as const, label: "ملاحظات داخلية" },
     { key: "activity" as const, label: "السجل" },
   ];
 
@@ -565,6 +575,7 @@ function CaseDetail({
         {tab === "documents" ? <DocumentsTab caseRow={caseRow} busy={busy} run={run} /> : null}
         {tab === "tasks" ? <TasksTab caseRow={caseRow} busy={busy} run={run} /> : null}
         {tab === "provider" ? <ProviderTab caseRow={caseRow} busy={busy} run={run} /> : null}
+        {tab === "notes" ? <NotesTab caseId={caseRow.id} /> : null}
         {tab === "activity" ? <ActivityTab caseId={caseRow.id} /> : null}
       </div>
     </div>
@@ -1089,6 +1100,94 @@ function ProviderTab({
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+function NotesTab({ caseId }: { caseId: string }) {
+  const [notes, setNotes] = React.useState<CaseNoteEntry[] | null>(null);
+  const [failed, setFailed] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  const load = React.useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/contact-requests/${caseId}/notes`, { credentials: "include" });
+      const payload = await readJson(res);
+      setNotes(payload.data ?? []);
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    }
+  }, [caseId]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function submit() {
+    if (draft.trim().length < 2) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_URL}/contact-requests/${caseId}/notes`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: draft.trim() }),
+      });
+      await readJson(res);
+      setDraft("");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر إضافة الملاحظة");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-muted-foreground">
+        ملاحظات داخلية للفريق فقط — لا تظهر للعميل أبدًا، ولا يمكن تعديلها أو حذفها بعد الإضافة.
+      </p>
+      <div className="flex flex-col gap-2 rounded-xl border border-border/70 p-3">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={3}
+          placeholder="اكتب ملاحظة عن هذه الحالة..."
+          className="w-full resize-none rounded-lg border bg-background p-2 text-sm"
+        />
+        <div className="flex items-center justify-between gap-2">
+          {error ? <span className="text-xs font-bold text-destructive">{error}</span> : <span />}
+          <Button type="button" size="sm" onClick={() => void submit()} disabled={busy || draft.trim().length < 2}>
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+            إضافة ملاحظة
+          </Button>
+        </div>
+      </div>
+
+      {failed ? <p className="text-sm text-muted-foreground">تعذّر تحميل الملاحظات.</p> : null}
+      {!failed && notes === null ? <p className="text-sm text-muted-foreground">جاري تحميل الملاحظات…</p> : null}
+      {!failed && notes && notes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">لا توجد ملاحظات على هذه الحالة بعد.</p>
+      ) : null}
+
+      {notes && notes.length > 0 ? (
+        <ol className="flex flex-col gap-2">
+          {notes.map((note) => (
+            <li key={note.id} className="rounded-xl border border-border/70 p-3 text-sm">
+              <p className="whitespace-pre-wrap">{note.body}</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {note.author?.fullName ? `${note.author.fullName} · ` : ""}
+                {formatDate(note.createdAt)}
+              </p>
+            </li>
+          ))}
+        </ol>
+      ) : null}
     </div>
   );
 }

@@ -39,6 +39,9 @@ export function OperationsCenter() {
   const [filter, setFilter] = React.useState("ALL");
   const [serviceFilter, setServiceFilter] = React.useState("ALL");
   const [employeeFilter, setEmployeeFilter] = React.useState("ALL");
+  const [paymentStatusFilter, setPaymentStatusFilter] = React.useState("ALL");
+  const [dateFrom, setDateFrom] = React.useState("");
+  const [dateTo, setDateTo] = React.useState("");
 
   async function load() {
     setLoading(true); setError("");
@@ -94,17 +97,31 @@ export function OperationsCenter() {
     return [...seen.entries()];
   }, [data]);
 
+  // Only the payment statuses actually present in the current data, so the
+  // filter never offers a value that would just show an empty table.
+  const paymentStatusOptions = React.useMemo(() => {
+    const seen = new Set<string>();
+    for (const item of data?.items || []) if (item.paymentStatus) seen.add(item.paymentStatus);
+    return [...seen];
+  }, [data]);
+
   const visibleItems = React.useMemo(() => {
     const normalized = query.trim().toLowerCase();
+    const from = dateFrom ? new Date(dateFrom) : null;
+    // End-of-day, so a "to" date includes everything that happened on it.
+    const to = dateTo ? new Date(`${dateTo}T23:59:59.999`) : null;
     return (data?.items || []).filter((item) => {
       const matchesQuery = !normalized || [item.reference, item.customerName, item.phone, item.service, item.assignedUser || ""].some((value) => value.toLowerCase().includes(normalized));
       const p = priority(item);
       const matchesFilter = filter === "ALL" || (filter === "URGENT" && p === "urgent") || (filter === "STALLED" && p === "stalled") || (filter === "CUSTOMER" && p === "customer") || (filter === "PAYMENT" && (item.hasPaymentUnderReview || item.paymentStatus === "UNDER_REVIEW")) || (filter === "UNASSIGNED" && !item.assignedUser);
       const matchesService = serviceFilter === "ALL" || item.serviceId === serviceFilter;
       const matchesEmployee = employeeFilter === "ALL" || (employeeFilter === "UNASSIGNED" && !item.assignedUserId) || item.assignedUserId === employeeFilter;
-      return matchesQuery && matchesFilter && matchesService && matchesEmployee;
+      const matchesPaymentStatus = paymentStatusFilter === "ALL" || item.paymentStatus === paymentStatusFilter;
+      const updatedAt = new Date(item.updatedAt);
+      const matchesDate = (!from || updatedAt >= from) && (!to || updatedAt <= to);
+      return matchesQuery && matchesFilter && matchesService && matchesEmployee && matchesPaymentStatus && matchesDate;
     });
-  }, [data, query, filter, serviceFilter, employeeFilter]);
+  }, [data, query, filter, serviceFilter, employeeFilter, paymentStatusFilter, dateFrom, dateTo]);
 
   return (
     <main className="min-h-screen bg-section py-8 sm:py-10">
@@ -123,6 +140,11 @@ export function OperationsCenter() {
             <select value={filter} onChange={(e) => setFilter(e.target.value)} className="h-11 rounded-xl border border-border bg-background px-3 text-sm font-semibold outline-none"><option value="ALL">كل الطلبات</option><option value="URGENT">عاجل</option><option value="PAYMENT">دفعات للمراجعة</option><option value="STALLED">متوقفة +24 ساعة</option><option value="CUSTOMER">بانتظار العميل</option><option value="UNASSIGNED">بلا موظف</option></select>
             <select value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} className="h-11 rounded-xl border border-border bg-background px-3 text-sm font-semibold outline-none"><option value="ALL">كل الخدمات</option>{serviceOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
             <select value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)} className="h-11 rounded-xl border border-border bg-background px-3 text-sm font-semibold outline-none"><option value="ALL">كل الموظفين</option><option value="UNASSIGNED">بلا موظف</option>{employeeOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <select value={paymentStatusFilter} onChange={(e) => setPaymentStatusFilter(e.target.value)} className="h-11 rounded-xl border border-border bg-background px-3 text-sm font-semibold outline-none"><option value="ALL">كل حالات الدفع</option>{paymentStatusOptions.map((value) => <option key={value} value={value}>{label(value)}</option>)}</select>
+            <label className="flex h-11 items-center gap-2 rounded-xl border border-border bg-background px-3 text-sm text-muted-foreground">من<input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-full flex-1 bg-transparent text-sm text-foreground outline-none" /></label>
+            <label className="flex h-11 items-center gap-2 rounded-xl border border-border bg-background px-3 text-sm text-muted-foreground">إلى<input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-full flex-1 bg-transparent text-sm text-foreground outline-none" /></label>
           </div>
           <div className="mt-4 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-red-500/10 px-3 py-1 font-bold text-red-700">🔴 عاجل: {data?.items?.filter((item) => priority(item) === "urgent").length ?? 0}</span><span className="rounded-full bg-amber-500/10 px-3 py-1 font-bold text-amber-700">🟠 متوقف: {data?.items?.filter((item) => priority(item) === "stalled").length ?? 0}</span><span className="rounded-full bg-blue-500/10 px-3 py-1 font-bold text-blue-700">🟡 بانتظار العميل: {data?.items?.filter((item) => priority(item) === "customer").length ?? 0}</span></div>
           <div className="mt-6 overflow-x-auto"><table className="w-full min-w-[1080px] text-sm"><thead><tr className="border-b border-border text-start text-xs text-muted-foreground"><th className="px-3 py-3 text-start">الأولوية</th><th className="px-3 py-3 text-start">المرجع</th><th className="px-3 py-3 text-start">العميل</th><th className="px-3 py-3 text-start">الخدمة</th><th className="px-3 py-3 text-start">الحالة</th><th className="px-3 py-3 text-start">المبلغ</th><th className="px-3 py-3 text-start">آخر تحديث</th><th className="px-3 py-3 text-start">الإجراء</th></tr></thead><tbody>

@@ -66,7 +66,7 @@ export async function getAdminVisaTypes(){
 export async function updateAdminVisaType(id:string,patch:Partial<Pick<AdminCatalogItem,"basePrice"|"currency"|"active"|"processingTime">>){
  return api<{success:boolean;data:AdminCatalogItem}>("/api/visa-types/"+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify(patch)});
 }
-export type FxRates={USD:number;SAR:number;AED:number;EGP:number};
+export type FxRates={USD:number;SAR:number;AED:number;EGP:number;QAR:number};
 export async function getAdminFxRates(){
  const r=await api<{success:boolean;data:FxRates}>("/api/flights/admin/rates");
  return r.data;

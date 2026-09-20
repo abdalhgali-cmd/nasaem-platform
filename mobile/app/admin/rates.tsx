@@ -2,7 +2,7 @@ import { useEffect,useState } from "react";
 import { ActivityIndicator,Pressable,SafeAreaView,StyleSheet,Text,TextInput,View } from "react-native";
 import { FxRates,getAdminFxRates,updateAdminFxRates } from "../../src/api/admin";
 import { colors } from "../../src/theme";
-const codes:(keyof FxRates)[]=["USD","SAR","AED","EGP"];
+const codes:(keyof FxRates)[]=["USD","SAR","AED","EGP","QAR"];
 export default function AdminRatesScreen(){
  const [rates,setRates]=useState<Record<string,string>>({}),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
  useEffect(()=>{getAdminFxRates().then(r=>setRates(Object.fromEntries(codes.map(c=>[c,String(r[c]??0)])))).catch(()=>setMessage("تعذر تحميل أسعار الصرف أو لا تملك الصلاحية.")).finally(()=>setLoading(false));},[]);

@@ -543,6 +543,18 @@ export async function assignContactRequest(id, assignedUserId, actingUserId, org
     entityId: id,
   });
 
+  // Assignment previously updated the row silently — the newly-assigned
+  // employee had no way to know a case landed in their queue short of
+  // polling the list. Best-effort, same as every other notification here.
+  if (assignedUserId) {
+    await createNotification({
+      title: "تم إسناد طلب لك",
+      message: `تم إسنادك للطلب ${describeRequest(updated)}.`,
+      type: "CASE_ASSIGNED",
+      userId: assignedUserId,
+    });
+  }
+
   return { contactRequest: updated };
 }
 

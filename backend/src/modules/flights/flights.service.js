@@ -6,6 +6,7 @@ const FX_KEYS = {
   SAR: "FX_SAR_SDG",
   AED: "FX_AED_SDG",
   EGP: "FX_EGP_SDG",
+  QAR: "FX_QAR_SDG",
 };
 
 const SUDANESE_AIRLINES = new Set(["SUDANAIR", "SUDAN AIR", "TARCO", "TARCO AVIATION", "BADR", "BADR AIRLINES"]);
