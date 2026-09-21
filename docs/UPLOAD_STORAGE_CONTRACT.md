@@ -15,6 +15,7 @@ New rows store a path relative to `UPLOAD_ROOT`, never an absolute server path. 
 - `contact-request-documents/<generated-name>`
 - `contact-request-deliverables/<generated-name>`
 - `site-assets/<generated-name>`
+- `flight-bookings/<booking-number>/<generated-name>` (provisional ticket, payment receipt, final ticket)
 
 The database continues to store the original client filename separately for download/display. Passport OCR buffers are transient; saved passport documents follow the relative-path contract above.
 
