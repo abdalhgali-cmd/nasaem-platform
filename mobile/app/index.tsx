@@ -3,6 +3,7 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, SafeAreaView, S
 import { router } from "expo-router";
 import { getPublicServices, PublicService } from "../src/api/services";
 import { colors } from "../src/theme";
+import { formatPrice, formatSdgEquivalent } from "../src/utils/price";
 
 function titleOf(item: PublicService) { return item.nameAr ?? item.name ?? item.title ?? "خدمة"; }
 
@@ -33,6 +34,7 @@ export default function HomeScreen() {
     </>}
     renderItem={({item})=><Pressable style={s.card} onPress={()=>router.push({pathname:"/service/[slug]",params:{slug:item.slug??String(item.id),payload:JSON.stringify(item)}})}>
       <View style={s.icon}><Text style={s.iconText}>✦</Text></View><Text style={s.cardTitle}>{titleOf(item)}</Text><Text numberOfLines={2} style={s.desc}>{item.description??"عرض التفاصيل والمتطلبات"}</Text>
+      <Text style={s.cardPrice}>{formatPrice(item.basePrice,item.currency)}</Text>{!!formatSdgEquivalent(item.priceSdg)&&<Text style={s.cardSdg}>{formatSdgEquivalent(item.priceSdg)}</Text>}
     </Pressable>}
     ListEmptyComponent={<View style={s.empty}><Text style={s.muted}>لا توجد خدمات متاحة حاليًا.</Text></View>}
   /></SafeAreaView>;
@@ -43,6 +45,6 @@ const s=StyleSheet.create({
  offer:{margin:16,marginBottom:0,backgroundColor:colors.navyDark,borderRadius:16,padding:18,alignItems:"flex-end",gap:9},offerTag:{color:colors.gold,fontSize:11,fontWeight:"800"},offerTitle:{color:"#FFF",fontSize:16,fontWeight:"800",textAlign:"right"},goldButton:{backgroundColor:colors.gold,borderRadius:999,paddingVertical:9,paddingHorizontal:18},goldButtonText:{color:colors.navy,fontSize:12,fontWeight:"800"},
  track:{marginHorizontal:16,marginTop:14,borderWidth:1,borderColor:colors.border,borderRadius:12,padding:14,backgroundColor:"#FFF",flexDirection:"row-reverse",justifyContent:"space-between",alignItems:"center"},trackText:{fontWeight:"700",color:colors.text,fontSize:13},chev:{fontSize:22,color:colors.subtle},
  section:{paddingHorizontal:18,paddingTop:20,paddingBottom:10,flexDirection:"row-reverse",justifyContent:"space-between",alignItems:"center"},sectionTitle:{fontSize:15,fontWeight:"800",color:colors.text},link:{fontSize:12,color:colors.navy,fontWeight:"700"},
- row:{paddingHorizontal:16,gap:12},card:{flex:1,minHeight:126,backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:14,padding:15,marginBottom:12,alignItems:"flex-end"},icon:{width:36,height:36,borderRadius:10,backgroundColor:"#EEF3FB",alignItems:"center",justifyContent:"center",marginBottom:10},iconText:{color:colors.navy,fontWeight:"900"},cardTitle:{fontSize:13,fontWeight:"800",color:colors.text,textAlign:"right"},desc:{fontSize:11,color:colors.muted,lineHeight:17,textAlign:"right",marginTop:5},
+ row:{paddingHorizontal:16,gap:12},card:{flex:1,minHeight:126,backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:14,padding:15,marginBottom:12,alignItems:"flex-end"},icon:{width:36,height:36,borderRadius:10,backgroundColor:"#EEF3FB",alignItems:"center",justifyContent:"center",marginBottom:10},iconText:{color:colors.navy,fontWeight:"900"},cardTitle:{fontSize:13,fontWeight:"800",color:colors.text,textAlign:"right"},desc:{fontSize:11,color:colors.muted,lineHeight:17,textAlign:"right",marginTop:5},cardPrice:{fontSize:12,fontWeight:"900",color:colors.navy,textAlign:"right",marginTop:8},cardSdg:{fontSize:9.5,color:colors.gold,fontWeight:"700",textAlign:"right",marginTop:2},
  errorBox:{marginHorizontal:16,marginTop:12,padding:12,borderRadius:10,backgroundColor:"#FFF4F2"},errorText:{color:colors.danger,textAlign:"right",fontSize:11},empty:{padding:30,alignItems:"center"}
 });

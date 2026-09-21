@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { PublicService } from "../../src/api/services";
 import { colors } from "../../src/theme";
+import { formatPrice, formatSdgEquivalent } from "../../src/utils/price";
 
 function requestKind(service: PublicService | null) {
   const category=(service?.category??"").toLowerCase();
@@ -20,8 +21,8 @@ export default function ServiceDetailsScreen() {
   let service:PublicService|null=null;
   try{service=params.payload?JSON.parse(params.payload) as PublicService:null;}catch{service=null;}
   const kind=requestKind(service);
-  const price=service?.basePrice!=null?`${service.basePrice} ${service.currency??""}`:"يحدد بعد مراجعة الطلب";
-  const sdg=service?.priceSdg!=null?`≈ ${Math.round(service.priceSdg).toLocaleString()} جنيه سوداني`:null;
+  const price=formatPrice(service?.basePrice,service?.currency,"يحدد بعد مراجعة الطلب");
+  const sdg=formatSdgEquivalent(service?.priceSdg);
 
   return <ScrollView contentContainerStyle={s.page}>
     <Text style={s.title}>{service?.name??service?.nameAr??service?.title??"تفاصيل الخدمة"}</Text>
