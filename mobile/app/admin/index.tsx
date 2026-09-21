@@ -1,3 +1,10 @@
+// LEGACY / DEFERRED — mobile-admin surface.
+// This Android app is customer-only; staff functionality is being
+// consolidated into the Web Admin Portal (web/src/app/admin/), which is
+// the canonical staff application going forward. This screen is kept only
+// for continuity (still auth-gated behind staff login) and is no longer
+// linked from any customer-facing navigation in this app. Do not add new
+// mobile-admin functionality here — build it in web/src/app/admin/ instead.
 import { useCallback,useEffect,useState } from "react";
 import { router } from "expo-router";
 import { ActivityIndicator,Pressable,SafeAreaView,ScrollView,StyleSheet,Text,View } from "react-native";
