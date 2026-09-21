@@ -2,15 +2,26 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import prisma from "../../config/database.js";
+import { resolveUploadPath, resolveStoredUploadPath } from "../../config/uploadRoot.js";
 
-const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads", "flight-bookings"));
+// Same shared UPLOAD_ROOT every other document module writes/reads through
+// (see ../../config/uploadRoot.js) — flight booking files (provisional
+// tickets, payment receipts, final tickets) used to bypass it via a
+// standalone UPLOAD_DIR/env var, which meant they weren't guaranteed to
+// live on the mounted persistent volume in production.
+const FLIGHT_BOOKINGS_DIR = resolveUploadPath("flight-bookings");
 const STATUS_LABELS_AR = { REQUESTED: "تم استلام الطلب", RESERVATION_PENDING: "جاري الحجز المبدئي", PROVISIONAL_TICKET: "تم إصدار الحجز المبدئي", PAYMENT_PENDING: "بانتظار الدفع", PAYMENT_UNDER_REVIEW: "إشعار الدفع قيد المراجعة", PAYMENT_CONFIRMED: "تم تأكيد الدفع", FINAL_TICKET_ISSUED: "تم إصدار الحجز النهائي", CANCELLED: "ملغي" };
 function bookingNumber() { return `FLT-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`; }
 function badRequest(message) { const error = new Error(message); error.statusCode = 400; return error; }
 function notFound(message) { const error = new Error(message); error.statusCode = 404; return error; }
 function safeName(name) { return String(name || "file").replace(/[^a-zA-Z0-9._-]/g, "_"); }
 function normalizePhone(value) { return String(value || "").replace(/[^0-9+]/g, "").replace(/^00/, "+"); }
-async function saveFile(file, bookingNumberValue, prefix) { if (!file) throw badRequest("File is required"); await fs.mkdir(path.join(UPLOAD_DIR, bookingNumberValue), { recursive: true }); const filename = `${prefix}-${Date.now()}-${safeName(file.originalname)}`; const fullPath = path.join(UPLOAD_DIR, bookingNumberValue, filename); await fs.writeFile(fullPath, file.buffer); return { path: path.relative(process.cwd(), fullPath), name: file.originalname }; }
+// Writes under UPLOAD_ROOT/flight-bookings/<bookingNumber>/ and stores the
+// DB path relative to UPLOAD_ROOT (e.g. "flight-bookings/FLT-.../file.pdf"),
+// matching the same contract documents.service.js/contact-request-documents
+// use — never an absolute path or one relative to process.cwd(), so the
+// file stays reachable after a redeploy or a UPLOAD_ROOT change.
+async function saveFile(file, bookingNumberValue, prefix) { if (!file) throw badRequest("File is required"); const bookingDir = path.join(FLIGHT_BOOKINGS_DIR, bookingNumberValue); await fs.mkdir(bookingDir, { recursive: true }); const filename = `${prefix}-${Date.now()}-${safeName(file.originalname)}`; const fullPath = path.join(bookingDir, filename); await fs.writeFile(fullPath, file.buffer); return { path: path.join("flight-bookings", bookingNumberValue, filename), name: file.originalname }; }
 async function ensureOrderAndCustomer(input) { let customer = input.customerId ? await prisma.customer.findUnique({ where: { id: input.customerId } }) : null; if (!customer) { const passportNo = String(input.contact?.passportNo || input.passengers?.[0]?.passportNo || "").trim(); if (passportNo) customer = await prisma.customer.findUnique({ where: { passportNo } }); } if (!customer) { const passportNo = `${String(input.contact?.passportNo || input.passengers?.[0]?.passportNo || "TEMP-")}-${Date.now()}`; customer = await prisma.customer.create({ data: { customerNo: `CUS-${Date.now().toString(36).toUpperCase()}`, fullName: String(input.contact?.fullName || `${input.passengers?.[0]?.firstName || ""} ${input.passengers?.[0]?.lastName || ""}`).trim(), passportNo, nationality: String(input.passengers?.[0]?.nationality || "UNKNOWN").trim(), birthDate: input.passengers?.[0]?.birthDate ? new Date(input.passengers[0].birthDate) : null, gender: input.passengers?.[0]?.gender || null, phone: input.contact?.phone || null, email: input.contact?.email || null } }); } const order = await prisma.order.create({ data: { orderNumber: `ORD-${Date.now().toString(36).toUpperCase()}`, customerId: customer.id, status: "NEW", paymentStatus: "UNPAID", totalAmount: Number(input.amount || 0), currency: input.currency || "SDG" } }); return { customer, order }; }
 export async function createFlightBooking(input) { const flightIds = Array.isArray(input.flightIds) && input.flightIds.length ? input.flightIds.map(String) : input.flightId ? [String(input.flightId)] : []; if (!flightIds.length) throw badRequest("At least one flight is required"); if (!Array.isArray(input.passengers) || !input.passengers.length) throw badRequest("At least one passenger is required"); if (!input.contact?.phone) throw badRequest("Phone is required"); const amount = Number(input.amount); if (!Number.isFinite(amount) || amount <= 0) throw badRequest("Valid booking amount is required"); const { customer, order } = await ensureOrderAndCustomer({ ...input, amount }); const id = crypto.randomUUID(); const number = bookingNumber(); await prisma.$executeRawUnsafe(`INSERT INTO flight_bookings (id,booking_number,order_id,customer_id,flight_id,status,passengers,amount,currency,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6::jsonb,$7,$8,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, id, number, order.id, customer.id, JSON.stringify(flightIds), JSON.stringify(input.passengers), amount, input.currency || "SDG"); return getFlightBooking(id); }
 // Platform 3.0 Phase 17: shared by getFlightBooking and listFlightBookings
@@ -47,7 +58,11 @@ export async function getBookingFile(idOrNumber, kind, { phone, requirePhoneMatc
   }
   const field = kind === "provisional" ? "provisional_ticket_path" : kind === "receipt" ? "payment_receipt_path" : kind === "final" ? "final_ticket_path" : null;
   if (!field || !booking[field]) throw new Error("File not available");
-  const absolute = path.resolve(process.cwd(), booking[field]);
-  if (!absolute.startsWith(UPLOAD_DIR)) throw new Error("Invalid file path");
+  // resolveStoredUploadPath maps both the new "flight-bookings/..." shape
+  // and the historical "uploads/flight-bookings/..." / absolute-under-cwd
+  // shape this module used to store onto the current UPLOAD_ROOT, and
+  // throws on anything that would resolve outside it (traversal, an
+  // unrelated absolute path).
+  const absolute = resolveStoredUploadPath(booking[field]);
   return { path: absolute, name: booking[field.replace("_path", "_name")] || path.basename(absolute) };
 }
