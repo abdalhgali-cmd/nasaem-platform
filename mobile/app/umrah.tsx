@@ -27,7 +27,13 @@ export default function UmrahScreen(){
      try{
        const [services,pkgs]=await Promise.all([getPublicServices(),getPublicPackages()]);
        if(!active)return;
-       setPackages(pkgs);
+       // getPublicPackages() returns every catalog package (real Umrah
+       // products and unrelated general travel packages alike, e.g.
+       // honeymoon/family/business) — this screen must only ever show
+       // the real Umrah ones. Same category/code-prefix rule the web
+       // Umrah section (FeaturedUmrah) already applies.
+       const umrahPackages=pkgs.filter(p=>(p.category??"")==="UMRAH_PACKAGE"||(p.code??"").startsWith("SVC-UMRAH-"));
+       setPackages(umrahPackages);
        const service=services.find(s=>(s.code??"").toUpperCase()==="SVC-UMRAH"||(s.category??"").toLowerCase()==="umrah")??null;
        setUmrahService(service);
        if(pkgs.length===1)setSelectedPackageId(pkgs[0].id);
