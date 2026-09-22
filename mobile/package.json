@@ -23,5 +23,8 @@
   "devDependencies": {
     "@types/react": "~19.1.10",
     "typescript": "~5.9.2"
+  },
+  "overrides": {
+    "react-dom": "19.1.0"
   }
 }

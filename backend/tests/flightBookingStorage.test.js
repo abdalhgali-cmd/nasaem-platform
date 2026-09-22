@@ -38,6 +38,22 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
     });
     assert.equal(flightRes.status, 201);
     flightId = flightRes.body.data.id;
+
+    // submitPaymentReceipt() requires at least one active bank account to
+    // exist (see flight-bookings.service.js). This file must not depend on
+    // another test file (e.g. flightBookingWorkflow.test.js) having
+    // already created one first — each backend test file runs as its own
+    // process and CI's file-discovery order is not guaranteed to match a
+    // local ad hoc run, which is exactly how this test passed locally but
+    // failed in CI.
+    const bankRes = await admin.post("/api/flight-bookings/admin/bank-accounts").send({
+      key: `storage-test-bank-${uniqueSuffix()}`,
+      label: "حساب اختبار التخزين",
+      bankName: "Test Bank",
+      accountNumber: `000${uniqueSuffix()}`,
+      active: true,
+    });
+    assert.equal(bankRes.status, 201);
   });
 
   async function createBooking(phone) {
