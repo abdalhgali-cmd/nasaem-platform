@@ -23,7 +23,7 @@ const META:Record<string,Meta>={
  // dimension (a genuine backend data-model gap, not a mobile choice; see
  // the Phase 4 note in the PR description).
  egypt:{title:"الموافقة الأمنية لمصر",fields:["منفذ الوصول","رقم الهاتف"],note:"سنراجع البيانات والمستندات قبل اعتماد الموافقة. يمكنك إضافة أكثر من مسافر لنفس الطلب.",nameField:"رقم الهاتف",phoneField:"رقم الهاتف",multiTraveler:true},
- family:{title:"الزيارة العائلية السعودية",fields:["اسم مقدم الطلب","رقم الطلب / التأشيرة إن وجد","صلة القرابة","عدد الزوار","مرحلة المعاملة الحالية","رقم الهاتف"],note:"يمكن متابعة مراحل الطلب بعد إنشائه من صفحة التتبع.",nameField:"اسم مقدم الطلب",phoneField:"رقم الهاتف",travelerField:"عدد الزوار"},
+ family:{title:"الزيارة العائلية السعودية",fields:["اسم مقدم الطلب","رقم الطلب / التأشيرة إن وجد","صلة القرابة","مرحلة المعاملة الحالية","رقم الهاتف"],note:"أضف بيانات كل زائر وارفع مستندات الزيارة المنشورة من الإدارة. يمكن متابعة مراحل الطلب بعد إنشائه من صفحة التتبع.",nameField:"اسم مقدم الطلب",phoneField:"رقم الهاتف",multiTraveler:true},
  generic:{title:"طلب خدمة",fields:["الاسم","رقم الهاتف","ملاحظات"],note:"سيتم مراجعة الطلب من الوكالة.",nameField:"الاسم",phoneField:"رقم الهاتف"},
 };
 
@@ -100,11 +100,12 @@ export default function ServiceRequest(){
        // it. Home/Services/the Request hub all link into this screen with
        // only a serviceId, so the VisaType must be resolved here rather
        // than silently falling through to an empty checklist.
-       if(!resolvedVisaTypeId && kind==="egypt"){
+       if(!resolvedVisaTypeId && (kind==="egypt"||kind==="family")){
          try{
            const visaTypes=await getPublicVisaTypes();
-           const egyptVisaType=visaTypes.find(v=>(v.code??"").toUpperCase()==="VISA-EGYPT-CLEARANCE")??visaTypes.find(v=>v.serviceId===resolvedServiceId);
-           if(egyptVisaType)resolvedVisaTypeId=egyptVisaType.id;
+           const expectedCode=kind==="egypt"?"VISA-EGYPT-CLEARANCE":"VISA-FAMILY-VISIT";
+           const matchingVisaType=visaTypes.find(v=>(v.code??"").toUpperCase()===expectedCode)??visaTypes.find(v=>v.serviceId===resolvedServiceId);
+           if(matchingVisaType)resolvedVisaTypeId=matchingVisaType.id;
          }catch{/* falls through to the serviceId-based lookup below */}
        }
        if(active&&resolvedVisaTypeId)setEffectiveVisaTypeId(resolvedVisaTypeId);
@@ -171,7 +172,7 @@ export default function ServiceRequest(){
        :kind==="visas"?[{fullName:values[meta.nameField],passportNo:values["رقم الجواز"]||undefined,nationality:values["الجنسية"]||undefined,birthDate:values["تاريخ الميلاد"]||undefined,isPrimary:true}]:undefined;
      const selectedFlight=(()=>{try{return params.selectedFlight?JSON.parse(params.selectedFlight):undefined;}catch{return undefined;}})();
      const intakeSelection=kind==="flights"?{tripType:params.tripType,selectedFlight}:kind==="ferries"?{scheduleId:params.scheduleId,operatorName:params.operatorName,departureTime:params.departureTime,basePrice:params.basePrice,currency:params.currency}:undefined;
-     const requestName=meta.multiTraveler?(travelers[0]?.fullName||serviceName||meta.title):values[meta.nameField];
+     const requestName=kind==="family"?values[meta.nameField]:meta.multiTraveler?(travelers[0]?.fullName||serviceName||meta.title):values[meta.nameField];
      const input={name:requestName,phone:values[meta.phoneField],service:serviceName||meta.title,message:`طلب ${serviceName||meta.title} عبر تطبيق نسائم الحرمين`,serviceId:serviceId||undefined,visaTypeId:effectiveVisaTypeId||undefined,travelerCount:travelerCountRaw&&travelerCountRaw>0?travelerCountRaw:traveler?.length,intakeData:{kind,fields:values,...(intakeSelection?{selection:intakeSelection}:{})},answers,travelers:traveler};
      const caseFiles=Object.values(docs).filter(Boolean) as UploadAsset[];
      // Each traveler's documents are tagged with that traveler's actual
