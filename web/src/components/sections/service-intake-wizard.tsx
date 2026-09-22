@@ -606,13 +606,21 @@ export function ServiceIntakeWizard({
     let ignore = false;
 
     const query = visaCategory ? `?visaCategory=${encodeURIComponent(visaCategory)}` : "";
+    const catalogUrl = service === "package"
+      ? `${API_URL}/services/public/packages`
+      : `${API_URL}/services/public${query}`;
 
-    fetch(`${API_URL}/services/public${query}`)
+    fetch(catalogUrl)
       .then((res) => res.json())
       .then((payload) => {
         if (ignore) return;
-        setServices(payload?.data?.services ?? []);
-        setVisaTypes(payload?.data?.visaTypes ?? []);
+        if (service === "package") {
+          setServices(Array.isArray(payload?.data) ? payload.data : []);
+          setVisaTypes([]);
+        } else {
+          setServices(payload?.data?.services ?? []);
+          setVisaTypes(payload?.data?.visaTypes ?? []);
+        }
       })
       .catch(() => {
         if (!ignore) setCatalogError("تعذّر تحميل قائمة الخدمات، حاول تحديث الصفحة");
@@ -624,7 +632,7 @@ export function ServiceIntakeWizard({
     return () => {
       ignore = true;
     };
-  }, [visaCategory]);
+  }, [service, visaCategory]);
 
   const packageServices = React.useMemo(
     () => services.filter((s) => s.category === "UMRAH_PACKAGE"),
