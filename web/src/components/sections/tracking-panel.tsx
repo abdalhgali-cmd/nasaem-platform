@@ -65,6 +65,7 @@ type ChecklistItem = {
 type NextAction = {
   code: string;
   requirementId?: string;
+  travelerId?: string | null;
   label: string;
   reason: string | null;
 };
@@ -615,6 +616,7 @@ function RequestDocumentsPanel({
   const outstanding = (req.checklist ?? []).filter(
     (item) => item.kind === "DOCUMENT" && (item.state === "MISSING" || item.state === "REJECTED")
   );
+  const checklistKey = (item: ChecklistItem) => `${item.requirementId}::${item.travelerId ?? "case"}`;
 
   React.useEffect(() => {
     if (outstanding.length === 0) return;
@@ -645,9 +647,12 @@ function RequestDocumentsPanel({
 
     try {
       const formData = new FormData();
-      const selected = outstanding.find((item) => item.requirementId === requirementId);
+      const selected = outstanding.find((item) => checklistKey(item) === requirementId);
       formData.append("label", selected ? selected.label : label);
-      if (requirementId) formData.append("requirementId", requirementId);
+      if (selected) {
+        formData.append("requirementId", selected.requirementId);
+        if (selected.travelerId) formData.append("travelerId", selected.travelerId);
+      }
       formData.append("file", file);
 
       const res = await fetch(`${API_URL}/tracking/requests/${req.id}/documents`, {
@@ -733,8 +738,9 @@ function RequestDocumentsPanel({
             >
               <option value="">مستند آخر…</option>
               {outstanding.map((item) => (
-                <option key={item.requirementId} value={item.requirementId}>
+                <option key={checklistKey(item)} value={checklistKey(item)}>
                   {item.label}
+                  {item.travelerName ? ` — ${item.travelerName}` : ""}
                   {item.state === "REJECTED" ? " (إعادة رفع)" : ""}
                 </option>
               ))}
