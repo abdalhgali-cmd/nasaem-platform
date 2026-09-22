@@ -11,14 +11,14 @@ export type ContactRequestInput = {
   travelerCount?: number;
   intakeData?: Record<string, unknown>;
   answers?: Record<string, string | number | boolean>;
-  travelers?: Array<{
+  travelers?: {
     fullName: string;
     passportNo?: string;
     nationality?: string;
     birthDate?: string;
     gender?: "MALE" | "FEMALE" | "OTHER";
     isPrimary?: boolean;
-  }>;
+  }[];
 };
 
 export type UploadAsset = {

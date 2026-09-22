@@ -22,7 +22,7 @@ export type TrackedRequest={
  paymentAccounts?:PaymentAccount[];
  visaType?:{id:string;code?:string;name?:string;country?:string}|null;
  intakeData?:Record<string,any>|null;
- deliverables?:Array<{id:string;label?:string;fileName?:string}>;
+ deliverables?:{id:string;label?:string;fileName?:string}[];
  [key:string]:unknown;
 };
 

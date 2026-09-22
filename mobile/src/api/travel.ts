@@ -26,7 +26,7 @@ export type FlightSearchResult={
   tripType:string;
   travelers:number;
   currency:string;
-  legs:Array<{leg:number;manual:FlightOption[];trip:FlightOption[]}>;
+  legs:{leg:number;manual:FlightOption[];trip:FlightOption[]}[];
 };
 
 export async function searchFlights(input:{from:string;to:string;date:string;returnDate?:string;travelers:number;tripType:"ONE_WAY"|"ROUND_TRIP"}){

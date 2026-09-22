@@ -114,7 +114,7 @@ export default function ServiceRequest(){
      finally{if(active)setLoadingReq(false);}
    })();
    return()=>{active=false};
- },[kind,params.visaTypeId]);
+ },[kind,meta.title,params.visaTypeId,serviceId]);
 
  const requiredBase=useMemo(()=>meta.fields.filter(x=>!x.includes("اختياري")&&!x.includes("ملاحظات")&&!x.includes("إن وجد")).every(x=>values[x]?.trim()),[values,meta.fields]);
  const activeRequirements=useMemo(()=>requirements.filter(r=>requirementApplies(r,answers)),[requirements,answers]);

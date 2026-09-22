@@ -14,7 +14,7 @@ import { colors } from "../../src/theme";
 
 export default function AdminScreen(){
  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[items,setItems]=useState<AdminRequest[]>([]),[ops,setOps]=useState<any>(null),[unread,setUnread]=useState(0);
- const load=useCallback(async()=>{try{setLoading(true);setError("");const [requests,operations,notifications]=await Promise.all([getAdminRequests(),getOperationsCenter(),getStaffNotifications().catch(()=>({unreadCount:0}))]);setItems(requests);setOps(operations);setUnread(notifications.unreadCount);}catch(e){setError("تعذر تحميل الإدارة. سجل الدخول بحساب موظف صالح.");}finally{setLoading(false);}},[]);
+ const load=useCallback(async()=>{try{setLoading(true);setError("");const [requests,operations,notifications]=await Promise.all([getAdminRequests(),getOperationsCenter(),getStaffNotifications().catch(()=>({unreadCount:0}))]);setItems(requests);setOps(operations);setUnread(notifications.unreadCount);}catch{setError("تعذر تحميل الإدارة. سجل الدخول بحساب موظف صالح.");}finally{setLoading(false);}},[]);
  useEffect(()=>{void load();},[load]);
  if(loading)return <View style={s.center}><ActivityIndicator color={colors.navy}/><Text>جاري تحميل لوحة الإدارة…</Text></View>;
  if(error)return <SafeAreaView style={s.safe}><View style={s.center}><Text style={s.error}>{error}</Text><Pressable style={s.primary} onPress={()=>router.replace("/admin/login")}><Text style={s.primaryText}>تسجيل دخول الإدارة</Text></Pressable></View></SafeAreaView>;
