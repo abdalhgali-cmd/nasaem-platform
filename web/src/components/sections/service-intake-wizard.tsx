@@ -994,7 +994,7 @@ export function ServiceIntakeWizard({
     }
 
     if (current === "trip") {
-      return Boolean(travelDate) && travelerCount >= 1;
+      return travelerCount >= 1;
     }
 
     if (current === "customer") {
@@ -1280,11 +1280,11 @@ export function ServiceIntakeWizard({
       {current === "trip" ? (
         <StepShell
           title="متى ترغب في أداء العمرة؟"
-          description="أدخل موعد السفر المتوقع وعدد المسافرين، ويمكن تعديل التفاصيل لاحقًا بعد مراجعة التوفر."
+          description="حدد عدد المسافرين، ويمكنك إضافة تاريخ السفر المتوقع الآن أو تركه لوقت لاحق."
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <label className={labelClass}>تاريخ السفر المتوقع</label>
+              <label className={labelClass}>تاريخ السفر المتوقع (اختياري)</label>
               <input
                 type="date"
                 min={new Date().toISOString().slice(0, 10)}

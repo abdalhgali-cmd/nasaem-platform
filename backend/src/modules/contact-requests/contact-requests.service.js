@@ -721,6 +721,12 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
     },
   });
 
+  // Publishing the price confirms that the agency has reviewed the request.
+  await prisma.contactRequest.updateMany({
+    where: { id: contactRequestId, status: "NEW" },
+    data: { status: "CONTACTED" },
+  });
+
   logActivity({
     userId,
     action: "CONTACT_REQUEST_INVOICE_SET",
@@ -771,6 +777,11 @@ export async function createOffer(contactRequestId, data, userId) {
       currency: data.currency,
       createdByUserId: userId,
     },
+  });
+
+  await prisma.contactRequest.updateMany({
+    where: { id: contactRequestId, status: "NEW" },
+    data: { status: "CONTACTED" },
   });
 
   logActivity({

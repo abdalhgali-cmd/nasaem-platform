@@ -187,6 +187,9 @@ function getRequestNextAction(req: TrackedRequest) {
     return "أعد رفع المستند المرفوض بعد مراجعة الملاحظة الموضحة أدناه.";
   }
   if (req.paymentStatus === "UNDER_REVIEW") return "انتظر مراجعة إثبات التحويل من فريقنا.";
+  if (req.paymentStatus === "CONFIRMED" && req.deliverables.length === 0) {
+    return "تم قبول الدفع. لا يلزمك أي إجراء الآن؛ سنشعرك فور صدور التأشيرة ورفعها.";
+  }
   if (req.paymentStatus === "AWAITING_TRANSFER") return "حوّل المبلغ ثم اضغط «تم تحويل المبلغ».";
   if (req.invoice?.status === "PENDING") return "راجع السعر المقترح ثم اختر الموافقة أو الرفض.";
   if (req.offers.length > 0 && !req.selectedOfferId) return "راجع العروض واختر العرض المناسب لك.";
@@ -236,7 +239,14 @@ function getRequestTimeline(req: TrackedRequest): TimelineStep[] {
     });
   }
 
-  steps.push({ label: "استلام الوثيقة النهائية", state: req.deliverables.length > 0 ? "done" : "upcoming" });
+  if (req.paymentStatus === "CONFIRMED") {
+    steps.push({
+      label: "انتظار صدور التأشيرة",
+      state: req.deliverables.length > 0 ? "done" : "current",
+    });
+  }
+
+  steps.push({ label: "استلام التأشيرة", state: req.deliverables.length > 0 ? "done" : "upcoming" });
 
   if (req.status === "CLOSED") {
     const closedLabel =
