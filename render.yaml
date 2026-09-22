@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: nasaem-platform-staging
+    runtime: node
+    plan: starter
+    region: frankfurt
+    branch: codex/nasaem-unified
+    rootDir: backend
+    buildCommand: npm ci && npm run prisma:generate
+    startCommand: npm run prisma:migrate && npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    numInstances: 1
+    disk:
+      name: nasaem-staging-uploads
+      mountPath: /var/data/uploads
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nasaem-platform-staging-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        value: https://nasaem-platform-staging.onrender.com
+      - key: UPLOAD_ROOT
+        value: /var/data/uploads
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+
+databases:
+  - name: nasaem-platform-staging-db
+    plan: 0.1c-256mb
+    region: frankfurt
+    postgresMajorVersion: "16"
+    databaseName: nasaem_platform_staging
+    user: nasaem_staging
+    diskSizeGB: 15
+    ipAllowList: []
+
