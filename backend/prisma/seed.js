@@ -89,24 +89,35 @@ async function seedServiceCategories() {
 
 // Every public package has a real Service row so intake requests keep the
 // exact selected serviceId instead of relying on display-only text.
+//
+// category distinguishes real Umrah products (UMRAH_PACKAGE) from generic
+// travel packages (package) — the Umrah screen/section must never show a
+// honeymoon/family/business package as an Umrah product. Kept as two
+// literal values on the same `category` string column (no migration) since
+// listPublicPackages() already accepted both; see the 20260921000000
+// migration that reclassifies any already-seeded production rows for these
+// three codes.
 const PACKAGE_SERVICES = [
-  { code: "SVC-PKG-FAMILY", name: "باقة العائلة", basePrice: 2900 },
-  { code: "SVC-PKG-HONEYMOON", name: "باقة شهر العسل", basePrice: 5200 },
-  { code: "SVC-PKG-BUSINESS", name: "باقة رحلات العمل", basePrice: 3600 },
-  { code: "SVC-UMRAH-VISA", name: "تأشيرة عمرة فقط", basePrice: 1200 },
-  { code: "SVC-UMRAH-SERVICES", name: "عمرة مع الخدمات", basePrice: 4500 },
-  { code: "SVC-UMRAH-GROUP", name: "العمرة الجماعية (الأفواج)", basePrice: 3800 },
+  { code: "SVC-PKG-FAMILY", name: "باقة العائلة", basePrice: 2900, category: "package" },
+  { code: "SVC-PKG-HONEYMOON", name: "باقة شهر العسل", basePrice: 5200, category: "package" },
+  { code: "SVC-PKG-BUSINESS", name: "باقة رحلات العمل", basePrice: 3600, category: "package" },
+  { code: "SVC-UMRAH-VISA", name: "تأشيرة عمرة فقط", basePrice: 1200, category: "UMRAH_PACKAGE" },
+  { code: "SVC-UMRAH-SERVICES", name: "عمرة مع الخدمات", basePrice: 4500, category: "UMRAH_PACKAGE" },
+  { code: "SVC-UMRAH-GROUP", name: "العمرة الجماعية (الأفواج)", basePrice: 3800, category: "UMRAH_PACKAGE" },
 ];
 
 async function seedPackageServices() {
   for (const pkg of PACKAGE_SERVICES) {
     await prisma.service.upsert({
       where: { code: pkg.code },
-      update: {},
+      // Re-running the seed against an environment created before the
+      // UMRAH_PACKAGE split must correct an already-seeded row's category,
+      // not just leave it at its original "package" value.
+      update: { category: pkg.category },
       create: {
         code: pkg.code,
         name: pkg.name,
-        category: "package",
+        category: pkg.category,
         basePrice: pkg.basePrice,
         currency: "SAR",
       },

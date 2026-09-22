@@ -7,6 +7,7 @@ import { getSiteAssetUrls } from "@/lib/site-assets";
 import { getPublicServices, type PublicService } from "@/lib/services";
 import { resolveHomepageIcon } from "@/lib/homepage-icons";
 import { resolveServiceHref } from "@/lib/service-routes";
+import { formatPrice, formatSdgEquivalent } from "@/lib/price";
 
 type DisplayService = PublicService & { icon: LucideIcon; href: string; imageUrl?: string };
 
@@ -62,6 +63,12 @@ export async function Services() {
                     )}
                     <h3 className="mt-5 text-lg font-bold text-foreground">{service.name}</h3>
                     <p className="mt-2.5 flex-1 text-sm leading-relaxed text-muted-foreground">{service.description || "تفاصيل الخدمة وخطوات طلبها متاحة عبر فريق NASAEM."}</p>
+                    <p className="mt-3 text-sm font-extrabold text-primary dark:text-secondary" dir="ltr">
+                      {formatPrice(service.basePrice, service.currency)}
+                    </p>
+                    {formatSdgEquivalent(service.priceSdg) ? (
+                      <p className="text-xs text-muted-foreground">{formatSdgEquivalent(service.priceSdg)}</p>
+                    ) : null}
                     <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-bold text-primary dark:text-secondary">
                       اعرف المزيد
                       <ArrowLeft className="size-4 transition-transform duration-300 group-hover:-translate-x-1" />
