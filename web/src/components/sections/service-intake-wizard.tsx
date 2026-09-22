@@ -850,14 +850,14 @@ export function ServiceIntakeWizard({
     );
   }
 
-  // Package requests start with the two facts a customer already knows:
-  // when they want to travel and how many people are going. Package choice
-  // comes next, so the flow reads like a trip request rather than a catalog
-  // configuration form. UmrahBookingSection uses this package flow.
+  // UmrahBookingSection uses the package flow. The customer chooses the
+  // package first, then supplies the expected travel date and party size;
+  // this matches the way Umrah packages are presented immediately above the
+  // wizard and keeps the selected package as the context for every later step.
   const steps = service === "umrah"
     ? ["customer", "details", "documents", "review"]
     : service === "package"
-      ? ["trip", "select", "customer", "details", "documents", "review"]
+      ? ["select", "trip", "customer", "details", "documents", "review"]
       : ["select", "customer", "details", "documents", "review"];
 
   function updateTravelerCount(count: number) {
