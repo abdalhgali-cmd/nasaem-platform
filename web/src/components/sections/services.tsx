@@ -20,7 +20,12 @@ export async function Services() {
   // category "package"). Those already get their own presentation via
   // FeaturedUmrah and each package's own page; listing them again here
   // turned this into an 11+ card wall duplicating what's below it.
-  const services = allServices.filter((service) => service.category !== "package");
+  const services = allServices.filter(
+    (service) =>
+      service.category !== "package" &&
+      service.category !== "UMRAH_PACKAGE" &&
+      !service.code.startsWith("SVC-UMRAH-")
+  );
   const displayServices: DisplayService[] = services.map((service) => ({
     ...service,
     icon: resolveHomepageIcon(service.iconKey),
