@@ -54,19 +54,23 @@ describe("service intake — public catalog", () => {
     // Subset, not exact-count: the test database is shared across test
     // files that run in parallel, and services.test.js legitimately creates
     // active `category: "package"` services of its own. Asserting a global
-    // count of 6 made this pass or fail on scheduling order alone. What
-    // this test is actually about is that the seeded catalog is published,
-    // so that is what it checks.
+    // count made this pass or fail on scheduling order alone. What this
+    // test is actually about is that the seeded catalog is published, so
+    // that is what it checks.
+    //
+    // Only the 3 general packages are expected here — the 3 real Umrah
+    // packages (SVC-UMRAH-VISA/SERVICES/GROUP) were reclassified to
+    // category UMRAH_PACKAGE (Phase 5: Umrah catalog correction) and are
+    // deliberately excluded from this general services catalog by
+    // listPublicCatalog()'s `category: { not: "UMRAH_PACKAGE" }` filter —
+    // they only ever appear via GET /api/services/public/packages (see
+    // umrahPackageCatalog.test.js).
     const packageCodes = packages.map((pkg) => pkg.code);
-    for (const code of [
-      "SVC-PKG-FAMILY",
-      "SVC-PKG-HONEYMOON",
-      "SVC-PKG-BUSINESS",
-      "SVC-UMRAH-VISA",
-      "SVC-UMRAH-SERVICES",
-      "SVC-UMRAH-GROUP",
-    ]) {
+    for (const code of ["SVC-PKG-FAMILY", "SVC-PKG-HONEYMOON", "SVC-PKG-BUSINESS"]) {
       assert.ok(packageCodes.includes(code), `expected the seeded package service ${code} in the public catalog`);
+    }
+    for (const code of ["SVC-UMRAH-VISA", "SVC-UMRAH-SERVICES", "SVC-UMRAH-GROUP"]) {
+      assert.ok(!packageCodes.includes(code), `${code} is a real Umrah product and must not appear as a general package`);
     }
 
     const visaTypes = res.body.data.visaTypes;
