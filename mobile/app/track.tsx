@@ -1,29 +1,224 @@
 import { useState } from "react";
-import { router,useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
-import { ActivityIndicator,Pressable,SafeAreaView,ScrollView,StyleSheet,Text,TextInput,View } from "react-native";
-import { approveTrackedInvoice,getTrackedRequests,markTrackedTransferSent,rejectTrackedInvoice,requestTrackingCode,selectTrackedOffer,TrackedRequest,uploadTrackedPaymentReceipt,verifyTrackingCode } from "../src/api/tracking";
-import { colors } from "../src/theme";
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  approveTrackedInvoice,
+  getTrackedRequests,
+  markTrackedTransferSent,
+  rejectTrackedInvoice,
+  requestTrackingCode,
+  selectTrackedOffer,
+  TrackedRequest,
+  uploadTrackedPaymentReceipt,
+  verifyTrackingCode,
+} from "../src/api/tracking";
+import { AppButton, BottomNav, BrandHeader, ChoiceCard, EmptyState, FormField, StepIndicator, SurfaceCard } from "../src/components/ui";
+import { colors, radius } from "../src/theme";
 
-export default function TrackScreen(){
- const params=useLocalSearchParams<{requestId?:string;phone?:string}>();
- const [phone,setPhone]=useState(params.phone??""),[requestNo,setRequestNo]=useState(params.requestId??""),[code,setCode]=useState("");
- const [stage,setStage]=useState<"request"|"verify"|"results">("request"),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[items,setItems]=useState<TrackedRequest[]>([]);
+const TRACK_STEPS = ["الطلب", "المراجعة", "الدفع", "المعالجة", "النتيجة"];
 
- async function refresh(filter=true){const all=await getTrackedRequests();setItems(filter&&requestNo.trim()?all.filter(x=>String(x.id).toLowerCase()===requestNo.trim().toLowerCase()):all);}
- async function sendCode(){try{setBusy(true);setMessage("");const r=await requestTrackingCode(phone);setStage("verify");setMessage(r.message);}catch(e){setMessage(e instanceof Error?e.message:"تعذر إرسال الرمز");}finally{setBusy(false);}}
- async function verify(){try{setBusy(true);setMessage("");await verifyTrackingCode(phone,code);await refresh(true);setStage("results");}catch(e){setMessage(e instanceof Error?e.message:"تعذر التحقق");}finally{setBusy(false);}}
- async function action(fn:()=>Promise<unknown>){try{setBusy(true);setMessage("");await fn();await refresh(true);setMessage("تم تحديث الطلب.");}catch(e){setMessage(e instanceof Error?e.message:"تعذر تنفيذ العملية");}finally{setBusy(false);}}
- async function pay(id:string){try{const picked=await DocumentPicker.getDocumentAsync({type:["image/jpeg","image/png","image/webp","application/pdf"],copyToCacheDirectory:true,multiple:false});if(picked.canceled)return;const a=picked.assets[0];await action(async()=>{await uploadTrackedPaymentReceipt(id,{uri:a.uri,name:a.name,mimeType:a.mimeType,label:"إشعار الدفع"});await markTrackedTransferSent(id);});}catch(e){setMessage(e instanceof Error?e.message:"تعذر رفع إشعار الدفع");}}
-
- if(stage==="results")return <SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}><View style={s.head}><Text style={s.title}>طلباتك</Text><Pressable onPress={()=>action(()=>refresh(true))}><Text style={s.link}>تحديث</Text></Pressable></View>{!!message&&<Text style={s.message}>{message}</Text>}{items.length===0?<View style={s.card}><Text style={s.desc}>لم يتم العثور على طلب مطابق لهذا الرقم لهذا الهاتف.</Text></View>:items.map(item=><View key={item.id} style={s.card}><Text style={s.cardTitle}>{item.service??"طلب خدمة"}</Text><Text style={s.id}>{item.id}</Text><Text style={s.status}>{item.statusLabel??item.status??"قيد المراجعة"}</Text>
- {!!item.offers?.length&&!item.selectedOfferId&&<View style={s.box}><Text style={s.boxTitle}>العروض المتاحة</Text>{item.offers.map(o=><View key={o.id} style={s.offer}><View style={s.flex}><Text style={s.offerTitle}>{o.carrier??"عرض"}</Text><Text style={s.small}>{o.description??""}</Text></View><Pressable style={s.select} disabled={busy} onPress={()=>action(()=>selectTrackedOffer(item.id,o.id))}><Text style={s.selectText}>{o.amount??""} {o.currency??""}</Text></Pressable></View>)}</View>}
- {item.invoice&&<View style={s.invoice}><Text style={s.value}>{item.invoice.amount??""} {item.invoice.currency??""}</Text><Text style={s.label}>عرض السعر</Text></View>}
- {item.invoice?.status==="PENDING"&&<View style={s.actions}><Pressable style={s.reject} disabled={busy} onPress={()=>action(()=>rejectTrackedInvoice(item.id))}><Text style={s.rejectText}>رفض السعر</Text></Pressable><Pressable style={s.primarySmall} disabled={busy} onPress={()=>action(()=>approveTrackedInvoice(item.id))}><Text style={s.primaryText}>الموافقة على السعر</Text></Pressable></View>}
- {item.paymentStatus==="AWAITING_TRANSFER"&&<><View style={s.box}><Text style={s.boxTitle}>بيانات الدفع</Text>{item.paymentAccounts?.length?item.paymentAccounts.map(a=><View key={a.id} style={s.account}><Text style={s.offerTitle}>{a.name??a.bankName??"حساب الدفع"}</Text><Text selectable style={s.small}>{a.accountNumber??a.iban??""}</Text><Text style={s.small}>{a.currency??item.paymentCurrency??""}</Text></View>):<Text style={s.small}>لا توجد حسابات دفع نشطة لهذه العملة حاليًا.</Text>}</View><Pressable style={s.primary} disabled={busy||!item.paymentAccounts?.length} onPress={()=>pay(item.id)}><Text style={s.primaryText}>رفع إشعار الدفع وإرساله للمراجعة</Text></Pressable></>}
- {item.paymentStatus==="UNDER_REVIEW"&&<Text style={s.waiting}>إشعار الدفع قيد مراجعة الإدارة.</Text>}{item.visaType?.code==="VISA-EGYPT-CLEARANCE"&&<Pressable style={s.egyptButton} onPress={()=>router.push({pathname:"/egypt-plan/[id]",params:{id:item.id}})}><Text style={s.egyptText}>بيانات السفر والتعميم لمصر</Text></Pressable>}
- </View>)}</ScrollView></SafeAreaView>;
-
- return <SafeAreaView style={s.safe}><View style={s.page}><Text style={s.title}>تتبع الطلب</Text>{stage==="request"?<><Text style={s.desc}>أدخل رقم الهاتف المستخدم عند التقديم. رقم الطلب اختياري لتصفية النتيجة.</Text><TextInput value={phone} onChangeText={setPhone} placeholder="رقم الهاتف" keyboardType="phone-pad" style={s.input} textAlign="right"/><TextInput value={requestNo} onChangeText={setRequestNo} placeholder="رقم الطلب (اختياري)" style={s.input} textAlign="right"/><Pressable disabled={busy||phone.trim().length<6} onPress={sendCode} style={[s.primary,(busy||phone.trim().length<6)&&s.disabled]}>{busy?<ActivityIndicator color="#FFF"/>:<Text style={s.primaryText}>إرسال رمز التحقق</Text>}</Pressable></>:<><Text style={s.desc}>أدخل رمز التحقق الذي تم إرساله إلى رقمك عبر واتساب.</Text><TextInput value={code} onChangeText={setCode} placeholder="رمز التحقق" keyboardType="number-pad" maxLength={6} style={s.input} textAlign="center"/><Pressable disabled={busy||code.length!==6} onPress={verify} style={[s.primary,(busy||code.length!==6)&&s.disabled]}>{busy?<ActivityIndicator color="#FFF"/>:<Text style={s.primaryText}>عرض الطلبات</Text>}</Pressable><Pressable onPress={()=>setStage("request")}><Text style={s.linkCenter}>تغيير رقم الهاتف</Text></Pressable></>}{!!message&&<Text style={s.message}>{message}</Text>}</View></SafeAreaView>;
+function requestStage(item: TrackedRequest) {
+  if (item.deliverables?.length) return 4;
+  if (item.paymentStatus === "PAID" || item.paymentStatus === "ACCEPTED" || item.paymentStatus === "UNDER_REVIEW") return 3;
+  if (item.invoice || item.paymentStatus === "AWAITING_TRANSFER") return 2;
+  if (item.status && item.status !== "NEW") return 1;
+  return 0;
 }
-const s=StyleSheet.create({safe:{flex:1,backgroundColor:colors.background},page:{padding:20,gap:14,paddingBottom:40},head:{flexDirection:"row-reverse",justifyContent:"space-between",alignItems:"center"},title:{fontSize:20,fontWeight:"900",color:colors.navy,textAlign:"right"},desc:{fontSize:12,color:colors.muted,textAlign:"right",lineHeight:20},input:{backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:10,padding:13,fontSize:13},primary:{backgroundColor:colors.navy,borderRadius:10,padding:14},primarySmall:{backgroundColor:colors.navy,borderRadius:9,padding:11,flex:1},primaryText:{color:"#FFF",fontWeight:"800",textAlign:"center"},disabled:{opacity:.45},message:{fontSize:11,color:colors.muted,textAlign:"right",lineHeight:18},card:{backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:14,padding:15,gap:8},cardTitle:{fontSize:14,fontWeight:"800",color:colors.text,textAlign:"right"},id:{fontFamily:"monospace",fontSize:11,color:colors.subtle,textAlign:"right"},status:{fontSize:12,fontWeight:"700",color:colors.navy,textAlign:"right"},invoice:{flexDirection:"row-reverse",justifyContent:"space-between",alignItems:"center",backgroundColor:colors.soft,borderRadius:9,padding:10},label:{fontSize:10,color:colors.muted},value:{fontSize:13,fontWeight:"800",color:colors.text},actions:{flexDirection:"row-reverse",gap:8},reject:{borderWidth:1,borderColor:colors.danger,borderRadius:9,padding:11,flex:1},rejectText:{color:colors.danger,fontWeight:"700",textAlign:"center"},link:{color:colors.navy,fontWeight:"800"},linkCenter:{color:colors.navy,fontWeight:"700",textAlign:"center"},box:{backgroundColor:colors.soft,borderRadius:10,padding:10,gap:7},boxTitle:{fontSize:11,fontWeight:"800",color:colors.text,textAlign:"right"},offer:{flexDirection:"row-reverse",gap:8,alignItems:"center"},flex:{flex:1},offerTitle:{fontSize:11,fontWeight:"700",color:colors.text,textAlign:"right"},small:{fontSize:9.5,color:colors.muted,textAlign:"right"},select:{backgroundColor:"#FFF",borderWidth:1,borderColor:colors.navy,borderRadius:8,padding:8},selectText:{color:colors.navy,fontWeight:"800",fontSize:10},account:{borderBottomWidth:1,borderBottomColor:colors.border,paddingVertical:6},waiting:{fontSize:11,color:colors.gold,fontWeight:"700",textAlign:"right"},egyptButton:{borderWidth:1,borderColor:colors.gold,borderRadius:9,padding:11,backgroundColor:"#FFF8E1"},egyptText:{color:"#8A6800",fontWeight:"800",textAlign:"center",fontSize:11}});
+
+export default function TrackScreen() {
+  const params = useLocalSearchParams<{ requestId?: string; phone?: string }>();
+  const [phone, setPhone] = useState(params.phone ?? "");
+  const [requestNo, setRequestNo] = useState(params.requestId ?? "");
+  const [code, setCode] = useState("");
+  const [stage, setStage] = useState<"request" | "verify" | "results">("request");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [items, setItems] = useState<TrackedRequest[]>([]);
+
+  async function refresh(filter = true) {
+    const all = await getTrackedRequests();
+    setItems(filter && requestNo.trim() ? all.filter((item) => String(item.id).toLowerCase() === requestNo.trim().toLowerCase()) : all);
+  }
+
+  async function sendCode() {
+    try {
+      setBusy(true); setMessage("");
+      const response = await requestTrackingCode(phone);
+      setStage("verify");
+      setMessage(response.message);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "تعذر إرسال الرمز");
+    } finally { setBusy(false); }
+  }
+
+  async function verify() {
+    try {
+      setBusy(true); setMessage("");
+      await verifyTrackingCode(phone, code);
+      await refresh(true);
+      setStage("results");
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "تعذر التحقق");
+    } finally { setBusy(false); }
+  }
+
+  async function action(fn: () => Promise<unknown>) {
+    try {
+      setBusy(true); setMessage("");
+      await fn();
+      await refresh(true);
+      setMessage("تم تحديث الطلب.");
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "تعذر تنفيذ العملية");
+    } finally { setBusy(false); }
+  }
+
+  async function pay(id: string) {
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({ type: ["image/jpeg", "image/png", "image/webp", "application/pdf"], copyToCacheDirectory: true, multiple: false });
+      if (picked.canceled) return;
+      const asset = picked.assets[0];
+      await action(async () => {
+        await uploadTrackedPaymentReceipt(id, { uri: asset.uri, name: asset.name, mimeType: asset.mimeType, label: "إشعار الدفع" });
+        await markTrackedTransferSent(id);
+      });
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "تعذر رفع إشعار الدفع");
+    }
+  }
+
+  if (stage === "results") {
+    return (
+      <SafeAreaView style={s.safe}>
+        <ScrollView contentContainerStyle={s.resultsContent}>
+          <BrandHeader compact title="طلباتك" subtitle="تابع السعر، الدفع، والمعالجة حتى استلام التأشيرة أو المستند النهائي." />
+          <View style={s.resultsBody}>
+            <View style={s.resultsHead}>
+              <Text style={s.resultsTitle}>آخر التحديثات</Text>
+              <Pressable onPress={() => void action(() => refresh(true))}><Text style={s.refresh}>تحديث ↻</Text></Pressable>
+            </View>
+            {message ? <Text style={s.message}>{message}</Text> : null}
+            {items.length === 0 ? <EmptyState icon="⌕" title="لم نجد الطلب" description="تأكد من رقم الطلب ورقم الهاتف ثم حاول مرة أخرى." /> : null}
+            {items.map((item) => <RequestCard key={item.id} item={item} busy={busy} action={action} pay={pay} />)}
+          </View>
+        </ScrollView>
+        <BottomNav active="track" />
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.safe}>
+      <ScrollView contentContainerStyle={s.authContent} keyboardShouldPersistTaps="handled">
+        <BrandHeader title="تابع رحلتك خطوة بخطوة" subtitle="أدخل رقم هاتفك، وسنرسل لك رمز تحقق آمن عبر واتساب." />
+        <View style={s.authBody}>
+          <SurfaceCard>
+            {stage === "request" ? (
+              <View style={s.formGap}>
+                <Text style={s.formTitle}>الوصول إلى طلباتك</Text>
+                <FormField label="رقم الهاتف" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="0912345678" />
+                <FormField label="رقم الطلب" optional value={requestNo} onChangeText={setRequestNo} placeholder="مثال: cmu..." autoCapitalize="none" />
+                <AppButton label="إرسال رمز التحقق" busy={busy} disabled={phone.trim().length < 6} onPress={() => void sendCode()} />
+              </View>
+            ) : (
+              <View style={s.formGap}>
+                <Text style={s.formTitle}>أدخل رمز التحقق</Text>
+                <Text style={s.formDescription}>تم إرسال الرمز إلى {phone}</Text>
+                <FormField label="رمز التحقق" value={code} onChangeText={setCode} keyboardType="number-pad" maxLength={6} placeholder="000000" />
+                <AppButton label="عرض الطلبات" busy={busy} disabled={code.length !== 6} onPress={() => void verify()} />
+                <AppButton label="تغيير رقم الهاتف" variant="soft" onPress={() => { setStage("request"); setCode(""); setMessage(""); }} />
+              </View>
+            )}
+          </SurfaceCard>
+          {message ? <Text style={s.message}>{message}</Text> : null}
+          <SurfaceCard style={s.secureBox}><Text style={s.secureTitle}>بياناتك محمية</Text><Text style={s.secureText}>لن تظهر أي طلبات إلا بعد تأكيد ملكية رقم الهاتف.</Text></SurfaceCard>
+        </View>
+      </ScrollView>
+      <BottomNav active="track" />
+    </SafeAreaView>
+  );
+}
+
+function RequestCard({ item, busy, action, pay }: { item: TrackedRequest; busy: boolean; action: (fn: () => Promise<unknown>) => Promise<void>; pay: (id: string) => Promise<void> }) {
+  const current = requestStage(item);
+  return (
+    <SurfaceCard style={s.requestCard}>
+      <View style={s.requestHead}>
+        <View style={s.requestCopy}>
+          <Text style={s.requestTitle}>{item.service ?? "طلب خدمة"}</Text>
+          <Text selectable style={s.requestId}>{item.id}</Text>
+        </View>
+        <View style={s.statusPill}><Text style={s.statusText}>{item.statusLabel ?? item.status ?? "قيد المراجعة"}</Text></View>
+      </View>
+      <View style={s.stepWrap}><StepIndicator steps={TRACK_STEPS} current={current} /></View>
+
+      {item.offers?.length && !item.selectedOfferId ? (
+        <View style={s.block}>
+          <Text style={s.blockTitle}>العروض المتاحة</Text>
+          {item.offers.map((offer) => (
+            <ChoiceCard
+              key={offer.id}
+              title={offer.carrier ?? "عرض"}
+              subtitle={offer.description ?? undefined}
+              meta={`${offer.amount ?? ""} ${offer.currency ?? ""}`}
+              onPress={() => void action(() => selectTrackedOffer(item.id, offer.id))}
+            />
+          ))}
+        </View>
+      ) : null}
+
+      {item.invoice ? (
+        <View style={s.priceCard}>
+          <Text style={s.priceLabel}>قيمة الخدمة المعتمدة</Text>
+          <Text style={s.priceValue}>{item.invoice.amount ?? ""} {item.invoice.currency ?? ""}</Text>
+        </View>
+      ) : null}
+
+      {item.invoice?.status === "PENDING" ? (
+        <View style={s.actions}>
+          <AppButton label="رفض السعر" variant="outline" style={s.actionButton} disabled={busy} onPress={() => void action(() => rejectTrackedInvoice(item.id))} />
+          <AppButton label="الموافقة والدفع" style={s.actionButton} disabled={busy} onPress={() => void action(() => approveTrackedInvoice(item.id))} />
+        </View>
+      ) : null}
+
+      {item.paymentStatus === "AWAITING_TRANSFER" ? (
+        <View style={s.block}>
+          <Text style={s.blockTitle}>بيانات الدفع</Text>
+          {item.paymentAccounts?.length ? item.paymentAccounts.map((account) => (
+            <View key={account.id} style={s.bankCard}>
+              <Text style={s.bankTitle}>{account.name ?? account.bankName ?? "حساب الدفع"}</Text>
+              <Text selectable style={s.bankNumber}>{account.accountNumber ?? account.iban ?? ""}</Text>
+              <Text style={s.bankCurrency}>{account.currency ?? item.paymentCurrency ?? ""}</Text>
+            </View>
+          )) : <Text style={s.small}>لا توجد حسابات دفع نشطة لهذه العملة حاليًا.</Text>}
+          <AppButton label="رفع إشعار الدفع" variant="gold" disabled={busy || !item.paymentAccounts?.length} onPress={() => void pay(item.id)} />
+        </View>
+      ) : null}
+
+      {item.paymentStatus === "UNDER_REVIEW" ? <Text style={s.waiting}>تم رفع إشعار الدفع وهو الآن قيد المراجعة.</Text> : null}
+
+      {item.deliverables?.length ? (
+        <View style={s.successBlock}>
+          <Text style={s.successTitle}>✓ تم إصدار المستند</Text>
+          {item.deliverables.map((file) => <Text key={file.id} style={s.successFile}>{file.label ?? file.fileName ?? "المستند النهائي"}</Text>)}
+        </View>
+      ) : null}
+
+      {item.visaType?.code === "VISA-EGYPT-CLEARANCE" ? (
+        <AppButton label="بيانات السفر والتعميم لمصر" variant="soft" onPress={() => router.push({ pathname: "/egypt-plan/[id]", params: { id: item.id } })} />
+      ) : null}
+    </SurfaceCard>
+  );
+}
+
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.background }, authContent: { paddingBottom: 96 }, authBody: { padding: 16, gap: 12 }, formGap: { gap: 14 }, formTitle: { color: colors.text, fontSize: 17, fontWeight: "900", textAlign: "right" }, formDescription: { color: colors.muted, fontSize: 11, textAlign: "right" },
+  secureBox: { backgroundColor: colors.blueSoft }, secureTitle: { color: colors.navy, fontSize: 11.5, fontWeight: "900", textAlign: "right" }, secureText: { color: colors.muted, fontSize: 10, lineHeight: 17, textAlign: "right", marginTop: 4 },
+  message: { color: colors.navy, backgroundColor: colors.blueSoft, borderRadius: radius.md, padding: 11, fontSize: 10.5, lineHeight: 18, textAlign: "right" },
+  resultsContent: { paddingBottom: 96 }, resultsBody: { padding: 16, gap: 13 }, resultsHead: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" }, resultsTitle: { color: colors.text, fontSize: 18, fontWeight: "900" }, refresh: { color: colors.navy, fontSize: 11, fontWeight: "900" },
+  requestCard: { padding: 0, overflow: "hidden" }, requestHead: { padding: 16, flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }, requestCopy: { flex: 1 }, requestTitle: { color: colors.text, fontSize: 15, fontWeight: "900", textAlign: "right" }, requestId: { color: colors.subtle, fontFamily: "monospace", fontSize: 9.5, textAlign: "right", marginTop: 4 }, statusPill: { backgroundColor: colors.goldSoft, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6 }, statusText: { color: colors.gold, fontSize: 9, fontWeight: "900" }, stepWrap: { borderTopWidth: 1, borderTopColor: colors.border, borderBottomWidth: 1, borderBottomColor: colors.border },
+  block: { padding: 16, gap: 9 }, blockTitle: { color: colors.text, fontSize: 12.5, fontWeight: "900", textAlign: "right" }, priceCard: { margin: 16, backgroundColor: colors.soft, borderRadius: radius.md, padding: 16 }, priceLabel: { color: colors.muted, fontSize: 10, textAlign: "right" }, priceValue: { color: colors.navy, fontSize: 24, fontWeight: "900", textAlign: "right", marginTop: 8 }, actions: { flexDirection: "row-reverse", gap: 9, paddingHorizontal: 16, paddingBottom: 16 }, actionButton: { flex: 1 },
+  bankCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 13, backgroundColor: colors.surface }, bankTitle: { color: colors.text, fontSize: 11, fontWeight: "800", textAlign: "right" }, bankNumber: { color: colors.navy, fontSize: 15, fontWeight: "900", textAlign: "right", marginTop: 6 }, bankCurrency: { color: colors.muted, fontSize: 9.5, textAlign: "right", marginTop: 3 }, small: { color: colors.muted, fontSize: 10.5, textAlign: "right" },
+  waiting: { margin: 16, color: colors.gold, backgroundColor: colors.goldSoft, borderRadius: radius.md, padding: 12, fontSize: 10.5, fontWeight: "800", textAlign: "right" }, successBlock: { margin: 16, backgroundColor: colors.successSoft, borderRadius: radius.md, padding: 14 }, successTitle: { color: colors.success, fontSize: 12, fontWeight: "900", textAlign: "right" }, successFile: { color: colors.text, fontSize: 10.5, textAlign: "right", marginTop: 5 },
+});

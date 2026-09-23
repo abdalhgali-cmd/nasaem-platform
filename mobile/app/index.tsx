@@ -1,50 +1,126 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
+import { ActivityIndicator, Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { BottomNav, BrandHeader, SectionTitle, SurfaceCard } from "../src/components/ui";
 import { getPublicServices, PublicService } from "../src/api/services";
-import { colors } from "../src/theme";
+import { colors, radius } from "../src/theme";
 import { formatPrice, formatSdgEquivalent } from "../src/utils/price";
 
 function titleOf(item: PublicService) { return item.nameAr ?? item.name ?? item.title ?? "خدمة"; }
 
+const quickServices = [
+  { icon: "✈️", title: "الطيران", route: "/flights" as const },
+  { icon: "🇸🇦", title: "زيارة عائلية", route: "/request/family" as const },
+  { icon: "🇪🇬", title: "موافقة مصر", route: "/request/egypt" as const },
+  { icon: "🕋", title: "العمرة", route: "/umrah" as const },
+];
+
 export default function HomeScreen() {
-  const [services,setServices]=useState<PublicService[]>([]);
-  const [loading,setLoading]=useState(true);
-  const [refreshing,setRefreshing]=useState(false);
-  const [error,setError]=useState(false);
-  const load=useCallback(async()=>{try{setError(false);setServices(await getPublicServices());}catch{setError(true);}finally{setLoading(false);setRefreshing(false);}},[]);
-  useEffect(()=>{void load();},[load]);
-  const main=useMemo(()=>services.slice(0,8),[services]);
+  const [services, setServices] = useState<PublicService[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(false);
+  const load = useCallback(async () => {
+    try { setError(false); setServices(await getPublicServices()); }
+    catch { setError(true); }
+    finally { setLoading(false); setRefreshing(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const featured = useMemo(() => services.slice(0, 3), [services]);
 
-  if(loading) return <View style={s.center}><ActivityIndicator size="large" color={colors.navy}/><Text style={s.muted}>جاري تحميل الخدمات…</Text></View>;
+  return (
+    <SafeAreaView style={s.safe}>
+      <ScrollView
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
+        contentContainerStyle={s.content}
+      >
+        <BrandHeader title="وين ناوي تسافر؟ ✈️" subtitle="من أول فكرة للرحلة لحد ما تصل — نسائم معاك خطوة بخطوة.">
+          <Pressable style={s.search} onPress={() => router.push("/requests")}>
+            <Text style={s.searchIcon}>⌕</Text>
+            <Text style={s.searchText}>ابحث عن عمرة، تأشيرة، رحلة...</Text>
+          </Pressable>
+        </BrandHeader>
 
-  return <SafeAreaView style={s.safe}><FlatList
-    data={main}
-    numColumns={2}
-    columnWrapperStyle={s.row}
-    keyExtractor={(x,i)=>String(x.id??x.slug??i)}
-    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);void load();}}/>}
-    contentContainerStyle={s.content}
-    ListHeaderComponent={<>
-      <View style={s.header}><View><Text style={s.welcome}>أهلاً بك</Text><Text style={s.brand}>نسائم الحرمين</Text></View><View style={s.logoMark}><Text style={s.logoText}>ن</Text></View></View>
-      <View style={s.offer}><Text style={s.offerTag}>عرض العمرة</Text><Text style={s.offerTitle}>اكتشف باقات العمرة والخدمات المتاحة</Text><Pressable style={s.goldButton} onPress={()=>router.push("/umrah")}><Text style={s.goldButtonText}>عرض الباقات</Text></Pressable></View>
-      <Pressable style={s.track} onPress={()=>router.push("/requests")}><Text style={s.trackText}>ابدأ طلب جديد</Text><Text style={s.chev}>‹</Text></Pressable><Pressable style={s.track} onPress={()=>router.push("/track")}><Text style={s.trackText}>تتبع طلبك برقم الطلب</Text><Text style={s.chev}>‹</Text></Pressable><Pressable style={s.track} onPress={()=>router.push("/account")}><Text style={s.trackText}>حسابي</Text><Text style={s.chev}>‹</Text></Pressable>
-      <View style={s.section}><Text style={s.sectionTitle}>الخدمات الرئيسية</Text><Pressable onPress={()=>router.push("/services")}><Text style={s.link}>عرض الكل</Text></Pressable></View>
-      {error&&<Pressable style={s.errorBox} onPress={()=>{setLoading(true);void load();}}><Text style={s.errorText}>تعذر تحديث الخدمات — اضغط لإعادة المحاولة</Text></Pressable>}
-    </>}
-    renderItem={({item})=><Pressable style={s.card} onPress={()=>router.push({pathname:"/service/[slug]",params:{slug:item.slug??String(item.id),payload:JSON.stringify(item)}})}>
-      <View style={s.icon}><Text style={s.iconText}>✦</Text></View><Text style={s.cardTitle}>{titleOf(item)}</Text><Text numberOfLines={2} style={s.desc}>{item.description??"عرض التفاصيل والمتطلبات"}</Text>
-      <Text style={s.cardPrice}>{formatPrice(item.basePrice,item.currency)}</Text>{!!formatSdgEquivalent(item.priceSdg)&&<Text style={s.cardSdg}>{formatSdgEquivalent(item.priceSdg)}</Text>}
-    </Pressable>}
-    ListEmptyComponent={<View style={s.empty}><Text style={s.muted}>لا توجد خدمات متاحة حاليًا.</Text></View>}
-  /></SafeAreaView>;
+        <View style={s.body}>
+          <View style={s.quickGrid}>
+            {quickServices.map((item) => (
+              <Pressable key={item.title} onPress={() => router.push(item.route)} style={({ pressed }) => [s.quickCard, pressed && s.pressed]}>
+                <Text style={s.quickIcon}>{item.icon}</Text>
+                <Text style={s.quickTitle}>{item.title}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Pressable onPress={() => router.push("/track")} style={({ pressed }) => [pressed && s.pressed]}>
+            <SurfaceCard style={s.trackCard}>
+              <View style={s.trackCopy}>
+                <Text style={s.trackHint}>عندك طلب شغال؟</Text>
+                <Text style={s.trackTitle}>تابع رحلتك خطوة بخطوة</Text>
+                <Text style={s.trackText}>أدخل رقم الهاتف وشوف آخر تحديث فورًا</Text>
+              </View>
+              <Text style={s.trackArrow}>‹</Text>
+            </SurfaceCard>
+          </Pressable>
+
+          <SectionTitle title="اكتشف خدماتنا" action="عرض الكل" onAction={() => router.push("/services")} />
+
+          {loading ? <View style={s.loading}><ActivityIndicator color={colors.navy} /><Text style={s.muted}>جاري تحميل الخدمات...</Text></View> : null}
+          {error ? (
+            <Pressable style={s.errorBox} onPress={() => { setLoading(true); void load(); }}>
+              <Text style={s.errorText}>تعذر تحديث الخدمات — اضغط لإعادة المحاولة</Text>
+            </Pressable>
+          ) : null}
+          {!loading && !error ? (
+            <View style={s.serviceRow}>
+              {featured.map((item, index) => (
+                <Pressable
+                  key={String(item.id ?? item.slug ?? index)}
+                  style={({ pressed }) => [s.serviceCard, pressed && s.pressed]}
+                  onPress={() => router.push({ pathname: "/service/[slug]", params: { slug: item.slug ?? String(item.id), payload: JSON.stringify(item) } })}
+                >
+                  <Text style={s.serviceIcon}>{index === 0 ? "🕋" : index === 1 ? "🇪🇬" : "🇸🇦"}</Text>
+                  <Text numberOfLines={1} style={s.serviceTitle}>{titleOf(item)}</Text>
+                  <Text numberOfLines={2} style={s.serviceDesc}>{item.description ?? "اعرف التفاصيل وابدأ طلبك"}</Text>
+                  <Text style={s.servicePrice}>{formatPrice(item.basePrice, item.currency)}</Text>
+                  {formatSdgEquivalent(item.priceSdg) ? <Text style={s.serviceSdg}>{formatSdgEquivalent(item.priceSdg)}</Text> : null}
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      </ScrollView>
+      <BottomNav active="home" />
+    </SafeAreaView>
+  );
 }
-const s=StyleSheet.create({
- safe:{flex:1,backgroundColor:colors.background},content:{paddingBottom:36},center:{flex:1,justifyContent:"center",alignItems:"center",gap:12,backgroundColor:colors.background},muted:{color:colors.muted},
- header:{backgroundColor:colors.navy,paddingHorizontal:20,paddingVertical:20,flexDirection:"row-reverse",justifyContent:"space-between",alignItems:"center",borderBottomLeftRadius:22,borderBottomRightRadius:22},welcome:{color:"#C7D5F0",fontSize:11,textAlign:"right"},brand:{color:"#FFF",fontSize:17,fontWeight:"800",textAlign:"right"},logoMark:{width:38,height:38,borderRadius:19,backgroundColor:"rgba(255,255,255,.14)",alignItems:"center",justifyContent:"center"},logoText:{color:colors.gold,fontWeight:"900",fontSize:18},
- offer:{margin:16,marginBottom:0,backgroundColor:colors.navyDark,borderRadius:16,padding:18,alignItems:"flex-end",gap:9},offerTag:{color:colors.gold,fontSize:11,fontWeight:"800"},offerTitle:{color:"#FFF",fontSize:16,fontWeight:"800",textAlign:"right"},goldButton:{backgroundColor:colors.gold,borderRadius:999,paddingVertical:9,paddingHorizontal:18},goldButtonText:{color:colors.navy,fontSize:12,fontWeight:"800"},
- track:{marginHorizontal:16,marginTop:14,borderWidth:1,borderColor:colors.border,borderRadius:12,padding:14,backgroundColor:"#FFF",flexDirection:"row-reverse",justifyContent:"space-between",alignItems:"center"},trackText:{fontWeight:"700",color:colors.text,fontSize:13},chev:{fontSize:22,color:colors.subtle},
- section:{paddingHorizontal:18,paddingTop:20,paddingBottom:10,flexDirection:"row-reverse",justifyContent:"space-between",alignItems:"center"},sectionTitle:{fontSize:15,fontWeight:"800",color:colors.text},link:{fontSize:12,color:colors.navy,fontWeight:"700"},
- row:{paddingHorizontal:16,gap:12},card:{flex:1,minHeight:126,backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:14,padding:15,marginBottom:12,alignItems:"flex-end"},icon:{width:36,height:36,borderRadius:10,backgroundColor:"#EEF3FB",alignItems:"center",justifyContent:"center",marginBottom:10},iconText:{color:colors.navy,fontWeight:"900"},cardTitle:{fontSize:13,fontWeight:"800",color:colors.text,textAlign:"right"},desc:{fontSize:11,color:colors.muted,lineHeight:17,textAlign:"right",marginTop:5},cardPrice:{fontSize:12,fontWeight:"900",color:colors.navy,textAlign:"right",marginTop:8},cardSdg:{fontSize:9.5,color:colors.gold,fontWeight:"700",textAlign:"right",marginTop:2},
- errorBox:{marginHorizontal:16,marginTop:12,padding:12,borderRadius:10,backgroundColor:"#FFF4F2"},errorText:{color:colors.danger,textAlign:"right",fontSize:11},empty:{padding:30,alignItems:"center"}
+
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.background },
+  content: { paddingBottom: 96 },
+  body: { padding: 16, gap: 18 },
+  search: { marginTop: 20, minHeight: 54, borderRadius: radius.md, backgroundColor: "#FFF", paddingHorizontal: 15, flexDirection: "row", alignItems: "center", gap: 10 },
+  searchIcon: { color: colors.navy, fontSize: 23, fontWeight: "900" },
+  searchText: { flex: 1, color: colors.subtle, textAlign: "right", fontSize: 12 },
+  quickGrid: { flexDirection: "row-reverse", gap: 9 },
+  quickCard: { flex: 1, minHeight: 88, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: "#FFF", alignItems: "center", justifyContent: "center", gap: 8 },
+  quickIcon: { fontSize: 24 },
+  quickTitle: { color: colors.text, fontSize: 10.5, fontWeight: "900", textAlign: "center" },
+  trackCard: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.goldSoft },
+  trackCopy: { flex: 1 },
+  trackHint: { color: colors.gold, fontSize: 10, fontWeight: "900", textAlign: "right" },
+  trackTitle: { color: colors.text, fontSize: 16, fontWeight: "900", textAlign: "right", marginTop: 6 },
+  trackText: { color: colors.muted, fontSize: 10.5, textAlign: "right", marginTop: 5 },
+  trackArrow: { color: colors.navy, fontSize: 28, fontWeight: "900", marginStart: 10 },
+  serviceRow: { flexDirection: "row-reverse", gap: 10 },
+  serviceCard: { flex: 1, minHeight: 170, backgroundColor: "#FFF", borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 13, alignItems: "flex-end" },
+  serviceIcon: { fontSize: 25, marginBottom: 10 },
+  serviceTitle: { width: "100%", color: colors.text, fontSize: 12, fontWeight: "900", textAlign: "right" },
+  serviceDesc: { color: colors.muted, fontSize: 9.5, lineHeight: 15, textAlign: "right", marginTop: 5 },
+  servicePrice: { color: colors.navy, fontSize: 10.5, fontWeight: "900", textAlign: "right", marginTop: "auto" },
+  serviceSdg: { color: colors.gold, fontSize: 8.5, fontWeight: "800", textAlign: "right", marginTop: 2 },
+  loading: { paddingVertical: 30, alignItems: "center", gap: 8 },
+  muted: { color: colors.muted, fontSize: 11 },
+  errorBox: { padding: 13, borderRadius: radius.md, backgroundColor: colors.dangerSoft },
+  errorText: { color: colors.danger, textAlign: "right", fontSize: 11, fontWeight: "700" },
+  pressed: { opacity: 0.82 },
 });
