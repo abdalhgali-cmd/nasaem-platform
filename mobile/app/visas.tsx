@@ -1,21 +1,69 @@
-import { useEffect,useMemo,useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
-import { ActivityIndicator,Pressable,SafeAreaView,ScrollView,StyleSheet,Text,View } from "react-native";
-import { getPublicVisaTypes,PublicVisaType } from "../src/api/services";
-import { colors } from "../src/theme";
-import { formatPrice,formatSdgEquivalent } from "../src/utils/price";
+import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { getPublicVisaTypes, PublicVisaType } from "../src/api/services";
+import { AppButton, BottomNav, BrandHeader, ChoiceCard, EmptyState, SurfaceCard } from "../src/components/ui";
+import { colors, radius } from "../src/theme";
+import { formatPrice, formatSdgEquivalent } from "../src/utils/price";
 
-export default function VisasScreen(){
-  const [items,setItems]=useState<PublicVisaType[]>([]);
-  const [country,setCountry]=useState<string|null>(null);
-  const [loading,setLoading]=useState(true);
-  const [error,setError]=useState("");
-  useEffect(()=>{getPublicVisaTypes().then(setItems).catch(()=>setError("تعذر تحميل أنواع التأشيرات")).finally(()=>setLoading(false));},[]);
-  const countries=useMemo(()=>Array.from(new Set(items.map(x=>x.country))).filter(Boolean),[items]);
-  const shown=country?items.filter(x=>x.country===country):[];
-
-  if(loading)return <View style={s.center}><ActivityIndicator color={colors.navy}/><Text>جاري تحميل التأشيرات…</Text></View>;
-  return <SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}><Text style={s.title}>التأشيرات</Text><Text style={s.desc}>اختر الدولة ثم نوع التأشيرة. الأسعار والمتطلبات من لوحة الإدارة مباشرة.</Text>{!!error&&<Text style={s.error}>{error}</Text>}
-  {!country?<View style={s.grid}>{countries.map(c=><Pressable key={c} style={s.country} onPress={()=>setCountry(c)}><Text style={s.countryText}>{c}</Text></Pressable>)}</View>:<><Pressable onPress={()=>setCountry(null)}><Text style={s.back}>تغيير الدولة</Text></Pressable><Text style={s.subtitle}>{country}</Text>{shown.map(v=><View key={v.id} style={s.card}><Text style={s.cardTitle}>{v.name}</Text>{!!v.description&&<Text style={s.small}>{v.description}</Text>}<View style={s.meta}><Text style={s.price}>{formatPrice(v.basePrice,v.currency)}</Text>{!!formatSdgEquivalent(v.priceSdg)&&<Text style={s.sdg}>{formatSdgEquivalent(v.priceSdg)}</Text>}</View>{!!v.processingTime&&<Text style={s.small}>مدة المعالجة: {v.processingTime}</Text>}<Pressable style={s.button} onPress={()=>router.push({pathname:"/request/[kind]",params:{kind:"visas",visaTypeId:v.id,serviceId:v.serviceId??"",serviceName:v.name,country:v.country,visaTypeName:v.name}})}><Text style={s.buttonText}>ابدأ الطلب</Text></Pressable></View>)}</>}</ScrollView></SafeAreaView>;
+function countryIcon(country: string) {
+  if (country.includes("مصر")) return "🇪🇬";
+  if (country.includes("السعود")) return "🇸🇦";
+  if (country.includes("الإمارات")) return "🇦🇪";
+  return "🛂";
 }
-const s=StyleSheet.create({safe:{flex:1,backgroundColor:colors.background},page:{padding:18,gap:12,paddingBottom:36},center:{flex:1,alignItems:"center",justifyContent:"center",gap:10},title:{fontSize:21,fontWeight:"900",color:colors.navy,textAlign:"right"},subtitle:{fontSize:16,fontWeight:"800",color:colors.text,textAlign:"right"},desc:{fontSize:11.5,color:colors.muted,textAlign:"right",lineHeight:19},grid:{gap:10},country:{backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:12,padding:15},countryText:{textAlign:"right",fontWeight:"800",color:colors.text},card:{backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:14,padding:15,gap:8},cardTitle:{fontSize:14,fontWeight:"800",color:colors.navy,textAlign:"right"},small:{fontSize:10.5,color:colors.muted,textAlign:"right",lineHeight:17},meta:{flexDirection:"row-reverse",justifyContent:"space-between",alignItems:"center"},price:{fontSize:13,fontWeight:"900",color:colors.text},sdg:{fontSize:10.5,color:colors.gold,fontWeight:"700"},button:{backgroundColor:colors.navy,borderRadius:9,padding:11,marginTop:4},buttonText:{color:"#FFF",fontWeight:"800",textAlign:"center"},back:{color:colors.navy,fontWeight:"700",textAlign:"right"},error:{color:colors.danger,textAlign:"right"}});
+
+export default function VisasScreen() {
+  const [items, setItems] = useState<PublicVisaType[]>([]);
+  const [country, setCountry] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => { getPublicVisaTypes().then(setItems).catch(() => setError("تعذر تحميل أنواع التأشيرات")).finally(() => setLoading(false)); }, []);
+  const countries = useMemo(() => Array.from(new Set(items.map((item) => item.country))).filter(Boolean), [items]);
+  const shown = country ? items.filter((item) => item.country === country) : [];
+
+  return (
+    <SafeAreaView style={s.safe}>
+      <ScrollView contentContainerStyle={s.content}>
+        <BrandHeader compact title={country ?? "التأشيرات"} subtitle={country ? "اختر نوع التأشيرة المناسب ثم ابدأ الطلب." : "اختر الدولة، ونوضح لك السعر والمتطلبات خطوة بخطوة."} />
+        <View style={s.body}>
+          {loading ? <View style={s.loading}><ActivityIndicator color={colors.navy} /><Text style={s.muted}>جاري تحميل التأشيرات...</Text></View> : null}
+          {error ? <EmptyState icon="!" title="تعذر تحميل التأشيرات" description={error} /> : null}
+          {!loading && !error && !country ? countries.map((item) => (
+            <ChoiceCard key={item} icon={countryIcon(item)} title={item} subtitle="عرض أنواع التأشيرات والأسعار" meta="‹" onPress={() => setCountry(item)} />
+          )) : null}
+          {!loading && !error && !country && countries.length === 0 ? <EmptyState icon="🛂" title="لا توجد تأشيرات منشورة" description="ارجع لاحقًا أو تواصل مع الوكالة." /> : null}
+          {country ? (
+            <>
+              <Pressable onPress={() => setCountry(null)}><Text style={s.back}>تغيير الدولة ←</Text></Pressable>
+              {shown.map((visa) => (
+                <SurfaceCard key={visa.id}>
+                  <Text style={s.visaTitle}>{visa.name}</Text>
+                  {visa.description ? <Text style={s.visaDescription}>{visa.description}</Text> : null}
+                  <View style={s.priceBox}>
+                    <Text style={s.price}>{formatPrice(visa.basePrice, visa.currency)}</Text>
+                    {formatSdgEquivalent(visa.priceSdg) ? <Text style={s.sdg}>{formatSdgEquivalent(visa.priceSdg)}</Text> : null}
+                  </View>
+                  {visa.processingTime ? <Text style={s.processing}>المدة المتوقعة: {visa.processingTime}</Text> : null}
+                  <AppButton
+                    label="ابدأ الطلب"
+                    onPress={() => router.push({ pathname: "/request/[kind]", params: { kind: "visas", visaTypeId: visa.id, serviceId: visa.serviceId ?? "", serviceName: visa.name, country: visa.country, visaTypeName: visa.name } })}
+                  />
+                </SurfaceCard>
+              ))}
+            </>
+          ) : null}
+        </View>
+      </ScrollView>
+      <BottomNav active="services" />
+    </SafeAreaView>
+  );
+}
+
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.background }, content: { paddingBottom: 96 }, body: { padding: 16, gap: 11 },
+  loading: { minHeight: 180, alignItems: "center", justifyContent: "center", gap: 10 }, muted: { color: colors.muted, fontSize: 11 },
+  back: { color: colors.navy, fontSize: 12, fontWeight: "900", textAlign: "right", paddingVertical: 5 },
+  visaTitle: { color: colors.text, fontSize: 16, fontWeight: "900", textAlign: "right" }, visaDescription: { color: colors.muted, fontSize: 10.5, lineHeight: 18, textAlign: "right", marginTop: 5 },
+  priceBox: { backgroundColor: colors.soft, borderRadius: radius.md, padding: 13, marginVertical: 12 }, price: { color: colors.navy, fontSize: 20, fontWeight: "900", textAlign: "right" }, sdg: { color: colors.gold, fontSize: 10.5, fontWeight: "800", textAlign: "right", marginTop: 3 }, processing: { color: colors.muted, fontSize: 10, textAlign: "right", marginBottom: 12 },
+});

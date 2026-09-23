@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- airline logos are served by the environment-specific backend asset endpoint. */
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";

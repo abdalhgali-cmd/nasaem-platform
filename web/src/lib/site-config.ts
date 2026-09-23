@@ -26,12 +26,6 @@ export const mainNav: NavItem[] = [
   { label: "الرئيسية", href: "/" },
   { label: "العمرة", href: "/umrah" },
   { label: "التأشيرات", href: "/visas" },
-  { label: "الطيران", href: "/flights" },
-  { label: "العبارات", href: "/ferries" },
-  { label: "الفنادق", href: "/hotels" },
-  { label: "الباقات", href: "/packages" },
-  { label: "من نحن", href: "/about" },
-  { label: "تواصل معنا", href: "/contact" },
   { label: "تتبع الطلب", href: "/track" },
-  { label: "حسابي", href: "/account" },
+  { label: "تواصل معنا", href: "/contact" },
 ];

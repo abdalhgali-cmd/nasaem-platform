@@ -17,7 +17,7 @@ export type AdminRequest={
   createdAt?:string;
   invoice?:{id:string;amount:number|string;currency:string;status:string}|null;
   documents?:AdminDocument[];
-  travelers?:Array<{id:string;fullName:string;passportNo?:string|null;nationality?:string|null}>;
+  travelers?:{id:string;fullName:string;passportNo?:string|null;nationality?:string|null}[];
   readiness?:{queue?:string;overall?:string};
 };
 type RequestListResponse={success:boolean;data:AdminRequest[];meta?:unknown};

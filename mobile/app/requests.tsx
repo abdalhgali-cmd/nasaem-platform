@@ -1,6 +1,40 @@
 import { router } from "expo-router";
-import { Pressable,SafeAreaView,ScrollView,StyleSheet,Text,View } from "react-native";
+import { SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { BottomNav, BrandHeader, ChoiceCard } from "../src/components/ui";
 import { colors } from "../src/theme";
-const items=[["umrah","العمرة","باقات العمرة والمسافرين والمستندات"],["flights","الطيران","حجز رحلات ذهاب وعودة"],["visas","التأشيرات","الدول وأنواع التأشيرات"],["egypt","الموافقة الأمنية لمصر","طلب ومتابعة الموافقة"],["family","الزيارة العائلية","متابعة مراحل الزيارة السعودية"],["ferries","البواخر","حجوزات السفر البحري"],["hotels","الفنادق والسياحة","الفنادق والبرامج السياحية"]];
-export default function RequestHub(){return <SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}><Text style={s.title}>اختر الخدمة</Text>{items.map(([key,title,desc])=><Pressable key={key} style={s.card} onPress={()=>key==="umrah"?router.push("/umrah"):key==="visas"?router.push("/visas"):key==="flights"?router.push("/flights"):key==="ferries"?router.push("/ferries"):router.push({pathname:"/request/[kind]",params:{kind:key}})}><View><Text style={s.cardTitle}>{title}</Text><Text style={s.desc}>{desc}</Text></View><Text style={s.arrow}>‹</Text></Pressable>)}</ScrollView></SafeAreaView>}
-const s=StyleSheet.create({safe:{flex:1,backgroundColor:colors.background},page:{padding:18,gap:10},title:{fontSize:20,fontWeight:"900",color:colors.navy,textAlign:"right",marginBottom:4},card:{backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:13,padding:15,flexDirection:"row-reverse",alignItems:"center",justifyContent:"space-between"},cardTitle:{fontSize:13,fontWeight:"800",color:colors.text,textAlign:"right"},desc:{fontSize:10.5,color:colors.muted,textAlign:"right",marginTop:4},arrow:{fontSize:22,color:colors.subtle}});
+
+const items = [
+  { key: "umrah", icon: "🕋", title: "العمرة", desc: "باقات العمرة والمسافرين والمستندات" },
+  { key: "flights", icon: "✈️", title: "الطيران", desc: "حجز رحلات ذهاب وعودة" },
+  { key: "visas", icon: "🛂", title: "التأشيرات", desc: "الدول وأنواع التأشيرات" },
+  { key: "egypt", icon: "🇪🇬", title: "الموافقة الأمنية لمصر", desc: "طلب ومتابعة الموافقة" },
+  { key: "family", icon: "🇸🇦", title: "الزيارة العائلية", desc: "متابعة مراحل الزيارة السعودية" },
+  { key: "ferries", icon: "⛴️", title: "البواخر", desc: "حجوزات السفر البحري" },
+  { key: "hotels", icon: "🏨", title: "الفنادق والسياحة", desc: "الفنادق والبرامج السياحية" },
+];
+
+function openService(key: string) {
+  if (key === "umrah") return router.push("/umrah");
+  if (key === "visas") return router.push("/visas");
+  if (key === "flights") return router.push("/flights");
+  if (key === "ferries") return router.push("/ferries");
+  return router.push({ pathname: "/request/[kind]", params: { kind: key } });
+}
+
+export default function RequestHub() {
+  return (
+    <SafeAreaView style={s.safe}>
+      <ScrollView contentContainerStyle={s.content}>
+        <BrandHeader compact title="ابدأ طلبك" subtitle="اختر الخدمة، وسنوضح لك الخطوات المطلوبة فقط." />
+        <View style={s.body}>
+          {items.map((item) => (
+            <ChoiceCard key={item.key} icon={item.icon} title={item.title} subtitle={item.desc} meta="‹" onPress={() => openService(item.key)} />
+          ))}
+        </View>
+      </ScrollView>
+      <BottomNav active="services" />
+    </SafeAreaView>
+  );
+}
+
+const s = StyleSheet.create({ safe: { flex: 1, backgroundColor: colors.background }, content: { paddingBottom: 96 }, body: { padding: 16, gap: 10 } });

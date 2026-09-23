@@ -369,7 +369,7 @@ async function loadServices() {
           <td>${formatMoney(sv.basePrice, sv.currency)}</td>
           <td>${sv.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
           <td>
-            <button type="button" class="btn secondary" data-manage-service="${sv.id}" data-name="${escapeHtml(sv.name)}">تفاصيل إضافية</button>
+            <button type="button" class="btn secondary" data-manage-service="${sv.id}" data-name="${escapeHtml(sv.name)}">تعديل / تفاصيل</button>
             ${mgmtCanWrite("services") ? `<button type="button" class="btn secondary" data-toggle-service="${sv.id}" data-active="${sv.active}">${sv.active ? "تعطيل" : "تفعيل"}</button>` : ""}
           </td>
         </tr>`
@@ -455,7 +455,7 @@ function openServiceDetails(serviceId, serviceName) {
   el("sv-icon").innerHTML =
     '<option value="">بدون أيقونة</option>' + SERVICE_ICON_KEYS.map((key) => `<option value="${key}">${key}</option>`).join("");
   const canWrite = mgmtCanWrite("services");
-  ["sv-icon", "sv-image", "sv-features", "service-details-save-btn", "sv-move-up-btn", "sv-move-down-btn"].forEach((id) => {
+  ["sv-edit-name", "sv-edit-category", "sv-edit-basePrice", "sv-edit-currency", "sv-icon", "sv-image", "sv-features", "service-details-save-btn", "sv-move-up-btn", "sv-move-down-btn"].forEach((id) => {
     el(id).disabled = !canWrite;
   });
   el("service-details-card").classList.remove("hidden");
@@ -472,6 +472,10 @@ async function loadServiceDetails() {
   if (!currentServiceDetailsId) return;
   try {
     const { data } = await api.get(`/services/${currentServiceDetailsId}`);
+    el("sv-edit-name").value = data.name || "";
+    el("sv-edit-category").value = data.category || "";
+    el("sv-edit-basePrice").value = Number(data.basePrice) || 0;
+    el("sv-edit-currency").value = data.currency || "SAR";
     el("sv-icon").value = data.iconKey || "";
     el("sv-features").value = (data.features || []).join("\n");
     el("service-details-image-preview").innerHTML = data.imageKey
@@ -485,6 +489,13 @@ async function loadServiceDetails() {
 async function saveServiceDetails() {
   if (!currentServiceDetailsId) return;
   showAlert(mgmtAlert(), "");
+  const name = el("sv-edit-name").value.trim();
+  const category = el("sv-edit-category").value.trim();
+  const basePrice = Number(el("sv-edit-basePrice").value);
+  const currency = el("sv-edit-currency").value;
+  if (!name || !category || !Number.isFinite(basePrice) || basePrice < 0) {
+    return showAlert(mgmtAlert(), "الاسم والتصنيف وسعر صحيح مطلوبة.");
+  }
   const features = el("sv-features")
     .value.split("\n")
     .map((line) => line.trim())
@@ -492,9 +503,15 @@ async function saveServiceDetails() {
 
   try {
     await api.patch(`/services/${currentServiceDetailsId}`, {
+      name,
+      category,
+      basePrice,
+      currency,
       iconKey: el("sv-icon").value || null,
       features,
     });
+    el("service-details-title").textContent = name;
+    showAlert(mgmtAlert(), "تم حفظ تعديلات الخدمة بنجاح.", "success");
     loadServices();
   } catch (error) {
     showAlert(mgmtAlert(), error.message);

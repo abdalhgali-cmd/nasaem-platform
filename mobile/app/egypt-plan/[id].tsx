@@ -1,56 +1,115 @@
 import { useState } from "react";
-import { router,useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
-import { ActivityIndicator,Pressable,SafeAreaView,ScrollView,StyleSheet,Text,TextInput,View } from "react-native";
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { saveEgyptTravelPlan } from "../../src/api/tracking";
 import type { UploadAsset } from "../../src/api/requests";
+import { AppButton, BrandHeader, ChoiceCard, FormField, StepIndicator, SurfaceCard } from "../../src/components/ui";
 import { colors } from "../../src/theme";
 
-export default function EgyptTravelPlanScreen(){
- const {id}=useLocalSearchParams<{id:string}>();
- const [entryMode,setEntryMode]=useState<"AIR"|"BORDER">("AIR");
- const [bookingStatus,setBookingStatus]=useState<"EXISTING"|"NEEDS_NASAEM">("EXISTING");
- const [entryDate,setEntryDate]=useState("");
- const [file,setFile]=useState<UploadAsset|null>(null);
- const [busy,setBusy]=useState(false);
- const [error,setError]=useState("");
- const [done,setDone]=useState("");
+const steps = ["الطلب", "الموافقة", "خطة السفر", "التعميم"];
 
- async function pick(){
-  const r=await DocumentPicker.getDocumentAsync({type:["image/jpeg","image/png","image/webp","application/pdf"],copyToCacheDirectory:true,multiple:false});
-  if(r.canceled)return;
-  const a=r.assets[0];
-  setFile({uri:a.uri,name:a.name,mimeType:a.mimeType,label:"تذكرة / حجز السفر"});
- }
- async function submit(){
-  try{
-   setBusy(true);setError("");setDone("");
-   if(!/^\d{4}-\d{2}-\d{2}$/.test(entryDate))throw new Error("اكتب التاريخ بصيغة YYYY-MM-DD");
-   if(bookingStatus==="EXISTING"&&!file)throw new Error("ارفع التذكرة أو الحجز الموجود");
-   const r=await saveEgyptTravelPlan(id,{entryMode,bookingStatus,entryDate},file);
-   setDone(r.message);
-  }catch(e){setError(e instanceof Error?e.message:"تعذر حفظ بيانات السفر");}
-  finally{setBusy(false);}
- }
+export default function EgyptTravelPlanScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [entryMode, setEntryMode] = useState<"AIR" | "BORDER">("AIR");
+  const [bookingStatus, setBookingStatus] = useState<"EXISTING" | "NEEDS_NASAEM">("EXISTING");
+  const [entryDate, setEntryDate] = useState("");
+  const [file, setFile] = useState<UploadAsset | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
 
- if(done)return <SafeAreaView style={s.safe}><View style={s.success}><Text style={s.check}>✓</Text><Text style={s.title}>تم حفظ بيانات السفر</Text><Text style={s.desc}>{done}</Text><Pressable style={s.primary} onPress={()=>router.back()}><Text style={s.primaryText}>العودة للطلب</Text></Pressable></View></SafeAreaView>;
+  async function pick() {
+    const result = await DocumentPicker.getDocumentAsync({ type: ["image/jpeg", "image/png", "image/webp", "application/pdf"], copyToCacheDirectory: true, multiple: false });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    setFile({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, label: "تذكرة / حجز السفر" });
+  }
 
- return <SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}>
-  <Text style={s.title}>بيانات السفر والتعميم</Text>
-  <Text style={s.desc}>بعد صدور الموافقة الأمنية، أدخل بيانات الرحلة حتى يكمل فريق نسائم الحرمين إجراءات التعميم أو الحجز.</Text>
-  <Text style={s.label}>طريقة الدخول</Text>
-  <View style={s.chips}>
-   {[["AIR","جوي"],["BORDER","بري"]].map(([v,l])=><Pressable key={v} style={[s.chip,entryMode===v&&s.active]} onPress={()=>setEntryMode(v as "AIR"|"BORDER")}><Text style={entryMode===v?s.activeText:s.chipText}>{l}</Text></Pressable>)}
-  </View>
-  <Text style={s.label}>الحجز</Text>
-  <View style={s.chips}>
-   {[["EXISTING","عندي حجز"],["NEEDS_NASAEM","أريد نسائم تحجز لي"]].map(([v,l])=><Pressable key={v} style={[s.chip,bookingStatus===v&&s.active]} onPress={()=>{setBookingStatus(v as "EXISTING"|"NEEDS_NASAEM");if(v==="NEEDS_NASAEM")setFile(null);}}><Text style={bookingStatus===v?s.activeText:s.chipText}>{l}</Text></Pressable>)}
-  </View>
-  <Text style={s.label}>تاريخ الدخول</Text>
-  <TextInput value={entryDate} onChangeText={setEntryDate} placeholder="2026-10-15" style={s.input} textAlign="right"/>
-  {bookingStatus==="EXISTING"&&<View style={s.fileBox}><Text style={s.fileTitle}>التذكرة / إثبات الحجز</Text><Pressable style={[s.fileButton,file&&s.fileDone]} onPress={file?()=>setFile(null):pick}><Text style={file?s.fileDoneText:s.fileButtonText}>{file?"✓ "+file.name:"اختيار ملف"}</Text></Pressable></View>}
-  {!!error&&<Text style={s.error}>{error}</Text>}
-  <Pressable disabled={busy||!entryDate} style={[s.primary,(busy||!entryDate)&&s.disabled]} onPress={submit}>{busy?<ActivityIndicator color="#FFF"/>:<Text style={s.primaryText}>حفظ وإرسال للوكالة</Text>}</Pressable>
- </ScrollView></SafeAreaView>;
+  async function submit() {
+    try {
+      setBusy(true);
+      setError("");
+      setDone("");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) throw new Error("اكتب التاريخ بصيغة YYYY-MM-DD");
+      if (bookingStatus === "EXISTING" && !file) throw new Error("ارفع التذكرة أو الحجز الموجود");
+      const response = await saveEgyptTravelPlan(id, { entryMode, bookingStatus, entryDate }, file);
+      setDone(response.message);
+    } catch (value) {
+      setError(value instanceof Error ? value.message : "تعذر حفظ بيانات السفر");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done) return (
+    <SafeAreaView style={styles.safe}>
+      <BrandHeader compact title="تم إرسال خطة السفر" subtitle="سيتابع فريق نسائم الحرمين إجراءات التعميم ويحدّث حالة الطلب." />
+      <View style={styles.successPage}>
+        <SurfaceCard style={styles.successCard}>
+          <View style={styles.check}><Text style={styles.checkText}>✓</Text></View>
+          <Text style={styles.successTitle}>تم الحفظ بنجاح</Text>
+          <Text style={styles.description}>{done}</Text>
+          <AppButton label="العودة إلى الطلب" onPress={() => router.back()} style={styles.full} />
+        </SurfaceCard>
+      </View>
+    </SafeAreaView>
+  );
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <BrandHeader compact title="خطة السفر إلى مصر" subtitle="الموافقة صدرت؛ أكمل بيانات الدخول حتى تبدأ إجراءات التعميم." />
+      <StepIndicator steps={steps} current={2} />
+      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+        <SurfaceCard style={styles.card}>
+          <Text style={styles.title}>طريقة الدخول</Text>
+          <Text style={styles.description}>اختر الطريقة التي ستدخل بها إلى مصر.</Text>
+          <ChoiceCard title="عن طريق الجو" subtitle="الوصول عبر أحد المطارات" icon="✈️" selected={entryMode === "AIR"} onPress={() => setEntryMode("AIR")} />
+          <ChoiceCard title="عن طريق البر" subtitle="الوصول عبر المعبر البري" icon="🚌" selected={entryMode === "BORDER"} onPress={() => setEntryMode("BORDER")} />
+        </SurfaceCard>
+
+        <SurfaceCard style={styles.card}>
+          <Text style={styles.title}>الحجز وتاريخ الدخول</Text>
+          <ChoiceCard title="عندي حجز بالفعل" subtitle="سأرفع التذكرة أو إثبات الحجز" icon="🎫" selected={bookingStatus === "EXISTING"} onPress={() => setBookingStatus("EXISTING")} />
+          <ChoiceCard title="أريد نسائم تحجز لي" subtitle="يتواصل معي الفريق بعرض مناسب" icon="✦" selected={bookingStatus === "NEEDS_NASAEM"} onPress={() => { setBookingStatus("NEEDS_NASAEM"); setFile(null); }} />
+          <FormField label="تاريخ الدخول" value={entryDate} onChangeText={setEntryDate} placeholder="2026-10-15" />
+          {bookingStatus === "EXISTING" ? (
+            <View style={styles.upload}>
+              <View style={styles.uploadIcon}><Text style={styles.uploadIconText}>{file ? "✓" : "↑"}</Text></View>
+              <View style={styles.uploadCopy}>
+                <Text style={styles.uploadTitle}>{file ? file.name : "التذكرة أو إثبات الحجز"}</Text>
+                <Text style={styles.uploadDescription}>{file ? "تم اختيار الملف — اضغط لتغييره" : "PDF أو صورة واضحة"}</Text>
+              </View>
+              <Pressable onPress={pick}><Text style={styles.uploadAction}>{file ? "تغيير" : "رفع"}</Text></Pressable>
+            </View>
+          ) : null}
+        </SurfaceCard>
+
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <AppButton label="حفظ وإرسال للوكالة" onPress={submit} busy={busy} disabled={!entryDate} />
+      </ScrollView>
+    </SafeAreaView>
+  );
 }
-const s=StyleSheet.create({safe:{flex:1,backgroundColor:colors.background},page:{padding:20,gap:12},success:{flex:1,padding:26,justifyContent:"center",gap:14},check:{fontSize:42,color:colors.success,textAlign:"center",fontWeight:"900"},title:{fontSize:20,fontWeight:"900",color:colors.navy,textAlign:"right"},desc:{fontSize:11.5,color:colors.muted,textAlign:"right",lineHeight:20},label:{fontSize:11,color:colors.muted,textAlign:"right"},chips:{flexDirection:"row-reverse",gap:8,flexWrap:"wrap"},chip:{borderWidth:1,borderColor:colors.border,borderRadius:999,paddingHorizontal:13,paddingVertical:9,backgroundColor:"#FFF"},active:{backgroundColor:colors.navy,borderColor:colors.navy},chipText:{fontSize:11,color:colors.text},activeText:{fontSize:11,color:"#FFF",fontWeight:"800"},input:{backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:10,padding:12},fileBox:{backgroundColor:"#FFF",borderWidth:1,borderColor:colors.border,borderRadius:12,padding:12,gap:8},fileTitle:{fontSize:11.5,fontWeight:"700",color:colors.text,textAlign:"right"},fileButton:{backgroundColor:colors.navy,borderRadius:9,padding:11},fileButtonText:{color:"#FFF",fontWeight:"800",textAlign:"center"},fileDone:{backgroundColor:"#E8F7ED"},fileDoneText:{color:colors.success,fontWeight:"800",textAlign:"center"},primary:{backgroundColor:colors.navy,borderRadius:10,padding:14},primaryText:{color:"#FFF",fontWeight:"800",textAlign:"center"},disabled:{opacity:.45},error:{fontSize:11,color:colors.danger,textAlign:"right"}});
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.background },
+  page: { padding: 16, gap: 14, paddingBottom: 40 },
+  card: { gap: 12 },
+  title: { fontSize: 16, fontWeight: "900", color: colors.text, textAlign: "right" },
+  description: { fontSize: 11.5, color: colors.muted, textAlign: "center", lineHeight: 19 },
+  upload: { minHeight: 72, borderWidth: 1.5, borderStyle: "dashed", borderColor: colors.navy, borderRadius: 14, padding: 12, flexDirection: "row-reverse", alignItems: "center", gap: 10, backgroundColor: colors.blueSoft },
+  uploadIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: colors.navy, alignItems: "center", justifyContent: "center" },
+  uploadIconText: { color: "#FFF", fontSize: 18, fontWeight: "900" },
+  uploadCopy: { flex: 1 },
+  uploadTitle: { fontSize: 11.5, fontWeight: "900", color: colors.text, textAlign: "right" },
+  uploadDescription: { fontSize: 9.5, color: colors.muted, textAlign: "right", marginTop: 3 },
+  uploadAction: { color: colors.navy, fontSize: 11, fontWeight: "900" },
+  error: { fontSize: 11, color: colors.danger, textAlign: "right" },
+  successPage: { flex: 1, padding: 20, justifyContent: "center" },
+  successCard: { alignItems: "center", gap: 12, paddingVertical: 28 },
+  check: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.successSoft, alignItems: "center", justifyContent: "center" },
+  checkText: { color: colors.success, fontSize: 32, fontWeight: "900" },
+  successTitle: { color: colors.text, fontSize: 19, fontWeight: "900" },
+  full: { alignSelf: "stretch" },
+});

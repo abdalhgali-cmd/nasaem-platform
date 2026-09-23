@@ -202,5 +202,25 @@ describe("document versioning and traveler-scoped document ownership", () => {
     assert.equal(docForOne.travelerId, travelerOneId, "traveler one's document is owned by traveler one");
     assert.equal(docForTwo.travelerId, travelerTwoId, "traveler two's document is owned by traveler two, not traveler one");
     assert.notEqual(docForOne.travelerId, docForTwo.travelerId, "the two travelers never share a document");
+
+    const rejectRes = await agent
+      .patch(`/api/contact-requests/${createRes.body.data.id}/documents/${docForOne.id}/status`)
+      .send({ status: "REJECTED", reviewNote: "Traveler one needs a clearer copy" });
+    assert.equal(rejectRes.status, 200, JSON.stringify(rejectRes.body));
+
+    const trackingAgent = await loginTrackingAgent(phone);
+    const replacementRes = await attachPng(
+      trackingAgent
+        .post(`/api/tracking/requests/${createRes.body.data.id}/documents`)
+        .field("label", "Traveler One Passport Replacement")
+        .field("requirementId", travelerRequirementId)
+        .field("travelerId", travelerOneId)
+    );
+    assert.equal(
+      replacementRes.status,
+      201,
+      "traveler two's accepted passport must not consume traveler one's maxFiles slot"
+    );
+    assert.equal(replacementRes.body.data.travelerId, travelerOneId);
   });
 });

@@ -5,6 +5,7 @@ import * as React from "react";
 import Link from "next/link";
 import { CheckCircle2, CreditCard, ExternalLink, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AdminShell } from "@/components/admin/admin-shell";
 import { API_URL } from "@/lib/api-url";
 
 type Item = {
@@ -110,7 +111,7 @@ export default function PaymentReviewPage() {
 
   React.useEffect(() => { void load(); }, []);
 
-  return (
+  return <AdminShell>
     <main className="min-h-screen bg-section py-8 sm:py-10">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 rounded-3xl border border-border bg-card p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-7">
@@ -154,7 +155,7 @@ export default function PaymentReviewPage() {
                       </Button>
                     ) : null}
                     <Button asChild type="button" variant="outline">
-                      <Link href={item.source === "order" ? `/admin-dashboard.html?order=${encodeURIComponent(item.id)}` : `/admin-dashboard.html?customerRequest=${encodeURIComponent(item.id)}`}><ExternalLink className="size-4" />فتح الطلب</Link>
+                      <Link href={item.source === "order" ? `/admin-dashboard.html?order=${encodeURIComponent(item.id)}` : `/admin/cases?requestId=${encodeURIComponent(item.id)}`}><ExternalLink className="size-4" />فتح الطلب</Link>
                     </Button>
                   </div>
                 </div>
@@ -177,5 +178,5 @@ export default function PaymentReviewPage() {
         </section>
       </div>
     </main>
-  );
+  </AdminShell>;
 }

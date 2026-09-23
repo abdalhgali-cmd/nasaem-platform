@@ -14,7 +14,7 @@ import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
 // global MIME/size filter multer already applies to every upload).
 // Returns { requirement } on success (so the caller can read ocrEnabled
 // without a second query) or { error } if the upload should be rejected.
-async function validateRequirementUpload(contactRequest, requirementId, file) {
+async function validateRequirementUpload(contactRequest, requirementId, file, travelerId) {
   const requirement = await prisma.visaRequirement.findUnique({ where: { id: requirementId } });
 
   // A requirement belongs to exactly one parent (visaTypeId or
@@ -43,7 +43,13 @@ async function validateRequirementUpload(contactRequest, requirementId, file) {
   // against maxFiles — otherwise a requirement capped at 1 file could never
   // accept its own replacement upload.
   const existingCount = await prisma.contactRequestDocument.count({
-    where: { contactRequestId: contactRequest.id, requirementId, supersededAt: null, status: { not: "REJECTED" } },
+    where: {
+      contactRequestId: contactRequest.id,
+      requirementId,
+      ...(requirement.scope === "TRAVELER" ? { travelerId: travelerId || null } : {}),
+      supersededAt: null,
+      status: { not: "REJECTED" },
+    },
   });
   if (existingCount >= requirement.maxFiles) {
     return { error: { code: "MAX_FILES_REACHED", maxFiles: requirement.maxFiles } };
@@ -72,7 +78,7 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
 
   let requirement = null;
   if (requirementId) {
-    const validation = await validateRequirementUpload(contactRequest, requirementId, file);
+    const validation = await validateRequirementUpload(contactRequest, requirementId, file, travelerId);
     if (validation.error) return { error: validation.error.code, details: validation.error };
     requirement = validation.requirement;
   }

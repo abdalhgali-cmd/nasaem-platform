@@ -1,5 +1,6 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect -- debounced airport-suggestion lookup synchronizes with the public API. */
+/* eslint-disable @next/next/no-img-element -- airline logos are served by the environment-specific backend asset endpoint. */
 
 import * as React from "react";
 import { CalendarDays, Check, Plane, Plus, Search, Users } from "lucide-react";

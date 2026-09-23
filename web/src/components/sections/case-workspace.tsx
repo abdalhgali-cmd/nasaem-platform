@@ -221,7 +221,7 @@ async function readJson(res: Response) {
   return payload;
 }
 
-export function CaseWorkspace() {
+export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: string | null }) {
   const [cases, setCases] = React.useState<CaseRow[]>([]);
   const [summary, setSummary] = React.useState<{
     queues: Record<string, number>;
@@ -235,7 +235,7 @@ export function CaseWorkspace() {
   const [error, setError] = React.useState("");
   const [queueFilter, setQueueFilter] = React.useState<"ALL" | QueueKey>("ALL");
   const [ownerFilter, setOwnerFilter] = React.useState("ALL");
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [selectedId, setSelectedId] = React.useState<string | null>(initialRequestId);
 
   // The list is loaded by the effect itself rather than by a callback the
   // effect invokes — setState reached synchronously from an effect body
