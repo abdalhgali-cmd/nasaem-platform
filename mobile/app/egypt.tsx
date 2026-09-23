@@ -34,13 +34,8 @@ export default function EgyptLandingScreen() {
 
   const start = () =>
     router.push({
-      pathname: "/request/[kind]",
-      params: {
-        kind: "egypt",
-        serviceId: service?.id ?? "",
-        serviceName: service?.name ?? "الموافقة الأمنية لمصر",
-        visaTypeId: visaType?.id ?? "",
-      },
+      pathname: "/egypt-request",
+      params: {},
     });
 
   return (
