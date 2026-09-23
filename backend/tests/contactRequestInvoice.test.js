@@ -1,5 +1,5 @@
 import "./env.js";
-import { before, describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 
@@ -44,11 +44,15 @@ describe("contact request invoice + payment (customer approval flow)", () => {
   let superAdminAgent;
   let accountantAgent;
   let employeeAgent;
+  let previousRates;
   const accountantPassword = "TestPass@12345";
   const employeePassword = "TestPass@12345";
 
   before(async () => {
     superAdminAgent = await loginAsSuperAdmin();
+    const ratesRes = await superAdminAgent.get("/api/flights/admin/rates");
+    assert.equal(ratesRes.status, 200, JSON.stringify(ratesRes.body));
+    previousRates = ratesRes.body.data;
 
     const accountantEmail = `invoice-accountant-${uniqueSuffix()}@nasaem-platform.local`;
     const createAccountantRes = await superAdminAgent.post("/api/users").send({
@@ -81,9 +85,16 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     assert.equal(employeeLoginRes.status, 200);
   });
 
-  test("full happy path: quote -> approve -> transfer sent -> confirmed", async () => {
+  after(async () => {
+    if (previousRates) await superAdminAgent.patch("/api/flights/admin/rates").send(previousRates);
+  });
+
+  test("full happy path: quote -> approve -> currency choice -> transfer sent -> confirmed", async () => {
     const phone = `097${uniqueSuffix()}`;
     const contactRequestId = await submitContactRequest(phone);
+
+    const fxRes = await superAdminAgent.patch("/api/flights/admin/rates").send({ SAR: 2000 });
+    assert.equal(fxRes.status, 200, JSON.stringify(fxRes.body));
 
     const createInvoiceRes = await superAdminAgent
       .post(`/api/contact-requests/${contactRequestId}/invoice`)
@@ -114,6 +125,24 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     assert.equal(tracked.invoice.status, "APPROVED");
     assert.equal(tracked.paymentStatus, "AWAITING_TRANSFER");
     assert.equal(tracked.statusLabel, "تمت الموافقة على السعر، بانتظار تحويل المبلغ");
+    assert.deepEqual(tracked.paymentOptions.sort(), ["SAR", "SDG"]);
+    assert.equal(tracked.paymentCurrency, "SAR");
+    assert.equal(Number(tracked.paymentAmount), 1500);
+
+    const chooseSdgRes = await customerAgent
+      .post(`/api/tracking/requests/${contactRequestId}/payment-currency`)
+      .send({ currency: "SDG" });
+    assert.equal(chooseSdgRes.status, 200, JSON.stringify(chooseSdgRes.body));
+
+    tracked = await fetchTracked(customerAgent, contactRequestId);
+    assert.equal(tracked.paymentCurrency, "SDG");
+    assert.equal(Number(tracked.paymentAmount), 3000000);
+    assert.equal(Number(tracked.paymentFxRate), 2000);
+
+    const invalidCurrencyRes = await customerAgent
+      .post(`/api/tracking/requests/${contactRequestId}/payment-currency`)
+      .send({ currency: "USD" });
+    assert.equal(invalidCurrencyRes.status, 400);
 
     // Approving an already-approved invoice again is invalid, not a no-op.
     const doubleApproveRes = await customerAgent.post(
@@ -151,7 +180,7 @@ describe("contact request invoice + payment (customer approval flow)", () => {
 
     tracked = await fetchTracked(customerAgent, contactRequestId);
     assert.equal(tracked.paymentStatus, "CONFIRMED");
-    assert.equal(tracked.statusLabel, "تم تأكيد الدفع، جارٍ تنفيذ طلبك");
+    assert.equal(tracked.statusLabel, "تم قبول الدفع، بانتظار صدور التأشيرة");
 
     // Confirming an already-confirmed payment is rejected, not a silent no-op.
     const doubleConfirmRes = await accountantAgent.post(

@@ -71,6 +71,23 @@ describe("buildCustomerChecklist()", () => {
     assert.equal(checklist[0].travelerName, "أحمد");
   });
 
+  test("expands a TRAVELER document requirement into one row per traveler", () => {
+    const checklist = buildCustomerChecklist({
+      requirementsSnapshot: [{ ...passportRequirement, scope: "TRAVELER" }],
+      travelers: [{ id: "t1", fullName: "Traveler One" }, { id: "t2", fullName: "Traveler Two" }],
+      documents: [{ id: "d1", requirementId: "req-passport", status: "ACCEPTED", travelerId: "t1" }],
+    });
+
+    assert.deepEqual(
+      checklist.map((item) => [item.travelerId, item.travelerName, item.state]),
+      [["t1", "Traveler One", "ACCEPTED"], ["t2", "Traveler Two", "MISSING"]]
+    );
+    assert.deepEqual(
+      buildCustomerNextActions({}, checklist).map((action) => [action.code, action.travelerId]),
+      [["UPLOAD_DOCUMENT", "t2"]]
+    );
+  });
+
   test("omits a requirement whose condition does not hold — never asked, so never 'missing'", () => {
     const snapshot = [
       { id: "req-married", name: "هل أنت متزوج؟", required: true, type: "YES_NO" },

@@ -181,7 +181,10 @@ export async function requestPasswordReset(rawPhone) {
     `رمز إعادة تعيين كلمة المرور لحسابك في نسائم الحرمين: ${code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.`
   );
 
-  return { debugCode: process.env.NODE_ENV === "test" ? code : undefined };
+  // See contact-request-tracking.service.js's requestLoginCode for why
+  // "development" is included alongside "test" here — never "production".
+  const isDebugOtpAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
+  return { debugCode: isDebugOtpAllowed ? code : undefined };
 }
 
 export async function resetCustomerPassword(rawPhone, code, newPassword) {

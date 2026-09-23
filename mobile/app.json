@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "نسائم الحرمين",
+    "slug": "nasaem-alharamain",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "nasaem",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.nasaemalharamain.app",
+      "versionCode": 2,
+      "permissions": [
+        "INTERNET"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "../web/public/logo.png",
+        "backgroundColor": "#0B3D91"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-document-picker",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "apiUrl": "https://adaptable-quietude-staging.up.railway.app"
+    },
+    "icon": "../web/public/logo.png"
+  }
+}

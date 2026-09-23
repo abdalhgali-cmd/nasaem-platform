@@ -6,6 +6,7 @@ import {
   buildProviderPackage,
   completeProviderSubmission,
   createProviderSubmission,
+  listAvailableProviders,
   listProviderSubmissions,
 } from "./provider-submissions.service.js";
 
@@ -46,6 +47,17 @@ export async function getProviderSubmissions(req, res, next) {
     const errorResponse = respondToError(res, result);
     if (errorResponse) return errorResponse;
     return res.status(200).json({ success: true, data: result.submissions });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getAvailableProviders(req, res, next) {
+  try {
+    const result = await listAvailableProviders(req.params.id, req.user.organizationId);
+    const errorResponse = respondToError(res, result);
+    if (errorResponse) return errorResponse;
+    return res.status(200).json({ success: true, data: result.providers });
   } catch (error) {
     next(error);
   }

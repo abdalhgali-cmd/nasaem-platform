@@ -2,13 +2,13 @@
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
+import { SimpleUmrahRequest } from "@/components/sections/simple-umrah-request";
 
 function UmrahBookingContent() {
   const searchParams = useSearchParams();
   const packageCode = searchParams.get("package") || undefined;
 
-  return <ServiceIntakeWizard service="package" initialServiceCode={packageCode} />;
+  return <SimpleUmrahRequest initialServiceCode={packageCode} />;
 }
 
 export function UmrahBookingSection() {

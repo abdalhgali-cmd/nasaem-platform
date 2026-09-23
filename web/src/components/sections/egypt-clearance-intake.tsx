@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   BusFront,
   CheckCircle2,
+  File,
   FileCheck2,
   Loader2,
   Mail,
@@ -83,14 +84,18 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
   const [entryMode, setEntryMode] = React.useState<EntryMode>("");
   const [passportDocumentId, setPassportDocumentId] = React.useState<string | null>(null);
   const [passportFileName, setPassportFileName] = React.useState("");
+  const [passportFileSize, setPassportFileSize] = React.useState<number | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState("");
+  const [passportError, setPassportError] = React.useState("");
+  const [passportOcrResult, setPassportOcrResult] = React.useState<Record<string, unknown> | null>(null);
   const [resultId, setResultId] = React.useState<string | null>(null);
   const draftTokenRef = React.useRef<string | null>(null);
   const draftPromiseRef = React.useRef<Promise<string> | null>(null);
   const hydratedRef = React.useRef(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const snapshot = React.useMemo<LocalSnapshot>(
     () => ({ name, phone, email, passportNo, birthDate, entryMode }),
@@ -157,17 +162,21 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
     if (typeof window === "undefined" || hydratedRef.current) return;
     hydratedRef.current = true;
 
+    let cancelled = false;
     let token: string | null = null;
     try {
       const raw = window.localStorage.getItem(LOCAL_KEY);
       if (raw) {
         const local = JSON.parse(raw) as Partial<LocalSnapshot>;
-        setName(local.name ?? "");
-        setPhone(local.phone ?? "");
-        setEmail(local.email ?? "");
-        setPassportNo(local.passportNo ?? "");
-        setBirthDate(local.birthDate ?? "");
-        setEntryMode(local.entryMode ?? "");
+        queueMicrotask(() => {
+          if (cancelled) return;
+          setName(local.name ?? "");
+          setPhone(local.phone ?? "");
+          setEmail(local.email ?? "");
+          setPassportNo(local.passportNo ?? "");
+          setBirthDate(local.birthDate ?? "");
+          setEntryMode(local.entryMode ?? "");
+        });
       }
       token = window.localStorage.getItem(TOKEN_KEY);
       if (token) draftTokenRef.current = token;
@@ -175,14 +184,14 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       // Local persistence is optional.
     }
 
-    if (!token) return;
+    if (!token) return () => { cancelled = true; };
     void (async () => {
       try {
         const response = await fetch(`${API_URL}/intake-drafts/${token}`);
         if (!response.ok) return;
         const payload = await response.json();
         const draft = payload?.data;
-        if (!draft) return;
+        if (!draft || cancelled) return;
 
         const traveler = Array.isArray(draft.travelers) ? draft.travelers[0] : null;
         if (traveler) {
@@ -196,19 +205,22 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
           setEntryMode((value) => value || draft.answers[entryRequirement.id]);
         }
         const passportDoc = Array.isArray(draft.documents)
-          ? draft.documents.find((doc: { requirementId?: string | null }) =>
-              passportRequirement ? doc.requirementId === passportRequirement.id : false
+          ? draft.documents.find(
+              (doc: { requirementId?: string | null }) => doc.requirementId === passportRequirement?.id
             )
           : null;
         if (passportDoc) {
           setPassportDocumentId(passportDoc.id);
           setPassportFileName(passportDoc.fileName || "تم رفع الجواز");
+          if (passportDoc.fileSize) setPassportFileSize(passportDoc.fileSize);
+          if (passportDoc.ocrResult) setPassportOcrResult(passportDoc.ocrResult);
         }
       } catch {
         // A resume failure must not block a fresh request.
       }
     })();
-  }, [entryRequirement?.id, passportRequirement?.id]);
+    return () => { cancelled = true; };
+  }, [entryRequirement?.id, passportRequirement]);
 
   React.useEffect(() => {
     if (!hydratedRef.current || resultId) return;
@@ -225,17 +237,18 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
   }, [snapshot, hasProgress, resultId]);
 
   async function uploadPassport(file: File) {
+    setPassportError("");
     setError("");
     if (!passportRequirement) {
-      setError("إعداد مستند الجواز غير مكتمل في الخدمة. يرجى التواصل مع فريق نسائم الحرمين.");
+      setPassportError("إعداد مستند الجواز غير مكتمل في الخدمة. يرجى التواصل مع فريق نسائم الحرمين.");
       return;
     }
     if (passportRequirement.allowedMimeTypes.length && !passportRequirement.allowedMimeTypes.includes(file.type)) {
-      setError("نوع الملف غير مدعوم. ارفع صورة JPG/PNG أو ملف PDF.");
+      setPassportError("نوع الملف غير مدعوم. ارفع صورة JPG/PNG أو ملف PDF.");
       return;
     }
     if (passportRequirement.maxSizeBytes && file.size > passportRequirement.maxSizeBytes) {
-      setError(`حجم الملف أكبر من الحد المسموح (${formatBytes(passportRequirement.maxSizeBytes)}).`);
+      setPassportError(`حجم الملف أكبر من الحد المسموح (${formatBytes(passportRequirement.maxSizeBytes)}).`);
       return;
     }
 
@@ -260,23 +273,33 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
 
       const response = await fetch(`${API_URL}/intake-drafts/${token}/documents`, { method: "POST", body });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.message || "تعذّر رفع صورة الجواز");
+      if (!response.ok) {
+        // Provide detailed error message for debugging
+        let errorMessage = "تعذّر رفع صورة الجواز";
+        if (payload?.message) errorMessage = payload.message;
+        if (payload?.details?.receivedMimeType && payload?.details?.allowedMimeTypes) {
+          errorMessage = `نوع الملف ${payload.details.receivedMimeType} غير مدعوم. الأنواع المسموحة: ${payload.details.allowedMimeTypes.join(", ")}`;
+        }
+        throw new Error(errorMessage);
+      }
 
       // storeDraftDocument returns the document itself under data.
       const document = payload?.data;
       if (!document?.id) throw new Error("تم رفع الملف لكن تعذّر حفظ مرجع الجواز");
       setPassportDocumentId(document.id);
       setPassportFileName(document.fileName || file.name);
+      if (document.fileSize) setPassportFileSize(document.fileSize);
 
       const ocr = document.ocrResult;
       if (ocr) {
+        setPassportOcrResult(ocr);
         const extractedName = [ocr.givenNames, ocr.surname].filter(Boolean).join(" ").trim();
         if (extractedName && !name) setName(extractedName);
         if (ocr.documentNumber && !passportNo) setPassportNo(ocr.documentNumber);
         if (ocr.birthDate && !birthDate) setBirthDate(ocr.birthDate);
       }
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "تعذّر رفع صورة الجواز");
+      setPassportError(uploadError instanceof Error ? uploadError.message : "تعذّر رفع صورة الجواز");
     } finally {
       setUploading(false);
     }
@@ -392,15 +415,81 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
         </div>
       </div>
 
-      <div className="mt-7">
-        <p className="text-sm font-bold text-foreground">صورة جواز السفر *</p>
-        <p className="mt-1 text-xs text-muted-foreground">ارفع صفحة البيانات بوضوح. نقبل صورة أو PDF{passportRequirement?.maxSizeBytes ? ` حتى ${formatBytes(passportRequirement.maxSizeBytes)}` : ""}.</p>
-        <label className={`mt-3 flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition ${passportDocumentId ? "border-success/50 bg-success/5" : "border-border hover:border-primary/50 hover:bg-primary/[0.02]"}`}>
-          {uploading ? <Loader2 className="size-9 animate-spin text-primary" /> : passportDocumentId ? <CheckCircle2 className="size-9 text-success" /> : <UploadCloud className="size-9 text-primary" />}
-          <span className="mt-3 text-sm font-bold text-foreground">{uploading ? "جارٍ رفع الجواز…" : passportDocumentId ? "تم رفع الجواز" : "اضغط لرفع صورة الجواز أو PDF"}</span>
-          <span className="mt-1 max-w-full truncate text-xs text-muted-foreground">{passportFileName || "JPG / PNG / WEBP / PDF"}</span>
-          <input type="file" className="sr-only" accept={passportRequirement?.allowedMimeTypes?.join(",") || FALLBACK_ACCEPT} disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadPassport(file); event.currentTarget.value = ""; }} />
-        </label>
+      <div className="mt-7 rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
+        <div className="mb-5">
+          <div className="inline-flex items-center gap-2 rounded-full bg-secondary/10 px-3 py-1 text-xs font-bold text-secondary dark:text-secondary">
+            <FileCheck2 className="size-4" /> صورة جواز السفر
+          </div>
+          <h3 className="mt-3 text-lg font-extrabold text-foreground">ارفع صورة جواز السفر *</h3>
+          <p className="mt-2 text-sm text-muted-foreground">اختر صورة واضحة لصفحة البيانات في جواز السفر{passportRequirement?.maxSizeBytes ? ` (حتى ${formatBytes(passportRequirement.maxSizeBytes)})` : ""}. نقبل JPG و PNG و WEBP و PDF.</p>
+        </div>
+
+        {passportDocumentId && !uploading ? (
+          <div className="rounded-2xl border border-success/30 bg-success/5 p-5">
+            <div className="flex items-start gap-4">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-success/10">
+                <CheckCircle2 className="size-5 text-success" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-success">تم رفع الجواز بنجاح</p>
+                <p className="mt-1 text-sm text-muted-foreground truncate">{passportFileName}</p>
+                {passportFileSize ? (
+                  <p className="text-xs text-muted-foreground">{formatBytes(passportFileSize)}</p>
+                ) : null}
+                {passportOcrResult ? (
+                  <p className="mt-2 text-xs font-semibold text-success">تمت قراءة بيانات الجواز — يرجى مراجعتها</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPassportDocumentId(null);
+                  setPassportFileName("");
+                  setPassportFileSize(null);
+                  setPassportOcrResult(null);
+                  setPassportError("");
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+                className="shrink-0 text-xs font-semibold text-muted-foreground hover:text-foreground transition"
+              >
+                استبدال
+              </button>
+            </div>
+          </div>
+        ) : (
+          <label className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-8 text-center transition ${uploading ? "border-primary/50 bg-primary/5" : "border-border hover:border-primary/40 hover:bg-primary/[0.02]"}`}>
+            <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10">
+              {uploading ? (
+                <Loader2 className="size-6 animate-spin text-primary" />
+              ) : (
+                <UploadCloud className="size-6 text-primary" />
+              )}
+            </div>
+            <span className="mt-4 text-sm font-bold text-foreground">
+              {uploading ? "جاري رفع الجواز…" : "اختر صورة الجواز"}
+            </span>
+            <span className="mt-2 text-xs text-muted-foreground">
+              {uploading ? "الرجاء الانتظار" : "اضغط لاختيار الملف"}
+            </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="sr-only"
+              accept={passportRequirement?.allowedMimeTypes?.join(",") || FALLBACK_ACCEPT}
+              disabled={uploading}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void uploadPassport(file);
+              }}
+            />
+          </label>
+        )}
+
+        {passportError ? (
+          <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm font-semibold text-destructive">
+            {passportError}
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-7 rounded-2xl border border-accent/30 bg-accent/5 p-4 text-sm">

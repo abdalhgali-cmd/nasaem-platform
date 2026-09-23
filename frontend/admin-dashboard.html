@@ -211,6 +211,22 @@
         <div class="card hidden" id="service-details-card">
           <h2>تفاصيل إضافية: <span id="service-details-title"></span> <button type="button" class="btn secondary" id="service-details-close-btn" style="margin-inline-start: 8px">إغلاق</button></h2>
           <div class="grid cols-3">
+            <div class="field"><label for="sv-edit-name">اسم الخدمة *</label><input id="sv-edit-name" /></div>
+            <div class="field"><label for="sv-edit-category">التصنيف *</label><input id="sv-edit-category" /></div>
+            <div class="field"><label for="sv-edit-basePrice">السعر الأساسي *</label><input id="sv-edit-basePrice" type="number" min="0" step="0.01" /></div>
+            <div class="field">
+              <label for="sv-edit-currency">العملة *</label>
+              <select id="sv-edit-currency">
+                <option value="SAR">ريال سعودي (SAR)</option>
+                <option value="SDG">جنيه سوداني (SDG)</option>
+                <option value="USD">دولار أمريكي (USD)</option>
+                <option value="EUR">يورو (EUR)</option>
+                <option value="EGP">جنيه مصري (EGP)</option>
+                <option value="AED">درهم إماراتي (AED)</option>
+                <option value="GBP">جنيه إسترليني (GBP)</option>
+                <option value="QAR">ريال قطري (QAR)</option>
+              </select>
+            </div>
             <div class="field">
               <label for="sv-icon">الأيقونة</label>
               <select id="sv-icon">
@@ -230,7 +246,7 @@
             <label for="sv-features">المزايا (كل ميزة في سطر)</label>
             <textarea id="sv-features" rows="4"></textarea>
           </div>
-          <button type="button" class="btn" id="service-details-save-btn">حفظ الأيقونة والمزايا</button>
+          <button type="button" class="btn" id="service-details-save-btn">حفظ تعديلات الخدمة</button>
           <div id="service-details-image-preview" class="muted" style="font-size: 12px; margin-top: 8px"></div>
         </div>
       </div>

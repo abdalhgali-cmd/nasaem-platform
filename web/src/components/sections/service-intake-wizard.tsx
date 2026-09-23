@@ -80,9 +80,33 @@ type PublicRequirement = {
 };
 
 type DocumentSlot = {
+  // Composite for a TRAVELER-scoped requirement (`${requirementId}::${travelerIndex}`,
+  // where travelerIndex is the index into `filledTravelers`), or just the
+  // requirement id for a CUSTOMER/CASE-scoped one — so each traveler gets
+  // their own independent upload slot instead of one shared slot silently
+  // collecting whichever traveler's file was attached last.
+  key: string;
   requirement: PublicRequirement;
+  travelerIndex: number | null;
   files: File[];
 };
+
+const TRAVELER_ORDINALS = [
+  "الأول",
+  "الثاني",
+  "الثالث",
+  "الرابع",
+  "الخامس",
+  "السادس",
+  "السابع",
+  "الثامن",
+  "التاسع",
+  "العاشر",
+];
+
+function travelerOrdinalLabel(index: number) {
+  return TRAVELER_ORDINALS[index] ? `المسافر ${TRAVELER_ORDINALS[index]}` : `المسافر رقم ${index + 1}`;
+}
 
 // Mirrors backend/src/modules/requirements/requirements.service.js's
 // requirementApplies() exactly — kept as a small standalone pure function
@@ -236,11 +260,23 @@ export function ServiceIntakeWizard({
   const [email, setEmail] = React.useState("");
 
   // Service details (step "details")
+  const [travelDate, setTravelDate] = React.useState("");
   const [travelerCount, setTravelerCount] = React.useState(1);
   const [travelers, setTravelers] = React.useState<Traveler[]>([
     { fullName: "", passportNo: "", nationality: "" },
   ]);
   const [notes, setNotes] = React.useState("");
+
+  // The traveler list actually sent on submission (see handleSubmit) — a
+  // blank row a customer hasn't filled in yet is never sent as a real
+  // Traveler, so this is also the index space `documentSlots` below must
+  // use for a TRAVELER-scoped upload slot's travelerIndex, or a document
+  // could end up tagged with an index the backend's `travelers` array
+  // doesn't have.
+  const filledTravelers = React.useMemo(
+    () => travelers.filter((t) => t.fullName.trim().length > 0),
+    [travelers]
+  );
 
   // Documents (step "documents") — the live checklist fetched from the
   // Requirements Engine for whichever service/visa type is selected, and
@@ -250,10 +286,10 @@ export function ServiceIntakeWizard({
   // under a stale label).
   const [requirements, setRequirements] = React.useState<PublicRequirement[]>([]);
   const [loadingRequirements, setLoadingRequirements] = React.useState(false);
-  const [documentFilesByRequirement, setDocumentFilesByRequirement] = React.useState<
+  const [documentFilesBySlotKey, setDocumentFilesBySlotKey] = React.useState<
     Record<string, File[]>
   >({});
-  const [documentErrorsByRequirement, setDocumentErrorsByRequirement] = React.useState<
+  const [documentErrorsBySlotKey, setDocumentErrorsBySlotKey] = React.useState<
     Record<string, string>
   >({});
   // Smart Case Operations — Release A. Answers to non-DOCUMENT requirement
@@ -291,6 +327,7 @@ export function ServiceIntakeWizard({
     name: string;
     phone: string;
     email: string;
+    travelDate: string;
     travelerCount: number;
     travelers: Traveler[];
     notes: string;
@@ -310,6 +347,7 @@ export function ServiceIntakeWizard({
   // so it is held exactly where the local draft is and never put in a URL.
   const serverDraftKey = `${draftKey}:token`;
   const serverDraftTokenRef = React.useRef<string | null>(null);
+  const draftTokenRequestRef = React.useRef<Promise<string> | null>(null);
   const [autosaveState, setAutosaveState] = React.useState<"idle" | "saving" | "saved" | "offline">("idle");
 
   // Mirrors DRAFT_PUBLIC_SELECT (intake-drafts.service.js). Every field is
@@ -362,6 +400,7 @@ export function ServiceIntakeWizard({
       name,
       phone,
       email,
+      travelDate,
       travelerCount,
       travelers,
       notes,
@@ -369,7 +408,7 @@ export function ServiceIntakeWizard({
     };
     // A completely untouched form has nothing worth saving yet.
     const isEmpty =
-      !name && !phone && !email && !notes && !selectedServiceId && !selectedVisaTypeId &&
+      !name && !phone && !email && !travelDate && !notes && !selectedServiceId && !selectedVisaTypeId &&
       travelers.every((t) => !t.fullName && !t.passportNo && !t.nationality);
     try {
       if (isEmpty && step === 0) window.localStorage.removeItem(draftKey);
@@ -378,7 +417,7 @@ export function ServiceIntakeWizard({
       // Storage can legitimately be unavailable (private browsing, quota) —
       // the wizard must keep working without persistence either way.
     }
-  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, answers, result]);
+  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, answers, result]);
 
   // Mirrors the local draft to the server, debounced so typing doesn't
   // produce a request per keystroke. Every failure path here is silent by
@@ -435,7 +474,7 @@ export function ServiceIntakeWizard({
             email,
             travelerCount,
             notes,
-            answers,
+            answers: { ...answers, ...(travelDate ? { __travelDate: travelDate } : {}) },
             travelers,
           }),
         });
@@ -463,7 +502,7 @@ export function ServiceIntakeWizard({
     // Deliberately keyed on the same values as the local autosave above, so
     // the two persist exactly the same snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, answers, result]);
+  }, [step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, answers, result]);
 
   // Resume from the server when this browser has no local draft but does
   // still hold a token (e.g. localStorage was partially cleared, or the
@@ -518,7 +557,8 @@ export function ServiceIntakeWizard({
           travelerCount: serverDraft.travelerCount ?? 1,
           travelers: serverDraft.travelers ?? [],
           notes: serverDraft.notes ?? "",
-          answers: serverDraft.answers ?? {},
+          travelDate: serverDraft.answers?.__travelDate ?? "",
+          answers: Object.fromEntries(Object.entries(serverDraft.answers ?? {}).filter(([key]) => key !== "__travelDate")),
         }
       : null);
     if (!draft) return;
@@ -527,6 +567,7 @@ export function ServiceIntakeWizard({
     setName(draft.name || "");
     setPhone(draft.phone || "");
     setEmail(draft.email || "");
+    setTravelDate(draft.travelDate || "");
     setTravelerCount(draft.travelerCount || 1);
     setTravelers(draft.travelers?.length ? draft.travelers : [{ fullName: "", passportNo: "", nationality: "" }]);
     setNotes(draft.notes || "");
@@ -565,13 +606,21 @@ export function ServiceIntakeWizard({
     let ignore = false;
 
     const query = visaCategory ? `?visaCategory=${encodeURIComponent(visaCategory)}` : "";
+    const catalogUrl = service === "package"
+      ? `${API_URL}/services/public/packages`
+      : `${API_URL}/services/public${query}`;
 
-    fetch(`${API_URL}/services/public${query}`)
+    fetch(catalogUrl)
       .then((res) => res.json())
       .then((payload) => {
         if (ignore) return;
-        setServices(payload?.data?.services ?? []);
-        setVisaTypes(payload?.data?.visaTypes ?? []);
+        if (service === "package") {
+          setServices(Array.isArray(payload?.data) ? payload.data : []);
+          setVisaTypes([]);
+        } else {
+          setServices(payload?.data?.services ?? []);
+          setVisaTypes(payload?.data?.visaTypes ?? []);
+        }
       })
       .catch(() => {
         if (!ignore) setCatalogError("تعذّر تحميل قائمة الخدمات، حاول تحديث الصفحة");
@@ -583,7 +632,7 @@ export function ServiceIntakeWizard({
     return () => {
       ignore = true;
     };
-  }, [visaCategory]);
+  }, [service, visaCategory]);
 
   const packageServices = React.useMemo(
     () => services.filter((s) => s.category === "UMRAH_PACKAGE"),
@@ -644,12 +693,12 @@ export function ServiceIntakeWizard({
 
     if (!requirementsEndpoint) {
       setRequirements([]);
-      setDocumentFilesByRequirement({});
+      setDocumentFilesBySlotKey({});
       return;
     }
 
     setLoadingRequirements(true);
-    setDocumentFilesByRequirement({});
+    setDocumentFilesBySlotKey({});
 
     fetch(`${API_URL}/${requirementsEndpoint}/requirements/public`)
       .then((res) => res.json())
@@ -676,12 +725,24 @@ export function ServiceIntakeWizard({
   // with no condition, so this is exactly documentSlots' old behavior for
   // every existing checklist.
   const applicableRequirements = requirements.filter((r) => requirementApplies(r, answers));
+  // A TRAVELER-scoped DOCUMENT requirement (e.g. "صورة الجواز") expands into
+  // one independent slot per traveler who has a name filled in — each with
+  // its own key, files and errors — instead of a single slot the whole
+  // party shares. A requirement stays TRAVELER-scoped with no travelers
+  // filled in yet falls back to one generic slot so the upload control
+  // never simply disappears.
   const documentSlots: DocumentSlot[] = applicableRequirements
     .filter((r) => r.type === "DOCUMENT")
-    .map((requirement) => ({
-      requirement,
-      files: documentFilesByRequirement[requirement.id] ?? [],
-    }));
+    .flatMap((requirement): DocumentSlot[] => {
+      if (requirement.scope === "TRAVELER" && filledTravelers.length > 0) {
+        return filledTravelers.map((_, travelerIndex) => {
+          const key = `${requirement.id}::${travelerIndex}`;
+          return { key, requirement, travelerIndex, files: documentFilesBySlotKey[key] ?? [] };
+        });
+      }
+      const key = requirement.id;
+      return [{ key, requirement, travelerIndex: null, files: documentFilesBySlotKey[key] ?? [] }];
+    });
   const answerSlots: PublicRequirement[] = applicableRequirements.filter((r) => r.type !== "DOCUMENT");
 
   const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
@@ -699,32 +760,113 @@ export function ServiceIntakeWizard({
     return null;
   }
 
-  function addDocumentFile(requirementId: string, requirement: PublicRequirement, file: File) {
+  function addDocumentFile(slotKey: string, requirement: PublicRequirement, file: File) {
     const error = validateDocumentFile(requirement, file);
-    setDocumentErrorsByRequirement((prev) => ({ ...prev, [requirementId]: error || "" }));
+    setDocumentErrorsBySlotKey((prev) => ({ ...prev, [slotKey]: error || "" }));
     if (error) return;
-    setDocumentFilesByRequirement((prev) => ({
+    setDocumentFilesBySlotKey((prev) => ({
       ...prev,
-      [requirementId]: [...(prev[requirementId] ?? []), file],
+      [slotKey]: [...(prev[slotKey] ?? []), file],
     }));
   }
 
-  function removeDocumentFile(requirementId: string, index: number) {
-    setDocumentFilesByRequirement((prev) => ({
+  function removeDocumentFile(slotKey: string, index: number) {
+    setDocumentFilesBySlotKey((prev) => ({
       ...prev,
-      [requirementId]: (prev[requirementId] ?? []).filter((_, i) => i !== index),
+      [slotKey]: (prev[slotKey] ?? []).filter((_, i) => i !== index),
     }));
   }
 
-  // "select" step only applies to visa/package (Umrah has no sub-type to
-  // choose in this phase — see the auto-select effect above).
-  const steps = service === "umrah" ? ["customer", "details", "documents", "review"] : [
-    "select",
-    "customer",
-    "details",
-    "documents",
-    "review",
-  ];
+  function renderDocumentSlot(slot: DocumentSlot) {
+    const remainingSlots = Math.max(
+      0,
+      Math.min(slot.requirement.maxFiles - slot.files.length, MAX_TOTAL_DOCUMENTS - totalAttachedDocuments)
+    );
+    const accept = slot.requirement.allowedMimeTypes.length
+      ? slot.requirement.allowedMimeTypes.join(",")
+      : DEFAULT_ATTACHMENT_ACCEPT;
+    const error = documentErrorsBySlotKey[slot.key];
+
+    return (
+      <div key={slot.key} className="flex flex-col gap-2 rounded-xl border border-border/70 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-foreground">
+            {slot.requirement.name}
+            {slot.requirement.required ? (
+              <span className="ms-1 text-xs font-bold text-destructive">*</span>
+            ) : (
+              <span className="ms-1 text-xs font-normal text-muted-foreground">(اختياري)</span>
+            )}
+          </span>
+          {remainingSlots > 0 ? (
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+              <Upload className="size-4" />
+              اختر ملفًا
+              <input
+                type="file"
+                accept={accept}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  if (file) addDocumentFile(slot.key, slot.requirement, file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          ) : null}
+        </div>
+        {slot.requirement.description ? (
+          <p className="text-xs text-muted-foreground">{slot.requirement.description}</p>
+        ) : null}
+        {isPassportRequirement(slot.requirement) ? (
+          <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground">
+            نصيحة: صوّر صفحة البيانات في الجواز كاملة وبإضاءة جيدة، بحيث تظهر الأركان
+            الأربعة وجميع الكتابة بوضوح دون انعكاس ضوئي أو اهتزاز.
+          </p>
+        ) : null}
+        {error ? <p className="text-xs font-semibold text-destructive">{error}</p> : null}
+        {slot.files.length > 0 ? (
+          <ul className="flex flex-col gap-1">
+            {slot.files.map((file, index) => (
+              <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 text-xs text-foreground">
+                <CheckCircle2 className="size-3.5 shrink-0 text-success" />
+                <span className="flex-1 truncate">{file.name}</span>
+                <label className="cursor-pointer font-bold text-primary hover:underline dark:text-secondary">
+                  استبدال
+                  <input
+                    type="file"
+                    accept={accept}
+                    className="hidden"
+                    onChange={(e) => {
+                      const replacement = e.target.files?.[0] ?? null;
+                      if (replacement) {
+                        removeDocumentFile(slot.key, index);
+                        addDocumentFile(slot.key, slot.requirement, replacement);
+                      }
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <button type="button" onClick={() => removeDocumentFile(slot.key, index)} className="font-bold text-destructive">
+                  إزالة
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    );
+  }
+
+  // UmrahBookingSection uses the package flow. The customer chooses the
+  // package first, then supplies the expected travel date and party size;
+  // this matches the way Umrah packages are presented immediately above the
+  // wizard and keeps the selected package as the context for every later step.
+  const steps = service === "umrah"
+    ? ["customer", "details", "documents", "review"]
+    : service === "package"
+      ? ["select", "trip", "customer", "details", "documents", "review"]
+      : ["select", "customer", "details", "documents", "review"];
 
   function updateTravelerCount(count: number) {
     const clamped = Math.max(1, Math.min(20, count));
@@ -752,14 +894,60 @@ export function ServiceIntakeWizard({
   const [scanningTraveler, setScanningTraveler] = React.useState<number | null>(null);
   const [scanMessageByTraveler, setScanMessageByTraveler] = React.useState<Record<number, string>>({});
 
-  async function scanPassport(index: number, file: File) {
-    const token = serverDraftTokenRef.current;
-    if (!token) return;
+  async function ensureServerDraftToken(): Promise<string> {
+    const current = serverDraftTokenRef.current;
+    if (current) return current;
 
+    if (typeof window !== "undefined") {
+      try {
+        const existing = window.localStorage.getItem(serverDraftKey);
+        if (existing) {
+          serverDraftTokenRef.current = existing;
+          return existing;
+        }
+      } catch {
+        // Continue by creating a server draft when localStorage is unavailable.
+      }
+    }
+
+    if (!draftTokenRequestRef.current) {
+      draftTokenRequestRef.current = (async () => {
+        const createRes = await fetch(`${API_URL}/intake-drafts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            serviceKind: service,
+            serviceId: selectedServiceId || undefined,
+            visaTypeId: selectedVisaTypeId || undefined,
+          }),
+        });
+        const payload = await createRes.json().catch(() => null);
+        if (!createRes.ok) throw new Error(payload?.message || "تعذّر تجهيز رفع الجواز");
+        const token = payload?.data?.token;
+        if (!token) throw new Error("تعذّر تجهيز رفع الجواز");
+        serverDraftTokenRef.current = token;
+        try {
+          window.localStorage.setItem(serverDraftKey, token);
+        } catch {
+          // The in-memory ref is enough for this session when storage is unavailable.
+        }
+        return token;
+      })();
+    }
+
+    try {
+      return await draftTokenRequestRef.current;
+    } finally {
+      draftTokenRequestRef.current = null;
+    }
+  }
+
+  async function scanPassport(index: number, file: File) {
     setScanningTraveler(index);
     setScanMessageByTraveler((current) => ({ ...current, [index]: "" }));
 
     try {
+      const token = await ensureServerDraftToken();
       const body = new FormData();
       body.append("label", "جواز السفر");
       body.append("travelerIndex", String(index));
@@ -813,6 +1001,10 @@ export function ServiceIntakeWizard({
       return service === "package" ? Boolean(effectiveServiceId) : Boolean(effectiveVisaTypeId);
     }
 
+    if (current === "trip") {
+      return travelerCount >= 1;
+    }
+
     if (current === "customer") {
       return name.trim().length >= 2 && phone.trim().length >= 6;
     }
@@ -863,11 +1055,11 @@ export function ServiceIntakeWizard({
 
       formData.append("travelerCount", String(travelerCount));
 
-      const filledTravelers = travelers.filter((t) => t.fullName.trim().length > 0);
       formData.append(
         "intakeData",
         JSON.stringify({
           travelers: filledTravelers,
+          travelDate: travelDate || undefined,
           notes: notes.trim() || undefined,
         })
       );
@@ -890,18 +1082,29 @@ export function ServiceIntakeWizard({
       // requirement id lets the backend apply that requirement's own
       // MIME/size/max-files rules and (when configured) run passport OCR
       // against the right file, instead of the upload being unlabeled.
+      // documentTravelerIndexes is what actually ties a TRAVELER-scoped
+      // slot's file to the right Traveler row server-side (index into the
+      // `travelers` array above) — "" means case/customer-scoped, matching
+      // createContactRequestSchema's documentTravelerIndexes contract.
       const documentLabels: string[] = [];
       const documentRequirementIds: string[] = [];
+      const documentTravelerIndexes: string[] = [];
       const documentFilesToSend: File[] = [];
       for (const slot of documentSlots) {
         for (const file of slot.files) {
-          documentLabels.push(slot.requirement.name);
+          documentLabels.push(
+            slot.travelerIndex !== null
+              ? `${slot.requirement.name} — ${travelerOrdinalLabel(slot.travelerIndex)}`
+              : slot.requirement.name
+          );
           documentRequirementIds.push(slot.requirement.id);
+          documentTravelerIndexes.push(slot.travelerIndex !== null ? String(slot.travelerIndex) : "");
           documentFilesToSend.push(file);
         }
       }
       formData.append("documentLabels", JSON.stringify(documentLabels));
       formData.append("documentRequirementIds", JSON.stringify(documentRequirementIds));
+      formData.append("documentTravelerIndexes", JSON.stringify(documentTravelerIndexes));
       documentFilesToSend.forEach((file) => formData.append("documents", file));
 
       const response = await fetch(`${API_URL}/contact-requests`, {
@@ -1064,7 +1267,7 @@ export function ServiceIntakeWizard({
                       يبدأ من {Number(item.basePrice).toLocaleString("en-US")} {item.currency}
                     </span>
                   ) : null}
-                  {item.currency !== "SDG" && item.priceSdg != null ? (
+                  {Number(item.basePrice) > 0 && item.currency !== "SDG" && item.priceSdg != null ? (
                     <span className="mt-1 block text-xs font-bold text-primary">
                       يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
                     </span>
@@ -1076,6 +1279,43 @@ export function ServiceIntakeWizard({
           <StepNav
             backDisabled
             onBack={() => {}}
+            onNext={() => setStep((s) => s + 1)}
+            nextDisabled={!canGoNext()}
+          />
+        </StepShell>
+      ) : null}
+
+      {current === "trip" ? (
+        <StepShell
+          title="متى ترغب في أداء العمرة؟"
+          description="حدد عدد المسافرين، ويمكنك إضافة تاريخ السفر المتوقع الآن أو تركه لوقت لاحق."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <label className={labelClass}>تاريخ السفر المتوقع (اختياري)</label>
+              <input
+                type="date"
+                min={new Date().toISOString().slice(0, 10)}
+                value={travelDate}
+                onChange={(e) => setTravelDate(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className={labelClass}>عدد المسافرين</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={travelerCount}
+                onChange={(e) => updateTravelerCount(Number(e.target.value) || 1)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+          <StepNav
+            onBack={() => setStep((s) => s - 1)}
+            backDisabled={step === 0}
             onNext={() => setStep((s) => s + 1)}
             nextDisabled={!canGoNext()}
           />
@@ -1128,7 +1368,7 @@ export function ServiceIntakeWizard({
       {current === "details" ? (
         <StepShell title="بيانات الخدمة" description="أخبرنا بتفاصيل رحلتك.">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
+            {service !== "package" ? <div className="flex flex-col gap-1.5">
               <label className={labelClass}>عدد المسافرين</label>
               <input
                 type="number"
@@ -1138,7 +1378,7 @@ export function ServiceIntakeWizard({
                 onChange={(e) => updateTravelerCount(Number(e.target.value) || 1)}
                 className={`${inputClass} w-32`}
               />
-            </div>
+            </div> : null}
 
             <div className="flex flex-col gap-3">
               {travelers.map((traveler, index) => (
@@ -1162,8 +1402,7 @@ export function ServiceIntakeWizard({
                     placeholder="الجنسية (اختياري)"
                     className={`${inputClass} h-10 text-xs`}
                   />
-                  {serverDraftTokenRef.current ? (
-                    <div className="sm:col-span-3">
+                  <div className="sm:col-span-3">
                       <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
                         {scanningTraveler === index ? "جارٍ قراءة الجواز…" : "تعبئة البيانات من صورة الجواز"}
                         <input
@@ -1178,11 +1417,10 @@ export function ServiceIntakeWizard({
                           }}
                         />
                       </label>
-                      {scanMessageByTraveler[index] ? (
-                        <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
-                      ) : null}
-                    </div>
-                  ) : null}
+                    {scanMessageByTraveler[index] ? (
+                      <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1275,79 +1513,42 @@ export function ServiceIntakeWizard({
                 <Loader2 className="size-6 animate-spin text-primary" />
               </div>
             ) : (
-              documentSlots.map((slot) => {
-                const remainingSlots = Math.max(
-                  0,
-                  Math.min(
-                    slot.requirement.maxFiles - slot.files.length,
-                    MAX_TOTAL_DOCUMENTS - totalAttachedDocuments
-                  )
-                );
-                const accept = slot.requirement.allowedMimeTypes.length
-                  ? slot.requirement.allowedMimeTypes.join(",")
-                  : DEFAULT_ATTACHMENT_ACCEPT;
-
-                return (
-                  <div key={slot.requirement.id} className="flex flex-col gap-2 rounded-xl border border-border/70 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-foreground">
-                        {slot.requirement.name}
-                        {slot.requirement.required ? (
-                          <span className="ms-1 text-xs font-bold text-destructive">*</span>
-                        ) : (
-                          <span className="ms-1 text-xs font-normal text-muted-foreground">(اختياري)</span>
-                        )}
-                      </span>
-                      {remainingSlots > 0 ? (
-                        <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                          <Upload className="size-4" />
-                          اختر ملفًا
-                          <input
-                            type="file"
-                            accept={accept}
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0] ?? null;
-                              if (file) addDocumentFile(slot.requirement.id, slot.requirement, file);
-                              e.target.value = "";
-                            }}
-                          />
-                        </label>
-                      ) : null}
+              <>
+                {/* Each traveler's own documents (e.g. their passport copy) are
+                    grouped under their own name so it's never ambiguous whose
+                    file is whose — the fix for documents silently being shared
+                    across travelers. */}
+                {filledTravelers.map((traveler, travelerIndex) => {
+                  const slotsForTraveler = documentSlots.filter((slot) => slot.travelerIndex === travelerIndex);
+                  if (slotsForTraveler.length === 0) return null;
+                  return (
+                    <div
+                      key={`traveler-documents-${travelerIndex}`}
+                      className="flex flex-col gap-3 rounded-2xl border border-primary/25 bg-primary/[0.03] p-3"
+                    >
+                      <h3 className="text-sm font-bold text-foreground">
+                        {travelerOrdinalLabel(travelerIndex)}
+                        <span className="ms-1.5 font-normal text-muted-foreground">— {traveler.fullName}</span>
+                      </h3>
+                      <div className="flex flex-col gap-3">{slotsForTraveler.map((slot) => renderDocumentSlot(slot))}</div>
                     </div>
-                    {slot.requirement.description ? (
-                      <p className="text-xs text-muted-foreground">{slot.requirement.description}</p>
-                    ) : null}
-                    {isPassportRequirement(slot.requirement) ? (
-                      <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground">
-                        نصيحة: صوّر صفحة البيانات في الجواز كاملة وبإضاءة جيدة، بحيث تظهر الأركان
-                        الأربعة وجميع الكتابة بوضوح دون انعكاس ضوئي أو اهتزاز.
-                      </p>
-                    ) : null}
-                    {documentErrorsByRequirement[slot.requirement.id] ? (
-                      <p className="text-xs font-semibold text-destructive">
-                        {documentErrorsByRequirement[slot.requirement.id]}
-                      </p>
-                    ) : null}
-                    {slot.files.length > 0 ? (
-                      <ul className="flex flex-col gap-1">
-                        {slot.files.map((file, index) => (
-                          <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 text-xs text-foreground">
-                            <span className="truncate">{file.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => removeDocumentFile(slot.requirement.id, index)}
-                              className="font-bold text-destructive"
-                            >
-                              إزالة
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                );
-              })
+                  );
+                })}
+
+                {(() => {
+                  const generalSlots = documentSlots.filter((slot) => slot.travelerIndex === null);
+                  if (generalSlots.length === 0) return null;
+                  const hasTravelerGroups = documentSlots.some((slot) => slot.travelerIndex !== null);
+                  return (
+                    <div className="flex flex-col gap-3">
+                      {hasTravelerGroups ? (
+                        <h3 className="text-sm font-bold text-foreground">مستندات عامة</h3>
+                      ) : null}
+                      {generalSlots.map((slot) => renderDocumentSlot(slot))}
+                    </div>
+                  );
+                })()}
+              </>
             )}
             {!loadingRequirements && documentSlots.length === 0 ? (
               <p className="text-sm text-muted-foreground">لا توجد مستندات مطلوبة مسبقًا لهذه الخدمة.</p>
@@ -1374,6 +1575,7 @@ export function ServiceIntakeWizard({
             <div className="rounded-xl border border-border/70 p-4">
               <span className="font-bold text-foreground">تفاصيل الرحلة</span>
               <div className="mt-2 flex flex-col gap-1 text-muted-foreground">
+                {travelDate ? <span>تاريخ السفر المتوقع: {travelDate}</span> : null}
                 <span>عدد المسافرين: {travelerCount}</span>
                 {travelers
                   .filter((t) => t.fullName.trim())
@@ -1385,17 +1587,35 @@ export function ServiceIntakeWizard({
             </div>
             <div className="rounded-xl border border-accent/40 bg-accent/5 p-4">
               <span className="font-bold text-foreground">التكلفة</span>
-              <div className="mt-2 flex flex-col gap-1">
+              <div className="mt-2 flex flex-col gap-1.5">
                 {hasPublishedPrice && selectedPriceItem ? (
                   <>
-                    <span className="font-bold text-foreground" dir="ltr">
-                      {Number(selectedPriceItem.basePrice).toLocaleString("en-US")} {selectedPriceItem.currency}
-                    </span>
-                    {selectedPriceItem.currency !== "SDG" && selectedPriceItem.priceSdg != null ? (
-                      <span className="text-xs text-muted-foreground">
-                        يعادل {Math.round(selectedPriceItem.priceSdg).toLocaleString("en-US")} جنيه سوداني
-                      </span>
+                    {travelerCount > 1 ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>سعر الفرد</span>
+                        <span dir="ltr">
+                          {Number(selectedPriceItem.basePrice).toLocaleString("en-US")} {selectedPriceItem.currency}
+                        </span>
+                      </div>
                     ) : null}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">{travelerCount > 1 ? "الإجمالي" : "السعر"}</span>
+                      <span className="font-bold text-foreground" dir="ltr">
+                        {(Number(selectedPriceItem.basePrice) * travelerCount).toLocaleString("en-US")}{" "}
+                        {selectedPriceItem.currency}
+                      </span>
+                    </div>
+                    {selectedPriceItem.currency !== "SDG" && selectedPriceItem.priceSdg != null ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>السعر التقريبي بالجنيه</span>
+                        <span dir="ltr">
+                          يعادل تقريبًا {Math.round(selectedPriceItem.priceSdg * travelerCount).toLocaleString("en-US")} ج.س
+                        </span>
+                      </div>
+                    ) : null}
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      السعر المعروض من تسعير الإدارة الحالي، والمبلغ النهائي يُعتمد بعد مراجعة طلبك.
+                    </p>
                   </>
                 ) : (
                   <span className="text-sm text-muted-foreground">يتم تحديد التكلفة بعد مراجعة الطلب</span>
@@ -1409,8 +1629,11 @@ export function ServiceIntakeWizard({
                   <span>لا توجد مستندات</span>
                 ) : (
                   documentSlots.map((slot) => (
-                    <span key={slot.requirement.id}>
-                      {slot.requirement.name}: {slot.files.length > 0 ? `تم إرفاق ${slot.files.length}` : "لم يُرفق بعد"}
+                    <span key={slot.key}>
+                      {slot.travelerIndex !== null
+                        ? `${slot.requirement.name} — ${travelerOrdinalLabel(slot.travelerIndex)}`
+                        : slot.requirement.name}
+                      : {slot.files.length > 0 ? `تم إرفاق ${slot.files.length}` : "لم يُرفق بعد"}
                     </span>
                   ))
                 )}

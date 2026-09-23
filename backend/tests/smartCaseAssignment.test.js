@@ -2,6 +2,7 @@ import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import prisma from "../src/config/database.js";
 
 // Smart Case Operations — Release C groundwork: employee assignment on
 // ContactRequest (PATCH /:id/assign) and the assignedUserId=mine / =unassigned
@@ -100,5 +101,29 @@ describe("employee assignment on contact requests", () => {
       .patch("/api/contact-requests/does-not-exist/assign")
       .send({ assignedUserId: employee.user.id });
     assert.equal(res.status, 404);
+  });
+
+  test("assigning a case notifies the newly-assigned employee", async () => {
+    const otherEmployee = await createEmployee(superAdminAgent);
+
+    const assignRes = await superAdminAgent
+      .patch(`/api/contact-requests/${contactRequestId}/assign`)
+      .send({ assignedUserId: otherEmployee.user.id });
+    assert.equal(assignRes.status, 200, JSON.stringify(assignRes.body));
+
+    const notifications = await prisma.notification.findMany({
+      where: { userId: otherEmployee.user.id, type: "CASE_ASSIGNED" },
+    });
+    assert.equal(notifications.length, 1);
+    assert.ok(notifications[0].message.includes(contactRequestId));
+
+    // Unassigning must not create a notification for anyone.
+    const beforeCount = await prisma.notification.count();
+    const unassignRes = await superAdminAgent
+      .patch(`/api/contact-requests/${contactRequestId}/assign`)
+      .send({ assignedUserId: null });
+    assert.equal(unassignRes.status, 200);
+    const afterCount = await prisma.notification.count();
+    assert.equal(afterCount, beforeCount);
   });
 });

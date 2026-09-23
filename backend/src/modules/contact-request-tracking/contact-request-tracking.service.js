@@ -13,6 +13,7 @@ import {
 import { getContactRequestDeliverableFile } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-checklist.js";
+import { getCurrencyRates } from "../flights/flights.service.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -28,7 +29,13 @@ export async function requestLoginCode(rawPhone) {
   });
   await prisma.contactRequestLoginCode.create({ data: { phone, code, expiresAt } });
   sendWhatsAppMessage(phone, `رمز التحقق الخاص بك لتتبع طلبك: ${code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.`);
-  return { debugCode: process.env.NODE_ENV === "test" ? code : undefined };
+  // Exposed only under "test" (CI/local test runs) and "development" (local
+  // `npm run dev`, no WhatsApp provider configured) — never in "production",
+  // where NODE_ENV is always "production" and this stays undefined. Lets a
+  // developer complete the tracking OTP flow against localhost without a
+  // real WhatsApp/SMS provider.
+  const isDebugOtpAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
+  return { debugCode: isDebugOtpAllowed ? code : undefined };
 }
 
 export async function verifyLoginCode(rawPhone, code) {
@@ -66,11 +73,12 @@ export async function listContactRequestsForPhone(phoneNormalized) {
     },
   });
 
-  const currencies = [...new Set(
-    requests
-      .map((request) => request.invoice?.currency || request.offers.find((offer) => offer.id === request.selectedOfferId)?.currency)
-      .filter(Boolean)
-  )];
+  const baseCurrencies = requests
+    .map((request) => request.invoice?.currency || request.offers.find((offer) => offer.id === request.selectedOfferId)?.currency)
+    .filter(Boolean)
+    .map((currency) => String(currency).toUpperCase());
+  const currencies = [...new Set([...baseCurrencies, ...(baseCurrencies.some((currency) => currency !== "SDG") ? ["SDG"] : [])])];
+  const rates = await getCurrencyRates();
 
   const paymentAccounts = currencies.length
     ? await prisma.paymentAccount.findMany({
@@ -82,7 +90,25 @@ export async function listContactRequestsForPhone(phoneNormalized) {
 
   return requests.map((request) => {
     const selectedOffer = request.offers.find((offer) => offer.id === request.selectedOfferId);
-    const paymentCurrency = request.invoice?.currency || selectedOffer?.currency || null;
+    const baseCurrency = String(request.invoice?.currency || selectedOffer?.currency || "").toUpperCase() || null;
+    const baseAmountRaw = request.invoice?.amount ?? selectedOffer?.amount ?? null;
+    const baseAmount = baseAmountRaw == null ? null : Number(baseAmountRaw);
+    const preferredCurrency = String(request.intakeData?.paymentCurrencyChoice || "").toUpperCase();
+    const canConvertToSdg = Boolean(baseCurrency && baseCurrency !== "SDG" && Number(rates[baseCurrency] || 0) > 0);
+    const paymentOptions = baseCurrency
+      ? [...new Set([baseCurrency, ...(baseCurrency !== "SDG" && canConvertToSdg ? ["SDG"] : [])])]
+      : [];
+    const paymentCurrency = paymentOptions.includes(preferredCurrency) ? preferredCurrency : baseCurrency;
+    const paymentFxRate = paymentCurrency === "SDG" && baseCurrency && baseCurrency !== "SDG"
+      ? Number(rates[baseCurrency] || 0) || null
+      : paymentCurrency === baseCurrency
+        ? 1
+        : null;
+    const paymentAmount = baseAmount == null
+      ? null
+      : paymentCurrency === "SDG" && baseCurrency !== "SDG"
+        ? (paymentFxRate ? baseAmount * paymentFxRate : null)
+        : baseAmount;
     const checklist = buildCustomerChecklist(request);
 
     const storedEgyptTravel = request.intakeData?.egyptTravel || null;
@@ -113,8 +139,13 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       nextActions: buildCustomerNextActions(request, checklist),
       statusLabel: deriveTrackingStatusLabel(request),
       paymentCurrency,
+      paymentAmount,
+      paymentBaseAmount: baseAmount,
+      paymentBaseCurrency: baseCurrency,
+      paymentFxRate,
+      paymentOptions,
       paymentAccounts: paymentCurrency
-        ? paymentAccounts.filter((account) => account.currency === paymentCurrency)
+        ? paymentAccounts.filter((account) => String(account.currency).toUpperCase() === paymentCurrency)
         : [],
     };
   });
@@ -199,6 +230,33 @@ export async function selectOffer(phoneNormalized, contactRequestId, offerId) {
   logActivity({ action: "CONTACT_REQUEST_OFFER_SELECTED", entity: "ContactRequest", entityId: contactRequestId });
   await notifyAdmins({ title: "اختيار العميل لعرض", message: `اختار ${contactRequest.name} عرض ${offer.carrier}`, type: "CONTACT_REQUEST_OFFER_SELECTED" });
   return { success: true };
+}
+
+
+export async function choosePaymentCurrency(phoneNormalized, contactRequestId, currency) {
+  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
+  if (!contactRequest) return { error: "NOT_FOUND" };
+  if (contactRequest.paymentStatus !== "AWAITING_TRANSFER") return { error: "INVALID_STATE" };
+
+  const selectedOffer = contactRequest.offers.find((offer) => offer.id === contactRequest.selectedOfferId);
+  const baseCurrency = String(contactRequest.invoice?.currency || selectedOffer?.currency || "").toUpperCase();
+  if (!baseCurrency) return { error: "INVALID_STATE" };
+
+  const normalized = String(currency || "").toUpperCase();
+  const rates = await getCurrencyRates();
+  const allowed = new Set([baseCurrency]);
+  if (baseCurrency !== "SDG" && Number(rates[baseCurrency] || 0) > 0) allowed.add("SDG");
+  if (!allowed.has(normalized)) return { error: "INVALID_CURRENCY" };
+
+  const intakeData = contactRequest.intakeData && typeof contactRequest.intakeData === "object"
+    ? contactRequest.intakeData
+    : {};
+  await prisma.contactRequest.update({
+    where: { id: contactRequestId },
+    data: { intakeData: { ...intakeData, paymentCurrencyChoice: normalized } },
+  });
+  logActivity({ action: "CONTACT_REQUEST_PAYMENT_CURRENCY_SELECTED", entity: "ContactRequest", entityId: contactRequestId });
+  return { success: true, currency: normalized };
 }
 
 export async function markTransferSent(phoneNormalized, contactRequestId) {

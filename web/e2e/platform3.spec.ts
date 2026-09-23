@@ -719,7 +719,7 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       await createPackage(firstCode, firstName, 10);
       await createPackage(secondCode, secondName, 20);
 
-      await page.goto("/packages", { waitUntil: "networkidle" });
+      await page.goto("/umrah", { waitUntil: "networkidle" });
       await expect(page.getByRole("heading", { name: firstName })).toBeVisible({ timeout: 15_000 });
       await expect(page.getByRole("heading", { name: secondName })).toBeVisible({ timeout: 15_000 });
       const initialCards = await page.locator("article h3").allTextContents();

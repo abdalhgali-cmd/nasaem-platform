@@ -7,6 +7,7 @@ import { uploadContactRequestDocument } from "../../middleware/upload.middleware
 import { requireFeatureEnabled } from "../feature-flags/feature-flags.middleware.js";
 import {
   approveMyInvoice,
+  chooseMyPaymentCurrency,
   downloadMyDeliverableFile,
   downloadMyDocumentFile,
   getMyPaymentAccounts,
@@ -45,6 +46,7 @@ router.get("/payment-accounts", requireTrackingAuth, getMyPaymentAccounts);
 router.post("/requests/:id/invoice/approve", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_APPROVAL"), approveMyInvoice);
 router.post("/requests/:id/invoice/reject", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_APPROVAL"), rejectMyInvoice);
 router.post("/requests/:id/offers/:offerId/select", requireTrackingAuth, selectMyOffer);
+router.post("/requests/:id/payment-currency", requireTrackingAuth, chooseMyPaymentCurrency);
 router.post("/requests/:id/payment-receipt", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_UPLOAD"), handleUpload, uploadPaymentReceipt);
 router.post("/requests/:id/mark-transfer-sent", requireTrackingAuth, markMyTransferSent);
 router.post("/requests/:id/documents", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_UPLOAD"), handleUpload, uploadDocument);

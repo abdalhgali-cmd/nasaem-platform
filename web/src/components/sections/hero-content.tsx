@@ -3,15 +3,21 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, ClipboardCheck, MessageCircle, ShieldCheck, Tag } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, MessageCircle, Search, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
 
+const trustSignals = [
+  { icon: ShieldCheck, label: "اختيار الخدمة بوضوح" },
+  { icon: ClipboardCheck, label: "المستندات داخل مسار الطلب" },
+  { icon: Search, label: "تتبع حالة الطلب" },
+];
+
 const journeySteps = [
-  { icon: MessageCircle, value: "01", label: "أرسل طلبك" },
-  { icon: Tag, value: "02", label: "راجع العرض" },
-  { icon: ClipboardCheck, value: "03", label: "اعتمد بعد التوفر" },
-  { icon: ShieldCheck, value: "04", label: "تابع الحالة" },
+  { icon: Search, value: "01", label: "اختر الخدمة" },
+  { icon: ClipboardCheck, value: "02", label: "أكمل الطلب" },
+  { icon: ShieldCheck, value: "03", label: "راجع التفاصيل" },
+  { icon: MessageCircle, value: "04", label: "تابع الحالة" },
 ];
 
 type HeroContentProps = {
@@ -37,7 +43,7 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-white/5 px-4 py-2 text-xs font-bold text-accent backdrop-blur-sm"
       >
         <span className="size-1.5 animate-pulse rounded-full bg-accent" />
-        رحلتك إلى بيت الله الحرام تبدأ من هنا
+        اختر خدمتك وابدأ الطلب مباشرة
       </motion.span>
 
       <motion.h1
@@ -62,13 +68,16 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, delay: 0.3 }}
-        className="mt-9 flex flex-wrap items-center justify-center gap-4"
+        className="mt-9 flex flex-wrap items-center justify-center gap-3"
       >
         <Button asChild variant="gold" size="lg">
-          <Link href={ctaTarget || "/packages"}>
-            {ctaLabel || "استكشف الباقات"}
+          <Link href={ctaTarget || "#start-request"}>
+            {ctaLabel || "ابدأ طلبك"}
             <ArrowLeft className="size-4" />
           </Link>
+        </Button>
+        <Button asChild variant="outline" size="lg" className="border-white/30 text-white hover:border-white/60 hover:bg-white/10">
+          <Link href="/track">تتبع طلبك</Link>
         </Button>
         <Button asChild variant="whatsapp" size="lg">
           <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noopener noreferrer">
@@ -77,11 +86,30 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         </Button>
       </motion.div>
 
+      <motion.ul
+        data-testid="homepage-trust-signals"
+        aria-label="مزايا بدء الطلب من الموقع"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.38 }}
+        className="mt-6 grid w-full max-w-3xl gap-2 sm:grid-cols-3"
+      >
+        {trustSignals.map(({ icon: Icon, label }) => (
+          <li
+            key={label}
+            className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium text-white/85 backdrop-blur-sm"
+          >
+            <Icon className="size-4 shrink-0 text-accent" aria-hidden="true" />
+            <span>{label}</span>
+          </li>
+        ))}
+      </motion.ul>
+
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.7, delay: 0.4 }}
-        className="mt-14 w-full"
+        transition={{ duration: 0.7, delay: 0.45 }}
+        className="mt-10 w-full"
       >
         <BookingSearchWidget />
       </motion.div>

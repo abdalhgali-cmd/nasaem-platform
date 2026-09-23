@@ -294,4 +294,61 @@ describe("organization tenant boundary", () => {
       })
     );
   });
+
+  // flight_bookings is a raw-SQL table (not a Prisma model — see
+  // migrationIntegrity.test.js) that had zero organization scoping until
+  // this fix: every query joined only Customer, never Order.organizationId,
+  // so any authenticated staff member of ANY organization could view or act
+  // on ANY organization's flight bookings by id/booking_number alone.
+  test("Nasaem staff cannot view or act on another organization's flight booking", async () => {
+    const suffix = uniqueSuffix();
+    const agent = await loginAsSuperAdmin();
+    const otherOrganization = await prisma.organization.create({
+      data: { slug: `other-airline-agency-${suffix}`, name: `Other Airline Agency ${suffix}` },
+    });
+    const otherCustomer = await prisma.customer.create({
+      data: {
+        organizationId: otherOrganization.id,
+        customerNo: `OTHERFLT-${suffix}`,
+        fullName: `Other Tenant Traveler ${suffix}`,
+        passportNo: `OTHERFLTPASS${suffix}`,
+      },
+    });
+    const otherOrder = await prisma.order.create({
+      data: {
+        organizationId: otherOrganization.id,
+        orderNumber: `OTHER-FLT-ORDER-${suffix}`,
+        customerId: otherCustomer.id,
+        totalAmount: 500,
+      },
+    });
+    const bookingId = `other-flt-${suffix}`;
+    const bookingNumber = `FLT-OTHER-${suffix}`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO flight_bookings (id,booking_number,order_id,customer_id,flight_id,status,passengers,amount,currency,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6::jsonb,$7,$8,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+      bookingId,
+      bookingNumber,
+      otherOrder.id,
+      otherCustomer.id,
+      JSON.stringify(["flight-1"]),
+      JSON.stringify([{ firstName: "Other", lastName: "Traveler" }]),
+      500,
+      "SDG"
+    );
+
+    assert.equal((await agent.get(`/api/flight-bookings/${bookingId}`)).status, 404);
+    const listRes = await agent.get("/api/flight-bookings/admin/list");
+    assert.equal(listRes.status, 200);
+    assert.equal(
+      listRes.body.bookings.some((b) => b.id === bookingId),
+      false,
+      "another organization's booking must not appear in the default organization's list"
+    );
+    assert.equal((await agent.get(`/api/flight-bookings/${bookingId}/staff-file/provisional`)).status, 404);
+    assert.equal(
+      (await agent.post(`/api/flight-bookings/${bookingId}/provisional-ticket`).attach("file", Buffer.from([0x25, 0x50, 0x44, 0x46]), "ticket.pdf")).status,
+      404
+    );
+    assert.equal((await agent.post(`/api/flight-bookings/${bookingId}/confirm-payment`).send({})).status, 404);
+  });
 });

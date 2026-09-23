@@ -15,6 +15,7 @@ import { getPublicChecklist, requirementApplies } from "../requirements/requirem
 import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
+import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 
 // Short, consistent "which request is this about" prefix for every
 // customer-facing WhatsApp notification below — reuses the same `service`
@@ -26,6 +27,18 @@ export function describeRequest(contactRequest) {
   return contactRequest.service
     ? `${contactRequest.service} (رقم ${contactRequest.id})`
     : `رقم ${contactRequest.id}`;
+}
+
+function prepareFileForStorage(file) {
+  let storagePath;
+  if (file.buffer) {
+    const filename = generateUniqueFilename(file.originalname);
+    saveBufferToDirectory(file.buffer, CONTACT_REQUEST_DOCUMENT_DIR, filename);
+    storagePath = path.join("contact-request-documents", filename);
+  } else {
+    storagePath = path.join("contact-request-documents", file.filename);
+  }
+  return storagePath;
 }
 
 // Fans out an internal notification to every active SUPER_ADMIN/ADMIN —
@@ -114,8 +127,16 @@ export async function createContactRequest(data, req, files = []) {
         return { error: "FILE_TOO_LARGE", details: { requirementId, maxSizeBytes: requirement.maxSizeBytes } };
       }
 
-      const seenCount = (countByRequirement.get(requirementId) || 0) + 1;
-      countByRequirement.set(requirementId, seenCount);
+      // A TRAVELER-scoped requirement (e.g. "passport copy") is satisfied
+      // once PER TRAVELER, not once total — each traveler independently
+      // gets up to maxFiles for it. Counting by requirementId alone would
+      // reject traveler #2's passport as MAX_FILES_REACHED once traveler
+      // #1's was already attached. CUSTOMER/CASE-scoped requirements keep
+      // the original single, request-wide count.
+      const countKey =
+        requirement.scope === "TRAVELER" ? `${requirementId}::${documentTravelerIndexes[i] ?? ""}` : requirementId;
+      const seenCount = (countByRequirement.get(countKey) || 0) + 1;
+      countByRequirement.set(countKey, seenCount);
       if (seenCount > requirement.maxFiles) {
         return { error: "MAX_FILES_REACHED", details: { requirementId, maxFiles: requirement.maxFiles } };
       }
@@ -141,8 +162,8 @@ export async function createContactRequest(data, req, files = []) {
   const baseData = {
     name: data.name,
     organizationId: req.customer?.organizationId || "org_nasaem_default",
-    phone: data.phone,
-    phoneNormalized: normalizePhone(data.phone),
+    phone: data.phone || "",
+    phoneNormalized: normalizePhone(data.phone || ""),
     email: data.email || null,
     service: data.service || null,
     serviceId: data.serviceId || null,
@@ -181,7 +202,7 @@ export async function createContactRequest(data, req, files = []) {
                     requirementId: documentRequirementIds[index] || null,
                     ocrResult: ocrResults[index] ?? undefined,
                     fileName: file.originalname,
-                    storagePath: path.join("contact-request-documents", file.filename),
+                    storagePath: prepareFileForStorage(file),
                     mimeType: file.mimetype,
                     sizeBytes: file.size,
                   })),
@@ -220,7 +241,7 @@ export async function createContactRequest(data, req, files = []) {
                   travelerId,
                   ocrResult: ocrResults[index] ?? undefined,
                   fileName: file.originalname,
-                  storagePath: path.join("contact-request-documents", file.filename),
+                  storagePath: prepareFileForStorage(file),
                   mimeType: file.mimetype,
                   sizeBytes: file.size,
                 };
@@ -292,10 +313,20 @@ export function computeReadiness(contactRequest) {
   );
 
   const currentDocuments = contactRequest.documents.filter((d) => !d.supersededAt);
+  const travelerIds = (contactRequest.travelers || []).map((traveler) => traveler.id);
 
   const missingDocumentRequirement = applicableRequired
     .filter((r) => !r.type || r.type === "DOCUMENT")
-    .find((r) => !currentDocuments.some((d) => d.requirementId === r.id && d.status === "ACCEPTED"));
+    .find((r) => {
+      if (r.scope === "TRAVELER" && travelerIds.length > 0) {
+        return travelerIds.some(
+          (travelerId) => !currentDocuments.some(
+            (d) => d.requirementId === r.id && d.travelerId === travelerId && d.status === "ACCEPTED"
+          )
+        );
+      }
+      return !currentDocuments.some((d) => d.requirementId === r.id && d.status === "ACCEPTED");
+    });
 
   const missingAnswer = applicableRequired
     .filter((r) => r.type && r.type !== "DOCUMENT")
@@ -420,7 +451,8 @@ export async function refreshCaseTasks(contactRequestId) {
         assignedUserId: true,
         requirementsSnapshot: true,
         intakeData: true,
-        documents: { where: { supersededAt: null }, select: { requirementId: true, status: true, supersededAt: true } },
+        documents: { where: { supersededAt: null }, select: { requirementId: true, travelerId: true, status: true, supersededAt: true } },
+        travelers: { select: { id: true } },
         deliverables: { select: { id: true } },
         providerSubmissions: { select: { status: true } },
       },
@@ -456,7 +488,8 @@ export async function getOperationsQueueSummary(organizationId) {
         requirementsSnapshot: true,
         intakeData: true,
         assignedUserId: true,
-        documents: { where: { supersededAt: null }, select: { requirementId: true, status: true, supersededAt: true } },
+        documents: { where: { supersededAt: null }, select: { requirementId: true, travelerId: true, status: true, supersededAt: true } },
+        travelers: { select: { id: true } },
         deliverables: { select: { id: true } },
         providerSubmissions: { select: { status: true } },
       },
@@ -521,6 +554,18 @@ export async function assignContactRequest(id, assignedUserId, actingUserId, org
     entity: "ContactRequest",
     entityId: id,
   });
+
+  // Assignment previously updated the row silently — the newly-assigned
+  // employee had no way to know a case landed in their queue short of
+  // polling the list. Best-effort, same as every other notification here.
+  if (assignedUserId) {
+    await createNotification({
+      title: "تم إسناد طلب لك",
+      message: `تم إسنادك للطلب ${describeRequest(updated)}.`,
+      type: "CASE_ASSIGNED",
+      userId: assignedUserId,
+    });
+  }
 
   return { contactRequest: updated };
 }
@@ -676,6 +721,12 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
     },
   });
 
+  // Publishing the price confirms that the agency has reviewed the request.
+  await prisma.contactRequest.updateMany({
+    where: { id: contactRequestId, status: "NEW" },
+    data: { status: "CONTACTED" },
+  });
+
   logActivity({
     userId,
     action: "CONTACT_REQUEST_INVOICE_SET",
@@ -726,6 +777,11 @@ export async function createOffer(contactRequestId, data, userId) {
       currency: data.currency,
       createdByUserId: userId,
     },
+  });
+
+  await prisma.contactRequest.updateMany({
+    where: { id: contactRequestId, status: "NEW" },
+    data: { status: "CONTACTED" },
   });
 
   logActivity({

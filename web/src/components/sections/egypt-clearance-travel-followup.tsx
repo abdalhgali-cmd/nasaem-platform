@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- polls the API to synchronize the follow-up case's remote status into local state. */
 
 import * as React from "react";
 import { AlertTriangle, BusFront, CheckCircle2, FileUp, Loader2, Plane } from "lucide-react";

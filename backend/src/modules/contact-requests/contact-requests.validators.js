@@ -23,7 +23,15 @@ function parseIfJsonString(value) {
 
 export const createContactRequestSchema = z.object({
   name: z.string().trim().min(2, "الاسم مطلوب").max(120),
-  phone: z.string().trim().min(6, "رقم الهاتف مطلوب").max(30),
+  // Phone is optional for service-intake journeys (for example Umrah).
+  // When supplied it must still be a usable contact number for tracking/WhatsApp.
+  phone: z
+    .string()
+    .trim()
+    .max(30)
+    .refine((value) => value === "" || value.length >= 6, "رقم الهاتف غير صالح")
+    .optional()
+    .default(""),
   email: z.string().trim().email("بريد إلكتروني غير صالح").optional().or(z.literal("")),
   service: z.string().trim().max(120).optional().or(z.literal("")),
   message: z.string().trim().min(5, "الرسالة قصيرة جدًا").max(2000),
@@ -53,7 +61,7 @@ export const createContactRequestSchema = z.object({
   // label concept already used by contact-request-documents.validators.js.
   documentLabels: z.preprocess(
     parseIfJsonString,
-    z.array(z.string().trim().min(1).max(120)).max(6).optional()
+    z.array(z.string().trim().min(1).max(120)).max(40).optional()
   ),
   // Platform 3.0 Phase 6 — optional parallel array (same order/length as
   // `documents`) linking each uploaded file to the VisaRequirement
@@ -63,7 +71,7 @@ export const createContactRequestSchema = z.object({
   // form, which never sends either.
   documentRequirementIds: z.preprocess(
     parseIfJsonString,
-    z.array(z.string().trim().max(60)).max(6).optional()
+    z.array(z.string().trim().max(60)).max(40).optional()
   ),
   // Smart Case Operations — Release A (Customer/Traveler separation). A
   // structured traveler list — distinct from the existing free-text
@@ -93,7 +101,7 @@ export const createContactRequestSchema = z.object({
   // traveler) or the index into `travelers` above that owns this document.
   documentTravelerIndexes: z.preprocess(
     parseIfJsonString,
-    z.array(z.string().trim().max(10)).max(6).optional()
+    z.array(z.string().trim().max(10)).max(40).optional()
   ),
   // Answers for non-DOCUMENT requirement types (TEXT/NUMBER/DATE/SELECT/
   // YES_NO) — { [requirementId]: value }. Merged into intakeData.answers
