@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Plain browser scripts that share functions through globals across
+    // <script> tags, so "unused" definitions are called from other files.
+    "public/assets/**",
   ]),
 ]);
 

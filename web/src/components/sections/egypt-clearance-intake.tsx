@@ -153,6 +153,9 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
     }
   }
 
+  const entryRequirementId = entryRequirement?.id;
+  const passportRequirementId = passportRequirement?.id;
+
   React.useEffect(() => {
     if (typeof window === "undefined" || hydratedRef.current) return;
     hydratedRef.current = true;
@@ -162,6 +165,11 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       const raw = window.localStorage.getItem(LOCAL_KEY);
       if (raw) {
         const local = JSON.parse(raw) as Partial<LocalSnapshot>;
+        // localStorage only exists in the browser, so the saved snapshot can
+        // only be restored after hydration; a lazy useState initializer would
+        // make the server and client first renders disagree. Runs once
+        // (guarded by hydratedRef).
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setName(local.name ?? "");
         setPhone(local.phone ?? "");
         setEmail(local.email ?? "");
@@ -192,12 +200,12 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
         }
         setPhone((value) => value || draft.phone || "");
         setEmail((value) => value || draft.email || "");
-        if (entryRequirement?.id && draft.answers?.[entryRequirement.id]) {
-          setEntryMode((value) => value || draft.answers[entryRequirement.id]);
+        if (entryRequirementId && draft.answers?.[entryRequirementId]) {
+          setEntryMode((value) => value || draft.answers[entryRequirementId]);
         }
         const passportDoc = Array.isArray(draft.documents)
           ? draft.documents.find((doc: { requirementId?: string | null }) =>
-              passportRequirement ? doc.requirementId === passportRequirement.id : false
+              passportRequirementId ? doc.requirementId === passportRequirementId : false
             )
           : null;
         if (passportDoc) {
@@ -208,7 +216,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
         // A resume failure must not block a fresh request.
       }
     })();
-  }, [entryRequirement?.id, passportRequirement?.id]);
+  }, [entryRequirementId, passportRequirementId]);
 
   React.useEffect(() => {
     if (!hydratedRef.current || resultId) return;

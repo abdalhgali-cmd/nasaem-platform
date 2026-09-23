@@ -5,6 +5,7 @@ import { CalendarDays, CheckCircle2, Ship, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/container";
 import { API_URL } from "@/lib/api-url";
+import type { PublicService } from "@/lib/services";
 
 const inputClass = "h-11 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary";
 
@@ -28,13 +29,13 @@ export function FerryServiceClient() {
 
   React.useEffect(() => {
     fetch(`${API_URL}/services/public`).then((r) => r.json()).then((payload) => {
-      const ferry = (payload?.data?.services ?? []).find((item: any) => item.code === "SVC-FERRY");
+      const ferry = (payload?.data?.services ?? []).find((item: PublicService) => item.code === "SVC-FERRY");
       setServiceId(ferry?.id ?? "");
     }).catch(() => setError("تعذر تحميل خدمة العبارات، حاول تحديث الصفحة.")).finally(() => setLoading(false));
 
     fetch(`${API_URL}/ferries/public`).then((r) => r.json()).then((payload) => {
-      const operators: any[] = payload?.data?.operators ?? [];
-      const schedules: any[] = payload?.data?.schedules ?? [];
+      const operators: { name: string }[] = payload?.data?.operators ?? [];
+      const schedules: { origin: string; destination: string }[] = payload?.data?.schedules ?? [];
 
       const routes = Array.from(new Set(schedules.map((s) => `${s.origin} → ${s.destination}`)));
       if (routes.length > 0) {

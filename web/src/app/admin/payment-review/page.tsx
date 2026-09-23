@@ -28,6 +28,16 @@ function formatAmount(amount: string | number | null | undefined, currency: stri
   return `${Number(amount).toLocaleString("en-US")} ${currency || ""}`.trim();
 }
 
+async function fetchPendingPayments(): Promise<Item[]> {
+  const response = await fetch(`${API_URL}/dashboard/operations`, { credentials: "include" });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success) throw new Error(payload?.message || "تعذر تحميل الدفعات");
+  const data = payload.data as Payload;
+  return (data.items || []).filter(
+    (item) => (item.source === "contact_request" && item.paymentStatus === "UNDER_REVIEW") || (item.source === "order" && item.pendingPayment),
+  );
+}
+
 export default function PaymentReviewPage() {
   const [items, setItems] = React.useState<Item[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -41,15 +51,7 @@ export default function PaymentReviewPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`${API_URL}/dashboard/operations`, { credentials: "include" });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) throw new Error(payload?.message || "تعذر تحميل الدفعات");
-      const data = payload.data as Payload;
-      setItems(
-        (data.items || []).filter(
-          (item) => (item.source === "contact_request" && item.paymentStatus === "UNDER_REVIEW") || (item.source === "order" && item.pendingPayment),
-        ),
-      );
+      setItems(await fetchPendingPayments());
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر تحميل الدفعات");
     } finally {
@@ -107,7 +109,14 @@ export default function PaymentReviewPage() {
     }
   }
 
-  React.useEffect(() => { void load(); }, []);
+  React.useEffect(() => {
+    let ignore = false;
+    fetchPendingPayments()
+      .then((next) => { if (!ignore) setItems(next); })
+      .catch((err) => { if (!ignore) setError(err instanceof Error ? err.message : "تعذر تحميل الدفعات"); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, []);
 
   return (
     <main className="min-h-screen bg-section py-8 sm:py-10">

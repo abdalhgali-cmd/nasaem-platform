@@ -47,12 +47,11 @@ function AirportField({
   const [suggestions, setSuggestions] = React.useState<AirportSuggestion[]>([]);
   const [open, setOpen] = React.useState(false);
 
+  const term = value.trim();
+  const searchable = term.length >= 2;
+
   React.useEffect(() => {
-    const term = value.trim();
-    if (term.length < 2) {
-      setSuggestions([]);
-      return;
-    }
+    if (!searchable) return;
     let ignore = false;
     const timer = setTimeout(() => {
       fetch(`${API_URL}/airports/search?q=${encodeURIComponent(term)}&limit=8`)
@@ -68,7 +67,7 @@ function AirportField({
       ignore = true;
       clearTimeout(timer);
     };
-  }, [value]);
+  }, [term, searchable]);
 
   function selectAirport(airport: AirportSuggestion) {
     onChange(airport.iataCode || airport.icaoCode || airport.nameAr);
@@ -91,7 +90,7 @@ function AirportField({
           className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary"
           placeholder="المدينة أو رمز المطار"
         />
-        {open && suggestions.length > 0 ? (
+        {open && searchable && suggestions.length > 0 ? (
           <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-border bg-card shadow-lg">
             {suggestions.map((airport) => (
               <li key={airport.id}>

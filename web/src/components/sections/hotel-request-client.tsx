@@ -5,6 +5,7 @@ import { CalendarDays, CheckCircle2, Hotel, MapPin, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/container";
 import { API_URL } from "@/lib/api-url";
+import type { PublicService } from "@/lib/services";
 
 const inputClass = "h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary";
 
@@ -20,7 +21,7 @@ export function HotelRequestClient() {
     fetch(`${API_URL}/services/public`)
       .then((r) => r.json())
       .then((payload) => {
-        const hotel = (payload?.data?.services ?? []).find((item: any) => item.code === "SVC-HOTEL");
+        const hotel = (payload?.data?.services ?? []).find((item: PublicService) => item.code === "SVC-HOTEL");
         setServiceId(hotel?.id ?? "");
       })
       .catch(() => setError("تعذر تحميل خدمة الفنادق، حاول تحديث الصفحة."))

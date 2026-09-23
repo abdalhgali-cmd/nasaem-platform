@@ -5,6 +5,8 @@ import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+const subscribeNoop = () => () => {};
+
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   // resolvedTheme reflects the real (possibly system-dark) theme as soon as
@@ -16,11 +18,11 @@ export function ThemeToggle() {
   // Button, so a real mismatch reached React whenever the client's system
   // theme was dark. Gating on `mounted` keeps the first paint deterministic
   // and only reflects the resolved theme after hydration completes.
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = React.useSyncExternalStore(
+    subscribeNoop,
+    () => true,
+    () => false,
+  );
 
   const isDark = mounted && resolvedTheme === "dark";
 

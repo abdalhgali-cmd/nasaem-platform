@@ -27,6 +27,17 @@ function actionTarget(item: OperationItem) { return item.source === "order" ? `/
 function nextStatus(item: OperationItem) { if (item.source !== "order") return null; if (item.nextAction.key === "REVIEW") return "UNDER_REVIEW"; if (item.nextAction.key === "CLOSE") return "COMPLETED"; return null; }
 function priority(item: OperationItem) { if (item.nextAction.key === "CONFIRM_PAYMENT" || item.nextAction.key === "DELIVER") return "urgent"; if ((item.ageHours ?? 0) >= 24) return "stalled"; if (item.nextAction.key === "CUSTOMER_DECISION") return "customer"; return "normal"; }
 
+async function fetchOperations(): Promise<{ data: OperationPayload; currentUser: CurrentUser | null }> {
+  const [opsResponse, meResponse] = await Promise.all([
+    fetch(`${API_URL}/dashboard/operations`, { credentials: "include" }),
+    fetch(`${API_URL}/auth/me`, { credentials: "include" }),
+  ]);
+  const payload = await opsResponse.json().catch(() => null);
+  if (!opsResponse.ok || !payload?.success) throw new Error(payload?.message || "تعذر تحميل مركز العمليات");
+  const mePayload = await meResponse.json().catch(() => null);
+  return { data: payload.data, currentUser: meResponse.ok && mePayload?.success ? mePayload.data : null };
+}
+
 export function OperationsCenter() {
   const [data, setData] = React.useState<OperationPayload | null>(null);
   const [currentUser, setCurrentUser] = React.useState<CurrentUser | null>(null);
@@ -42,15 +53,9 @@ export function OperationsCenter() {
   async function load() {
     setLoading(true); setError("");
     try {
-      const [opsResponse, meResponse] = await Promise.all([
-        fetch(`${API_URL}/dashboard/operations`, { credentials: "include" }),
-        fetch(`${API_URL}/auth/me`, { credentials: "include" }),
-      ]);
-      const payload = await opsResponse.json().catch(() => null);
-      if (!opsResponse.ok || !payload?.success) throw new Error(payload?.message || "تعذر تحميل مركز العمليات");
-      setData(payload.data);
-      const mePayload = await meResponse.json().catch(() => null);
-      if (meResponse.ok && mePayload?.success) setCurrentUser(mePayload.data);
+      const next = await fetchOperations();
+      setData(next.data);
+      if (next.currentUser) setCurrentUser(next.currentUser);
     } catch (err) { setError(err instanceof Error ? err.message : "تعذر تحميل مركز العمليات"); }
     finally { setLoading(false); }
   }
@@ -79,7 +84,18 @@ export function OperationsCenter() {
     finally { setWorkingId(null); }
   }
 
-  React.useEffect(() => { void load(); }, []);
+  React.useEffect(() => {
+    let ignore = false;
+    fetchOperations()
+      .then((next) => {
+        if (ignore) return;
+        setData(next.data);
+        if (next.currentUser) setCurrentUser(next.currentUser);
+      })
+      .catch((err) => { if (!ignore) setError(err instanceof Error ? err.message : "تعذر تحميل مركز العمليات"); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, []);
 
   const serviceOptions = React.useMemo(() => {
     const seen = new Map<string, string>();

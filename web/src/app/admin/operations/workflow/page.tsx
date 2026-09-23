@@ -40,6 +40,13 @@ function actionFor(item: Item) {
   return null;
 }
 
+async function fetchWorkflowItems(): Promise<Item[]> {
+  const response = await fetch(`${API_URL}/dashboard/operations`, { credentials: "include" });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success) throw new Error(payload?.message || "تعذر تحميل الطلبات");
+  return ((payload.data as Payload).items || []).filter((item) => item.source === "contact_request");
+}
+
 export default function OperationsWorkflowPage() {
   const [items, setItems] = React.useState<Item[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -49,10 +56,7 @@ export default function OperationsWorkflowPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`${API_URL}/dashboard/operations`, { credentials: "include" });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) throw new Error(payload?.message || "تعذر تحميل الطلبات");
-      setItems(((payload.data as Payload).items || []).filter((item) => item.source === "contact_request"));
+      setItems(await fetchWorkflowItems());
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر تحميل الطلبات");
     } finally {
@@ -60,7 +64,14 @@ export default function OperationsWorkflowPage() {
     }
   }
 
-  React.useEffect(() => { void load(); }, []);
+  React.useEffect(() => {
+    let ignore = false;
+    fetchWorkflowItems()
+      .then((next) => { if (!ignore) setItems(next); })
+      .catch((err) => { if (!ignore) setError(err instanceof Error ? err.message : "تعذر تحميل الطلبات"); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, []);
 
   return (
     <AdminShell>

@@ -273,38 +273,54 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
   );
 }
 
+// Resolves to null while there is no authenticated tracking session.
+async function fetchTrackingRequests(): Promise<TrackingRequest[] | null> {
+  const response = await fetch(`${API_URL}/tracking/requests`, { credentials: "include" });
+  if (!response.ok) return null;
+  const payload = await response.json().catch(() => null);
+  return Array.isArray(payload?.data) ? payload.data : [];
+}
+
 export function EgyptClearanceTravelFollowup() {
   const [requests, setRequests] = React.useState<TrackingRequest[]>([]);
   const [authenticated, setAuthenticated] = React.useState(false);
 
-  const load = React.useCallback(async () => {
-    try {
-      const response = await fetch(`${API_URL}/tracking/requests`, { credentials: "include" });
-      if (!response.ok) {
-        setAuthenticated(false);
-        return;
-      }
-      const payload = await response.json().catch(() => null);
-      setAuthenticated(true);
-      setRequests(Array.isArray(payload?.data) ? payload.data : []);
-    } catch {
-      // The main TrackingPanel owns the login/error UX. This enhancement
-      // stays silent until an authenticated tracking session exists.
-    }
+  const applyResult = React.useCallback((result: TrackingRequest[] | null) => {
+    setAuthenticated(result !== null);
+    if (result) setRequests(result);
   }, []);
 
+  // The main TrackingPanel owns the login/error UX. This enhancement stays
+  // silent until an authenticated tracking session exists.
+  const load = React.useCallback(async () => {
+    try {
+      applyResult(await fetchTrackingRequests());
+    } catch {
+      // Silent by design, see above.
+    }
+  }, [applyResult]);
+
   React.useEffect(() => {
-    void load();
+    let ignore = false;
+    const poll = () => {
+      fetchTrackingRequests()
+        .then((result) => { if (!ignore) applyResult(result); })
+        .catch(() => {});
+    };
+    poll();
     // TrackingPanel creates the OTP session independently. While there is no
     // session yet, a short low-frequency retry lets this same page reveal the
     // Egypt follow-up immediately after verification without requiring a
     // reload. Once authenticated the interval stops.
-    if (authenticated) return;
+    if (authenticated) return () => { ignore = true; };
     const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") poll();
     }, 4000);
-    return () => window.clearInterval(interval);
-  }, [authenticated, load]);
+    return () => {
+      ignore = true;
+      window.clearInterval(interval);
+    };
+  }, [authenticated, applyResult]);
 
   const egyptRequests = requests.filter(
     (request) => request.visaType?.code === EGYPT_CLEARANCE_CODE && request.status !== "CLOSED"
