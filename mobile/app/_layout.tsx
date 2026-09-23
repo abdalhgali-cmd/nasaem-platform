@@ -31,6 +31,7 @@ export default function RootLayout() {
         <Stack.Screen name="egypt-request" options={{ title: "طلب الموافقة", headerShown: false }} />
         <Stack.Screen name="family-visit" options={{ title: "الزيارة العائلية", headerShown: false }} />
         <Stack.Screen name="family-visit-request" options={{ title: "طلب الزيارة", headerShown: false }} />
+        <Stack.Screen name="family-visit-request" options={{ title: "طلب الزيارة", headerShown: false }} />
         <Stack.Screen name="service/[slug]" options={{ title: "تفاصيل الخدمة" }} />
         <Stack.Screen name="requests" options={{ title: "الخدمات" }} />
         <Stack.Screen name="request/[kind]" options={{ title: "بيانات الطلب" }} />
