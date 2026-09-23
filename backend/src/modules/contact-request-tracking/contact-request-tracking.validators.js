@@ -4,7 +4,7 @@ export const requestCodeSchema = z.object({
   phone: z.string().trim().min(6, "رقم الهاتف مطلوب").max(30),
 });
 
-export const verifyCodeSchema = z.object({
+export const paymentCurrencySchema = z.object({\n  currency: z.enum(["SDG", "SAR", "USD", "AED", "EGP", "QAR"]),\n});\n\nexport const verifyCodeSchema = z.object({
   phone: z.string().trim().min(6, "رقم الهاتف مطلوب").max(30),
   code: z
     .string()
