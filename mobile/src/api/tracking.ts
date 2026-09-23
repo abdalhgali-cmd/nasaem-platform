@@ -1,6 +1,6 @@
-import * as SecureStore from "expo-secure-store";
 import { api } from "./client";
 import type { UploadAsset } from "./requests";
+import { deleteStoredValue,getStoredValue,saveStoredValue } from "../storage";
 
 let trackingToken:string|null=null;
 const TRACKING_TOKEN_KEY="nasaem_tracking_token";
@@ -34,15 +34,15 @@ export async function verifyTrackingCode(phone:string,code:string){
  const token=response.data?.token;
  if(!token)throw new Error("لم يتم استلام جلسة التتبع");
  trackingToken=token;
- await SecureStore.setItemAsync(TRACKING_TOKEN_KEY,token);
+ await saveStoredValue(TRACKING_TOKEN_KEY,token);
 }
 export async function restoreTrackingSession(){
- trackingToken=await SecureStore.getItemAsync(TRACKING_TOKEN_KEY);
+ trackingToken=await getStoredValue(TRACKING_TOKEN_KEY);
  return Boolean(trackingToken);
 }
 export async function clearTrackingSession(){
  trackingToken=null;
- await SecureStore.deleteItemAsync(TRACKING_TOKEN_KEY);
+ await deleteStoredValue(TRACKING_TOKEN_KEY);
 }
 function authHeaders(){if(!trackingToken)throw new Error("جلسة التتبع غير موجودة");return {Authorization:`Bearer ${trackingToken}`};}
 export async function getTrackedRequests(){const r=await api<{success:boolean;data:TrackedRequest[]}>("/api/tracking/requests",{headers:authHeaders()});return r.data;}
