@@ -23,7 +23,15 @@ function parseIfJsonString(value) {
 
 export const createContactRequestSchema = z.object({
   name: z.string().trim().min(2, "الاسم مطلوب").max(120),
-  // Phone is optional for service-intake journeys (for example Umrah);\n  // when supplied it must still be a usable contact number for tracking/WhatsApp.\n  phone: z.string().trim().max(30).refine((value) => value === "" || value.length >= 6, "رقم الهاتف غير صالح"),
+  // Phone is optional for service-intake journeys (for example Umrah).
+  // When supplied it must still be a usable contact number for tracking/WhatsApp.
+  phone: z
+    .string()
+    .trim()
+    .max(30)
+    .refine((value) => value === "" || value.length >= 6, "رقم الهاتف غير صالح")
+    .optional()
+    .default(""),
   email: z.string().trim().email("بريد إلكتروني غير صالح").optional().or(z.literal("")),
   service: z.string().trim().max(120).optional().or(z.literal("")),
   message: z.string().trim().min(5, "الرسالة قصيرة جدًا").max(2000),
