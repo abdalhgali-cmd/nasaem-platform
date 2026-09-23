@@ -1,5 +1,6 @@
 import {
   egyptTravelPlanSchema,
+  paymentCurrencySchema,
   requestCodeSchema,
   verifyCodeSchema,
 } from "./contact-request-tracking.validators.js";
@@ -11,6 +12,7 @@ import {
   rejectInvoice,
   selectOffer,
   markTransferSent,
+  choosePaymentCurrency,
   uploadMyDocument,
   uploadPaymentReceipt as uploadPaymentReceiptService,
   getMyDocumentFile,
@@ -36,7 +38,7 @@ function respondToAction(res, result, successMessage) { if (result.error === "NO
 export async function approveMyInvoice(req, res, next) { try { return respondToAction(res, await approveInvoice(req.trackingPhone, req.params.id), "تمت الموافقة على السعر"); } catch (error) { next(error); } }
 export async function rejectMyInvoice(req, res, next) { try { return respondToAction(res, await rejectInvoice(req.trackingPhone, req.params.id), "تم رفض عرض السعر"); } catch (error) { next(error); } }
 export async function selectMyOffer(req, res, next) { try { return respondToAction(res, await selectOffer(req.trackingPhone, req.params.id, req.params.offerId), "تم اختيار هذا العرض"); } catch (error) { next(error); } }
-export async function markMyTransferSent(req, res, next) { try { return respondToAction(res, await markTransferSent(req.trackingPhone, req.params.id), "تم إعلام فريقنا بالتحويل، سنراجعه قريبًا"); } catch (error) { next(error); } }
+export async function chooseMyPaymentCurrency(req, res, next) { try { const parsed = paymentCurrencySchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() }); const result = await choosePaymentCurrency(req.trackingPhone, req.params.id, parsed.data.currency); if (result.error === "INVALID_CURRENCY") return res.status(400).json({ success: false, message: "العملة المختارة غير متاحة لهذا الطلب" }); return respondToAction(res, result, "تم اختيار عملة الدفع"); } catch (error) { next(error); } }\nexport async function markMyTransferSent(req, res, next) { try { return respondToAction(res, await markTransferSent(req.trackingPhone, req.params.id), "تم إعلام فريقنا بالتحويل، سنراجعه قريبًا"); } catch (error) { next(error); } }
 export async function uploadPaymentReceipt(req, res, next) { try { if (!req.file) return res.status(400).json({ success: false, message: "A file is required" }); const result = await uploadPaymentReceiptService(req.trackingPhone, req.params.id, req.file); if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" }); if (result.error === "INVALID_STATE") return res.status(409).json({ success: false, message: "Payment receipt can only be uploaded after the customer approves the price" }); return res.status(201).json({ success: true, message: "تم رفع إشعار الدفع", data: result.document }); } catch (error) { next(error); } }
 // Platform 3.0 Phase 6: maps the requirement-validation error codes from
 // createContactRequestDocument to a clean 400, mirroring the rest of this
