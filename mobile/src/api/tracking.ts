@@ -56,8 +56,17 @@ export async function getTrackedRequests(){const r=await api<{success:boolean;da
 export async function approveTrackedInvoice(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/invoice/approve`,{method:"POST",headers:authHeaders()});}
 export async function rejectTrackedInvoice(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/invoice/reject`,{method:"POST",headers:authHeaders()});}
 export async function selectTrackedOffer(id:string,offerId:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/offers/${encodeURIComponent(offerId)}/select`,{method:"POST",headers:authHeaders()});}
-export async function chooseTrackedPaymentCurrency(id:string,currency:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/payment-currency`,{method:"POST",headers:authHeaders(),body:JSON.stringify({currency})});}\nexport async function markTrackedTransferSent(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/mark-transfer-sent`,{method:"POST",headers:authHeaders()});}
-export async function uploadTrackedDocument(id:string,input:{label:string;requirementId?:string;travelerId?:string|null},file:UploadAsset){\n const body=new FormData();\n body.append("label",input.label);\n if(input.requirementId)body.append("requirementId",input.requirementId);\n if(input.travelerId)body.append("travelerId",input.travelerId);\n body.append("file",{uri:file.uri,name:file.name,type:file.mimeType||"application/octet-stream"} as unknown as Blob);\n return api(`/api/tracking/requests/${encodeURIComponent(id)}/documents`,{method:"POST",headers:authHeaders(),body});\n}\nexport async function uploadTrackedPaymentReceipt(id:string,file:UploadAsset){
+export async function chooseTrackedPaymentCurrency(id:string,currency:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/payment-currency`,{method:"POST",headers:authHeaders(),body:JSON.stringify({currency})});}
+export async function markTrackedTransferSent(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/mark-transfer-sent`,{method:"POST",headers:authHeaders()});}
+export async function uploadTrackedDocument(id:string,input:{label:string;requirementId?:string;travelerId?:string|null},file:UploadAsset){
+ const body=new FormData();
+ body.append("label",input.label);
+ if(input.requirementId)body.append("requirementId",input.requirementId);
+ if(input.travelerId)body.append("travelerId",input.travelerId);
+ body.append("file",{uri:file.uri,name:file.name,type:file.mimeType||"application/octet-stream"} as unknown as Blob);
+ return api(`/api/tracking/requests/${encodeURIComponent(id)}/documents`,{method:"POST",headers:authHeaders(),body});
+}
+export async function uploadTrackedPaymentReceipt(id:string,file:UploadAsset){
  const body=new FormData();
  body.append("file",{uri:file.uri,name:file.name,type:file.mimeType||"application/octet-stream"} as unknown as Blob);
  return api(`/api/tracking/requests/${encodeURIComponent(id)}/payment-receipt`,{method:"POST",headers:authHeaders(),body});
