@@ -15,6 +15,11 @@ export type TrackedRequest={
  statusLabel?:string;
  paymentStatus?:string|null;
  paymentCurrency?:string|null;
+ paymentAmount?:number|null;
+ paymentBaseAmount?:number|null;
+ paymentBaseCurrency?:string|null;
+ paymentFxRate?:number|null;
+ paymentOptions?:string[];
  createdAt?:string;
  selectedOfferId?:string|null;
  invoice?:{amount?:number|string;currency?:string;status?:string}|null;
@@ -23,6 +28,8 @@ export type TrackedRequest={
  visaType?:{id:string;code?:string;name?:string;country?:string}|null;
  intakeData?:Record<string,any>|null;
  deliverables?:{id:string;label?:string;fileName?:string}[];
+ checklist?:{requirementId:string;label:string;description?:string|null;kind:string;required:boolean;state:string;documentId?:string|null;reviewNote?:string|null;travelerId?:string|null;travelerName?:string|null;answer?:string|null}[];
+ nextActions?:{code:string;label:string;reason?:string|null;requirementId?:string;travelerId?:string|null}[];
  [key:string]:unknown;
 };
 
@@ -49,7 +56,7 @@ export async function getTrackedRequests(){const r=await api<{success:boolean;da
 export async function approveTrackedInvoice(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/invoice/approve`,{method:"POST",headers:authHeaders()});}
 export async function rejectTrackedInvoice(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/invoice/reject`,{method:"POST",headers:authHeaders()});}
 export async function selectTrackedOffer(id:string,offerId:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/offers/${encodeURIComponent(offerId)}/select`,{method:"POST",headers:authHeaders()});}
-export async function markTrackedTransferSent(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/mark-transfer-sent`,{method:"POST",headers:authHeaders()});}
+export async function chooseTrackedPaymentCurrency(id:string,currency:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/payment-currency`,{method:"POST",headers:authHeaders(),body:JSON.stringify({currency})});}\nexport async function markTrackedTransferSent(id:string){return api(`/api/tracking/requests/${encodeURIComponent(id)}/mark-transfer-sent`,{method:"POST",headers:authHeaders()});}
 export async function uploadTrackedPaymentReceipt(id:string,file:UploadAsset){
  const body=new FormData();
  body.append("file",{uri:file.uri,name:file.name,type:file.mimeType||"application/octet-stream"} as unknown as Blob);
