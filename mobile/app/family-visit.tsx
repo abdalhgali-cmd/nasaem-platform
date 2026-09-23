@@ -34,13 +34,8 @@ export default function FamilyVisitLandingScreen() {
 
   const start = () =>
     router.push({
-      pathname: "/request/[kind]",
-      params: {
-        kind: "family",
-        serviceId: service?.id ?? "",
-        serviceName: service?.name ?? "الزيارة العائلية السعودية",
-        visaTypeId: visaType?.id ?? "",
-      },
+      pathname: "/family-visit-request",
+      params: {},
     });
 
   return (
