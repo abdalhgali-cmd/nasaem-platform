@@ -162,8 +162,8 @@ export async function createContactRequest(data, req, files = []) {
   const baseData = {
     name: data.name,
     organizationId: req.customer?.organizationId || "org_nasaem_default",
-    phone: data.phone,
-    phoneNormalized: normalizePhone(data.phone),
+    phone: data.phone || "",
+    phoneNormalized: normalizePhone(data.phone || ""),
     email: data.email || null,
     service: data.service || null,
     serviceId: data.serviceId || null,
