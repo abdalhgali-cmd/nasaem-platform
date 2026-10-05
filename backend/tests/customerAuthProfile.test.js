@@ -34,7 +34,9 @@ describe("customer accounts: password management, profile, authorization", () =>
   test("forgot-password / reset-password flow", async () => {
     const suffix = uniqueSuffix();
     const phone = `249${suffix}`;
-    await request(app).post("/api/customer-auth/register").send({ fullName: "Reset Test", phone, password: "Original@123" });
+    const reg = await request(app).post("/api/customer-auth/request-registration-code").send({ phone });
+    const registered = await request(app).post("/api/customer-auth/register").send({ fullName: "Reset Test", phone, password: "Original@123", code: reg.body.debugCode });
+    assert.equal(registered.status, 201);
 
     const forgot = await request(app).post("/api/customer-auth/forgot-password").send({ phone });
     assert.equal(forgot.status, 200);

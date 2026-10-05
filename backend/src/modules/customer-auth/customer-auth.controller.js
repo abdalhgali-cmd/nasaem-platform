@@ -1,5 +1,6 @@
 import {
   registerSchema,
+  requestRegistrationCodeSchema,
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
@@ -8,6 +9,7 @@ import {
 } from "./customer-auth.validators.js";
 import {
   registerCustomer,
+  requestRegistrationCode,
   loginCustomer,
   getCustomerProfile,
   updateCustomerProfile,
@@ -47,6 +49,15 @@ export async function register(req, res, next) {
 
     const result = await registerCustomer(parsed.data);
 
+    if (result.error === "INVALID_CODE") {
+      return res.status(400).json({ success: false, message: "رمز التحقق غير صحيح أو منتهي الصلاحية" });
+    }
+    if (result.error === "AMBIGUOUS_RECORDS") {
+      return res.status(409).json({
+        success: false,
+        message: "يوجد أكثر من سجل مرتبط بهذا الرقم. يرجى التواصل مع الوكالة لدمج السجلات قبل إنشاء الحساب.",
+      });
+    }
     if (result.error === "PHONE_TAKEN") {
       return res.status(409).json({ success: false, message: "رقم الهاتف مستخدم بالفعل، يرجى تسجيل الدخول" });
     }
@@ -55,9 +66,31 @@ export async function register(req, res, next) {
     }
 
     sendCustomerCookie(res, result.token);
-    logActivity({ action: "CUSTOMER_REGISTERED", entity: "Customer", entityId: result.customer.id, req });
+    logActivity({
+      action: result.linkedExisting ? "CUSTOMER_ACCOUNT_LINKED" : "CUSTOMER_REGISTERED",
+      entity: "Customer",
+      entityId: result.customer.id,
+      req,
+    });
 
     return res.status(201).json({ success: true, message: "تم إنشاء الحساب بنجاح", data: { customer: result.customer } });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function requestRegistrationCodeHandler(req, res, next) {
+  try {
+    const parsed = requestRegistrationCodeSchema.safeParse(req.body);
+    if (!parsed.success) return validationError(res, parsed.error);
+
+    const { debugCode } = await requestRegistrationCode(parsed.data.phone);
+    // Same answer whether or not the phone already has a record or account.
+    return res.status(200).json({
+      success: true,
+      message: "إذا كان الرقم صحيحًا، سيصلك رمز التحقق عبر واتساب",
+      ...(debugCode ? { debugCode } : {}),
+    });
   } catch (error) {
     next(error);
   }

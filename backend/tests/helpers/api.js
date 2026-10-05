@@ -40,11 +40,21 @@ export function uniqueSuffix() {
 export async function registerCustomer(overrides = {}) {
   const suffix = uniqueSuffix();
   const agent = request.agent(app);
+  const phone = overrides.phone ?? `249${suffix}`;
+
+  // Phone-ownership proof is required: the test environment exposes the OTP as
+  // `debugCode` (never in production), standing in for the WhatsApp message.
+  const codeRes = await agent.post("/api/customer-auth/request-registration-code").send({ phone });
+  if (codeRes.status !== 200 || !codeRes.body.debugCode) {
+    throw new Error(`Failed to request registration code (status ${codeRes.status}): ${JSON.stringify(codeRes.body)}`);
+  }
+
   const res = await agent.post("/api/customer-auth/register").send({
     fullName: `Test Customer ${suffix}`,
-    phone: `249${suffix}`,
     password: "Test@12345",
     ...overrides,
+    phone,
+    code: codeRes.body.debugCode,
   });
 
   if (res.status !== 201) {

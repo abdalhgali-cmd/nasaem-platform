@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import prisma from "../../config/database.js";
 import { hashPassword, comparePassword } from "../../utils/password.js";
+import { checkPhoneCode, consumePhoneCode, issuePhoneCode } from "../../utils/phoneVerification.js";
 import { signCustomerToken } from "../../utils/jwt.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
@@ -41,12 +42,25 @@ function sanitizeCustomer(customer) {
 // brand-new account instead of being merged into their existing CRM
 // history — an acceptable, disclosed trade-off rather than an unbounded
 // scan-and-normalize over the whole customer table.
-async function findCustomerByPhone(rawPhone) {
-  const trimmed = rawPhone.trim();
+function phoneVariants(rawPhone) {
+  const trimmed = String(rawPhone ?? "").trim();
   const normalized = normalizePhone(rawPhone);
-  return prisma.customer.findFirst({
-    where: { OR: [{ phone: trimmed }, { phone: normalized }] },
-  });
+  const variants = new Set([trimmed, normalized]);
+  if (normalized) {
+    variants.add(`+${normalized}`);
+    // Staff often typed Sudanese numbers in local form (09xxxxxxxx).
+    if (normalized.startsWith("249")) variants.add(`0${normalized.slice(3)}`);
+  }
+  variants.delete("");
+  return [...variants];
+}
+
+async function findCustomerByPhone(rawPhone) {
+  return prisma.customer.findFirst({ where: { phone: { in: phoneVariants(rawPhone) } } });
+}
+
+async function findCustomersByPhone(rawPhone) {
+  return prisma.customer.findMany({ where: { phone: { in: phoneVariants(rawPhone) } }, orderBy: { createdAt: "asc" } });
 }
 
 async function isEmailTakenByAnotherAccount(email, excludeCustomerId) {
@@ -62,13 +76,40 @@ async function isEmailTakenByAnotherAccount(email, excludeCustomerId) {
   return Boolean(existing);
 }
 
-export async function registerCustomer({ fullName, phone, email, password }) {
-  const normalizedPhone = normalizePhone(phone);
-  const existing = await findCustomerByPhone(phone);
+export const REGISTRATION_PURPOSE = "CUSTOMER_REGISTRATION";
 
-  if (existing?.passwordHash) {
+// Step 1 of registration: prove ownership of the phone. The response never
+// reveals whether the phone already has a record or an account.
+export async function requestRegistrationCode(rawPhone) {
+  return issuePhoneCode({
+    phone: rawPhone,
+    purpose: REGISTRATION_PURPOSE,
+    message: (code) => `رمز التحقق لإنشاء حسابك في نسائم الحرمين: ${code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.`,
+  });
+}
+
+// Step 2: create the account, or link it to the customer record that already
+// exists for this phone — but ONLY for the person who proved they own it.
+// A password must never be attached to an existing customer record on the
+// strength of knowing its phone number: that record holds passports,
+// documents and payment history.
+export async function registerCustomer({ fullName, phone, email, password, code }) {
+  const verification = await checkPhoneCode({ phone, purpose: REGISTRATION_PURPOSE, code });
+  if (!verification) return { error: "INVALID_CODE" };
+
+  const normalizedPhone = normalizePhone(phone);
+  const candidates = await findCustomersByPhone(phone);
+
+  if (candidates.some((candidate) => candidate.passwordHash)) {
     return { error: "PHONE_TAKEN" };
   }
+  if (candidates.length > 1) {
+    // Several unclaimed records share this phone (e.g. family members entered
+    // separately by staff). Guessing which one belongs to this person could
+    // expose someone else's data, so staff must merge them first.
+    return { error: "AMBIGUOUS_RECORDS" };
+  }
+  const existing = candidates[0] ?? null;
 
   const cleanEmail = email?.trim() || null;
   if (await isEmailTakenByAnotherAccount(cleanEmail, existing?.id)) {
@@ -77,30 +118,37 @@ export async function registerCustomer({ fullName, phone, email, password }) {
 
   const passwordHash = await hashPassword(password);
 
-  const customer = existing
-    ? await prisma.customer.update({
+  const customer = await prisma.$transaction(async (tx) => {
+    // Single use, atomically: a concurrent replay of the same code loses here.
+    if (!(await consumePhoneCode(verification, tx))) return null;
+
+    if (existing) {
+      return tx.customer.update({
         where: { id: existing.id },
         data: {
-          fullName: fullName || existing.fullName,
+          fullName: existing.fullName || fullName,
           email: cleanEmail || existing.email,
           passwordHash,
           lastLoginAt: new Date(),
         },
         select: CUSTOMER_PROFILE_SELECT,
-      })
-    : await prisma.customer.create({
-        data: {
-          customerNo: await generateCustomerNo(),
-          fullName,
-          phone: normalizedPhone,
-          email: cleanEmail,
-          passwordHash,
-          lastLoginAt: new Date(),
-        },
-        select: CUSTOMER_PROFILE_SELECT,
       });
+    }
+    return tx.customer.create({
+      data: {
+        customerNo: await generateCustomerNo(),
+        fullName,
+        phone: normalizedPhone,
+        email: cleanEmail,
+        passwordHash,
+        lastLoginAt: new Date(),
+      },
+      select: CUSTOMER_PROFILE_SELECT,
+    });
+  });
+  if (!customer) return { error: "INVALID_CODE" };
 
-  return { token: signCustomerToken(customer.id), customer };
+  return { token: signCustomerToken(customer.id), customer, linkedExisting: Boolean(existing) };
 }
 
 export async function loginCustomer({ identifier, password }) {

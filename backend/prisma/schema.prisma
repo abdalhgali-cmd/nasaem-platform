@@ -1492,6 +1492,22 @@ model Invoice {
   @@index([createdByUserId])
 }
 
+// One-time phone-ownership codes, separated by `purpose` so a code issued for
+// one flow (e.g. customer account registration) can never authorise another.
+// Only an HMAC of the code is stored, never the code itself.
+model PhoneVerification {
+  id         String    @id @default(cuid())
+  phone      String
+  purpose    String
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, purpose, createdAt])
+}
+
 model ContactRequestLoginCode {
   id         String    @id @default(cuid())
   phone      String

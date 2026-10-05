@@ -3,6 +3,11 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, registerCustomer, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 
+async function registrationCode(phone) {
+  const res = await request(app).post("/api/customer-auth/request-registration-code").send({ phone });
+  return res.body.debugCode;
+}
+
 // Split from customerAuthProfile.test.js so each file's register()/login()
 // calls stay comfortably under customer-auth's rate limiter (10 per 15
 // minutes, see customer-auth.routes.js's authLimiter) — each test file
@@ -20,15 +25,15 @@ describe("customer accounts: registration, login, session", () => {
   test("rejects registering the same phone twice", async () => {
     const suffix = uniqueSuffix();
     const phone = `249${suffix}`;
-    const first = await request(app).post("/api/customer-auth/register").send({ fullName: "Ali A", phone, password: "Test@12345" });
+    const first = await request(app).post("/api/customer-auth/register").send({ fullName: "Ali A", phone, password: "Test@12345", code: await registrationCode(phone) });
     assert.equal(first.status, 201);
 
-    const second = await request(app).post("/api/customer-auth/register").send({ fullName: "Bob B", phone, password: "Different@123" });
+    const second = await request(app).post("/api/customer-auth/register").send({ fullName: "Bob B", phone, password: "Different@123", code: await registrationCode(phone) });
     assert.equal(second.status, 409);
   });
 
   test("rejects a weak password", async () => {
-    const res = await request(app).post("/api/customer-auth/register").send({ fullName: "A", phone: "249911112222", password: "123" });
+    const res = await request(app).post("/api/customer-auth/register").send({ fullName: "A", phone: "249911112222", password: "123", code: "123456" });
     assert.equal(res.status, 400);
   });
 
@@ -36,7 +41,8 @@ describe("customer accounts: registration, login, session", () => {
     const suffix = uniqueSuffix();
     const phone = `249${suffix}`;
     const email = `customer${suffix}@example.com`;
-    await request(app).post("/api/customer-auth/register").send({ fullName: "Login Test", phone, email, password: "Test@12345" });
+    const registered = await request(app).post("/api/customer-auth/register").send({ fullName: "Login Test", phone, email, password: "Test@12345", code: await registrationCode(phone) });
+    assert.equal(registered.status, 201);
 
     const byPhone = await request(app).post("/api/customer-auth/login").send({ identifier: phone, password: "Test@12345" });
     assert.equal(byPhone.status, 200);

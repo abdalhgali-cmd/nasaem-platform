@@ -17,18 +17,40 @@ export function AccountAuthCard({ mode }: { mode: "login" | "register" }) {
   const [email, setEmail] = React.useState("");
   const [identifier, setIdentifier] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [code, setCode] = React.useState("");
+  const [codeSent, setCodeSent] = React.useState(false);
+  const [sendingCode, setSendingCode] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Registration requires proof that the phone belongs to the person signing
+  // up (a WhatsApp one-time code) — the code is never shown on screen.
+  async function sendCode() {
+    setError(null);
+    setSendingCode(true);
+    try {
+      await customerApi("/customer-auth/request-registration-code", { method: "POST", body: { phone } });
+      setCodeSent(true);
+    } catch (err) {
+      setError(err instanceof CustomerApiError ? err.message : "تعذر إرسال رمز التحقق، حاول مرة أخرى");
+    } finally {
+      setSendingCode(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (mode === "register" && !codeSent) {
+      setError("أرسل رمز التحقق إلى هاتفك أولًا.");
+      return;
+    }
     setSubmitting(true);
     try {
       if (mode === "register") {
         await customerApi("/customer-auth/register", {
           method: "POST",
-          body: { fullName, phone, email: email || undefined, password },
+          body: { fullName, phone, email: email || undefined, password, code },
         });
       } else {
         await customerApi("/customer-auth/login", {
@@ -98,7 +120,32 @@ export function AccountAuthCard({ mode }: { mode: "login" | "register" }) {
               onChange={(e) => setPhone(e.target.value)}
               className={inputClass}
               placeholder="+249 9XX XXX XXX"
+              disabled={codeSent}
             />
+            <Button type="button" variant="outline" size="sm" className="self-start" disabled={sendingCode || phone.trim().length < 6} onClick={sendCode}>
+              {sendingCode ? <Loader2 className="size-4 animate-spin" /> : null}
+              {codeSent ? "إعادة إرسال الرمز" : "إرسال رمز التحقق عبر واتساب"}
+            </Button>
+            {codeSent ? (
+              <>
+                <label htmlFor="code" className="mt-2 text-sm font-semibold text-foreground">
+                  رمز التحقق (6 أرقام)
+                </label>
+                <input
+                  id="code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  dir="ltr"
+                  required
+                  pattern="\d{6}"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                  className={inputClass}
+                  placeholder="000000"
+                />
+              </>
+            ) : null}
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
@@ -155,7 +202,7 @@ export function AccountAuthCard({ mode }: { mode: "login" | "register" }) {
           ) : null}
         </div>
 
-        <Button type="submit" variant="gold" size="lg" className="w-full" disabled={submitting}>
+        <Button type="submit" variant="gold" size="lg" className="w-full" disabled={submitting || (mode === "register" && (!codeSent || code.length !== 6))}>
           {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
           {submitting ? "جارٍ المعالجة..." : mode === "register" ? "إنشاء الحساب" : "تسجيل الدخول"}
         </Button>

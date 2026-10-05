@@ -10,6 +10,11 @@ export const registerSchema = z.object({
   phone: z.string().trim().min(6, "رقم الهاتف مطلوب").max(30),
   email: z.string().trim().email("البريد الإلكتروني غير صحيح").max(200).optional().or(z.literal("")),
   password: passwordSchema,
+  code: z.string().trim().regex(/^\d{6}$/, "رمز التحقق غير صحيح"),
+});
+
+export const requestRegistrationCodeSchema = z.object({
+  phone: z.string().trim().min(6, "رقم الهاتف مطلوب").max(30),
 });
 
 export const loginSchema = z.object({
