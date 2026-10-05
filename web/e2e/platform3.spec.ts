@@ -21,11 +21,11 @@ const BACKEND_URL = "http://localhost:5000";
 // hero image hasn't rendered on this particular navigation) must not hang
 // the whole poll; it just counts as "not ready", exactly like an
 // unmatched value would, and the loop reloads and tries again.
-async function pollByReloading<T>(page: Page, check: (timeoutMs: number) => Promise<T>, isDone: (value: T) => boolean, label: string): Promise<T> {
+async function pollByReloading<T>(page: Page, check: (timeoutMs: number) => Promise<T>, isDone: (value: T) => boolean, label: string, path = "/"): Promise<T> {
   const deadline = Date.now() + 150_000;
   let last: T | undefined;
   do {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.goto(path, { waitUntil: "domcontentloaded" });
     try {
       last = await check(5_000);
       if (isDone(last)) return last;
@@ -36,6 +36,12 @@ async function pollByReloading<T>(page: Page, check: (timeoutMs: number) => Prom
   } while (Date.now() < deadline);
   throw new Error(`${label}: did not observe the expected value within the polling window. Last seen: ${JSON.stringify(last)}`);
 }
+
+// The homepage's services grid is intentionally capped at its first 6 entries
+// (a scannable set of entry points); the COMPLETE public catalog — where every
+// admin-created service must appear — is /services. Catalog assertions below
+// therefore poll /services, not the homepage.
+const CATALOG_PATH = "/services";
 
 // Platform 3.0 Phase 18 — the plan's own required E2E scenario list
 // (Section 21): homepage, visa, airports, airlines, ferries, security
@@ -83,7 +89,7 @@ test.describe("Homepage — admin change reflects publicly", () => {
     }
   });
 
-  test("an admin-created service appears in the public homepage catalog", async ({ page }) => {
+  test("an admin-created service appears in the public service catalog", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
     const code = `E2E-SERVICE-${Date.now()}`;
@@ -97,7 +103,8 @@ test.describe("Homepage — admin change reflects publicly", () => {
         page,
         (timeoutMs) => page.getByRole("heading", { name }).count().then((count) => count > 0 ? name : page.locator("body").innerText({ timeout: timeoutMs })),
         (text) => text.includes(name),
-        "admin-created homepage service"
+        "admin-created catalog service",
+        CATALOG_PATH
       );
     } finally {
       await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
@@ -719,10 +726,15 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       await createPackage(firstCode, firstName, 10);
       await createPackage(secondCode, secondName, 20);
 
+      // /umrah is a package PICKER: each package is a button whose first
+      // paragraph is the package name, in the admin-defined sort order.
+      const packageNames = () => page.locator("main button").evaluateAll((buttons) => buttons.map((button) => button.querySelector("p")?.textContent ?? "").filter(Boolean));
+      const packageButton = (name: string) => page.getByRole("button", { name });
+
       await page.goto("/umrah", { waitUntil: "networkidle" });
-      await expect(page.getByRole("heading", { name: firstName })).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByRole("heading", { name: secondName })).toBeVisible({ timeout: 15_000 });
-      const initialCards = await page.locator("article h3").allTextContents();
+      await expect(packageButton(firstName)).toBeVisible({ timeout: 15_000 });
+      await expect(packageButton(secondName)).toBeVisible({ timeout: 15_000 });
+      const initialCards = await packageNames();
       expect(initialCards.indexOf(firstName)).toBeGreaterThanOrEqual(0);
       expect(initialCards.indexOf(firstName)).toBeLessThan(initialCards.indexOf(secondName));
 
@@ -736,16 +748,16 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       expect(updateResponse.ok(), await updateResponse.text()).toBeTruthy();
 
       await page.reload({ waitUntil: "networkidle" });
-      await expect(page.getByRole("heading", { name: updatedName })).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByRole("heading", { name: firstName })).toHaveCount(0);
-      const updatedCards = await page.locator("article h3").allTextContents();
+      await expect(packageButton(updatedName)).toBeVisible({ timeout: 15_000 });
+      await expect(packageButton(firstName)).toHaveCount(0);
+      const updatedCards = await packageNames();
       expect(updatedCards.indexOf(updatedName)).toBeLessThan(updatedCards.indexOf(secondName));
 
       const deactivateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, { data: { active: false } });
       expect(deactivateResponse.ok(), await deactivateResponse.text()).toBeTruthy();
       await page.reload({ waitUntil: "networkidle" });
-      await expect(page.getByRole("heading", { name: updatedName })).toHaveCount(0);
-      await expect(page.getByRole("heading", { name: secondName })).toBeVisible({ timeout: 15_000 });
+      await expect(packageButton(updatedName)).toHaveCount(0);
+      await expect(packageButton(secondName)).toBeVisible({ timeout: 15_000 });
     } finally {
       for (const id of created) await admin.delete(`${BACKEND_URL}/api/services/${id}`);
     }
@@ -813,7 +825,8 @@ test.describe("Direct service routing — no intermediate catalog browsing", () 
         page,
         (timeoutMs) => page.locator("a").filter({ hasText: name }).first().getAttribute("href", { timeout: timeoutMs }),
         (href) => href === `/services/${expectedSlug}`,
-        "generic service homepage card href"
+        "generic service catalog card href",
+        CATALOG_PATH
       );
 
       await page.goto(`/services/${expectedSlug}`, { waitUntil: "networkidle" });
@@ -832,7 +845,7 @@ test.describe("Direct service routing — no intermediate catalog browsing", () 
 });
 
 test.describe("Service media — admin-controlled icon and safe fallbacks", () => {
-  test("admin sets a service's icon and the public homepage card renders it", async ({ page }) => {
+  test("admin sets a service's icon and the public catalog card renders it", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
     const code = `E2E-ICON-${Date.now()}`;
@@ -852,7 +865,8 @@ test.describe("Service media — admin-controlled icon and safe fallbacks", () =
           return link;
         },
         () => true,
-        "generic service card"
+        "generic service card",
+        CATALOG_PATH
       );
       // No image was uploaded — the card must render the chosen icon, never
       // a broken <img>.
@@ -883,7 +897,8 @@ test.describe("Service media — admin-controlled icon and safe fallbacks", () =
           return link;
         },
         () => true,
-        "fallback service card"
+        "fallback service card",
+        CATALOG_PATH
       );
       await expect(card.locator("img")).toHaveCount(0);
       // The default Package icon specifically — the card's "اعرف المزيد"

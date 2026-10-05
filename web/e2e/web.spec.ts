@@ -60,9 +60,11 @@ test.describe("Operations Center — mobile viewport", () => {
     expect(searchBox!.width).toBeGreaterThan(0);
     expect(searchBox!.x + searchBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
 
-    // All four filter <select>s (status, service, employee, payment status)
-    // must actually be reachable/tappable at this width, not clipped
-    // off-screen.
+    // The filters live behind a toggle (progressive disclosure on the
+    // simplified Operations Center). Open it, then all four filter <select>s
+    // (status, service, employee, payment status) must actually be
+    // reachable/tappable at this width, not clipped off-screen.
+    await page.getByRole("button", { name: /الفلاتر/ }).click();
     const selects = page.locator("select");
     await expect(selects).toHaveCount(4);
     for (let i = 0; i < 4; i++) {
