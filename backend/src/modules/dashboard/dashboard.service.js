@@ -1,4 +1,5 @@
 import prisma from "../../config/database.js";
+import { money } from "../../utils/money.js";
 import { safeCustomerSelect } from "../../utils/safeSelects.js";
 
 // `organizationId` scopes every query tied (directly or via a relation) to
@@ -89,10 +90,12 @@ export async function getDashboardSummary(organizationId) {
         // review (status stays UNPAID until confirmed, see
         // payments.service.js) must not inflate "paid" before staff have
         // actually confirmed it, same fix as recalculateOrderPaymentStatus.
-        prisma.payment.aggregate({ where: { createdAt: { gte: startToday }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startWeek }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startMonth }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
+        prisma.payment.groupBy({ by: ["currency"], where: { createdAt: { gte: startToday }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
+        prisma.payment.groupBy({ by: ["currency"], where: { createdAt: { gte: startWeek }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
+        prisma.payment.groupBy({ by: ["currency"], where: { createdAt: { gte: startMonth }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
     prisma.contactRequest.count({ where: { status: { not: "CLOSED" }, ...orgFilter } }),
   ]);
-  return { periods: { today: { orders: todayOrders, paid: todayPayments._sum.amount || 0 }, last7Days: { orders: weekOrders, paid: weekPayments._sum.amount || 0 }, month: { orders: monthOrders, paid: monthPayments._sum.amount || 0 } }, openContactRequests: openRequests, profit: null, profitNote: "لا يتم احتساب الربح حتى تتوفر تكلفة المورد الفعلية للطلب." };
+  // Money received in each currency, never added across currencies.
+  const byCurrency = (rows) => Object.fromEntries(rows.map((row) => [row.currency, money(row._sum.amount || 0)]));
+  return { periods: { today: { orders: todayOrders, paidByCurrency: byCurrency(todayPayments) }, last7Days: { orders: weekOrders, paidByCurrency: byCurrency(weekPayments) }, month: { orders: monthOrders, paidByCurrency: byCurrency(monthPayments) } }, openContactRequests: openRequests, profit: null, profitNote: "لا يتم احتساب الربح حتى تتوفر تكلفة المورد الفعلية للطلب." };
 }

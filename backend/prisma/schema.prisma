@@ -842,6 +842,13 @@ model Payment {
   referenceNumber  String?
   status           PaymentStatus        @default(UNPAID)
   paidAt           DateTime?
+  // FX snapshot taken when the payment is recorded (see docs/FINANCIAL_MODEL.md):
+  // fxRate = order-currency units per 1 unit of `currency`; convertedAmount =
+  // amount x fxRate in the ORDER's currency (half-up, 2dp). NULL only on legacy
+  // rows whose currency differs from their order's and so cannot be converted
+  // without a human decision (see scripts/audit-payment-currencies.js).
+  fxRate           Decimal?             @db.Decimal(18, 8)
+  convertedAmount  Decimal?             @db.Decimal(14, 2)
   reviewStatus     PaymentReviewStatus?
   rejectionReason  String?
   reviewedByUserId String?

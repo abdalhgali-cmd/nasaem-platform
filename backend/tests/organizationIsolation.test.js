@@ -140,8 +140,9 @@ describe("organization tenant boundary", () => {
     // order — if the `organizationId` filter were ignored, this would
     // instead return every order in the whole test database.
     const otherReport = await getFinancialReport({ organizationId: otherOrganization.id });
-    assert.equal(otherReport.totals.ordersCount, 1, "a fresh organization's report must be scoped to only its own order");
-    assert.equal(otherReport.totals.revenue, 500);
+    assert.equal(otherReport.totalsByCurrency.length, 1, "a fresh organization's report must be scoped to only its own order");
+    assert.equal(otherReport.totalsByCurrency[0].ordersCount, 1);
+    assert.equal(Number(otherReport.totalsByCurrency[0].revenue), 500);
   });
 
   test("dashboard stats, operations center and summary are scoped to the caller's organization", async () => {
@@ -209,7 +210,7 @@ describe("organization tenant boundary", () => {
 
     const summary = await getDashboardSummary(otherOrganization.id);
     assert.equal(summary.periods.today.orders, 1);
-    assert.equal(Number(summary.periods.today.paid), 150);
+    assert.equal(Number(summary.periods.today.paidByCurrency.SAR), 150);
   });
 
   test("activity logs resolve and scope to the acting organization even without req.user", async () => {

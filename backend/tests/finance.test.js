@@ -108,7 +108,7 @@ describe("finance reports", () => {
     assert.equal(res.status, 200);
     const row = res.body.data.breakdown.rows.find((r) => r.key === `no_cost_${suffix}`);
     assert.ok(row, "expected a breakdown row for the new service category");
-    assert.equal(row.revenue, 250);
+    assert.equal(Number(row.revenue), 250);
     assert.equal(row.supplierCost, null);
     assert.equal(row.grossProfit, null);
   });
@@ -131,9 +131,9 @@ describe("finance reports", () => {
     assert.equal(res.status, 200);
     const row = res.body.data.breakdown.rows.find((r) => r.key === category);
     assert.ok(row, "expected a breakdown row for the new service category");
-    assert.equal(row.revenue, 500);
-    assert.equal(row.supplierCost, 300);
-    assert.equal(row.grossProfit, 200);
+    assert.equal(Number(row.revenue), 500);
+    assert.equal(Number(row.supplierCost), 300);
+    assert.equal(Number(row.grossProfit), 200);
   });
 
   test("groupBy=employee groups order-level metrics by assigned staff", async () => {

@@ -2,6 +2,7 @@ import prismaPackage from "@prisma/client";
 
 const { Prisma } = prismaPackage;
 import prisma from "../../config/database.js";
+import { summarizeOrderPayments } from "../../utils/money.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
@@ -125,7 +126,11 @@ export async function setItemSupplierCost(orderId, itemId, data, organizationId)
 }
 
 export async function getOrderById(id, organizationId) {
-  return prisma.order.findFirst({ where: { id, organizationId }, include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, documents: true, payments: true, notes: true, history: true, notifications: true, branch: true } });
+  const order = await prisma.order.findFirst({ where: { id, organizationId }, include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, documents: true, payments: true, notes: true, history: true, notifications: true, branch: true } });
+  if (!order) return null;
+  // Settlement position in the order's own currency (utils/money.js).
+  const { paidAmount, refundedAmount, balanceDue, overpaidAmount, unreconciledPayments } = summarizeOrderPayments(order, order.payments);
+  return { ...order, paidAmount, refundedAmount, balanceDue, overpaidAmount, unreconciledPayments };
 }
 
 // Coupon application (Phase 6 of the customer-accounts/coupons plan). A

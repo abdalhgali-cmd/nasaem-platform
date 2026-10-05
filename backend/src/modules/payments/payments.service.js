@@ -2,6 +2,7 @@ import prismaPackage from "@prisma/client";
 
 const { Prisma } = prismaPackage;
 import prisma from "../../config/database.js";
+import { Decimal, convertAmount, dec, summarizeOrderPayments } from "../../utils/money.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 
@@ -28,22 +29,18 @@ const paymentInclude = {
 async function recalculateOrderPaymentStatus(db, orderId) {
   const order = await db.order.findUnique({
     where: { id: orderId },
-    select: { totalAmount: true },
+    select: { totalAmount: true, currency: true },
   });
 
   const payments = await db.payment.findMany({
-    where: { orderId, status: "PAID" },
-    select: { amount: true, status: true },
+    where: { orderId, status: { in: ["PAID", "REFUNDED"] } },
+    select: { status: true, convertedAmount: true },
   });
 
-  const totalPaid = payments.reduce((sum, payment) => sum.plus(payment.amount), new Prisma.Decimal(0));
-
-  let paymentStatus = "UNPAID";
-  if (totalPaid.greaterThanOrEqualTo(order?.totalAmount ?? new Prisma.Decimal(0))) {
-    paymentStatus = "PAID";
-  } else if (totalPaid.greaterThan(0)) {
-    paymentStatus = "PARTIAL";
-  }
+  // Net of refunds, in the order's own currency (see utils/money.js and
+  // docs/FINANCIAL_MODEL.md): foreign-currency payments count at their stored
+  // conversion snapshot, never at face value.
+  const { paymentStatus } = summarizeOrderPayments(order ?? { totalAmount: 0, currency: "SAR" }, payments);
 
   await db.order.update({
     where: { id: orderId },
@@ -51,6 +48,31 @@ async function recalculateOrderPaymentStatus(db, orderId) {
   });
 
   return paymentStatus;
+}
+
+function badRequest(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
+// Resolves the currency + FX snapshot for a payment recorded against `order`.
+export function resolvePaymentConversion({ order, amount, currency, fxRate }) {
+  const paymentCurrency = currency ?? order.currency;
+
+  if (paymentCurrency === order.currency) {
+    if (fxRate !== undefined && fxRate !== null && !dec(fxRate).equals(1)) {
+      throw badRequest(`fxRate must be 1 (or omitted) when the payment is in the order currency (${order.currency})`);
+    }
+    return { currency: paymentCurrency, fxRate: new Decimal(1), convertedAmount: convertAmount(amount, 1) };
+  }
+
+  if (fxRate === undefined || fxRate === null) {
+    throw badRequest(
+      `This payment is in ${paymentCurrency} but the order is in ${order.currency}; supply fxRate (${order.currency} per 1 ${paymentCurrency}).`,
+    );
+  }
+  return { currency: paymentCurrency, fxRate: dec(fxRate), convertedAmount: convertAmount(amount, fxRate) };
 }
 
 export async function listPayments({ page, limit, skip, status, reviewStatus, orderId, organizationId }) {
@@ -96,19 +118,23 @@ export async function createPayment(data, organizationId) {
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findFirst({
       where: { id: data.orderId, ...(organizationId ? { organizationId } : {}) },
-      select: { id: true, totalAmount: true },
+      select: { id: true, totalAmount: true, currency: true },
     });
 
     if (!order) {
       return null;
     }
 
+    const conversion = resolvePaymentConversion({ order, amount: data.amount, currency: data.currency, fxRate: data.fxRate });
+
     const pendingReview = Boolean(data.pendingReview);
     const payment = await tx.payment.create({
       data: {
         orderId: data.orderId,
         amount: toDecimal(data.amount),
-        currency: data.currency || "SAR",
+        currency: conversion.currency,
+        fxRate: conversion.fxRate,
+        convertedAmount: conversion.convertedAmount,
         paymentMethod: data.paymentMethod,
         referenceNumber: data.referenceNumber || null,
         status: pendingReview ? "UNPAID" : data.status || "PAID",

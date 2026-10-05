@@ -247,7 +247,7 @@ function renderOrderDetail(order) {
   card.innerHTML = `
     <h2>الطلب ${order.orderNumber} <button type="button" class="btn secondary" id="close-detail-btn" style="float: left">إغلاق</button></h2>
     <p>العميل: <strong>${order.customer?.fullName || "-"}</strong> (${order.customer?.customerNo || "-"})</p>
-    <p>الحالة الحالية: ${statusBadge(order.status)} — حالة الدفع: ${statusBadge(order.paymentStatus)} — الإجمالي: ${formatMoney(order.totalAmount, order.currency)}</p>
+    <p>الحالة الحالية: ${statusBadge(order.status)} — حالة الدفع: ${statusBadge(order.paymentStatus)} — الإجمالي: ${formatMoney(order.totalAmount, order.currency)} — المدفوع: ${formatMoney(order.paidAmount, order.currency)} — المتبقي: ${formatMoney(order.balanceDue, order.currency)}${Number(order.overpaidAmount) > 0 ? ` — زيادة في الدفع: ${formatMoney(order.overpaidAmount, order.currency)}` : ""}${order.unreconciledPayments ? ` — <strong>${order.unreconciledPayments} دفعة بعملة مختلفة بلا سعر صرف (لا تُحتسب)</strong>` : ""}</p>
 
     <h3>عناصر الطلب</h3>
     <table>
@@ -272,6 +272,10 @@ function renderOrderDetail(order) {
     ${canRecordPayment() ? `
     <div class="stack">
       <input type="number" id="payment-amount" placeholder="المبلغ" min="0" step="0.01" style="max-width: 140px" />
+      <select id="payment-currency" aria-label="عملة الدفعة" style="max-width: 100px">
+        ${["SDG", "SAR", "USD", "AED", "QAR", "EUR", "EGP", "GBP"].map((code) => `<option value="${code}" ${code === order.currency ? "selected" : ""}>${code}</option>`).join("")}
+      </select>
+      <input type="number" id="payment-fx-rate" placeholder="سعر الصرف: ${order.currency} لكل 1 من عملة الدفعة" min="0" step="any" style="max-width: 220px; display: none" />
       <input type="text" id="payment-method" placeholder="طريقة الدفع (نقدي...)" style="max-width: 160px" />
       <select id="payment-status">
         <option value="PAID">مدفوع</option>
@@ -295,6 +299,11 @@ function renderOrderDetail(order) {
   el("change-status-btn").addEventListener("click", () => changeOrderStatus(order.id));
 
   if (canRecordPayment()) {
+    const fxInput = el("payment-fx-rate");
+    fxInput.dataset.orderCurrency = order.currency;
+    el("payment-currency").addEventListener("change", (event) => {
+      fxInput.style.display = event.target.value === order.currency ? "none" : "";
+    });
     el("add-payment-btn").addEventListener("click", () => recordPayment(order.id));
   }
 }
@@ -321,9 +330,20 @@ async function recordPayment(orderId) {
 
   const amount = el("payment-amount").value;
   const method = el("payment-method").value.trim();
+  const currency = el("payment-currency").value;
+  const fxRate = el("payment-fx-rate").value;
+  const orderCurrency = el("payment-fx-rate").dataset.orderCurrency;
 
   if (!amount || !method) {
     showAlert(paymentAlert, "يرجى إدخال المبلغ وطريقة الدفع.");
+    return;
+  }
+
+  // A payment in a currency other than the order's needs the exchange rate
+  // actually applied; the server stores it with the payment and never sums
+  // different currencies at face value.
+  if (currency !== orderCurrency && !(Number(fxRate) > 0)) {
+    showAlert(paymentAlert, `أدخل سعر الصرف (${orderCurrency} لكل 1 ${currency}).`);
     return;
   }
 
@@ -331,6 +351,8 @@ async function recordPayment(orderId) {
     await api.post("/payments", {
       orderId,
       amount: Number(amount),
+      currency,
+      ...(currency !== orderCurrency ? { fxRate: Number(fxRate) } : {}),
       paymentMethod: method,
       status: el("payment-status").value,
     });
