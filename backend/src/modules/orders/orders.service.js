@@ -44,7 +44,7 @@ export function isValidOrderStatusTransition(fromStatus, toStatus) {
   return (ORDER_STATUS_TRANSITIONS[fromStatus] || []).includes(toStatus);
 }
 
-async function generateOrderNumber() {
+export async function generateOrderNumber() {
   const year = new Date().getFullYear();
   const nextNumber = await nextSequence(`order-${year}`);
   return `NH-${year}-${String(nextNumber).padStart(6, "0")}`;

@@ -3,10 +3,13 @@ import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, loginAsSuperAdmin, request, uniqueSuffix } from "./helpers/api.js";
 
+const pdf = (label) => Buffer.from(`%PDF-1.4\n${label}`);
+
 describe("flight booking workflow", () => {
   let admin;
   let flightId;
   let booking;
+  let token;
   const phone = `24991${uniqueSuffix().slice(-7)}`;
 
   before(async () => {
@@ -22,18 +25,20 @@ describe("flight booking workflow", () => {
     const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "Flight Workflow Test", phone, email: "flight@test.local" }, passengers: [{ firstName: "TEST", lastName: "PASSENGER", birthDate: "1990-01-01", gender: "MALE", nationality: "Sudan", passportNo: `P${uniqueSuffix()}`, passengerType: "ADULT" }] });
     assert.equal(createRes.status, 201);
     booking = createRes.body.booking;
+    token = createRes.body.accessToken;
+    assert.ok(token, "creation returns the booking access token");
     assert.equal(booking.status, "REQUESTED");
 
-    const provisionalRes = await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", Buffer.from("provisional ticket"), "provisional.txt");
+    const provisionalRes = await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", pdf("provisional ticket"), "provisional.pdf");
     assert.equal(provisionalRes.status, 200);
     assert.equal(provisionalRes.body.booking.status, "PAYMENT_PENDING");
 
-    const publicRes = await request(app).get(`/api/flight-bookings/public/${booking.booking_number}`).query({ phone });
+    const publicRes = await request(app).get(`/api/flight-bookings/public/${booking.booking_number}`).set("X-Booking-Token", token);
     assert.equal(publicRes.status, 200);
     assert.equal(publicRes.body.booking.status, "PAYMENT_PENDING");
     assert.ok(publicRes.body.booking.bankAccounts.length > 0);
 
-    const receiptRes = await request(app).post(`/api/flight-bookings/${booking.booking_number}/payment-receipt`).field("phone", phone).attach("file", Buffer.from("payment receipt"), "receipt.txt");
+    const receiptRes = await request(app).post(`/api/flight-bookings/${booking.booking_number}/payment-receipt`).set("X-Booking-Token", token).attach("file", pdf("payment receipt"), "receipt.pdf");
     assert.equal(receiptRes.status, 200);
     assert.equal(receiptRes.body.booking.status, "PAYMENT_UNDER_REVIEW");
 
@@ -63,58 +68,65 @@ describe("flight booking workflow", () => {
     assert.ok(filteredListRes.body.bookings.every((b) => b.status === "PAYMENT_CONFIRMED"));
     assert.ok(filteredListRes.body.bookings.some((b) => b.id === booking.id));
 
-    const finalRes = await admin.post(`/api/flight-bookings/${booking.id}/final-ticket`).attach("file", Buffer.from("final ticket"), "final.txt");
+    const finalRes = await admin.post(`/api/flight-bookings/${booking.id}/final-ticket`).attach("file", pdf("final ticket"), "final.pdf");
     assert.equal(finalRes.status, 200);
     assert.equal(finalRes.body.booking.status, "FINAL_TICKET_ISSUED");
 
-    const finalPublic = await request(app).get(`/api/flight-bookings/public/${booking.booking_number}`).query({ phone });
+    const finalPublic = await request(app).get(`/api/flight-bookings/public/${booking.booking_number}`).set("X-Booking-Token", token);
     assert.equal(finalPublic.status, 200);
     assert.equal(finalPublic.body.booking.status, "FINAL_TICKET_ISSUED");
-    assert.ok(finalPublic.body.booking.final_ticket_path);
+    assert.equal(finalPublic.body.booking.hasFinalTicket, true);
+    assert.equal("final_ticket_path" in finalPublic.body.booking, false, "storage paths never leave the API");
   });
 
   test("rejects payment receipt upload before provisional ticket", async () => {
     const testPhone = `24992${uniqueSuffix().slice(-7)}`;
     const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "Early Receipt Test", phone: testPhone }, passengers: [{ firstName: "EARLY", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }] });
     assert.equal(createRes.status, 201);
-    const res = await request(app).post(`/api/flight-bookings/${createRes.body.booking.booking_number}/payment-receipt`).field("phone", testPhone).attach("file", Buffer.from("receipt"), "receipt.txt");
+    const res = await request(app).post(`/api/flight-bookings/${createRes.body.booking.booking_number}/payment-receipt`).set("X-Booking-Token", createRes.body.accessToken).attach("file", pdf("receipt"), "receipt.pdf");
     assert.equal(res.status, 400);
   });
 
-  test("rejects public access with wrong phone", async () => {
-    const res = await request(app).get(`/api/flight-bookings/public/${booking.booking_number}`).query({ phone: "249000000000" });
-    assert.equal(res.status, 404);
+  test("rejects public access with the phone number or a wrong token", async () => {
+    const byPhone = await request(app).get(`/api/flight-bookings/public/${booking.booking_number}`).query({ phone: "249000000000" });
+    assert.equal(byPhone.status, 404);
+    const wrongToken = await request(app).get(`/api/flight-bookings/public/${booking.booking_number}`).set("X-Booking-Token", "not-the-token");
+    assert.equal(wrongToken.status, 404);
   });
 
   describe("document download isolation", () => {
     let ownerPhone;
     let ownedBooking;
+    let ownerToken;
 
     before(async () => {
       ownerPhone = `24993${uniqueSuffix().slice(-7)}`;
       const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "File Isolation Test", phone: ownerPhone }, passengers: [{ firstName: "FILE", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }] });
       ownedBooking = createRes.body.booking;
-      const provisionalRes = await admin.post(`/api/flight-bookings/${ownedBooking.id}/provisional-ticket`).attach("file", Buffer.from("provisional ticket contents"), "provisional.txt");
+      ownerToken = createRes.body.accessToken;
+      const provisionalRes = await admin.post(`/api/flight-bookings/${ownedBooking.id}/provisional-ticket`).attach("file", pdf("provisional ticket contents"), "provisional.pdf");
       assert.equal(provisionalRes.status, 200);
     });
 
     // Regression: GET /:id/file/:kind used to hand back any booking's
     // documents to anyone who knew (or guessed) the booking id/number, with
     // no verification at all — a customer-document IDOR.
-    test("rejects a document download without the booking's phone number", async () => {
+    test("rejects a document download without the booking token", async () => {
       const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`);
       assert.equal(res.status, 404);
     });
 
-    test("rejects a document download with someone else's phone number", async () => {
-      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).query({ phone: "249111111111" });
-      assert.equal(res.status, 404);
+    test("rejects a document download with the phone number or a wrong token", async () => {
+      const byPhone = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).query({ phone: ownerPhone });
+      assert.equal(byPhone.status, 404);
+      const wrong = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).set("X-Booking-Token", "wrong");
+      assert.equal(wrong.status, 404);
     });
 
-    test("allows the document download with the matching phone number", async () => {
-      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).query({ phone: ownerPhone });
+    test("allows the document download with the booking token", async () => {
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).set("X-Booking-Token", ownerToken);
       assert.equal(res.status, 200);
-      assert.equal(res.text, "provisional ticket contents");
+      assert.equal(res.body.toString(), "%PDF-1.4\nprovisional ticket contents");
     });
 
     // Regression: GET /:id used to return full booking details (name,

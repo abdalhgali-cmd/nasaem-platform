@@ -14,6 +14,9 @@ import { getBookingFile } from "../src/modules/flight-bookings/flight-bookings.s
 // contract now shared with every other upload module — see
 // upload-validation.test.js for the generic resolveStoredUploadPath
 // coverage this complements with flight-booking-specific scenarios.
+// Uploads are validated by magic bytes (PDF/JPEG/PNG/WEBP only), so fixtures are PDFs.
+const pdf = (label) => Buffer.from(`%PDF-1.4\n${label}`);
+
 describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
   let admin;
   let flightId;
@@ -65,7 +68,7 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
       passengers: [{ firstName: "STORAGE", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }],
     });
     assert.equal(res.status, 201);
-    return res.body.booking;
+    return { ...res.body.booking, accessToken: res.body.accessToken };
   }
 
   test("provisional ticket is written under UPLOAD_ROOT/flight-bookings and stored relative to UPLOAD_ROOT", async () => {
@@ -74,7 +77,7 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
 
     const uploadRes = await admin
       .post(`/api/flight-bookings/${booking.id}/provisional-ticket`)
-      .attach("file", Buffer.from("provisional contents"), "provisional.txt");
+      .attach("file", pdf("provisional contents"), "provisional.pdf");
     assert.equal(uploadRes.status, 200);
 
     const row = (
@@ -84,33 +87,33 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
     assert.ok(!path.isAbsolute(row.provisional_ticket_path));
 
     const onDisk = path.join(UPLOAD_ROOT, row.provisional_ticket_path);
-    assert.equal(await fs.readFile(onDisk, "utf8"), "provisional contents");
+    assert.equal(await fs.readFile(onDisk, "utf8"), "%PDF-1.4\nprovisional contents");
   });
 
   test("payment receipt and final ticket also resolve through the staff-file route after the new writes", async () => {
     const phone = `24995${uniqueSuffix().slice(-7)}`;
     const booking = await createBooking(phone);
 
-    await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", Buffer.from("p"), "p.txt");
+    await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", pdf("p"), "p.pdf");
     const receiptRes = await request(app)
       .post(`/api/flight-bookings/${booking.booking_number}/payment-receipt`)
-      .field("phone", phone)
-      .attach("file", Buffer.from("receipt contents"), "receipt.txt");
+      .set("X-Booking-Token", booking.accessToken)
+      .attach("file", pdf("receipt contents"), "receipt.pdf");
     assert.equal(receiptRes.status, 200);
 
     await admin.post(`/api/flight-bookings/${booking.id}/confirm-payment`).send({});
     const finalRes = await admin
       .post(`/api/flight-bookings/${booking.id}/final-ticket`)
-      .attach("file", Buffer.from("final contents"), "final.txt");
+      .attach("file", pdf("final contents"), "final.pdf");
     assert.equal(finalRes.status, 200);
 
     const receiptFile = await admin.get(`/api/flight-bookings/${booking.id}/staff-file/receipt`);
     assert.equal(receiptFile.status, 200);
-    assert.equal(receiptFile.text, "receipt contents");
+    assert.equal(receiptFile.body.toString(), "%PDF-1.4\nreceipt contents");
 
     const finalFile = await admin.get(`/api/flight-bookings/${booking.id}/staff-file/final`);
     assert.equal(finalFile.status, 200);
-    assert.equal(finalFile.text, "final contents");
+    assert.equal(finalFile.body.toString(), "%PDF-1.4\nfinal contents");
   });
 
   test("reads a historical uploads/flight-bookings/... relative path (pre-fix rows) onto the current UPLOAD_ROOT", async () => {
@@ -172,7 +175,7 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
 
     const res = await request(app)
       .get(`/api/flight-bookings/${booking.id}/file/provisional`)
-      .query({ phone });
+      .set("X-Booking-Token", booking.accessToken);
     assert.ok(res.status >= 400);
     assert.notEqual(res.status, 200);
   });
@@ -183,14 +186,14 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
 
     await assert.rejects(() => getBookingFile(booking.id, "provisional", { organizationId: undefined }), /not available/);
 
-    const res = await request(app).get(`/api/flight-bookings/${booking.id}/file/provisional`).query({ phone });
+    const res = await request(app).get(`/api/flight-bookings/${booking.id}/file/provisional`).set("X-Booking-Token", booking.accessToken);
     assert.ok(res.status >= 400);
   });
 
   test("path resolution is stable across repeated resolution (equivalent to surviving a process restart)", async () => {
     const phone = `24981${uniqueSuffix().slice(-7)}`;
     const booking = await createBooking(phone);
-    await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", Buffer.from("stable"), "s.txt");
+    await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", pdf("stable"), "s.pdf");
 
     const first = await getBookingFile(booking.id, "provisional", { organizationId: undefined });
     const second = await getBookingFile(booking.id, "provisional", { organizationId: undefined });

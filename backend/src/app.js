@@ -6,13 +6,13 @@ import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import cookieParser from "cookie-parser";
-import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 
 import apiRouter from "./routes/index.js";
 import notFoundMiddleware from "./middleware/notFound.middleware.js";
 import errorMiddleware from "./middleware/error.middleware.js";
 import { csrfGuard } from "./middleware/csrf.middleware.js";
+import { accessLogger } from "./utils/accessLog.js";
 import { trustProxyHops } from "./utils/trustProxy.js";
 
 // Must run before the cors() call below reads process.env.CORS_ORIGIN.
@@ -59,7 +59,8 @@ app.use(express.json({ limit: "2mb" }));
 // it only ever served as the body format of a cross-site <form> CSRF.
 app.use(cookieParser());
 app.use("/api", csrfGuard);
-app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
+// Path-only access log: query strings may hold personal data (see utils/accessLog.js).
+app.use(accessLogger(process.env.NODE_ENV));
 
 // Static frontend pages (login/request/dashboard) are served same-origin so
 // the cookie-based auth session works without any CORS configuration.
