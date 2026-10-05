@@ -2,8 +2,7 @@ name: Mobile Android
 
 on:
   push:
-    branches:
-      - feature/nasaem-mobile-app
+    branches: [main]
     paths:
       - "mobile/**"
       - ".github/workflows/mobile-android.yml"
@@ -12,6 +11,12 @@ on:
       - "mobile/**"
       - ".github/workflows/mobile-android.yml"
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Build environment (production needs the release-signing secrets and PRODUCTION_API_URL)"
+        type: choice
+        options: [staging, production]
+        default: staging
 
 concurrency:
   group: mobile-android-${{ github.ref }}
@@ -20,9 +25,17 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: mobile
+    env:
+      # Pull-request and push builds are always STAGING builds (own package id,
+      # own API). Only a manual dispatch can ask for production.
+      APP_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+      EXPO_PUBLIC_API_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'production') && vars.PRODUCTION_API_URL || vars.STAGING_API_URL }}
+      ANDROID_VERSION_CODE: ${{ github.run_number }}
+      APP_VERSION: 0.1.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,56 +43,85 @@ jobs:
         with:
           node-version: "20.19.5"
           cache: npm
-          cache-dependency-path: mobile/package.json
+          cache-dependency-path: mobile/package-lock.json
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Stamp Android version
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: |
-          node - <<'NODE'
-          const fs = require("fs");
-          const file = "app.json";
-          const config = JSON.parse(fs.readFileSync(file, "utf8"));
-          config.expo.android.versionCode = Number(process.env.BUILD_NUMBER);
-          config.expo.version = `0.1.${process.env.BUILD_NUMBER}`;
-          fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
-          console.log("Android versionCode:", config.expo.android.versionCode);
-          console.log("App version:", config.expo.version);
-          NODE
-
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
 
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Unit tests
+        run: npm test
+
+      - name: Resolve app configuration (fails on an unsafe environment/API combination)
+        run: npx expo config --type public | grep -E "appEnv|apiUrl|package"
+
       - name: Generate Android project
         run: npx expo prebuild --platform android --non-interactive
 
-      - name: Restore stable debug signing key when configured
+      - name: Prepare signing key
         env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |
-          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
-            mkdir -p "$HOME/.android"
-            printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
-            chmod 600 "$HOME/.android/debug.keystore"
-            echo "Stable Android debug signing key restored."
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+            chmod 600 "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "SIGNED_WITH=release" >> "$GITHUB_ENV"
+          elif [ "$APP_ENV" = "production" ]; then
+            echo "::error::A production build requires the ANDROID_KEYSTORE_BASE64 / _PASSWORD / ANDROID_KEY_ALIAS / _PASSWORD secrets. Refusing to build a debug-signed production app."
+            exit 1
           else
-            echo "::warning::ANDROID_DEBUG_KEYSTORE_BASE64 is not configured. This APK is suitable for fresh installs, but updates over APKs signed on another runner are not guaranteed."
+            if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+              mkdir -p "$HOME/.android"
+              printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+              chmod 600 "$HOME/.android/debug.keystore"
+            else
+              echo "::warning::No signing secrets configured: this STAGING APK is debug-signed (fresh installs only; not for distribution)."
+            fi
+            echo "SIGNED_WITH=debug" >> "$GITHUB_ENV"
           fi
 
-      - name: Build standalone release APK
+      - name: Build release APK
         run: cd android && ./gradlew assembleRelease
 
-      - name: Upload standalone APK
+      - name: Build release bundle (Play Store)
+        if: env.APP_ENV == 'production'
+        run: cd android && ./gradlew bundleRelease
+
+      - name: Verify the APK signature
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs android/app/build/outputs/apk/release/app-release.apk | tee /tmp/certs.txt
+          if [ "$APP_ENV" = "production" ] && grep -qi "Android Debug" /tmp/certs.txt; then
+            echo "::error::The production APK is signed with the public Android debug key."
+            exit 1
+          fi
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: nasaem-android-standalone-${{ github.run_number }}
+          name: nasaem-android-${{ env.APP_ENV }}-${{ env.SIGNED_WITH }}-signed-${{ github.run_number }}
           path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Upload Play Store bundle
+        if: env.APP_ENV == 'production'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nasaem-android-production-aab-${{ github.run_number }}
+          path: mobile/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
