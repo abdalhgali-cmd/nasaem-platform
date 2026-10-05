@@ -36,6 +36,9 @@ export function statusMessage(status: number, payload: unknown, fallback = "حد
   if (status === 404) return serverMessage(payload) ?? "لم يتم العثور على المطلوب.";
   if (status === 413) return "حجم الملف كبير. الحد الأقصى 10 ميغابايت.";
   if (status === 429) return "محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.";
+  // 503 is how the API reports deliberate, user-facing conditions (service busy,
+  // verification messages unavailable); other 5xx are internal errors — never show their detail.
+  if (status === 503) return serverMessage(payload) ?? "الخدمة غير متاحة مؤقتًا. حاول بعد قليل.";
   if (status >= 500) return "الخدمة غير متاحة مؤقتًا. حاول بعد قليل.";
   return serverMessage(payload) ?? fallback;
 }

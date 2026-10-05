@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import prisma from "../../config/database.js";
 import { hashPassword, comparePassword } from "../../utils/password.js";
-import { checkPhoneCode, consumePhoneCode, issuePhoneCode } from "../../utils/phoneVerification.js";
+import { assertCanDeliverCode, checkPhoneCode, consumePhoneCode, isDebugOtpAllowed, issuePhoneCode } from "../../utils/phoneVerification.js";
 import { signCustomerToken } from "../../utils/jwt.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
@@ -211,6 +211,8 @@ export async function changeCustomerPassword(customerId, currentPassword, newPas
 }
 
 export async function requestPasswordReset(rawPhone) {
+  // Same answer whether or not an account exists, including when no code can be sent.
+  assertCanDeliverCode();
   const customer = await findCustomerByPhone(rawPhone);
   // Never reveal whether a phone number has an account — always return a
   // generic success shape; only actually send a code when one does.
@@ -231,8 +233,7 @@ export async function requestPasswordReset(rawPhone) {
 
   // See contact-request-tracking.service.js's requestLoginCode for why
   // "development" is included alongside "test" here — never "production".
-  const isDebugOtpAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
-  return { debugCode: isDebugOtpAllowed ? code : undefined };
+  return { debugCode: isDebugOtpAllowed() ? code : undefined };
 }
 
 export async function resetCustomerPassword(rawPhone, code, newPassword) {

@@ -20,6 +20,7 @@ describe("friendlyError", () => {
     assert.match(statusMessage(429, null), /محاولات كثيرة/);
     assert.match(statusMessage(500, { message: "internal detail that must not be shown" }), /غير متاحة/);
     assert.doesNotMatch(statusMessage(502, { message: "stack trace" }), /stack trace/);
+    assert.equal(statusMessage(503, { message: "رسائل التحقق غير متاحة حاليًا." }), "رسائل التحقق غير متاحة حاليًا.", "deliberate 503s keep their message");
   });
 
   test("ignores a missing/odd payload and falls back", () => {

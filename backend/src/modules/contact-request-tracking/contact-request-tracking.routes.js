@@ -32,7 +32,8 @@ function handleUpload(req, res, next) {
   });
 }
 
-const requestCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "Too many requests. Please try again later." } });
+// TRACKING_CODE_REQUEST_LIMIT only exists so test suites can relax the per-IP limit.
+const requestCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: Number.parseInt(process.env.TRACKING_CODE_REQUEST_LIMIT ?? "", 10) || 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "Too many requests. Please try again later." } });
 const verifyCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "Too many requests. Please try again later." } });
 
 router.post("/request-code", requestCodeLimiter, requestCode);

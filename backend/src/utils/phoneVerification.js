@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import prisma from "../config/database.js";
 import { normalizePhone } from "./phone.js";
-import { sendWhatsAppMessage } from "./whatsapp.js";
+import { canDeliverWhatsApp, sendWhatsAppMessage } from "./whatsapp.js";
 
 // Proof-of-phone-ownership codes (OTP). Used wherever an action must only be
 // possible for the person who actually controls a phone number.
@@ -31,7 +31,18 @@ function safeEqualHex(a, b) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-function tooManyRequests(message) {
+// Local development and tests expose the code in the API response instead of
+// sending it; everywhere else a code needs a working delivery channel.
+export function isDebugOtpAllowed() {
+  return process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
+}
+
+export function assertCanDeliverCode() {
+  if (isDebugOtpAllowed() || canDeliverWhatsApp()) return;
+  throw Object.assign(new Error("رسائل التحقق غير متاحة حاليًا. يرجى التواصل مع الوكالة مباشرة."), { statusCode: 503, expose: true });
+}
+
+export function tooManyRequests(message) {
   const error = new Error(message);
   error.statusCode = 429;
   return error;
@@ -42,6 +53,7 @@ function tooManyRequests(message) {
 export async function issuePhoneCode({ phone: rawPhone, purpose, message }) {
   const phone = normalizePhone(rawPhone);
   if (!phone) return { debugCode: undefined };
+  assertCanDeliverCode();
 
   const recent = await prisma.phoneVerification.count({
     where: { phone, purpose, createdAt: { gt: new Date(Date.now() - ISSUE_WINDOW_MS) } },
@@ -60,8 +72,7 @@ export async function issuePhoneCode({ phone: rawPhone, purpose, message }) {
 
   sendWhatsAppMessage(phone, message(code));
 
-  const isDebugOtpAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
-  return { debugCode: isDebugOtpAllowed ? code : undefined };
+  return { debugCode: isDebugOtpAllowed() ? code : undefined };
 }
 
 // Checks a code WITHOUT consuming it (so a later, unrelated validation failure

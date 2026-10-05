@@ -5,7 +5,7 @@ export function createGate({ concurrency = 1, maxQueue = 3, maxWaitMs = 20_000 }
   let running = 0;
   const queue = [];
 
-  const busy = (message) => Object.assign(new Error(message), { statusCode: 503, code: "GATE_BUSY" });
+  const busy = (message) => Object.assign(new Error(message), { statusCode: 503, code: "GATE_BUSY", expose: true });
 
   function release() {
     running -= 1;

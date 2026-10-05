@@ -26,6 +26,8 @@ function describePrismaError(error) {
   return null;
 }
 
+// An error marked `expose: true` is a deliberate, user-facing condition (e.g. "service busy"),
+// so its message is shown even for a 5xx in production; unexpected 5xx stay generic.
 // Express identifies error handlers by their 4-argument signature, so `_next` must stay.
 export default function errorMiddleware(err, req, res, _next) {
   console.error(err);
@@ -35,7 +37,7 @@ export default function errorMiddleware(err, req, res, _next) {
   const statusCode = prismaDescription?.statusCode || err.statusCode || err.status || 500;
   const isProduction = process.env.NODE_ENV === "production";
   const message = prismaDescription?.message ||
-    (isProduction && statusCode >= 500 ? "حدث خطأ داخلي. حاول مرة أخرى لاحقًا." : err.message || "Internal server error");
+    (isProduction && statusCode >= 500 && !err.expose ? "حدث خطأ داخلي. حاول مرة أخرى لاحقًا." : err.message || "Internal server error");
 
   res.status(statusCode).json({
     success: false,

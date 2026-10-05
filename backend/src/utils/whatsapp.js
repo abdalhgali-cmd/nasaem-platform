@@ -41,6 +41,13 @@ function isWhatsAppFeatureEnabled() {
 // template already approved in Meta Business Manager; this sends that
 // template with `body` as its single parameter instead of a free-form text
 // message. See https://developers.facebook.com/docs/whatsapp/cloud-api.
+// Whether a verification code sent now could actually reach a phone. Used by the
+// OTP flows so that, when WhatsApp is unconfigured or switched off, the customer
+// is told so instead of being shown "code sent" for a message that never leaves.
+export function canDeliverWhatsApp() {
+  return isConfigured() && isWhatsAppFeatureEnabled();
+}
+
 export async function sendWhatsAppMessage(to, body) {
   if (!isConfigured() || !to) return;
   // Platform 3.0 Phase 13: gated at the source so every caller (order

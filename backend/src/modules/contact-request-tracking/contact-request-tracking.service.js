@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import prisma from "../../config/database.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { assertCanDeliverCode, isDebugOtpAllowed, tooManyRequests, ISSUE_WINDOW_MS, MAX_ISSUES_PER_WINDOW } from "../../utils/phoneVerification.js";
 import { signTrackingToken } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { deriveTrackingStatusLabel } from "./contact-request-tracking.status.js";
@@ -21,6 +22,12 @@ const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
 
 export async function requestLoginCode(rawPhone) {
   const phone = normalizePhone(rawPhone);
+  assertCanDeliverCode();
+  // Per-PHONE throttle (the route's limiter is per IP): a victim's phone cannot be
+  // flooded with codes from many IPs, which would also burn the agency's
+  // WhatsApp message budget.
+  const recent = await prisma.contactRequestLoginCode.count({ where: { phone, createdAt: { gt: new Date(Date.now() - ISSUE_WINDOW_MS) } } });
+  if (recent >= MAX_ISSUES_PER_WINDOW) throw tooManyRequests("تم طلب رموز كثيرة لهذا الرقم، يرجى المحاولة لاحقًا");
   const code = String(randomInt(0, 1000000)).padStart(6, "0");
   const expiresAt = new Date(Date.now() + CODE_TTL_MS);
   await prisma.contactRequestLoginCode.updateMany({
@@ -34,8 +41,7 @@ export async function requestLoginCode(rawPhone) {
   // where NODE_ENV is always "production" and this stays undefined. Lets a
   // developer complete the tracking OTP flow against localhost without a
   // real WhatsApp/SMS provider.
-  const isDebugOtpAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
-  return { debugCode: isDebugOtpAllowed ? code : undefined };
+  return { debugCode: isDebugOtpAllowed() ? code : undefined };
 }
 
 export async function verifyLoginCode(rawPhone, code) {
