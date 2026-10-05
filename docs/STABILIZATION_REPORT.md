@@ -16,7 +16,7 @@ Related documents: `PR_DISPOSITION.md` (baseline + PR table), `FINANCIAL_MODEL.m
 | Web lint / typecheck / production build | PASS / PASS / PASS |
 | Mobile lint / typecheck / unit tests | PASS / PASS / 18 of 18 |
 | Mobile Android JS bundle (`expo export`) | PASS (2.83 MB Hermes) |
-| Playwright E2E (3 projects, 64 tests) | see "Phase 5" below |
+| Playwright E2E (3 projects, fresh database, CI-identical env) | **64 / 64 PASS** (10.3 min) — was 58/64 before the stale assertions were fixed |
 | Mobile Android Gradle build + APK signature | **NOT VERIFIED** — needs the Android SDK and GitHub secrets; first CI run must confirm |
 
 ---
