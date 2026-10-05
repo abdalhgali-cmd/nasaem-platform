@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
-import * as DocumentPicker from "expo-document-picker";
 import {
   ActivityIndicator,
   Pressable,
@@ -21,6 +20,7 @@ import {
 } from "../src/api/services";
 import { submitContactRequestWithDocuments, UploadAsset } from "../src/api/requests";
 import { colors } from "../src/theme";
+import { pickValidatedDocument } from "../src/utils/uploads";
 import { formatPrice, formatSdgEquivalent } from "../src/utils/price";
 
 type Stage = "visitors" | "sponsor" | "documents" | "review";
@@ -143,16 +143,13 @@ export default function FamilyVisitRequestScreen() {
       .every((requirement) => Boolean(caseDocs[requirement.id]));
 
   async function pickFile(requirement: PublicRequirement) {
-    const types = requirement.allowedMimeTypes?.length
-      ? requirement.allowedMimeTypes
-      : ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-    const result = await DocumentPicker.getDocumentAsync({
-      type: types,
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
-    if (result.canceled) return null;
-    const asset = result.assets[0];
+    const picked = await pickValidatedDocument(requirement.allowedMimeTypes, requirement.maxSizeBytes);
+    if (!picked) return null;
+    if ("error" in picked) {
+      setError(picked.error);
+      return null;
+    }
+    const asset = picked.file;
     return {
       uri: asset.uri,
       name: asset.name,

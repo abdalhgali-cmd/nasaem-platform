@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
-import * as DocumentPicker from "expo-document-picker";
 import {
   ActivityIndicator,
   Pressable,
@@ -21,6 +20,7 @@ import {
 } from "../src/api/services";
 import { submitContactRequestWithDocuments, UploadAsset } from "../src/api/requests";
 import { colors } from "../src/theme";
+import { pickValidatedDocument } from "../src/utils/uploads";
 import { formatPrice, formatSdgEquivalent } from "../src/utils/price";
 
 type Stage = "data" | "entry" | "passport" | "review";
@@ -110,16 +110,13 @@ export default function EgyptRequestScreen() {
       setError("إعداد صورة الجواز غير مكتمل في الإدارة.");
       return;
     }
-    const types = passportRequirement.allowedMimeTypes?.length
-      ? passportRequirement.allowedMimeTypes
-      : ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-    const result = await DocumentPicker.getDocumentAsync({
-      type: types,
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
-    if (result.canceled) return;
-    const asset = result.assets[0];
+    const picked = await pickValidatedDocument(passportRequirement.allowedMimeTypes, passportRequirement.maxSizeBytes);
+    if (!picked) return;
+    if ("error" in picked) {
+      setError(picked.error);
+      return;
+    }
+    const asset = picked.file;
     setPassportFile({
       uri: asset.uri,
       name: asset.name,

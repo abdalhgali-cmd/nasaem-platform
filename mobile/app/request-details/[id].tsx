@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
-import * as DocumentPicker from "expo-document-picker";
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
   approveTrackedInvoice,
   chooseTrackedPaymentCurrency,
+  type Deliverable,
+  downloadDeliverable,
   getTrackedRequests,
   markTrackedTransferSent,
   rejectTrackedInvoice,
@@ -14,6 +15,8 @@ import {
   uploadTrackedPaymentReceipt,
 } from "../../src/api/tracking";
 import { colors } from "../../src/theme";
+import { friendlyError } from "../../src/utils/errors";
+import { pickValidatedDocument } from "../../src/utils/uploads";
 
 export default function RequestDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -28,9 +31,24 @@ export default function RequestDetailsScreen() {
 
   useEffect(() => {
     void load().catch((error) =>
-      setMessage(error instanceof Error ? error.message : "تعذر تحميل الطلب")
+      setMessage(friendlyError(error, "تعذر تحميل الطلب"))
     );
   }, [load]);
+
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  async function openDeliverable(deliverable: Deliverable) {
+    if (!item) return;
+    try {
+      setDownloadingId(deliverable.id);
+      setMessage("");
+      await downloadDeliverable(item.id, deliverable);
+    } catch (error) {
+      setMessage(friendlyError(error, "تعذر تنزيل الملف"));
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   async function action(fn: () => Promise<unknown>, success = "تم تحديث الطلب") {
     try {
@@ -40,20 +58,20 @@ export default function RequestDetailsScreen() {
       await load();
       setMessage(success);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "تعذر تنفيذ العملية");
+      setMessage(friendlyError(error, "تعذر تنفيذ العملية"));
     } finally {
       setBusy(false);
     }
   }
 
   async function uploadPayment() {
-    const picked = await DocumentPicker.getDocumentAsync({
-      type: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
-    if (picked.canceled) return;
-    const asset = picked.assets[0];
+    const picked = await pickValidatedDocument();
+    if (!picked) return;
+    if ("error" in picked) {
+      setMessage(picked.error);
+      return;
+    }
+    const asset = picked.file;
     await action(async () => {
       await uploadTrackedPaymentReceipt(id, {
         uri: asset.uri,
@@ -67,13 +85,13 @@ export default function RequestDetailsScreen() {
 
   async function uploadChecklistDocument(next: NonNullable<TrackedRequest["nextActions"]>[number]) {
     if (!next.requirementId) return;
-    const picked = await DocumentPicker.getDocumentAsync({
-      type: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
-    if (picked.canceled) return;
-    const asset = picked.assets[0];
+    const picked = await pickValidatedDocument();
+    if (!picked) return;
+    if ("error" in picked) {
+      setMessage(picked.error);
+      return;
+    }
+    const asset = picked.file;
     const label = next.label.replace(/^إعادة رفع:\s*|^رفع:\s*/, "");
     await action(
       () =>
@@ -323,6 +341,22 @@ export default function RequestDetailsScreen() {
                 ? item.deliverables[0]?.label ?? "الملف النهائي جاهز"
                 : String(item.deliverables?.length ?? 0) + " ملفات جاهزة في طلبك"}
             </Text>
+            {(item.deliverables ?? []).map((deliverable) => (
+              <Pressable
+                key={deliverable.id}
+                disabled={downloadingId !== null}
+                accessibilityRole="button"
+                accessibilityLabel={`تنزيل ${deliverable.label ?? "الملف"}`}
+                style={[s.downloadButton, downloadingId === deliverable.id && s.downloadButtonBusy]}
+                onPress={() => void openDeliverable(deliverable)}
+              >
+                {downloadingId === deliverable.id ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={s.downloadText}>تنزيل / مشاركة: {deliverable.label ?? deliverable.fileName ?? "الملف"}</Text>
+                )}
+              </Pressable>
+            ))}
             {isEgypt ? (
               <Pressable
                 style={s.primaryButton}
@@ -540,6 +574,9 @@ const s = StyleSheet.create({
   celebrationEmoji:{fontSize:42},
   celebrationTitle:{color:colors.text,fontSize:18,fontWeight:"900",textAlign:"center",marginTop:8},
   celebrationText:{color:colors.muted,fontSize:10,lineHeight:17,textAlign:"center",marginTop:4},
+  downloadButton:{marginTop:10,backgroundColor:colors.navy,borderRadius:14,paddingHorizontal:18,paddingVertical:12,alignSelf:"stretch",alignItems:"center"},
+  downloadButtonBusy:{opacity:0.7},
+  downloadText:{color:"#FFF",fontWeight:"800",textAlign:"center",fontSize:12.5},
   primaryButton:{marginTop:13,backgroundColor:colors.navy,borderRadius:14,paddingHorizontal:18,paddingVertical:12,alignSelf:"stretch"},
   primaryButtonText:{color:"#FFF",fontSize:11,fontWeight:"900",textAlign:"center"},
   timelineRow:{flexDirection:"row-reverse",gap:10,minHeight:58},

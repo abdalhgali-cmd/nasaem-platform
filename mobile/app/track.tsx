@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   ActivityIndicator,
@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import {
+  clearTrackingSession,
   getTrackedRequests,
   requestTrackingCode,
   restoreTrackingSession,
@@ -18,8 +19,9 @@ import {
   verifyTrackingCode,
 } from "../src/api/tracking";
 import { colors } from "../src/theme";
+import { ApiError, NetworkError, friendlyError } from "../src/utils/errors";
 
-type Stage = "loading" | "request" | "verify" | "results";
+type Stage = "loading" | "request" | "verify" | "results" | "error";
 type Tab = "all" | "active" | "action" | "done";
 
 export default function TrackScreen() {
@@ -33,28 +35,42 @@ export default function TrackScreen() {
   const [message, setMessage] = useState("");
   const [items, setItems] = useState<TrackedRequest[]>([]);
 
-  useEffect(() => {
-    let active = true;
-    void (async () => {
+  // Restores a saved phone-verified session and loads its requests. A network or
+  // server failure shows a retryable error — it must not look like "logged out".
+  const loadSession = useCallback(
+    async (isActive: () => boolean) => {
       try {
         const restored = await restoreTrackingSession();
-        if (!active) return;
+        if (!isActive()) return;
         if (!restored) {
           setStage("request");
           return;
         }
         const all = await getTrackedRequests();
-        if (!active) return;
+        if (!isActive()) return;
         setItems(filterRequest(all, requestNo));
         setStage("results");
-      } catch {
-        if (active) setStage("request");
+      } catch (error) {
+        if (!isActive()) return;
+        const transient = error instanceof NetworkError || (error instanceof ApiError && error.status >= 500);
+        if (transient) {
+          setMessage(friendlyError(error));
+          setStage("error");
+        } else {
+          setStage("request"); // e.g. 401: the session expired, verify the phone again
+        }
       }
-    })();
+    },
+    [requestNo]
+  );
+
+  useEffect(() => {
+    let active = true;
+    void loadSession(() => active);
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadSession]);
 
   async function refresh() {
     const all = await getTrackedRequests();
@@ -69,7 +85,7 @@ export default function TrackScreen() {
       setStage("verify");
       setMessage(result.message);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "تعذر إرسال الرمز");
+      setMessage(friendlyError(error, "تعذر إرسال الرمز"));
     } finally {
       setBusy(false);
     }
@@ -83,7 +99,7 @@ export default function TrackScreen() {
       await refresh();
       setStage("results");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "تعذر التحقق");
+      setMessage(friendlyError(error, "تعذر التحقق"));
     } finally {
       setBusy(false);
     }
@@ -113,6 +129,32 @@ export default function TrackScreen() {
     );
   }
 
+  if (stage === "error") {
+    return (
+      <View style={s.center}>
+        <Text style={s.muted}>{message || "تعذر تحميل طلباتك."}</Text>
+        <Pressable
+          accessibilityRole="button"
+          style={s.retryButton}
+          onPress={() => {
+            setStage("loading");
+            void loadSession(() => true);
+          }}
+        >
+          <Text style={s.retryText}>إعادة المحاولة</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            void clearTrackingSession().then(() => setStage("request"));
+          }}
+        >
+          <Text style={s.linkText}>الدخول برقم هاتف آخر</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   if (stage === "results") {
     return (
       <SafeAreaView style={s.safe}>
@@ -126,7 +168,7 @@ export default function TrackScreen() {
                   setBusy(true);
                   void refresh()
                     .catch((error) =>
-                      setMessage(error instanceof Error ? error.message : "تعذر التحديث")
+                      setMessage(friendlyError(error, "تعذر التحديث"))
                     )
                     .finally(() => setBusy(false));
                 }}
@@ -365,6 +407,9 @@ function TabButton({
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
+  retryButton: { marginTop: 14, backgroundColor: colors.navy, borderRadius: 12, paddingHorizontal: 22, paddingVertical: 12 },
+  retryText: { color: "#FFF", fontWeight: "800" },
+  linkText: { marginTop: 12, color: colors.navy, fontWeight: "700", textDecorationLine: "underline" },
   center: {
     flex: 1,
     justifyContent: "center",

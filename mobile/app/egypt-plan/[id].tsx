@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { router,useLocalSearchParams } from "expo-router";
-import * as DocumentPicker from "expo-document-picker";
 import { ActivityIndicator,Pressable,SafeAreaView,ScrollView,StyleSheet,Text,TextInput,View } from "react-native";
 import { saveEgyptTravelPlan } from "../../src/api/tracking";
 import type { UploadAsset } from "../../src/api/requests";
 import { colors } from "../../src/theme";
+import { pickValidatedDocument } from "../../src/utils/uploads";
+import { isIsoDate } from "../../src/utils/validation";
 
 export default function EgyptTravelPlanScreen(){
  const {id}=useLocalSearchParams<{id:string}>();
@@ -17,15 +18,16 @@ export default function EgyptTravelPlanScreen(){
  const [done,setDone]=useState("");
 
  async function pick(){
-  const r=await DocumentPicker.getDocumentAsync({type:["image/jpeg","image/png","image/webp","application/pdf"],copyToCacheDirectory:true,multiple:false});
-  if(r.canceled)return;
-  const a=r.assets[0];
+  const picked=await pickValidatedDocument();
+  if(!picked)return;
+  if("error" in picked){setError(picked.error);return;}
+  const a=picked.file;
   setFile({uri:a.uri,name:a.name,mimeType:a.mimeType,label:"تذكرة / حجز السفر"});
  }
  async function submit(){
   try{
    setBusy(true);setError("");setDone("");
-   if(!/^\d{4}-\d{2}-\d{2}$/.test(entryDate))throw new Error("اكتب التاريخ بصيغة YYYY-MM-DD");
+   if(!isIsoDate(entryDate))throw new Error("اكتب تاريخًا صحيحًا بصيغة YYYY-MM-DD، مثال: 2026-12-31");
    if(bookingStatus==="EXISTING"&&!file)throw new Error("ارفع التذكرة أو الحجز الموجود");
    const r=await saveEgyptTravelPlan(id,{entryMode,bookingStatus,entryDate},file);
    setDone(r.message);

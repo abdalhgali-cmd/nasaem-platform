@@ -1,6 +1,18 @@
 import * as SecureStore from "expo-secure-store";
-import { api } from "./client";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
+import { api as rawApi, API_URL, ApiError } from "./client";
 import type { UploadAsset } from "./requests";
+
+// A 401 from a tracking endpoint means the saved session expired: forget it so the
+// app sends the customer back to phone verification instead of failing silently.
+async function api<T>(path:string,init?:RequestInit):Promise<T>{
+ try{return await rawApi<T>(path,init);}
+ catch(error){
+  if(error instanceof ApiError&&error.status===401&&path.startsWith("/api/tracking/")&&!path.includes("verify-code"))await clearTrackingSession();
+  throw error;
+ }
+}
 
 let trackingToken:string|null=null;
 const TRACKING_TOKEN_KEY="nasaem_tracking_token";
@@ -47,6 +59,7 @@ export async function restoreTrackingSession(){
  trackingToken=await SecureStore.getItemAsync(TRACKING_TOKEN_KEY);
  return Boolean(trackingToken);
 }
+export function hasTrackingSession(){return Boolean(trackingToken);}
 export async function clearTrackingSession(){
  trackingToken=null;
  await SecureStore.deleteItemAsync(TRACKING_TOKEN_KEY);
@@ -78,4 +91,24 @@ export async function saveEgyptTravelPlan(id:string,input:{entryMode:"AIR"|"BORD
  body.append("entryDate",input.entryDate);
  if(file)body.append("file",{uri:file.uri,name:file.name,type:file.mimeType||"application/octet-stream"} as unknown as Blob);
  return api<{success:boolean;message:string;data?:any}>(`/api/tracking/requests/${encodeURIComponent(id)}/egypt-travel-plan`,{method:"POST",headers:authHeaders(),body});
+}
+
+export type Deliverable={id:string;label?:string;fileName?:string};
+function safeFileName(deliverable:Deliverable){
+ const base=(deliverable.fileName||deliverable.label||"document").replace(/[^\w.\-\u0600-\u06FF]+/g,"_").slice(0,80);
+ return base.includes(".")?base:`${base}.pdf`;
+}
+/**
+ * Downloads an issued document (visa, ticket, voucher) with the session's bearer
+ * token — the endpoint is not public, so a plain link cannot be opened — saves it
+ * to the app cache and opens the system share/open sheet.
+ */
+export async function downloadDeliverable(requestId:string,deliverable:Deliverable){
+ const url=`${API_URL}/api/tracking/requests/${encodeURIComponent(requestId)}/deliverables/${encodeURIComponent(deliverable.id)}/file`;
+ const destination=new File(Paths.cache,`${deliverable.id}-${safeFileName(deliverable)}`);
+ if(destination.exists)destination.delete();
+ const saved=await File.downloadFileAsync(url,destination,{headers:authHeaders()}).catch(()=>{throw new Error("تعذر تنزيل الملف. تحقق من الاتصال ثم حاول مرة أخرى.");});
+ if(!(await Sharing.isAvailableAsync()))throw new Error("تم تنزيل الملف لكن لا يوجد تطبيق لفتحه على هذا الجهاز.");
+ await Sharing.shareAsync(saved.uri,{dialogTitle:deliverable.label||"المستند"});
+ return saved.uri;
 }

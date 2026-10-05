@@ -1,10 +1,10 @@
 import { useEffect,useMemo,useState } from "react";
 import { router,useLocalSearchParams } from "expo-router";
-import * as DocumentPicker from "expo-document-picker";
 import { ActivityIndicator,Pressable,SafeAreaView,ScrollView,StyleSheet,Text,TextInput,View } from "react-native";
 import { submitContactRequest,submitContactRequestWithDocuments,UploadAsset } from "../../src/api/requests";
 import { getPublicServices,getPublicVisaTypes,getServiceRequirements,getVisaRequirements,PublicRequirement } from "../../src/api/services";
 import { colors } from "../../src/theme";
+import { pickValidatedDocument } from "../../src/utils/uploads";
 
 type Meta={title:string;fields:string[];note:string;nameField:string;phoneField:string;travelerField?:string;multiTraveler?:boolean};
 const META:Record<string,Meta>={
@@ -135,18 +135,18 @@ export default function ServiceRequest(){
  const complete=requiredBase&&requiredDynamic&&travelersComplete&&travelerDocsComplete;
 
  async function pickRequirement(req:PublicRequirement){
-   const types=req.allowedMimeTypes?.length?req.allowedMimeTypes:["image/jpeg","image/png","image/webp","application/pdf"];
-   const result=await DocumentPicker.getDocumentAsync({type:types,copyToCacheDirectory:true,multiple:false});
-   if(result.canceled)return;
-   const a=result.assets[0];
+   const picked=await pickValidatedDocument(req.allowedMimeTypes,req.maxSizeBytes);
+   if(!picked)return;
+   if("error" in picked){setError(picked.error);return;}
+   const a=picked.file;
    setDocs(d=>({...d,[req.id]:{uri:a.uri,name:a.name,mimeType:a.mimeType,label:req.name,requirementId:req.id,travelerIndex:req.scope==="TRAVELER"?0:undefined}}));
  }
 
  async function pickTravelerRequirement(travelerId:string,req:PublicRequirement){
-   const types=req.allowedMimeTypes?.length?req.allowedMimeTypes:["image/jpeg","image/png","image/webp","application/pdf"];
-   const result=await DocumentPicker.getDocumentAsync({type:types,copyToCacheDirectory:true,multiple:false});
-   if(result.canceled)return;
-   const a=result.assets[0];
+   const picked=await pickValidatedDocument(req.allowedMimeTypes,req.maxSizeBytes);
+   if(!picked)return;
+   if("error" in picked){setError(picked.error);return;}
+   const a=picked.file;
    setTravelerDocs(d=>({...d,[travelerId]:{...d[travelerId],[req.id]:{uri:a.uri,name:a.name,mimeType:a.mimeType,label:req.name}}}));
  }
  function removeTravelerDocument(travelerId:string,requirementId:string){

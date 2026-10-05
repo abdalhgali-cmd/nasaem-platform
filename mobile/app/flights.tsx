@@ -3,6 +3,8 @@ import { router } from "expo-router";
 import { ActivityIndicator,Pressable,SafeAreaView,ScrollView,StyleSheet,Text,TextInput,View } from "react-native";
 import { FlightOption,searchFlights } from "../src/api/travel";
 import { colors } from "../src/theme";
+import { friendlyError } from "../src/utils/errors";
+import { validateFlightSearch } from "../src/utils/validation";
 
 export default function FlightsScreen(){
  const [from,setFrom]=useState(""),[to,setTo]=useState(""),[date,setDate]=useState(""),[returnDate,setReturnDate]=useState("");
@@ -12,13 +14,13 @@ export default function FlightsScreen(){
  async function search(){
   try{
    setBusy(true);setError("");setResults([]);
-   if(!from.trim()||!to.trim()||!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))throw new Error("أدخل من/إلى وتاريخ السفر بصيغة YYYY-MM-DD");
-   if(tripType==="ROUND_TRIP"&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(returnDate))throw new Error("أدخل تاريخ العودة بصيغة YYYY-MM-DD");
+   const problem=validateFlightSearch({from,to,date,returnDate,roundTrip:tripType==="ROUND_TRIP",travelers});
+   if(problem)throw new Error(problem);
    const r=await searchFlights({from:from.trim(),to:to.trim(),date,returnDate:tripType==="ROUND_TRIP"?returnDate:undefined,travelers:Math.max(1,Number(travelers)||1),tripType});
    const first=r.legs[0];
    setResults([...(first?.manual??[]),...(first?.trip??[])]);
    if(!(first?.manual?.length||first?.trip?.length))setError("لا توجد رحلات مطابقة منشورة حاليًا. يمكنك إرسال طلب بحث للوكالة.");
-  }catch(e){setError(e instanceof Error?e.message:"تعذر البحث عن الرحلات");}
+  }catch(e){setError(friendlyError(e,"تعذر البحث عن الرحلات"));}
   finally{setBusy(false);}
  }
 

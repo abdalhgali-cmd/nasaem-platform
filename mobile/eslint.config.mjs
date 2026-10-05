@@ -7,6 +7,7 @@ export default defineConfig([
     ".expo/**",
     "android/**",
     "dist/**",
+    ".test-build/**",
     "node_modules/**",
   ]),
 ]);
