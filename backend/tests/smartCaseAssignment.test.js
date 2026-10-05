@@ -118,12 +118,15 @@ describe("employee assignment on contact requests", () => {
     assert.ok(notifications[0].message.includes(contactRequestId));
 
     // Unassigning must not create a notification for anyone.
-    const beforeCount = await prisma.notification.count();
+    // Scoped to THIS case: a database-wide count races with test files running
+    // in parallel against the same database (they create notifications too).
+    const caseNotifications = () => prisma.notification.count({ where: { message: { contains: contactRequestId } } });
+    const beforeCount = await caseNotifications();
     const unassignRes = await superAdminAgent
       .patch(`/api/contact-requests/${contactRequestId}/assign`)
       .send({ assignedUserId: null });
     assert.equal(unassignRes.status, 200);
-    const afterCount = await prisma.notification.count();
+    const afterCount = await caseNotifications();
     assert.equal(afterCount, beforeCount);
   });
 });
