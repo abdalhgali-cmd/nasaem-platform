@@ -377,15 +377,43 @@ export function computeReadiness(contactRequest) {
 // real user id (exact match), or the sentinel "unassigned" for the "New" /
 // unowned work-queue view — kept as one filter param rather than a second
 // boolean flag, mirroring how `status` already works here.
-export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId }) {
+// Staff case search. `search` matches (case-insensitively, as DATA — Prisma
+// escapes LIKE wildcards) the customer's name, e-mail, phone (any local or
+// international formatting, and partial numbers), the case/request id (prefix),
+// and any traveler's passport number or name.
+export function buildCaseSearchFilter(rawSearch) {
+  const term = String(rawSearch ?? "").trim().slice(0, 100);
+  if (!term) return null;
+
+  const clauses = [
+    { name: { contains: term, mode: "insensitive" } },
+    { email: { contains: term, mode: "insensitive" } },
+    { id: { startsWith: term } },
+    { travelers: { some: { OR: [{ passportNo: { contains: term, mode: "insensitive" } }, { fullName: { contains: term, mode: "insensitive" } }] } } },
+  ];
+
+  const digits = term.replace(/\D/g, "");
+  if (digits.length >= 3 && digits.length >= term.replace(/[\s+()-]/g, "").length) {
+    // Looks like a phone number (digits and phone punctuation only).
+    clauses.push({ phoneNormalized: { contains: normalizePhone(term) } }, { phone: { contains: digits } });
+  }
+  return { OR: clauses };
+}
+
+export async function listContactRequests({ page, limit, skip, status, paymentStatus, serviceId, search, from, to, organizationId, assignedUserId }) {
+  const searchFilter = buildCaseSearchFilter(search);
   const where = {
     organizationId,
     ...(status ? { status } : {}),
+    ...(paymentStatus ? { paymentStatus } : {}),
+    ...(serviceId ? { serviceId } : {}),
+    ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     ...(assignedUserId === "unassigned"
       ? { assignedUserId: null }
       : assignedUserId
         ? { assignedUserId }
         : {}),
+    ...(searchFilter ?? {}),
   };
 
   const [data, total] = await Promise.all([

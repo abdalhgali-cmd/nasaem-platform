@@ -221,6 +221,8 @@ async function readJson(res: Response) {
   return payload;
 }
 
+const PAGE_SIZE = 25;
+
 export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: string | null }) {
   const [cases, setCases] = React.useState<CaseRow[]>([]);
   const [summary, setSummary] = React.useState<{
@@ -235,6 +237,16 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
   const [error, setError] = React.useState("");
   const [queueFilter, setQueueFilter] = React.useState<"ALL" | QueueKey>("ALL");
   const [ownerFilter, setOwnerFilter] = React.useState("ALL");
+  // Search, filters and paging are all evaluated by the SERVER (name, phone,
+  // passport, case id; status; payment status), so every case is reachable —
+  // not just the newest page. A deep link to one case opens with its id as the
+  // search term, so the case is found wherever it sits in the history.
+  const [searchInput, setSearchInput] = React.useState(initialRequestId ?? "");
+  const [search, setSearch] = React.useState(initialRequestId ?? "");
+  const [statusFilter, setStatusFilter] = React.useState("");
+  const [paymentFilter, setPaymentFilter] = React.useState("");
+  const [page, setPage] = React.useState(1);
+  const [meta, setMeta] = React.useState<{ page: number; limit: number; total: number; totalPages: number } | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(initialRequestId);
 
   // The list is loaded by the effect itself rather than by a callback the
@@ -248,13 +260,26 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
     setReloadToken((token) => token + 1);
   }, []);
 
+  // Debounce typing so each keystroke is not a request.
+  React.useEffect(() => {
+    if (searchInput === search) return;
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput, search]);
+
   React.useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const params = new URLSearchParams({ limit: "50" });
+        const params = new URLSearchParams({ limit: String(PAGE_SIZE), page: String(page) });
         if (ownerFilter !== "ALL") params.set("assignedUserId", ownerFilter);
+        if (search) params.set("search", search);
+        if (statusFilter) params.set("status", statusFilter);
+        if (paymentFilter) params.set("paymentStatus", paymentFilter);
 
         const [listRes, summaryRes] = await Promise.all([
           fetch(`${API_URL}/contact-requests?${params.toString()}`, { credentials: "include" }),
@@ -264,6 +289,7 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
         const summaryPayload = await readJson(summaryRes);
         if (cancelled) return;
         setCases(listPayload.data ?? []);
+        setMeta(listPayload.meta ?? null);
         setSummary(summaryPayload.data ?? null);
         setError("");
       } catch (err) {
@@ -276,7 +302,7 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
     return () => {
       cancelled = true;
     };
-  }, [ownerFilter, reloadToken]);
+  }, [ownerFilter, search, statusFilter, paymentFilter, page, reloadToken]);
 
   // Loaded once, and separately from the case list: the staff roster changes
   // far less often than the queues, and a failure to load it must only cost
@@ -332,10 +358,13 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
         <section className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
           <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-black">الحالات ({visible.length})</h2>
+              <h2 className="text-sm font-black">الحالات ({meta?.total ?? visible.length})</h2>
               <select
                 value={ownerFilter}
-                onChange={(e) => setOwnerFilter(e.target.value)}
+                onChange={(e) => {
+                  setOwnerFilter(e.target.value);
+                  setPage(1);
+                }}
                 className="h-9 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none"
               >
                 <option value="ALL">كل الموظفين</option>
@@ -346,6 +375,51 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2">
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="بحث: اسم العميل، الهاتف، رقم الجواز، رقم الحالة"
+                aria-label="بحث في الحالات"
+                className="h-10 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => {
+                    setStatusFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  aria-label="حالة الطلب"
+                  className="h-9 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none"
+                >
+                  <option value="">كل الحالات</option>
+                  <option value="NEW">جديدة</option>
+                  <option value="CONTACTED">تم التواصل</option>
+                  <option value="CLOSED">مغلقة</option>
+                </select>
+                <select
+                  value={paymentFilter}
+                  onChange={(e) => {
+                    setPaymentFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  aria-label="حالة الدفع"
+                  className="h-9 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none"
+                >
+                  <option value="">كل حالات الدفع</option>
+                  <option value="AWAITING_TRANSFER">بانتظار التحويل</option>
+                  <option value="UNDER_REVIEW">قيد المراجعة</option>
+                  <option value="CONFIRMED">مؤكد</option>
+                  <option value="NOT_REQUIRED">لا يتطلب دفعًا</option>
+                </select>
+              </div>
+              {queueFilter !== "ALL" ? (
+                <p className="text-[11px] text-muted-foreground">فلتر الجاهزية يُطبَّق على الصفحة الحالية فقط.</p>
+              ) : null}
             </div>
 
             <ul className="mt-3 flex max-h-[36rem] flex-col gap-2 overflow-y-auto">
@@ -387,6 +461,20 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
                 </li>
               ))}
             </ul>
+
+            {meta && meta.totalPages > 1 ? (
+              <nav className="mt-3 flex items-center justify-between gap-2 text-xs" aria-label="التنقل بين الصفحات">
+                <Button type="button" variant="outline" size="sm" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
+                  السابق
+                </Button>
+                <span className="font-semibold text-muted-foreground">
+                  صفحة {meta.page} من {meta.totalPages}
+                </span>
+                <Button type="button" variant="outline" size="sm" disabled={loading || page >= meta.totalPages} onClick={() => setPage((current) => current + 1)}>
+                  التالي
+                </Button>
+              </nav>
+            ) : null}
           </div>
 
           {selected ? (

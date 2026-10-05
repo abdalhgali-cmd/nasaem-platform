@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   assignContactRequestSchema,
   createContactRequestSchema,
@@ -47,6 +48,25 @@ const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
   // Smart Case Operations — Release A.
   TRAVELER_NOT_FOUND: "One of the uploaded documents references a traveler that wasn't submitted",
 };
+
+const optionalText = (max) => z.string().trim().max(max).optional().transform((value) => value || undefined);
+const optionalDate = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value) => (value ? new Date(value) : undefined))
+  .refine((date) => date === undefined || !Number.isNaN(date.getTime()), "Invalid date");
+
+// Query parameters of the staff case list. Unknown enum values are a 400, not a
+// database error.
+const listQuerySchema = z.object({
+  status: z.enum(["NEW", "CONTACTED", "CLOSED"]).optional(),
+  paymentStatus: z.enum(["NOT_REQUIRED", "AWAITING_TRANSFER", "UNDER_REVIEW", "CONFIRMED"]).optional(),
+  serviceId: optionalText(64),
+  search: optionalText(100),
+  from: optionalDate,
+  to: optionalDate,
+});
 
 export async function storeContactRequest(req, res, next) {
   try {
@@ -103,9 +123,14 @@ export async function getContactRequests(req, res, next) {
     const assignedUserId =
       req.query.assignedUserId === "mine" ? req.user.id : req.query.assignedUserId;
 
+    const parsed = listQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+
     const { data, meta } = await listContactRequests({
       ...parsePagination(req.query),
-      status: req.query.status,
+      ...parsed.data,
       organizationId: req.user.organizationId,
       assignedUserId,
     });
