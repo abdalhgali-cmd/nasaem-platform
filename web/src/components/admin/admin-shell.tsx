@@ -17,6 +17,7 @@ import {
   Flag,
   Gauge,
   Layers3,
+  KeyRound,
   LogOut,
   Menu,
   Palette,
@@ -28,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import { API_URL } from "@/lib/api-url";
+import { ChangePasswordDialog } from "@/components/admin/change-password-dialog";
 
 export type AdminUser = {
   id: string;
@@ -82,6 +84,7 @@ export function AdminShell({ children, title, description }: { children: React.R
   const router = useRouter();
   const [user, setUser] = React.useState<AdminUser | null>(null);
   const [open, setOpen] = React.useState(false);
+  const [passwordOpen, setPasswordOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [unreadCount, setUnreadCount] = React.useState(0);
   const [expandedGroups, setExpandedGroups] = React.useState<Record<string, boolean>>({ daily: true, finance: true });
@@ -174,6 +177,9 @@ export function AdminShell({ children, title, description }: { children: React.R
                 </span>
               ) : null}
             </Link>
+            <button type="button" className="inline-flex size-10 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition hover:text-primary" aria-label="تغيير كلمة المرور" title="تغيير كلمة المرور" onClick={() => setPasswordOpen(true)}>
+              <KeyRound className="size-4" />
+            </button>
             <button type="button" className="inline-flex size-10 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition hover:text-destructive" aria-label="تسجيل الخروج" onClick={() => void logout()}>
               <LogOut className="size-4" />
             </button>
@@ -186,6 +192,7 @@ export function AdminShell({ children, title, description }: { children: React.R
           <div className="mt-6 rounded-2xl bg-primary/5 p-4 text-sm leading-7 text-muted-foreground"><p className="font-black text-foreground">تشغيل آمن</p><p className="mt-1">كل إجراء حساس يمر عبر صلاحيات الخادم وقواعد العمل الحالية.</p></div>
         </aside>
         {open ? <div className="fixed inset-0 z-50 bg-black/40 lg:hidden" onClick={() => setOpen(false)}><aside className="h-full w-[min(20rem,88vw)] overflow-y-auto bg-card p-4 shadow-xl" onClick={(event) => event.stopPropagation()}><div className="mb-4 flex items-center justify-between"><strong>مركز التحكم</strong><button type="button" aria-label="إغلاق القائمة" className="inline-flex size-9 items-center justify-center rounded-lg border border-border" onClick={() => setOpen(false)}><X className="size-4" /></button></div><nav className="space-y-2">{navigationContent(() => setOpen(false))}</nav></aside></div> : null}
+        <ChangePasswordDialog open={passwordOpen} onClose={() => setPasswordOpen(false)} />
         <main className="min-w-0 flex-1">
           {(title || description) ? <div className="border-b border-border bg-card px-4 py-7 sm:px-6 lg:px-10"><div className="mx-auto max-w-7xl"><h1 className="text-2xl font-black sm:text-3xl">{title}</h1>{description ? <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{description}</p> : null}</div></div> : null}
           {children}

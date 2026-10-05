@@ -27,6 +27,11 @@ export async function requireAuth(req, res, next) {
     }
 
     const payload = verifyAccessToken(token);
+    // Customer and phone-tracking tokens share the signing secret; a `scope`
+    // claim marks them. They must never be accepted as a staff session.
+    if (payload.scope) {
+      return res.status(401).json({ success: false, message: "Invalid token" });
+    }
     const userId = payload.sub || payload.id;
 
     if (!userId) {
@@ -46,6 +51,7 @@ export async function requireAuth(req, res, next) {
         where: { id: userId },
         select: {
           ...baseSelect,
+          passwordChangedAt: true,
           organizationId: true,
           organization: { select: { id: true, slug: true, name: true, active: true } },
         },
@@ -71,7 +77,16 @@ export async function requireAuth(req, res, next) {
       });
     }
 
-    req.user = user;
+    // A password change/reset revokes every session issued before it.
+    if (user.passwordChangedAt && payload.iat < Math.floor(user.passwordChangedAt.getTime() / 1000)) {
+      return res.status(401).json({
+        success: false,
+        message: "Session expired. Please sign in again.",
+      });
+    }
+
+    const { passwordChangedAt: _passwordChangedAt, ...publicUser } = user;
+    req.user = publicUser;
     req.organization = user.organization;
     next();
   } catch (error) {

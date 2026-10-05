@@ -1,5 +1,5 @@
-import { loginSchema } from "./auth.validators.js";
-import { getCurrentUser, loginUser } from "./auth.service.js";
+import { changePasswordSchema, loginSchema } from "./auth.validators.js";
+import { changeOwnPassword, getCurrentUser, loginUser } from "./auth.service.js";
 import { getAccessTokenMaxAgeMs } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 
@@ -118,6 +118,33 @@ export async function me(req, res, next) {
       success: true,
       data: user,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function changePassword(req, res, next) {
+  try {
+    const parsed = changePasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+
+    const result = await changeOwnPassword({ userId: req.user.id, ...parsed.data });
+    if (result.error === "WRONG_PASSWORD") {
+      return res.status(400).json({ success: false, message: "Current password is incorrect" });
+    }
+    if (result.error === "SAME_PASSWORD") {
+      return res.status(400).json({ success: false, message: "The new password must be different from the current one" });
+    }
+    if (result.error) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    sendAuthCookie(res, result.token);
+    logActivity({ userId: req.user.id, action: "PASSWORD_CHANGED", entity: "User", entityId: req.user.id, req });
+
+    return res.status(200).json({ success: true, message: "Password changed", data: { token: result.token } });
   } catch (error) {
     next(error);
   }
