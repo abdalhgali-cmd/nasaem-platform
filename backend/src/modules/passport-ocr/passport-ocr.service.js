@@ -1,6 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
 import { createWorker } from "tesseract.js";
+import sharp from "sharp";
+import { createGate } from "../../utils/gate.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { parse as parseMrz } from "mrz";
 
@@ -130,13 +132,88 @@ export function parsePassportMrzText(rawText) {
   return null;
 }
 
-export async function extractPassportData(imageBuffer) {
-  const worker = await getWorker();
-  const {
-    data: { text },
-  } = await worker.recognize(imageBuffer);
+// --- Resource limits -------------------------------------------------------
+// OCR is reachable from PUBLIC upload paths (intake drafts, customer document
+// upload) as well as the staff scan tool, and Tesseract's memory and CPU grow
+// with pixel count (measured: a 12 MP phone photo needed ~390 MB peak RSS and
+// ~80 s; a 48 MP photo did not finish in 170 s). So:
+//   * the image is rejected from its HEADER if it exceeds MAX_INPUT_PIXELS
+//     (a tiny, highly-compressible file can still declare a gigantic canvas);
+//   * it is downscaled so the long edge is MAX_OCR_DIMENSION before Tesseract
+//     sees it (the MRZ stays legible at far lower resolution than a camera
+//     captures; this is the approach proposed in PR #66);
+//   * at most one OCR job runs at a time, a few may wait briefly, the rest are
+//     refused (503) instead of queueing unbounded buffers;
+//   * a job that runs too long is aborted by recycling the worker.
+// Environment overrides exist for tuning without a code change.
+const envInt = (name, fallback) => {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+export const MAX_INPUT_PIXELS = envInt("OCR_MAX_INPUT_PIXELS", 64_000_000); // 8000 x 8000
+export const MAX_OCR_DIMENSION = envInt("OCR_MAX_DIMENSION", 2000);
+const OCR_JOB_TIMEOUT_MS = envInt("OCR_JOB_TIMEOUT_MS", 60_000);
+const ocrGate = createGate({ concurrency: 1, maxQueue: envInt("OCR_MAX_QUEUE", 3), maxWaitMs: envInt("OCR_QUEUE_WAIT_MS", 20_000) });
 
-  return parsePassportMrzText(text);
+function rejected(message, statusCode = 400) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+export async function prepareImageForOcr(imageBuffer) {
+  let metadata;
+  try {
+    metadata = await sharp(imageBuffer, { limitInputPixels: false }).metadata();
+  } catch {
+    throw rejected("The image could not be read");
+  }
+  const pixels = (metadata.width || 0) * (metadata.height || 0);
+  if (!pixels) throw rejected("The image could not be read");
+  if (pixels > MAX_INPUT_PIXELS) {
+    throw rejected(`The image is too large (${metadata.width}x${metadata.height}). Use a photo under ${Math.round(MAX_INPUT_PIXELS / 1e6)} megapixels.`);
+  }
+  try {
+    return await sharp(imageBuffer, { limitInputPixels: MAX_INPUT_PIXELS })
+      .rotate() // normalise EXIF orientation before Tesseract sees raw pixels
+      .resize({ width: MAX_OCR_DIMENSION, height: MAX_OCR_DIMENSION, fit: "inside", withoutEnlargement: true })
+      .png() // a format Tesseract/Leptonica always reads (WebP is not)
+      .toBuffer();
+  } catch {
+    throw rejected("The image could not be processed");
+  }
+}
+
+async function recognizeWithTimeout(image) {
+  const worker = await getWorker();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(async () => {
+      // Tesseract cannot cancel a running job; recycle the worker so the next
+      // request starts clean and this one stops consuming CPU.
+      workerPromise = undefined;
+      try {
+        await worker.terminate();
+      } catch {
+        /* already gone */
+      }
+      reject(rejected("Reading the passport took too long. Try a clearer, smaller photo.", 408));
+    }, OCR_JOB_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([worker.recognize(image), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function extractPassportData(imageBuffer) {
+  // Cheap validation and downscaling happen BEFORE taking the single OCR slot.
+  const prepared = await prepareImageForOcr(imageBuffer);
+  return ocrGate.run(async () => {
+    const {
+      data: { text },
+    } = await recognizeWithTimeout(prepared);
+    return parsePassportMrzText(text);
+  });
 }
 
 const IMAGE_MIME_PREFIX = "image/";
