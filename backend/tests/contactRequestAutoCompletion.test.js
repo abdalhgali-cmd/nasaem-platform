@@ -1,5 +1,5 @@
 import "./env.js";
-import { after, afterEach, before, beforeEach, describe, test } from "node:test";
+import { afterEach, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 

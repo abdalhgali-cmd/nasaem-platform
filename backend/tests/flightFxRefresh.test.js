@@ -1,5 +1,5 @@
 import "./env.js";
-import { before, describe, test } from "node:test";
+import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
 import { loginAsSuperAdmin } from "./helpers/api.js";

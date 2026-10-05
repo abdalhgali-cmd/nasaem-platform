@@ -1,7 +1,7 @@
 import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 import prisma from "../src/config/database.js";
 import { deriveSlaState, ensureSystemTask, syncCaseTasks } from "../src/modules/case-tasks/case-tasks.service.js";
 

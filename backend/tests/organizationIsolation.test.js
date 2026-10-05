@@ -150,7 +150,8 @@ describe("organization tenant boundary", () => {
     const otherOrganization = await prisma.organization.create({
       data: { slug: `other-dash-agency-${suffix}`, name: `Other Dashboard Agency ${suffix}` },
     });
-    const otherUser = await prisma.user.create({
+    // A staff user of the other organization (fixture only; its id is not needed).
+    await prisma.user.create({
       data: {
         organizationId: otherOrganization.id,
         employeeNo: `OTHER-DASH-EMP-${suffix}`,

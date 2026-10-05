@@ -1,5 +1,5 @@
 import prisma from "../../config/database.js";
-import { Decimal, ZERO, dec, money, summarizeOrderPayments } from "../../utils/money.js";
+import { ZERO, dec, money, summarizeOrderPayments } from "../../utils/money.js";
 
 // Never labeled "profit" unless every order item counted actually has a
 // supplierCost on record — see finalizeOrderMetrics()'s grossProfit/note.

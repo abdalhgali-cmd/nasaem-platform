@@ -13,7 +13,8 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
-    "finance:audit": "node scripts/audit-payment-currencies.js"
+    "finance:audit": "node scripts/audit-payment-currencies.js",
+    "lint": "eslint ."
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -39,6 +40,9 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0",
     "nodemon": "^3.1.4",
     "prisma": "^6.0.0",
     "supertest": "^7.0.0"

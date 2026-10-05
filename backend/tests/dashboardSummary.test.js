@@ -1,7 +1,6 @@
 import "./env.js";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import prisma from "../src/config/database.js";
 import { getDashboardSummary, getOperationsCenter } from "../src/modules/dashboard/dashboard.service.js";
 import { loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 

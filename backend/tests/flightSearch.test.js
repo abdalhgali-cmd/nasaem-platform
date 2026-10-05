@@ -159,8 +159,7 @@ describe("Trip.com search result caching (Platform 3.0 Phase 12)", () => {
     callCount = 0;
     server = http.createServer((req, res) => {
       callCount += 1;
-      let body = "";
-      req.on("data", (chunk) => { body += chunk; });
+      req.resume(); // the stub provider ignores the request body
       req.on("end", () => {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ legs: [[{ id: "T1", airline: "Test Provider Air", flightNumber: "TP1", price: 100, currency: "USD" }]] }));

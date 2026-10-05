@@ -19,8 +19,6 @@ const STATUS_LABELS_AR = { REQUESTED: "تم استلام الطلب", RESERVATIO
 function bookingNumber() { return `FLT-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`; }
 function badRequest(message) { const error = new Error(message); error.statusCode = 400; return error; }
 function notFound(message) { const error = new Error(message); error.statusCode = 404; return error; }
-function safeName(name) { return String(name || "file").replace(/[^a-zA-Z0-9._-]/g, "_"); }
-function normalizePhone(value) { return String(value || "").replace(/[^0-9+]/g, "").replace(/^00/, "+"); }
 // Writes under UPLOAD_ROOT/flight-bookings/<bookingNumber>/ and stores the
 // DB path relative to UPLOAD_ROOT (e.g. "flight-bookings/FLT-.../file.pdf"),
 // matching the same contract documents.service.js/contact-request-documents

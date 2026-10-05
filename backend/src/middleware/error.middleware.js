@@ -26,7 +26,8 @@ function describePrismaError(error) {
   return null;
 }
 
-export default function errorMiddleware(err, req, res, next) {
+// Express identifies error handlers by their 4-argument signature, so `_next` must stay.
+export default function errorMiddleware(err, req, res, _next) {
   console.error(err);
 
   const prismaDescription = describePrismaError(err);
