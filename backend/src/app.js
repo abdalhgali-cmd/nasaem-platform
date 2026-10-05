@@ -12,6 +12,7 @@ import rateLimit from "express-rate-limit";
 import apiRouter from "./routes/index.js";
 import notFoundMiddleware from "./middleware/notFound.middleware.js";
 import errorMiddleware from "./middleware/error.middleware.js";
+import { csrfGuard } from "./middleware/csrf.middleware.js";
 import { trustProxyHops } from "./utils/trustProxy.js";
 
 // Must run before the cors() call below reads process.env.CORS_ORIGIN.
@@ -53,8 +54,11 @@ app.use(
 app.use(helmet());
 app.use(compression());
 app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true }));
+// No clients submit urlencoded bodies (the web app, the back-office and the
+// mobile app all send JSON or multipart), so urlencoded parsing is disabled:
+// it only ever served as the body format of a cross-site <form> CSRF.
 app.use(cookieParser());
+app.use("/api", csrfGuard);
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // Static frontend pages (login/request/dashboard) are served same-origin so
