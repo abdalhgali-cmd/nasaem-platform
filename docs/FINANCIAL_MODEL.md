@@ -37,6 +37,8 @@ Migration `20261005100000_payment_fx_snapshot` is **additive**: two nullable col
 
 Legacy payments whose currency differs from their order's are **left NULL on purpose** — the historical rate is unknown and inventing one would falsify the books. Before the fix they were summed at face value, so some orders may show a wrong `paymentStatus`.
 
+**Expect some legacy mismatches.** Before this change `POST /api/payments` defaulted `currency` to `SAR` regardless of the order, and the staff payment form had no currency field. Payments recorded for a **non-SAR order** through that form therefore carry `SAR` and will be listed by the audit (they were silently summed at face value). Orders in SAR (the default) and flight-booking payments (created in the booking's own currency) are unaffected.
+
 Rollout:
 1. Deploy the migration with the release (safe; additive).
 2. On production run the **read-only** audit: `npm run finance:audit` (`--json` for a file). It lists affected payments/orders (ids, amounts, currencies — no customer data).

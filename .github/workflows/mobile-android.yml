@@ -33,7 +33,6 @@ jobs:
       # Pull-request and push builds are always STAGING builds (own package id,
       # own API). Only a manual dispatch can ask for production.
       APP_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
-      EXPO_PUBLIC_API_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'production') && vars.PRODUCTION_API_URL || vars.STAGING_API_URL }}
       ANDROID_VERSION_CODE: ${{ github.run_number }}
       APP_VERSION: 0.1.${{ github.run_number }}
     steps:
@@ -61,6 +60,19 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      - name: Select the API for this environment
+        env:
+          PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
+          STAGING_API_URL: ${{ vars.STAGING_API_URL }}
+        run: |
+          # Explicit per-environment selection. (A `cond && a || b` expression would
+          # silently fall back to the STAGING url when PRODUCTION_API_URL is unset.)
+          if [ "$APP_ENV" = "production" ]; then
+            echo "EXPO_PUBLIC_API_URL=$PRODUCTION_API_URL" >> "$GITHUB_ENV"
+          else
+            echo "EXPO_PUBLIC_API_URL=$STAGING_API_URL" >> "$GITHUB_ENV"
+          fi
 
       - name: Resolve app configuration (fails on an unsafe environment/API combination)
         run: npx expo config --type public | grep -E "appEnv|apiUrl|package"
