@@ -3,17 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <meta name="theme-color" content="#082b58">
+  <meta name="theme-color" content="#061f42">
   <title>نسائم الحرمين</title>
   <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/motion.css">
 </head>
 <body>
+  <div class="status-scrim" aria-hidden="true"></div>
   <div id="offlineBanner" class="offline-banner">لا يوجد اتصال بالإنترنت — بعض البيانات قد تكون قديمة</div>
 
   <main class="app-shell">
     <div id="screen" class="screen"></div>
 
     <nav id="bottomNav" class="bottom-nav" hidden>
+      <span class="nav-indicator" aria-hidden="true"></span>
       <button data-tab="home" class="active" aria-label="الرئيسية">
         <span class="nav-icon" data-icon="home"></span>
         <span>الرئيسية</span>
