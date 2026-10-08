@@ -7,12 +7,26 @@ import { getSiteAssetUrls } from "@/lib/site-assets";
 import { getPublicServices, type PublicService } from "@/lib/services";
 import { resolveHomepageIcon } from "@/lib/homepage-icons";
 import { resolveServiceHref } from "@/lib/service-routes";
+import { formatPrice, formatSdgEquivalent, hasPublishedPrice } from "@/lib/price";
 
 type DisplayService = PublicService & { icon: LucideIcon; href: string; imageUrl?: string };
 
-export async function Services() {
-  const [services, assetUrls] = await Promise.all([getPublicServices(), getSiteAssetUrls()]);
-  const displayServices: DisplayService[] = services.map((service) => ({
+export async function Services({ limit, showAllLink = false }: { limit?: number; showAllLink?: boolean } = {}) {
+  const [allServices, assetUrls] = await Promise.all([getPublicServices(), getSiteAssetUrls()]);
+  // The homepage's primary services grid is meant to be the small set of
+  // top-level entry points (عمرة، فنادق، تأشيرة عمل، ...) a first-time
+  // customer scans in seconds — not every priced package/tier underneath
+  // one of them (e.g. Umrah's 3 SVC-UMRAH-* sub-packages, seeded under
+  // category "package"). Those already get their own presentation via
+  // FeaturedUmrah and each package's own page; listing them again here
+  // turned this into an 11+ card wall duplicating what's below it.
+  const services = allServices.filter(
+    (service) =>
+      service.category !== "package" &&
+      service.category !== "UMRAH_PACKAGE" &&
+      !service.code.startsWith("SVC-UMRAH-")
+  );
+  const displayServices: DisplayService[] = services.slice(0, limit).map((service) => ({
     ...service,
     icon: resolveHomepageIcon(service.iconKey),
     href: resolveServiceHref(service),
@@ -20,7 +34,7 @@ export async function Services() {
   }));
 
   return (
-    <section className="bg-section py-24">
+    <section id="services" className="scroll-mt-24 bg-section py-20">
       <Container>
         <SectionHeading
           eyebrow="خدماتنا"
@@ -54,6 +68,16 @@ export async function Services() {
                     )}
                     <h3 className="mt-5 text-lg font-bold text-foreground">{service.name}</h3>
                     <p className="mt-2.5 flex-1 text-sm leading-relaxed text-muted-foreground">{service.description || "تفاصيل الخدمة وخطوات طلبها متاحة عبر فريق NASAEM."}</p>
+                    {hasPublishedPrice(service.basePrice) ? (
+                      <>
+                        <p className="mt-3 text-sm font-extrabold text-primary dark:text-secondary" dir="ltr">
+                          {formatPrice(service.basePrice, service.currency)}
+                        </p>
+                        {formatSdgEquivalent(service.priceSdg) ? (
+                          <p className="text-xs text-muted-foreground">{formatSdgEquivalent(service.priceSdg)}</p>
+                        ) : null}
+                      </>
+                    ) : null}
                     <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-bold text-primary dark:text-secondary">
                       اعرف المزيد
                       <ArrowLeft className="size-4 transition-transform duration-300 group-hover:-translate-x-1" />
@@ -64,6 +88,18 @@ export async function Services() {
             })}
           </Stagger>
         )}
+
+        {showAllLink && services.length > displayServices.length ? (
+          <div className="mt-10 text-center">
+            <Link
+              href="/services"
+              className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-card px-6 py-3 text-sm font-bold text-primary transition hover:border-primary hover:bg-primary/5 dark:text-secondary"
+            >
+              عرض كل الخدمات
+              <ArrowLeft className="size-4" aria-hidden="true" />
+            </Link>
+          </div>
+        ) : null}
       </Container>
     </section>
   );

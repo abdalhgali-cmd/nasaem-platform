@@ -27,6 +27,7 @@ import {
   storeOfferFromPricing,
 } from "./contact-requests.controller.js";
 import {
+  getAvailableProviders,
   getProviderPackage,
   getProviderSubmissions,
   patchProviderSubmission,
@@ -39,6 +40,7 @@ import {
   patchCaseTaskComplete,
   storeCaseTask,
 } from "../case-tasks/case-tasks.controller.js";
+import { getCaseNotes, storeCaseNote } from "../case-notes/case-notes.controller.js";
 
 const router = Router();
 
@@ -136,6 +138,22 @@ router.patch(
   requireContactRequestOrganization,
   patchCaseTaskComplete
 );
+// Internal staff notes — never customer-facing (see CaseNote schema
+// comment). Same role set as tasks/timeline: the roles that work cases.
+router.get(
+  "/:id/notes",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getCaseNotes
+);
+router.post(
+  "/:id/notes",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  storeCaseNote
+);
 router.patch(
   "/:id/status",
   requireAuth,
@@ -228,6 +246,13 @@ router.post(
 // case itself rather than a separate provider app: sending a case out is
 // part of working that case. Restricted to the roles that already process
 // cases — CONTENT_MANAGER/ACCOUNTANT never hand work to an external party.
+router.get(
+  "/:id/providers",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  getAvailableProviders
+);
 router.get(
   "/:id/provider-package",
   requireAuth,

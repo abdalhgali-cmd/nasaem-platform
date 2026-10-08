@@ -65,6 +65,7 @@ type ChecklistItem = {
 type NextAction = {
   code: string;
   requirementId?: string;
+  travelerId?: string | null;
   label: string;
   reason: string | null;
 };
@@ -186,6 +187,9 @@ function getRequestNextAction(req: TrackedRequest) {
     return "أعد رفع المستند المرفوض بعد مراجعة الملاحظة الموضحة أدناه.";
   }
   if (req.paymentStatus === "UNDER_REVIEW") return "انتظر مراجعة إثبات التحويل من فريقنا.";
+  if (req.paymentStatus === "CONFIRMED" && req.deliverables.length === 0) {
+    return "تم قبول الدفع. لا يلزمك أي إجراء الآن؛ سنشعرك فور صدور التأشيرة ورفعها.";
+  }
   if (req.paymentStatus === "AWAITING_TRANSFER") return "حوّل المبلغ ثم اضغط «تم تحويل المبلغ».";
   if (req.invoice?.status === "PENDING") return "راجع السعر المقترح ثم اختر الموافقة أو الرفض.";
   if (req.offers.length > 0 && !req.selectedOfferId) return "راجع العروض واختر العرض المناسب لك.";
@@ -235,7 +239,14 @@ function getRequestTimeline(req: TrackedRequest): TimelineStep[] {
     });
   }
 
-  steps.push({ label: "استلام الوثيقة النهائية", state: req.deliverables.length > 0 ? "done" : "upcoming" });
+  if (req.paymentStatus === "CONFIRMED") {
+    steps.push({
+      label: "انتظار صدور التأشيرة",
+      state: req.deliverables.length > 0 ? "done" : "current",
+    });
+  }
+
+  steps.push({ label: "استلام التأشيرة", state: req.deliverables.length > 0 ? "done" : "upcoming" });
 
   if (req.status === "CLOSED") {
     const closedLabel =
@@ -615,6 +626,7 @@ function RequestDocumentsPanel({
   const outstanding = (req.checklist ?? []).filter(
     (item) => item.kind === "DOCUMENT" && (item.state === "MISSING" || item.state === "REJECTED")
   );
+  const checklistKey = (item: ChecklistItem) => `${item.requirementId}::${item.travelerId ?? "case"}`;
 
   React.useEffect(() => {
     if (outstanding.length === 0) return;
@@ -645,9 +657,12 @@ function RequestDocumentsPanel({
 
     try {
       const formData = new FormData();
-      const selected = outstanding.find((item) => item.requirementId === requirementId);
+      const selected = outstanding.find((item) => checklistKey(item) === requirementId);
       formData.append("label", selected ? selected.label : label);
-      if (requirementId) formData.append("requirementId", requirementId);
+      if (selected) {
+        formData.append("requirementId", selected.requirementId);
+        if (selected.travelerId) formData.append("travelerId", selected.travelerId);
+      }
       formData.append("file", file);
 
       const res = await fetch(`${API_URL}/tracking/requests/${req.id}/documents`, {
@@ -733,8 +748,9 @@ function RequestDocumentsPanel({
             >
               <option value="">مستند آخر…</option>
               {outstanding.map((item) => (
-                <option key={item.requirementId} value={item.requirementId}>
+                <option key={checklistKey(item)} value={checklistKey(item)}>
                   {item.label}
+                  {item.travelerName ? ` — ${item.travelerName}` : ""}
                   {item.state === "REJECTED" ? " (إعادة رفع)" : ""}
                 </option>
               ))}

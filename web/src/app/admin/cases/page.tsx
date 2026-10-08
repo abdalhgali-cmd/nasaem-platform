@@ -7,10 +7,11 @@ export const metadata: Metadata = {
   description: "شاشة عمل موحدة لكل حالة: الجاهزية، المسافرون، المستندات، المهام، والجهة المنفّذة.",
 };
 
-export default function CasesPage() {
+export default async function CasesPage({ searchParams }: { searchParams: Promise<{ requestId?: string }> }) {
+  const { requestId } = await searchParams;
   return (
     <AdminShell>
-      <CaseWorkspace />
+      <CaseWorkspace initialRequestId={requestId} />
     </AdminShell>
   );
 }

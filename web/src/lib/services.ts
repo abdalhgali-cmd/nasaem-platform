@@ -8,6 +8,9 @@ export type PublicService = {
   description: string | null;
   iconKey: string | null;
   imageKey: string | null;
+  basePrice: number | string | null;
+  currency: string | null;
+  priceSdg: number | null;
 };
 
 export async function getPublicServices(): Promise<PublicService[]> {

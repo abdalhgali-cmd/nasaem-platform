@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- fetching/prefilling from admin-maintained state synchronizes with the API (same pattern as activity-log-manager.tsx). */
 
 import * as React from "react";
 import { Calculator, CheckCircle2, CreditCard, FileText, Layers3 } from "lucide-react";
@@ -20,6 +21,8 @@ type Preview = {
   customerPrice: number;
 };
 
+type FxRates = Record<string, number>;
+
 export function OperationsPricingPanel({ requestId, reference, onUpdated }: Props) {
   const [sourceAmount, setSourceAmount] = React.useState("");
   const [exchangeRate, setExchangeRate] = React.useState("");
@@ -31,6 +34,34 @@ export function OperationsPricingPanel({ requestId, reference, onUpdated }: Prop
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState("");
   const [error, setError] = React.useState("");
+  const [rates, setRates] = React.useState<FxRates>({});
+
+  // The exchange rate used to matter only as a number staff typed from
+  // memory. It now comes from the same admin-maintained rates
+  // (/flights/admin/rates) the package pricing screen already uses, so a
+  // rate change there is reflected here too — never hard-coded, and still
+  // editable below for a one-off adjustment.
+  React.useEffect(() => {
+    let active = true;
+    fetch(`${API_URL}/flights/admin/rates`, { credentials: "include" })
+      .then((res) => res.json())
+      .then((payload) => {
+        if (active && payload?.success) setRates(payload.data || {});
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (currency === "SDG") {
+      setExchangeRate("1");
+      return;
+    }
+    const rate = rates[currency];
+    if (rate) setExchangeRate(String(rate));
+  }, [currency, rates]);
 
   async function previewPrice() {
     setBusy(true);
@@ -98,8 +129,8 @@ export function OperationsPricingPanel({ requestId, reference, onUpdated }: Prop
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <label className="text-xs font-bold text-muted-foreground">المبلغ الأصلي<input value={sourceAmount} onChange={(e) => setSourceAmount(e.target.value)} inputMode="decimal" className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="100" /></label>
-        <label className="text-xs font-bold text-muted-foreground">العملة<select value={currency} onChange={(e) => setCurrency(e.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm"><option value="USD">USD</option><option value="SAR">SAR</option><option value="AED">AED</option><option value="EGP">EGP</option><option value="SDG">SDG</option></select></label>
-        <label className="text-xs font-bold text-muted-foreground">سعر الصرف<input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} inputMode="decimal" className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="600" /></label>
+        <label className="text-xs font-bold text-muted-foreground">العملة<select value={currency} onChange={(e) => setCurrency(e.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm"><option value="USD">USD</option><option value="SAR">SAR</option><option value="AED">AED</option><option value="QAR">QAR</option><option value="EGP">EGP</option><option value="SDG">SDG</option></select></label>
+        <label className="text-xs font-bold text-muted-foreground">سعر الصرف (تلقائي من الأسعار، قابل للتعديل)<input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} inputMode="decimal" className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="600" /></label>
         <label className="text-xs font-bold text-muted-foreground">هامش الوكالة %<input value={marginPercent} onChange={(e) => setMarginPercent(e.target.value)} inputMode="decimal" className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="5" /></label>
         <label className="text-xs font-bold text-muted-foreground">الناقل/الخيار<input value={carrier} onChange={(e) => setCarrier(e.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="Tarko" /></label>
         <label className="text-xs font-bold text-muted-foreground">وصف السعر<input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-background px-3 text-sm" placeholder="رحلة مباشرة" /></label>

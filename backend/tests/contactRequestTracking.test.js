@@ -114,6 +114,31 @@ describe("contact request tracking (customer WhatsApp-OTP login)", () => {
     assert.equal(afterLogoutRes.status, 401);
   });
 
+  test("mobile bearer token from verify-code can list the same phone's requests", async () => {
+    const localPhone = `098${uniqueSuffix()}`;
+    const contactRequestId = await createContactRequestDirect(localPhone);
+    const phone = normalizePhone(localPhone);
+    const code = "246802";
+
+    await prisma.contactRequestLoginCode.create({
+      data: { phone, code, expiresAt: new Date(Date.now() + 10 * 60 * 1000) },
+    });
+
+    const verifyRes = await request(app)
+      .post("/api/tracking/verify-code")
+      .send({ phone: localPhone, code });
+
+    assert.equal(verifyRes.status, 200, JSON.stringify(verifyRes.body));
+    assert.ok(verifyRes.body.data?.token, "mobile clients require a bearer tracking token");
+
+    const listRes = await request(app)
+      .get("/api/tracking/requests")
+      .set("Authorization", `Bearer ${verifyRes.body.data.token}`);
+
+    assert.equal(listRes.status, 200, JSON.stringify(listRes.body));
+    assert.ok(listRes.body.data.some((r) => r.id === contactRequestId));
+  });
+
   test("a reused (already-consumed) code is rejected", async () => {
     const suffix = uniqueSuffix();
     const localPhone = `092${suffix}`;

@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- initial workflow data loading synchronizes with the API. */
 
 import * as React from "react";
 import Link from "next/link";

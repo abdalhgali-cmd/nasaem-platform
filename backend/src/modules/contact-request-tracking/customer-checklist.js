@@ -43,26 +43,34 @@ export function buildCustomerChecklist(contactRequest) {
     const isDocument = !requirement.type || requirement.type === "DOCUMENT";
 
     if (isDocument) {
+      const travelerTargets = requirement.scope === "TRAVELER" && travelersById.size > 0
+        ? [...travelersById.values()]
+        : [null];
+
       // Newest first, matching the order the tracking listing loads them
       // in, so the row reflects the customer's most recent attempt.
-      const document = currentDocuments.find((d) => d.requirementId === requirement.id);
-      const state = document ? (DOCUMENT_STATE[document.status] ?? "MISSING") : "MISSING";
-      const traveler = document?.travelerId ? travelersById.get(document.travelerId) : null;
+      for (const travelerTarget of travelerTargets) {
+        const document = currentDocuments.find(
+          (d) => d.requirementId === requirement.id && (!travelerTarget || d.travelerId === travelerTarget.id)
+        );
+        const state = document ? (DOCUMENT_STATE[document.status] ?? "MISSING") : "MISSING";
+        const resolvedTraveler = travelerTarget || (document?.travelerId ? travelersById.get(document.travelerId) : null);
 
-      items.push({
-        requirementId: requirement.id,
-        label: requirementLabel(requirement),
-        description: requirement.description ?? null,
-        kind: "DOCUMENT",
-        required: Boolean(requirement.required),
-        state,
-        documentId: document?.id ?? null,
-        // The reason a document was sent back is the single most useful
-        // thing we can tell the customer, so it travels with the row.
-        reviewNote: state === "REJECTED" ? (document?.reviewNote ?? null) : null,
-        travelerId: document?.travelerId ?? null,
-        travelerName: traveler?.fullName ?? null,
-      });
+        items.push({
+          requirementId: requirement.id,
+          label: requirementLabel(requirement),
+          description: requirement.description ?? null,
+          kind: "DOCUMENT",
+          required: Boolean(requirement.required),
+          state,
+          documentId: document?.id ?? null,
+          // The reason a document was sent back is the single most useful
+          // thing we can tell the customer, so it travels with the row.
+          reviewNote: state === "REJECTED" ? (document?.reviewNote ?? null) : null,
+          travelerId: resolvedTraveler?.id ?? document?.travelerId ?? null,
+          travelerName: resolvedTraveler?.fullName ?? null,
+        });
+      }
       continue;
     }
 
@@ -100,6 +108,7 @@ export function buildCustomerNextActions(contactRequest, checklist) {
     actions.push({
       code: "REPLACE_DOCUMENT",
       requirementId: item.requirementId,
+      travelerId: item.travelerId ?? null,
       label: `إعادة رفع: ${item.label}`,
       reason: item.reviewNote,
     });
@@ -118,6 +127,7 @@ export function buildCustomerNextActions(contactRequest, checklist) {
     actions.push({
       code: item.kind === "DOCUMENT" ? "UPLOAD_DOCUMENT" : "PROVIDE_ANSWER",
       requirementId: item.requirementId,
+      travelerId: item.travelerId ?? null,
       label: item.kind === "DOCUMENT" ? `رفع: ${item.label}` : `استكمال: ${item.label}`,
       reason: null,
     });

@@ -59,7 +59,16 @@ export function DynamicUmrahPackages({ selectedPackageCode }: { selectedPackageC
       const response = await fetch(`${API_URL}/services/public/packages`, { cache: "no-store" });
       const payload = (await response.json()) as { success?: boolean; data?: PublicPackage[]; message?: string };
       if (!response.ok || !payload.success) throw new Error(payload.message || "تعذر تحميل الباقات");
-      setPackages((payload.data ?? []).map(parsePackage));
+      // Despite this component's name, it renders the general Travel
+      // Packages page (/packages) — the dedicated Umrah page uses
+      // FeaturedUmrah instead. Real Umrah products (category
+      // UMRAH_PACKAGE, or the legacy SVC-UMRAH- code prefix) belong on
+      // that page, not mixed into general packages here — same exclusion
+      // FeaturedUmrah already applies in the opposite direction.
+      const generalPackages = (payload.data ?? []).filter(
+        (pkg) => pkg.category !== "UMRAH_PACKAGE" && !pkg.code.startsWith("SVC-UMRAH-")
+      );
+      setPackages(generalPackages.map(parsePackage));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "تعذر تحميل الباقات، حاول تحديث الصفحة");
     } finally {

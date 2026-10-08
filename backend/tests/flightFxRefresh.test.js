@@ -60,4 +60,23 @@ describe("flight FX refresh", () => {
       await prisma.$executeRawUnsafe(`DELETE FROM flight_inventory WHERE flight_number = $1`, `FX${suffix.slice(-5)}`);
     }
   });
+
+  test("QAR is a supported rate alongside USD/SAR/AED/EGP", async () => {
+    const admin = await loginAsSuperAdmin();
+
+    const currentRatesRes = await admin.get("/api/flights/admin/rates");
+    assert.equal(currentRatesRes.status, 200);
+    const previousRates = currentRatesRes.body.data;
+    assert.ok("QAR" in previousRates, "GET /api/flights/admin/rates must report a QAR rate");
+
+    try {
+      const patchRes = await admin.patch("/api/flights/admin/rates").send({ QAR: 82.5 });
+      assert.equal(patchRes.status, 200, JSON.stringify(patchRes.body));
+      assert.equal(patchRes.body.data.QAR, 82.5);
+      // Untouched currencies are unaffected by a partial update.
+      assert.equal(patchRes.body.data.USD, previousRates.USD);
+    } finally {
+      await admin.patch("/api/flights/admin/rates").send({ QAR: previousRates.QAR });
+    }
+  });
 });

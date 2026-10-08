@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Legacy static back-office scripts are served verbatim and do not run
+    // inside the Next.js module/runtime model.
+    "public/assets/**",
   ]),
 ]);
 

@@ -17,6 +17,7 @@ function baseRequest(overrides = {}) {
     requirementsSnapshot: [],
     intakeData: null,
     documents: [],
+    travelers: [],
     ...overrides,
   };
 }
@@ -57,6 +58,18 @@ describe("computeReadiness() — pure function", () => {
     );
     assert.equal(readiness.documentsComplete, true);
     assert.equal(readiness.overall, "READY_FOR_PROCESSING");
+  });
+
+  test("a TRAVELER document requirement must be accepted for every traveler", () => {
+    const contactRequest = baseRequest({
+      requirementsSnapshot: [{ id: "passport", required: true, type: "DOCUMENT", scope: "TRAVELER" }],
+      travelers: [{ id: "t1" }, { id: "t2" }],
+      documents: [{ requirementId: "passport", travelerId: "t1", status: "ACCEPTED", supersededAt: null }],
+    });
+
+    assert.equal(computeReadiness(contactRequest).documentsComplete, false);
+    contactRequest.documents.push({ requirementId: "passport", travelerId: "t2", status: "ACCEPTED", supersededAt: null });
+    assert.equal(computeReadiness(contactRequest).documentsComplete, true);
   });
 
   test("a PENDING document under review is not yet complete (queue: NEEDS_REVIEW)", () => {

@@ -60,7 +60,11 @@ export default defineConfig({
       // backend/admin calls go through page.request with an absolute
       // localhost:5000 URL, same pattern as web.spec.ts already uses.
       name: "platform3",
-      testMatch: /platform3\.spec\.ts/,
+      // p0-request-ux.spec.ts fully mocks every API call via page.route()
+      // (no real backend state needed), so it's safe alongside this
+      // project's real-backend specs — it never touches the shared dev
+      // database or its rate limiters.
+      testMatch: [/platform3\.spec\.ts/, /egypt-passport-upload\.spec\.ts/, /home-service-entry\.spec\.ts/, /header-entry\.spec\.ts/, /p0-request-ux\.spec\.ts/],
       use: { ...devices["Desktop Chrome"], baseURL: "http://localhost:3000" },
     },
     {

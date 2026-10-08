@@ -85,7 +85,7 @@ export function SiteHeader({
           </a>
           <ThemeToggle />
           <Button asChild variant="gold" size="default">
-            <Link href="/contact">احجز الآن</Link>
+            <Link href="/#start-request">ابدأ طلبك</Link>
           </Button>
         </div>
 
@@ -138,7 +138,7 @@ export function SiteHeader({
                   <span dir="ltr">{contactPhone ?? siteConfig.phone}</span>
                 </a>
                 <Button asChild variant="gold" size="lg" className="w-full">
-                  <Link href="/contact">احجز الآن</Link>
+                  <Link href="/#start-request">ابدأ طلبك</Link>
                 </Button>
               </div>
             </SheetContent>

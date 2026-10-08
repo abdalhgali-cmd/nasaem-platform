@@ -2,9 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Cairo, Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
-import { SiteHeader } from "@/components/layout/site-header";
-import { SiteFooter } from "@/components/layout/site-footer";
-import { WhatsAppButton } from "@/components/layout/whatsapp-button";
+import { SiteChrome } from "@/components/layout/site-chrome";
 import { siteConfig } from "@/lib/site-config";
 import { getSiteAssetUrls } from "@/lib/site-assets";
 import { buildThemeOverrideCss, getPublicTheme } from "@/lib/theme";
@@ -78,7 +76,7 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const [assetUrls, theme, publicSettings] = await Promise.all([getSiteAssetUrls(), getPublicTheme(), getPublicSiteSettings()]);
-  const logoUrls = { light: assetUrls.logo, dark: assetUrls["logo-dark"] };
+  const logoUrls = { light: assetUrls.logo || undefined, dark: assetUrls["logo-dark"] || undefined };
   const themeOverrideCss = buildThemeOverrideCss(theme);
 
   return (
@@ -95,18 +93,7 @@ export default async function RootLayout({
             validated as #RRGGBB server-side and re-checked in theme.ts. */}
         {themeOverrideCss && <style dangerouslySetInnerHTML={{ __html: themeOverrideCss }} />}
         <ThemeProvider>
-          <a
-            href="#main-content"
-            className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:start-4 focus:z-[100] focus:rounded-full focus:bg-primary focus:px-5 focus:py-3 focus:text-primary-foreground"
-          >
-            تخطَّ إلى المحتوى الرئيسي
-          </a>
-          <SiteHeader logoUrls={logoUrls} contactPhone={publicSettings.phone} />
-          <main id="main-content" className="flex-1">
-            {children}
-          </main>
-          <SiteFooter logoUrls={logoUrls} publicSettings={publicSettings} />
-          <WhatsAppButton whatsapp={publicSettings.whatsapp} />
+          <SiteChrome logoUrls={logoUrls} publicSettings={publicSettings}>{children}</SiteChrome>
         </ThemeProvider>
       </body>
     </html>

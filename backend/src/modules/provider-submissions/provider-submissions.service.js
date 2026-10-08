@@ -94,6 +94,35 @@ export async function listProviderSubmissions(contactRequestId, organizationId) 
   return { submissions };
 }
 
+// Staff who work a case need a deliberately small provider directory in
+// order to hand that case off.  The general /suppliers admin endpoint also
+// exposes configuration/contact fields and therefore remains manager-only;
+// this case-scoped projection exposes only what the submission form needs.
+export async function listAvailableProviders(contactRequestId, organizationId) {
+  const contactRequest = await prisma.contactRequest.findFirst({
+    where: { id: contactRequestId, organizationId },
+    select: { id: true },
+  });
+  if (!contactRequest) return { error: "NOT_FOUND" };
+
+  const providers = await prisma.supplier.findMany({
+    where: {
+      active: true,
+      submissionChannel: { not: null },
+    },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      type: true,
+      submissionChannel: true,
+      expectedProcessingDays: true,
+    },
+  });
+
+  return { providers };
+}
+
 // Creates one submission attempt. A resend is simply another call — this
 // never mutates or replaces an earlier submission, so the history of what
 // was sent, to whom and by whom stays intact (schema.prisma's

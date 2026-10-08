@@ -60,11 +60,18 @@ test.describe("Operations Center — mobile viewport", () => {
     expect(searchBox!.width).toBeGreaterThan(0);
     expect(searchBox!.x + searchBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
 
-    // All three filter <select>s (status, service, employee) must actually
-    // be reachable/tappable at this width, not clipped off-screen.
+    // Filters are collapsed behind the "الفلاتر" toggle by default (an
+    // intentional mobile-viewport design choice in operations-center.tsx —
+    // showFilters starts false), so the four <select>s don't exist in the
+    // DOM until it's opened.
+    await page.getByRole("button", { name: "الفلاتر" }).click();
+
+    // All four filter <select>s (status, service, employee, payment status)
+    // must actually be reachable/tappable at this width, not clipped
+    // off-screen.
     const selects = page.locator("select");
-    await expect(selects).toHaveCount(3);
-    for (let i = 0; i < 3; i++) {
+    await expect(selects).toHaveCount(4);
+    for (let i = 0; i < 4; i++) {
       const box = await selects.nth(i).boundingBox();
       expect(box).not.toBeNull();
       expect(box!.height).toBeGreaterThanOrEqual(28); // usable tap target
