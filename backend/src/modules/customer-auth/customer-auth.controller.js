@@ -57,7 +57,7 @@ export async function register(req, res, next) {
     sendCustomerCookie(res, result.token);
     logActivity({ action: "CUSTOMER_REGISTERED", entity: "Customer", entityId: result.customer.id, req });
 
-    return res.status(201).json({ success: true, message: "تم إنشاء الحساب بنجاح", data: { customer: result.customer } });
+    return res.status(201).json({ success: true, message: "تم إنشاء الحساب بنجاح", data: { customer: result.customer, token: result.token } });
   } catch (error) {
     next(error);
   }
@@ -76,7 +76,7 @@ export async function login(req, res, next) {
     sendCustomerCookie(res, result.token);
     logActivity({ action: "CUSTOMER_LOGIN", entity: "Customer", entityId: result.customer.id, req });
 
-    return res.status(200).json({ success: true, message: "تم تسجيل الدخول بنجاح", data: { customer: result.customer } });
+    return res.status(200).json({ success: true, message: "تم تسجيل الدخول بنجاح", data: { customer: result.customer, token: result.token } });
   } catch (error) {
     next(error);
   }
