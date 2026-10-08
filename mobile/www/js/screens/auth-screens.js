@@ -19,9 +19,10 @@ export function setOnAuthenticated(callback) {
   onAuthenticated = callback;
 }
 
-export function renderWelcomeScreen({ bodyEl }) {
+export function renderWelcomeScreen({ bodyEl, params = {} }) {
   bodyEl.innerHTML = `
     <div class="welcome-screen">
+      ${params.notice ? `<p class="session-notice" role="status">${esc(params.notice)}</p>` : ""}
       <div class="welcome-mark"><img src="assets/brand/logo-mark.png" alt="نسائم الحرمين" width="88" height="88"></div>
       <h1>نسائم الحرمين</h1>
       <p class="welcome-tagline">رحلتك للعمرة والسفر والتأشيرات، في مكان واحد موثوق.</p>

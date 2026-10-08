@@ -1,7 +1,4 @@
 import { CONFIG } from "./config.js";
-import { getItem, setItem, removeItem } from "./storage.js";
-
-const TOKEN_KEY = "nasaem.customer.token";
 
 export class ApiError extends Error {
   constructor(message, { status, errors, code } = {}) {
@@ -14,33 +11,51 @@ export class ApiError extends Error {
   }
 }
 
-let cachedToken = null;
+// The customer token lives here in memory only; auth.js loads it from (and
+// saves it to) secure storage. Nothing in this module persists it.
+let sessionToken = null;
+let onSessionRejected = null;
 
-export async function getToken() {
-  if (cachedToken !== null) return cachedToken;
-  cachedToken = await getItem(TOKEN_KEY);
-  return cachedToken;
+export function getToken() {
+  return sessionToken;
 }
 
-export async function setToken(token) {
-  cachedToken = token;
-  if (token) await setItem(TOKEN_KEY, token);
-  else await removeItem(TOKEN_KEY);
+export function setSessionToken(token) {
+  sessionToken = token || null;
+}
+
+// auth.js registers this to re-check the session when a request made with the
+// customer token comes back 401 (see isSessionEndError in session-core.js).
+export function setSessionRejectedHandler(handler) {
+  onSessionRejected = handler;
+}
+
+const DEFAULT_TIMEOUT_MS = 20000;
+
+// fetch has no timeout of its own; on a bad mobile connection a request can
+// hang until the OS gives up. Racing a timer keeps every call bounded (works
+// with CapacitorHttp's native fetch too, which ignores AbortSignal).
+function withTimeout(promise, timeoutMs) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new ApiError("انتهت مهلة الاتصال بالخادم. تحقق من الشبكة وحاول مرة أخرى.", { status: 0, code: "TIMEOUT" })),
+      timeoutMs
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 export function isOnline() {
   return typeof navigator === "undefined" || navigator.onLine !== false;
 }
 
-async function buildHeaders(extra, isFormData) {
+function buildHeaders(extra, isFormData) {
   const headers = { Accept: "application/json", ...extra };
   if (!isFormData) headers["Content-Type"] = "application/json";
   // A caller-supplied Authorization (tracking.js's phone-OTP session) wins
   // over the signed-in customer's own token — never silently overwritten.
-  if (!headers.Authorization) {
-    const token = await getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-  }
+  if (!headers.Authorization && sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
   return headers;
 }
 
@@ -50,34 +65,41 @@ async function buildHeaders(extra, isFormData) {
 // Android app restart — see customer-auth.middleware.js on the backend,
 // which accepts either.
 export async function api(path, options = {}) {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, skipSessionCheck = false, ...fetchOptions } = options;
   if (!isOnline()) {
     throw new ApiError("لا يوجد اتصال بالإنترنت. تحقق من الشبكة وحاول مرة أخرى.", { status: 0 });
   }
 
-  const isFormData = options.body instanceof FormData;
-  let response;
-  try {
-    response = await fetch(CONFIG.apiBaseUrl + path, {
-      credentials: "include",
-      ...options,
-      headers: await buildHeaders(options.headers, isFormData),
-    });
-  } catch {
-    throw new ApiError("تعذر الوصول إلى الخادم. تحقق من الاتصال وحاول مرة أخرى.", { status: 0 });
-  }
+  const isFormData = fetchOptions.body instanceof FormData;
+  const headers = buildHeaders(fetchOptions.headers, isFormData);
+  const usedSessionToken = Boolean(sessionToken) && headers.Authorization === `Bearer ${sessionToken}`;
 
-  let body = {};
-  try {
-    body = await response.json();
-  } catch {
-    body = {};
-  }
+  const request = (async () => {
+    let response;
+    try {
+      response = await fetch(CONFIG.apiBaseUrl + path, { credentials: "include", ...fetchOptions, headers });
+    } catch {
+      throw new ApiError("تعذر الوصول إلى الخادم. تحقق من الاتصال وحاول مرة أخرى.", { status: 0 });
+    }
+    let body = {};
+    try {
+      body = await response.json();
+    } catch {
+      body = {};
+    }
+    return { response, body };
+  })();
+
+  const { response, body } = await withTimeout(request, timeoutMs);
 
   if (!response.ok) {
-    throw new ApiError(body.message || "تعذر إكمال العملية، حاول مرة أخرى.", {
+    const error = new ApiError(body.message || "تعذر إكمال العملية، حاول مرة أخرى.", {
       status: response.status,
       errors: body.errors || null,
+      code: body.code || null,
     });
+    if (response.status === 401 && usedSessionToken && !skipSessionCheck) onSessionRejected?.(error);
+    throw error;
   }
 
   return body;
@@ -110,11 +132,7 @@ export function apiUpload(path, formData, onProgress, authOverride) {
     xhr.withCredentials = true;
     xhr.setRequestHeader("Accept", "application/json");
 
-    const tokenPromise = authOverride?.Authorization
-      ? Promise.resolve(null)
-      : getToken();
-
-    tokenPromise.then((token) => {
+    Promise.resolve(authOverride?.Authorization ? null : sessionToken).then((token) => {
       const authHeader = authOverride?.Authorization || (token ? `Bearer ${token}` : null);
       if (authHeader) xhr.setRequestHeader("Authorization", authHeader);
 

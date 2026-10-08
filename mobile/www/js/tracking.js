@@ -7,15 +7,26 @@
 // once per request to reach those specific actions; this module makes that
 // a short in-place step instead of a dead end.
 import { api, apiUpload } from "./api.js";
-import { getItem, setItem, removeItem } from "./storage.js";
+import { secureGet, secureSet, secureRemove, migrateLegacyPreference } from "./secure-store.js";
 
-const TRACKING_TOKEN_KEY = "nasaem.tracking.token";
+const TRACKING_TOKEN_KEY = "tracking.token";
+const LEGACY_TRACKING_TOKEN_KEY = "nasaem.tracking.token"; // Capacitor Preferences, before secure storage
 let cachedToken = null;
+let loaded = false;
 
 async function getTrackingToken() {
-  if (cachedToken !== null) return cachedToken;
-  cachedToken = await getItem(TRACKING_TOKEN_KEY);
+  if (loaded) return cachedToken;
+  await migrateLegacyPreference(LEGACY_TRACKING_TOKEN_KEY, TRACKING_TOKEN_KEY);
+  cachedToken = await secureGet(TRACKING_TOKEN_KEY);
+  loaded = true;
   return cachedToken;
+}
+
+// Called by auth.js on logout / session end (it wipes secure storage itself):
+// the next customer on this device must not inherit this phone session.
+export function forgetTrackingSession() {
+  cachedToken = null;
+  loaded = true;
 }
 
 export async function hasTrackingSession() {
@@ -29,13 +40,15 @@ export async function requestTrackingCode(phone) {
 export async function verifyTrackingCode(phone, code) {
   const res = await api("/tracking/verify-code", { method: "POST", body: JSON.stringify({ phone, code }) });
   cachedToken = res.data?.token || null;
-  if (cachedToken) await setItem(TRACKING_TOKEN_KEY, cachedToken);
+  loaded = true;
+  if (cachedToken) await secureSet(TRACKING_TOKEN_KEY, cachedToken);
   return res;
 }
 
 export async function clearTrackingSession() {
   cachedToken = null;
-  await removeItem(TRACKING_TOKEN_KEY);
+  loaded = true;
+  await secureRemove(TRACKING_TOKEN_KEY);
 }
 
 async function trackingHeaders() {
