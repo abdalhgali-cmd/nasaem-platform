@@ -29,7 +29,7 @@ export const CUSTOMER_PROFILE_SELECT = {
 
 function sanitizeCustomer(customer) {
   if (!customer) return null;
-  const { passwordHash, passwordResetCode, passwordResetExpiresAt, passwordResetAttempts, ...safe } = customer;
+  const { passwordHash, passwordResetCode, passwordResetExpiresAt, passwordResetAttempts, sessionVersion, ...safe } = customer;
   return safe;
 }
 
@@ -85,8 +85,11 @@ export async function registerCustomer({ fullName, phone, email, password }) {
           email: cleanEmail || existing.email,
           passwordHash,
           lastLoginAt: new Date(),
+          // A CRM record whose earlier account was removed may still have
+          // tokens out there; the new owner of this account must not inherit them.
+          sessionVersion: { increment: 1 },
         },
-        select: CUSTOMER_PROFILE_SELECT,
+        select: { ...CUSTOMER_PROFILE_SELECT, sessionVersion: true },
       })
     : await prisma.customer.create({
         data: {
@@ -97,10 +100,11 @@ export async function registerCustomer({ fullName, phone, email, password }) {
           passwordHash,
           lastLoginAt: new Date(),
         },
-        select: CUSTOMER_PROFILE_SELECT,
+        select: { ...CUSTOMER_PROFILE_SELECT, sessionVersion: true },
       });
 
-  return { token: signCustomerToken(customer.id), customer };
+  const { sessionVersion, ...profile } = customer;
+  return { token: signCustomerToken(customer.id, sessionVersion), customer: profile };
 }
 
 export async function loginCustomer({ identifier, password }) {
@@ -119,7 +123,7 @@ export async function loginCustomer({ identifier, password }) {
 
   await prisma.customer.update({ where: { id: customer.id }, data: { lastLoginAt: new Date() } });
 
-  return { token: signCustomerToken(customer.id), customer: sanitizeCustomer(customer) };
+  return { token: signCustomerToken(customer.id, customer.sessionVersion), customer: sanitizeCustomer(customer) };
 }
 
 export async function getCustomerProfile(customerId) {
@@ -158,8 +162,14 @@ export async function changeCustomerPassword(customerId, currentPassword, newPas
   if (!valid) return { error: "INVALID_CURRENT_PASSWORD" };
 
   const passwordHash = await hashPassword(newPassword);
-  await prisma.customer.update({ where: { id: customerId }, data: { passwordHash } });
-  return { success: true };
+  // Ends every existing session (other phones, the web); the caller gets a
+  // fresh token so the device that changed the password stays signed in.
+  const updated = await prisma.customer.update({
+    where: { id: customerId },
+    data: { passwordHash, sessionVersion: { increment: 1 } },
+    select: { sessionVersion: true },
+  });
+  return { success: true, token: signCustomerToken(customerId, updated.sessionVersion) };
 }
 
 export async function requestPasswordReset(rawPhone) {
@@ -218,8 +228,31 @@ export async function resetCustomerPassword(rawPhone, code, newPassword) {
       passwordResetCode: null,
       passwordResetExpiresAt: null,
       passwordResetAttempts: 0,
+      // Whoever had the old password (or a device holding a session) is out.
+      sessionVersion: { increment: 1 },
     },
   });
 
   return { success: true };
+}
+
+// Logout of one session: the token's jti is refused until it would have
+// expired anyway. Expired rows are pruned here so the table stays small.
+export async function revokeCustomerToken(customerId, { jti, exp }) {
+  if (!jti) return;
+  const expiresAt = new Date((exp || Math.floor(Date.now() / 1000)) * 1000);
+  await prisma.revokedCustomerToken.upsert({
+    where: { jti },
+    update: {},
+    create: { jti, customerId, expiresAt },
+  });
+  await prisma.revokedCustomerToken.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+}
+
+// Sliding renewal for an already-verified session, so a customer who keeps
+// using the app is not sent back to the login screen every 30 days. The old
+// token is not revoked: if this response is lost on a bad network the client
+// still holds a working session instead of being locked out.
+export function renewCustomerToken(customerId, sessionVersion) {
+  return signCustomerToken(customerId, sessionVersion);
 }

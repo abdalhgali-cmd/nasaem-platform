@@ -14,6 +14,8 @@ import {
   changeCustomerPassword,
   requestPasswordReset,
   resetCustomerPassword,
+  revokeCustomerToken,
+  renewCustomerToken,
 } from "./customer-auth.service.js";
 import { getCustomerTokenMaxAgeMs } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
@@ -84,6 +86,9 @@ export async function login(req, res, next) {
 
 export async function logout(req, res, next) {
   try {
+    if (req.customer?.id && req.customerToken) {
+      await revokeCustomerToken(req.customer.id, req.customerToken);
+    }
     res.clearCookie("customerAccessToken", CUSTOMER_COOKIE_OPTIONS);
     if (req.customer?.id) {
       logActivity({ action: "CUSTOMER_LOGOUT", entity: "Customer", entityId: req.customer.id, req });
@@ -99,6 +104,16 @@ export async function me(req, res, next) {
     const customer = await getCustomerProfile(req.customer.id);
     if (!customer) return res.status(404).json({ success: false, message: "الحساب غير موجود" });
     return res.status(200).json({ success: true, data: customer });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function refreshSession(req, res, next) {
+  try {
+    const token = renewCustomerToken(req.customer.id, req.customerToken.sessionVersion);
+    sendCustomerCookie(res, token);
+    return res.status(200).json({ success: true, data: { token, customer: req.customer } });
   } catch (error) {
     next(error);
   }
@@ -134,8 +149,10 @@ export async function changePassword(req, res, next) {
       return res.status(404).json({ success: false, message: "الحساب غير موجود" });
     }
 
+    // Other sessions were revoked; keep this one (web cookie and app token).
+    sendCustomerCookie(res, result.token);
     logActivity({ action: "CUSTOMER_PASSWORD_CHANGED", entity: "Customer", entityId: req.customer.id, req });
-    return res.status(200).json({ success: true, message: "تم تغيير كلمة المرور بنجاح" });
+    return res.status(200).json({ success: true, message: "تم تغيير كلمة المرور بنجاح", data: { token: result.token } });
   } catch (error) {
     next(error);
   }
