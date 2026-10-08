@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#082b58">
+  <title>نسائم الحرمين</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="offlineBanner" class="offline-banner">لا يوجد اتصال بالإنترنت — بعض البيانات قد تكون قديمة</div>
+
+  <main class="app-shell">
+    <div id="screen" class="screen"></div>
+
+    <nav id="bottomNav" class="bottom-nav" hidden>
+      <button data-tab="home" class="active" aria-label="الرئيسية">
+        <span class="nav-icon" data-icon="home"></span>
+        <span>الرئيسية</span>
+      </button>
+      <button data-tab="requests" aria-label="طلباتي">
+        <span class="nav-icon" data-icon="requests"></span>
+        <span>طلباتي</span>
+      </button>
+      <button data-tab="notifications" aria-label="الإشعارات">
+        <span class="nav-icon" data-icon="bell"></span>
+        <span>الإشعارات</span>
+      </button>
+      <button data-tab="account" aria-label="حسابي">
+        <span class="nav-icon" data-icon="user"></span>
+        <span>حسابي</span>
+      </button>
+    </nav>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script type="module" src="js/icons-bootstrap.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

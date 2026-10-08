@@ -267,7 +267,7 @@ export { getRequestNextAction };
 export async function listMyNotifications(customerId, { page, limit, skip }) {
   const where = { customerId };
   const [data, total, unreadCount] = await Promise.all([
-    prisma.notification.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, select: { id: true, title: true, message: true, type: true, orderId: true, readAt: true, createdAt: true } }),
+    prisma.notification.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, select: { id: true, title: true, message: true, type: true, orderId: true, contactRequestId: true, readAt: true, createdAt: true } }),
     prisma.notification.count({ where }),
     prisma.notification.count({ where: { customerId, readAt: null } }),
   ]);
@@ -277,5 +277,5 @@ export async function listMyNotifications(customerId, { page, limit, skip }) {
 export async function markMyNotificationRead(customerId, notificationId) {
   const notification = await prisma.notification.findFirst({ where: { id: notificationId, customerId }, select: { id: true } });
   if (!notification) return null;
-  return prisma.notification.update({ where: { id: notificationId }, data: { readAt: new Date() }, select: { id: true, title: true, message: true, type: true, orderId: true, readAt: true, createdAt: true } });
+  return prisma.notification.update({ where: { id: notificationId }, data: { readAt: new Date() }, select: { id: true, title: true, message: true, type: true, orderId: true, contactRequestId: true, readAt: true, createdAt: true } });
 }

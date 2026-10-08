@@ -871,24 +871,31 @@ model OrderStatusHistory {
 }
 
 model Notification {
-  id         String    @id @default(cuid())
-  title      String
-  message    String
-  type       String
-  userId     String?
-  customerId String?
-  orderId    String?
-  readAt     DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  title           String
+  message         String
+  type            String
+  userId          String?
+  customerId      String?
+  orderId         String?
+  // Mirrors orderId, for the ContactRequest flow every customer-facing
+  // screen actually uses (Order is the separate self-checkout path) — lets
+  // the customer app's notification tap deep-link straight to the request
+  // it's about, instead of only ever reopening the notification list.
+  contactRequestId String?
+  readAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  user     User?     @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  order    Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  user           User?          @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
+  customer       Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  order          Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  contactRequest ContactRequest? @relation(fields: [contactRequestId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([customerId])
   @@index([orderId])
+  @@index([contactRequestId])
   @@index([type])
 }
 
@@ -1233,6 +1240,7 @@ model ContactRequest {
   travelers           Traveler[]
   providerSubmissions ProviderSubmission[]
   tasks               CaseTask[]
+  notifications       Notification[]
 
   @@index([status])
   @@index([createdAt])

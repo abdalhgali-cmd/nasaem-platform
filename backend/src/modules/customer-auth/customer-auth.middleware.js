@@ -1,6 +1,19 @@
 import prisma from "../../config/database.js";
 import { verifyCustomerToken } from "../../utils/jwt.js";
 
+// The Capacitor Android app cannot rely on a cross-origin cookie surviving
+// an app restart as reliably as a browser does, so it stores the same
+// customer token itself and sends it as a Bearer header; the cookie stays
+// the primary mechanism for the web account pages. Either credential maps
+// to the exact same scoped, 30-day customer token — there is no separate
+// trust path to reason about.
+function extractCustomerToken(req) {
+  if (req.cookies?.customerAccessToken) return req.cookies.customerAccessToken;
+  const header = req.headers.authorization;
+  if (header && header.startsWith("Bearer ")) return header.slice(7).trim();
+  return null;
+}
+
 // Mirrors requireAuth (staff) / requireTrackingAuth (phone tracking): its
 // own cookie, its own token scope, and — critically — it always re-fetches
 // the Customer row rather than trusting the JWT payload alone, so a
@@ -8,7 +21,7 @@ import { verifyCustomerToken } from "../../utils/jwt.js";
 // instead of only once the token expires.
 export async function attachOptionalCustomer(req, res, next) {
   try {
-    const token = req.cookies?.customerAccessToken;
+    const token = extractCustomerToken(req);
     if (!token) return next();
     const payload = verifyCustomerToken(token);
     const customer = await prisma.customer.findUnique({
@@ -27,7 +40,7 @@ export async function attachOptionalCustomer(req, res, next) {
 
 export async function requireCustomerAuth(req, res, next) {
   try {
-    const token = req.cookies?.customerAccessToken;
+    const token = extractCustomerToken(req);
 
     if (!token) {
       return res.status(401).json({ success: false, message: "تسجيل الدخول مطلوب" });

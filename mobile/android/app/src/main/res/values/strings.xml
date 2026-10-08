@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nasaem Al-Haramain</string>
+    <string name="title_activity_main">Nasaem Al-Haramain</string>
+    <string name="package_name">com.nasaemalharamain.app</string>
+    <string name="custom_url_scheme">com.nasaemalharamain.app</string>
+</resources>
