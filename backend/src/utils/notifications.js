@@ -2,7 +2,7 @@ import prisma from "../config/database.js";
 
 // Best-effort, same rationale as logActivity: never break the triggering
 // operation because a notification failed to write.
-export async function createNotification({ title, message, type, userId, customerId, orderId }) {
+export async function createNotification({ title, message, type, userId, customerId, orderId, contactRequestId }) {
   if (!userId && !customerId) return;
 
   try {
@@ -14,6 +14,7 @@ export async function createNotification({ title, message, type, userId, custome
         userId: userId || null,
         customerId: customerId || null,
         orderId: orderId || null,
+        contactRequestId: contactRequestId || null,
       },
     });
   } catch (error) {

@@ -276,6 +276,7 @@ export async function announceNewContactRequest(contactRequest, { documentCount 
     title: "تم استلام طلبك",
     message: `تم استلام طلب الخدمة رقم ${contactRequest.id} وسيتم التواصل معك عند وجود تحديث.`,
     type: "CONTACT_REQUEST_RECEIVED",
+    contactRequestId: contactRequest.id,
   });
 
   await notifyAdmins({

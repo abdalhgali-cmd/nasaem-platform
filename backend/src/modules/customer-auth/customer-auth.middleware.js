@@ -1,6 +1,15 @@
 import prisma from "../../config/database.js";
 import { verifyCustomerToken } from "../../utils/jwt.js";
 
+function extractCustomerToken(req) {
+  const authorization = req.headers?.authorization;
+  const bearerToken =
+    typeof authorization === "string" && authorization.startsWith("Bearer ")
+      ? authorization.slice(7).trim()
+      : null;
+  return bearerToken || req.cookies?.customerAccessToken || null;
+}
+
 // Mirrors requireAuth (staff) / requireTrackingAuth (phone tracking): its
 // own cookie, its own token scope, and — critically — it always re-fetches
 // the Customer row rather than trusting the JWT payload alone, so a
@@ -8,7 +17,7 @@ import { verifyCustomerToken } from "../../utils/jwt.js";
 // instead of only once the token expires.
 export async function attachOptionalCustomer(req, res, next) {
   try {
-    const token = req.cookies?.customerAccessToken;
+    const token = extractCustomerToken(req);
     if (!token) return next();
     const payload = verifyCustomerToken(token);
     const customer = await prisma.customer.findUnique({
@@ -27,7 +36,7 @@ export async function attachOptionalCustomer(req, res, next) {
 
 export async function requireCustomerAuth(req, res, next) {
   try {
-    const token = req.cookies?.customerAccessToken;
+    const token = extractCustomerToken(req);
 
     if (!token) {
       return res.status(401).json({ success: false, message: "تسجيل الدخول مطلوب" });
