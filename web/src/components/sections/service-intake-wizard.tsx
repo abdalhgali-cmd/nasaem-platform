@@ -260,6 +260,7 @@ export function ServiceIntakeWizard({
   const [email, setEmail] = React.useState("");
 
   // Service details (step "details")
+  const [travelDate, setTravelDate] = React.useState("");
   const [travelerCount, setTravelerCount] = React.useState(1);
   const [travelers, setTravelers] = React.useState<Traveler[]>([
     { fullName: "", passportNo: "", nationality: "" },
@@ -326,6 +327,7 @@ export function ServiceIntakeWizard({
     name: string;
     phone: string;
     email: string;
+    travelDate: string;
     travelerCount: number;
     travelers: Traveler[];
     notes: string;
@@ -398,6 +400,7 @@ export function ServiceIntakeWizard({
       name,
       phone,
       email,
+      travelDate,
       travelerCount,
       travelers,
       notes,
@@ -405,7 +408,7 @@ export function ServiceIntakeWizard({
     };
     // A completely untouched form has nothing worth saving yet.
     const isEmpty =
-      !name && !phone && !email && !notes && !selectedServiceId && !selectedVisaTypeId &&
+      !name && !phone && !email && !travelDate && !notes && !selectedServiceId && !selectedVisaTypeId &&
       travelers.every((t) => !t.fullName && !t.passportNo && !t.nationality);
     try {
       if (isEmpty && step === 0) window.localStorage.removeItem(draftKey);
@@ -414,7 +417,7 @@ export function ServiceIntakeWizard({
       // Storage can legitimately be unavailable (private browsing, quota) —
       // the wizard must keep working without persistence either way.
     }
-  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, answers, result]);
+  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, answers, result]);
 
   // Mirrors the local draft to the server, debounced so typing doesn't
   // produce a request per keystroke. Every failure path here is silent by
@@ -471,7 +474,7 @@ export function ServiceIntakeWizard({
             email,
             travelerCount,
             notes,
-            answers,
+            answers: { ...answers, ...(travelDate ? { __travelDate: travelDate } : {}) },
             travelers,
           }),
         });
@@ -499,7 +502,7 @@ export function ServiceIntakeWizard({
     // Deliberately keyed on the same values as the local autosave above, so
     // the two persist exactly the same snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelerCount, travelers, notes, answers, result]);
+  }, [step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, answers, result]);
 
   // Resume from the server when this browser has no local draft but does
   // still hold a token (e.g. localStorage was partially cleared, or the
@@ -554,7 +557,8 @@ export function ServiceIntakeWizard({
           travelerCount: serverDraft.travelerCount ?? 1,
           travelers: serverDraft.travelers ?? [],
           notes: serverDraft.notes ?? "",
-          answers: serverDraft.answers ?? {},
+          travelDate: serverDraft.answers?.__travelDate ?? "",
+          answers: Object.fromEntries(Object.entries(serverDraft.answers ?? {}).filter(([key]) => key !== "__travelDate")),
         }
       : null);
     if (!draft) return;
@@ -563,6 +567,7 @@ export function ServiceIntakeWizard({
     setName(draft.name || "");
     setPhone(draft.phone || "");
     setEmail(draft.email || "");
+    setTravelDate(draft.travelDate || "");
     setTravelerCount(draft.travelerCount || 1);
     setTravelers(draft.travelers?.length ? draft.travelers : [{ fullName: "", passportNo: "", nationality: "" }]);
     setNotes(draft.notes || "");
@@ -601,13 +606,21 @@ export function ServiceIntakeWizard({
     let ignore = false;
 
     const query = visaCategory ? `?visaCategory=${encodeURIComponent(visaCategory)}` : "";
+    const catalogUrl = service === "package"
+      ? `${API_URL}/services/public/packages`
+      : `${API_URL}/services/public${query}`;
 
-    fetch(`${API_URL}/services/public${query}`)
+    fetch(catalogUrl)
       .then((res) => res.json())
       .then((payload) => {
         if (ignore) return;
-        setServices(payload?.data?.services ?? []);
-        setVisaTypes(payload?.data?.visaTypes ?? []);
+        if (service === "package") {
+          setServices(Array.isArray(payload?.data) ? payload.data : []);
+          setVisaTypes([]);
+        } else {
+          setServices(payload?.data?.services ?? []);
+          setVisaTypes(payload?.data?.visaTypes ?? []);
+        }
       })
       .catch(() => {
         if (!ignore) setCatalogError("تعذّر تحميل قائمة الخدمات، حاول تحديث الصفحة");
@@ -619,7 +632,7 @@ export function ServiceIntakeWizard({
     return () => {
       ignore = true;
     };
-  }, [visaCategory]);
+  }, [service, visaCategory]);
 
   const packageServices = React.useMemo(
     () => services.filter((s) => s.category === "UMRAH_PACKAGE"),
@@ -845,15 +858,15 @@ export function ServiceIntakeWizard({
     );
   }
 
-  // "select" step only applies to visa/package (Umrah has no sub-type to
-  // choose in this phase — see the auto-select effect above).
-  const steps = service === "umrah" ? ["customer", "details", "documents", "review"] : [
-    "select",
-    "customer",
-    "details",
-    "documents",
-    "review",
-  ];
+  // UmrahBookingSection uses the package flow. The customer chooses the
+  // package first, then supplies the expected travel date and party size;
+  // this matches the way Umrah packages are presented immediately above the
+  // wizard and keeps the selected package as the context for every later step.
+  const steps = service === "umrah"
+    ? ["customer", "details", "documents", "review"]
+    : service === "package"
+      ? ["select", "trip", "customer", "details", "documents", "review"]
+      : ["select", "customer", "details", "documents", "review"];
 
   function updateTravelerCount(count: number) {
     const clamped = Math.max(1, Math.min(20, count));
@@ -988,6 +1001,10 @@ export function ServiceIntakeWizard({
       return service === "package" ? Boolean(effectiveServiceId) : Boolean(effectiveVisaTypeId);
     }
 
+    if (current === "trip") {
+      return travelerCount >= 1;
+    }
+
     if (current === "customer") {
       return name.trim().length >= 2 && phone.trim().length >= 6;
     }
@@ -1042,6 +1059,7 @@ export function ServiceIntakeWizard({
         "intakeData",
         JSON.stringify({
           travelers: filledTravelers,
+          travelDate: travelDate || undefined,
           notes: notes.trim() || undefined,
         })
       );
@@ -1267,6 +1285,43 @@ export function ServiceIntakeWizard({
         </StepShell>
       ) : null}
 
+      {current === "trip" ? (
+        <StepShell
+          title="متى ترغب في أداء العمرة؟"
+          description="حدد عدد المسافرين، ويمكنك إضافة تاريخ السفر المتوقع الآن أو تركه لوقت لاحق."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <label className={labelClass}>تاريخ السفر المتوقع (اختياري)</label>
+              <input
+                type="date"
+                min={new Date().toISOString().slice(0, 10)}
+                value={travelDate}
+                onChange={(e) => setTravelDate(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className={labelClass}>عدد المسافرين</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={travelerCount}
+                onChange={(e) => updateTravelerCount(Number(e.target.value) || 1)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+          <StepNav
+            onBack={() => setStep((s) => s - 1)}
+            backDisabled={step === 0}
+            onNext={() => setStep((s) => s + 1)}
+            nextDisabled={!canGoNext()}
+          />
+        </StepShell>
+      ) : null}
+
       {current === "customer" ? (
         <StepShell title="بيانات العميل" description="سنستخدمها للتواصل معك بخصوص طلبك.">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -1313,7 +1368,7 @@ export function ServiceIntakeWizard({
       {current === "details" ? (
         <StepShell title="بيانات الخدمة" description="أخبرنا بتفاصيل رحلتك.">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
+            {service !== "package" ? <div className="flex flex-col gap-1.5">
               <label className={labelClass}>عدد المسافرين</label>
               <input
                 type="number"
@@ -1323,7 +1378,7 @@ export function ServiceIntakeWizard({
                 onChange={(e) => updateTravelerCount(Number(e.target.value) || 1)}
                 className={`${inputClass} w-32`}
               />
-            </div>
+            </div> : null}
 
             <div className="flex flex-col gap-3">
               {travelers.map((traveler, index) => (
@@ -1520,6 +1575,7 @@ export function ServiceIntakeWizard({
             <div className="rounded-xl border border-border/70 p-4">
               <span className="font-bold text-foreground">تفاصيل الرحلة</span>
               <div className="mt-2 flex flex-col gap-1 text-muted-foreground">
+                {travelDate ? <span>تاريخ السفر المتوقع: {travelDate}</span> : null}
                 <span>عدد المسافرين: {travelerCount}</span>
                 {travelers
                   .filter((t) => t.fullName.trim())

@@ -151,7 +151,7 @@ describe("contact request invoice + payment (customer approval flow)", () => {
 
     tracked = await fetchTracked(customerAgent, contactRequestId);
     assert.equal(tracked.paymentStatus, "CONFIRMED");
-    assert.equal(tracked.statusLabel, "تم تأكيد الدفع، جارٍ تنفيذ طلبك");
+    assert.equal(tracked.statusLabel, "تم قبول الدفع، بانتظار صدور التأشيرة");
 
     // Confirming an already-confirmed payment is rejected, not a silent no-op.
     const doubleConfirmRes = await accountantAgent.post(

@@ -298,6 +298,21 @@ async function seedVisaRequirements() {
     }
   }
 
+  // A passport/personal-photo document belongs to each visitor, while the
+  // invitation and sponsor residency remain case-level documents shared by
+  // the family-visit request. Keep reruns aligned with the migration that
+  // corrects already-seeded databases.
+  const familyVisitVisa = await prisma.visaType.findUnique({ where: { code: "VISA-FAMILY-VISIT" } });
+  if (familyVisitVisa) {
+    await prisma.visaRequirement.updateMany({
+      where: {
+        visaTypeId: familyVisitVisa.id,
+        name: "صورة الجواز والصورة الشخصية",
+      },
+      data: { scope: "TRAVELER" },
+    });
+  }
+
   console.log(`Seeded ${created} visa/service document requirements.`);
 }
 

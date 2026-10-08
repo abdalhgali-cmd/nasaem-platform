@@ -18,5 +18,7 @@ export function formatPrice(
 }
 
 export function formatSdgEquivalent(priceSdg: number | null | undefined): string | null {
-  return priceSdg != null ? `≈ ${Math.round(priceSdg).toLocaleString("en-US")} جنيه سوداني` : null;
+  return priceSdg != null && Number.isFinite(priceSdg) && priceSdg > 0
+    ? `≈ ${Math.round(priceSdg).toLocaleString("en-US")} جنيه سوداني`
+    : null;
 }

@@ -44,7 +44,7 @@ export function deriveTrackingStatusLabel(contactRequest) {
   }
 
   if (paymentStatus === "CONFIRMED") {
-    return "تم تأكيد الدفع، جارٍ تنفيذ طلبك";
+    return "تم قبول الدفع، بانتظار صدور التأشيرة";
   }
 
   if (paymentStatus === "UNDER_REVIEW") {

@@ -276,6 +276,7 @@ export async function announceNewContactRequest(contactRequest, { documentCount 
     title: "تم استلام طلبك",
     message: `تم استلام طلب الخدمة رقم ${contactRequest.id} وسيتم التواصل معك عند وجود تحديث.`,
     type: "CONTACT_REQUEST_RECEIVED",
+    contactRequestId: contactRequest.id,
   });
 
   await notifyAdmins({
@@ -313,10 +314,20 @@ export function computeReadiness(contactRequest) {
   );
 
   const currentDocuments = contactRequest.documents.filter((d) => !d.supersededAt);
+  const travelerIds = (contactRequest.travelers || []).map((traveler) => traveler.id);
 
   const missingDocumentRequirement = applicableRequired
     .filter((r) => !r.type || r.type === "DOCUMENT")
-    .find((r) => !currentDocuments.some((d) => d.requirementId === r.id && d.status === "ACCEPTED"));
+    .find((r) => {
+      if (r.scope === "TRAVELER" && travelerIds.length > 0) {
+        return travelerIds.some(
+          (travelerId) => !currentDocuments.some(
+            (d) => d.requirementId === r.id && d.travelerId === travelerId && d.status === "ACCEPTED"
+          )
+        );
+      }
+      return !currentDocuments.some((d) => d.requirementId === r.id && d.status === "ACCEPTED");
+    });
 
   const missingAnswer = applicableRequired
     .filter((r) => r.type && r.type !== "DOCUMENT")
@@ -441,7 +452,8 @@ export async function refreshCaseTasks(contactRequestId) {
         assignedUserId: true,
         requirementsSnapshot: true,
         intakeData: true,
-        documents: { where: { supersededAt: null }, select: { requirementId: true, status: true, supersededAt: true } },
+        documents: { where: { supersededAt: null }, select: { requirementId: true, travelerId: true, status: true, supersededAt: true } },
+        travelers: { select: { id: true } },
         deliverables: { select: { id: true } },
         providerSubmissions: { select: { status: true } },
       },
@@ -477,7 +489,8 @@ export async function getOperationsQueueSummary(organizationId) {
         requirementsSnapshot: true,
         intakeData: true,
         assignedUserId: true,
-        documents: { where: { supersededAt: null }, select: { requirementId: true, status: true, supersededAt: true } },
+        documents: { where: { supersededAt: null }, select: { requirementId: true, travelerId: true, status: true, supersededAt: true } },
+        travelers: { select: { id: true } },
         deliverables: { select: { id: true } },
         providerSubmissions: { select: { status: true } },
       },
@@ -709,6 +722,12 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
     },
   });
 
+  // Publishing the price confirms that the agency has reviewed the request.
+  await prisma.contactRequest.updateMany({
+    where: { id: contactRequestId, status: "NEW" },
+    data: { status: "CONTACTED" },
+  });
+
   logActivity({
     userId,
     action: "CONTACT_REQUEST_INVOICE_SET",
@@ -759,6 +778,11 @@ export async function createOffer(contactRequestId, data, userId) {
       currency: data.currency,
       createdByUserId: userId,
     },
+  });
+
+  await prisma.contactRequest.updateMany({
+    where: { id: contactRequestId, status: "NEW" },
+    data: { status: "CONTACTED" },
   });
 
   logActivity({

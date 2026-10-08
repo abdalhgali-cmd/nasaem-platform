@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { CustomerQuickLookup } from "@/components/sections/customer-quick-lookup";
-import { ManagerSnapshot } from "@/components/sections/manager-snapshot";
 import { OperationsCenter } from "@/components/sections/operations-center";
 
 export const metadata: Metadata = {
@@ -10,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function OperationsPage() {
-  return <AdminShell><OperationsCenter /><CustomerQuickLookup /><ManagerSnapshot /></AdminShell>;
+  return <AdminShell><OperationsCenter /><div className="mx-auto max-w-7xl px-4 pb-10 sm:px-6 lg:px-8"><CustomerQuickLookup /></div></AdminShell>;
 }

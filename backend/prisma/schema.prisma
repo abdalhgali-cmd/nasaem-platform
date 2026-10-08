@@ -895,18 +895,21 @@ model Notification {
   type       String
   userId     String?
   customerId String?
-  orderId    String?
-  readAt     DateTime?
+  orderId          String?
+  contactRequestId String?
+  readAt           DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
   user     User?     @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
   customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  order    Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  order          Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  contactRequest ContactRequest? @relation(fields: [contactRequestId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([customerId])
   @@index([orderId])
+  @@index([contactRequestId])
   @@index([type])
 }
 
@@ -1252,6 +1255,7 @@ model ContactRequest {
   providerSubmissions ProviderSubmission[]
   tasks               CaseTask[]
   notes               CaseNote[]
+  notifications       Notification[]
 
   @@index([status])
   @@index([createdAt])
