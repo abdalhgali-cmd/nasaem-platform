@@ -1,0 +1,101 @@
+name: Android Release APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/nasaem-customer-app-rebuild-ikzx56
+      - main
+    paths:
+      - "mobile/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate bundled JavaScript (no syntax errors)
+        run: npm run check
+
+      - name: Sync Capacitor (copy web assets, refresh native config)
+        run: npx cap sync android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore stable QA signing key
+        run: |
+          base64 -d android-debug.keystore.b64 > android/debug.keystore
+          chmod 600 android/debug.keystore
+          keytool -list -keystore android/debug.keystore -storepass android -alias androiddebugkey
+
+      - name: Build release APK
+        working-directory: mobile/android
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.version.code=${{ github.run_number }} \
+            -Pandroid.injected.version.name=0.3.${{ github.run_number }}
+
+      - name: Verify APK package/label and signature
+        working-directory: mobile/android
+        env:
+          # The committed debug.keystore's own SHA-256 cert fingerprint
+          # (see "Restore stable QA signing key" above) — asserted against
+          # below so a signing misconfiguration that silently falls back to
+          # a fresh, differently-fingerprinted ad-hoc keystore fails this
+          # build loudly instead of shipping an APK nothing can be
+          # reinstalled over.
+          EXPECTED_CERT_SHA256: cd7447b277c7d1dbefcac2aa4751993bca3027afdec8d9bfb7a644ad9464fc72
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          SDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$SDK_BUILD_TOOLS/aapt" dump badging "$APK" | grep -E "^package:|^application-label:|^application-icon-"
+          SIGNING_OUTPUT="$("$SDK_BUILD_TOOLS/apksigner" verify --print-certs "$APK")"
+          echo "$SIGNING_OUTPUT"
+          ACTUAL_CERT_SHA256="$(echo "$SIGNING_OUTPUT" | grep -oE '[0-9a-f]{64}' | head -1)"
+          if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::APK is signed with an unexpected key (got $ACTUAL_CERT_SHA256, expected $EXPECTED_CERT_SHA256) — the stable QA keystore was not actually used."
+            exit 1
+          fi
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk dist/Nasaem-AlHaramain-release.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nasaem-AlHaramain-release-apk
+          path: mobile/dist/Nasaem-AlHaramain-release.apk
+          if-no-files-found: error
+          retention-days: 30

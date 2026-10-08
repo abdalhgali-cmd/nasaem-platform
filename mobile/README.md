@@ -1,28 +1,112 @@
-# Nasaem Mobile
+# Nasaem Mobile — Customer App (Android)
 
-Production Android client for Nasaem Al-Haramain, built with Expo SDK 54 / React Native.
+The customer-only Android app for Nasaem Al-Haramain. Built with
+[Capacitor](https://capacitorjs.com/) as a native Android shell around a
+hand-written, dependency-free vanilla JS web app (`www/`) that talks
+directly to the existing backend API (`../backend`) — no admin/staff code,
+routes or bundle ever ships inside this app. Admin stays on the separate
+staff back-office (`../frontend`, `../web/src/app/admin`), deployed and
+built independently of this APK.
 
-## Current real flows
+## Why Capacitor + vanilla JS, not a framework
 
-- Dynamic public service catalog and prices from the existing backend.
-- Dynamic visa countries/types and admin-managed requirements.
-- Umrah packages, multi-traveler data, per-traveler passport/guarantor documents.
-- Generic service intake for flights, ferries, hotels/tourism, family visit, Egypt security approval and other catalog services.
-- Real contact-request submission with server-generated request IDs.
-- WhatsApp OTP tracking through the existing tracking backend.
-- Customer quote/offer approval, payment accounts, receipt upload and payment-review transition.
-- Staff login with bearer auth, encrypted token persistence, request queue, document review, status changes and payment confirmation.
+The backend is the single source of truth for the customer experience
+(services, visa requirements, pricing, order/case lifecycle). This app is a
+thin, fast-loading client over that API — no build step, no bundler, no
+framework runtime to keep in sync with the backend's own fast pace of
+change. Every screen is a plain ES module under `www/js/screens/`.
 
-## Android identity
+## Structure
 
-Package: `com.nasaemalharamain.app`
+```
+mobile/
+  capacitor.config.ts       App id, name, splash/status bar config
+  package.json              Capacitor CLI + plugin dependencies
+  android-debug.keystore.b64  Stable QA signing key (see "Signing" below)
+  www/                        The actual app — served as-is into the WebView
+    index.html
+    css/app.css                Design system (tokens, RTL, components)
+    js/
+      config.js                 apiBaseUrl — the one place the backend URL lives
+      api.js                    fetch wrapper: Bearer auth, offline detection, upload progress
+      storage.js                Capacitor Preferences wrapper (persistent session)
+      auth.js                   Customer account session (register/login/forgot-password/logout)
+      tracking.js                Phone-OTP session for price-approval/payment actions (/api/tracking)
+      catalog.js                 Public service/visa-type catalog, cached
+      router.js                   Tiny stack router (no framework)
+      icons.js                    Hand-built inline SVG icon set (no emoji, no icon font)
+      ui.js                       Toast / skeleton / empty-state / error-state helpers
+      screens/                    One module per screen (see app.js for the registry)
+  android/                    Generated native project (`npx cap add android`) — committed
+    app/src/main/res/...        Launcher icon, adaptive icon, splash — Nasaem-branded, not Capacitor defaults
+```
 
-GitHub Actions stamps `android.versionCode` from `github.run_number` so every build is newer than the previous build.
+## Authentication model
 
-For APKs that must update an already-installed APK, configure repository secret
-`ANDROID_DEBUG_KEYSTORE_BASE64` with the same stable Android debug keystore on every run.
-Without a stable signing key, fresh debug installs work but Android may reject an update signed by another runner.
+Every screen beyond Welcome/Login/Register/Forgot-Password requires a
+signed-in customer account — see `js/auth.js` and `js/app.js`'s boot
+sequence. The session token is stored via `@capacitor/preferences`
+(`js/storage.js`) and sent as `Authorization: Bearer <token>`, not relied on
+as a browser cookie, because a Capacitor WebView cannot be assumed to
+persist a cross-origin cookie as reliably as a desktop browser across an
+app restart. The backend (`customer-auth.middleware.js`,
+`tracking-auth.middleware.js`) accepts either a cookie or this header —
+nothing about the web account pages changed.
 
-## Safety
+A second, independent session (`js/tracking.js`) covers price-approval and
+payment-receipt actions, which live under the backend's separate phone-OTP
+`/api/tracking/*` routes. The UI only asks for this once per device, inline,
+the first time a customer uses one of those actions.
 
-The mobile branch targets staging by default. Do not merge to production until CI, device install/update tests, uploads, payment flow and staff RBAC are verified.
+## Local development
+
+```bash
+cd mobile
+npm install
+npx cap add android      # already committed — only needed if android/ is deleted
+npx cap sync android      # after any www/ change, before a native build
+npx cap open android      # opens Android Studio
+```
+
+Point the app at a different backend by editing `apiBaseUrl` in
+`www/js/config.js`, then re-run `npx cap sync android`.
+
+## Signing
+
+`android-debug.keystore.b64` is a **stable QA/debug key**, not a Play Store
+production key — committed so every CI build (and every developer's local
+build) signs with the same key, so APKs can be installed over each other
+instead of requiring an uninstall each time. `android/app/build.gradle`
+defines an explicit `release` signingConfig pointing at `android/debug.keystore`
+(deliberately not AGP's implicit `signingConfigs.debug`, which resolves
+against `$ANDROID_SDK_HOME`/`user.home` and silently falls back to a
+freshly auto-generated, differently-fingerprinted keystore if that doesn't
+land where you expect — exactly what happened on this app's first CI run,
+caught and fixed by the signature assertion the workflow now runs). Before
+a release build, decode the key to that exact path:
+
+```bash
+base64 -d android-debug.keystore.b64 > android/debug.keystore
+```
+
+CI does this automatically (`.github/workflows/android-apk.yml`'s
+"Restore stable QA signing key" step), and also asserts the built APK's
+certificate fingerprint matches the committed key's, so a future signing
+misconfiguration fails the build instead of shipping silently. This is
+deliberate: the task this app was built under explicitly excludes any
+production deployment or Play Store signing.
+
+## CI
+
+`.github/workflows/android-apk.yml` builds a release APK on every push that
+touches `mobile/**` (and on demand via `workflow_dispatch`), uploading it as
+a workflow artifact. GitHub's `ubuntu-latest` runners ship the Android SDK
+pre-installed, which this sandboxed development environment does not —
+`dl.google.com` (Android/Gradle's own package repository) is not reachable
+here, so a full native build can only be verified in CI, not locally. What
+*was* verified locally: the web app's full flow (register → login → browse
+→ submit a request with document uploads → My Requests → request detail →
+logout → log back in and see the same data) against a real instance of the
+backend, driven headlessly with Playwright/Chromium; the native Android
+project's structure, manifest, signing config and all generated launcher
+icon/splash assets; and every JS file's syntax (`npm run check`).
