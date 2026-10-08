@@ -451,6 +451,10 @@ model Customer {
   passwordResetExpiresAt DateTime?
   passwordResetAttempts  Int       @default(0)
   lastLoginAt            DateTime?
+  // Customer tokens carry the version they were issued under (claim "sv");
+  // bumping it (password change/reset, re-registration) ends every older
+  // session at once. See customer-auth.middleware.js.
+  sessionVersion         Int       @default(0)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
@@ -464,6 +468,7 @@ model Customer {
   umrahGroupMember UmrahGroupMember[]
   coupons          Coupon[]           @relation("CouponCustomerRestriction")
   couponUsages     CouponUsage[]
+  revokedTokens    RevokedCustomerToken[]
 
   @@index([customerNo])
   @@index([passportNo])
@@ -1506,4 +1511,20 @@ model ContactRequestLoginCode {
   createdAt  DateTime  @default(now())
 
   @@index([phone])
+}
+
+// A single customer session ended by logout. Customer tokens carry a random
+// `jti`; logging out records it here until the token would have expired
+// anyway, so logging out on one device does not end the customer's other
+// sessions (web, a second phone).
+model RevokedCustomerToken {
+  jti        String   @id
+  customerId String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([expiresAt])
 }
