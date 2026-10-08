@@ -54,10 +54,9 @@ jobs:
 
       - name: Restore stable QA signing key
         run: |
-          mkdir -p "$HOME/.android"
-          base64 -d android-debug.keystore.b64 > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
-          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -E "SHA256:|Alias name:" || true
+          base64 -d android-debug.keystore.b64 > android/debug.keystore
+          chmod 600 android/debug.keystore
+          keytool -list -keystore android/debug.keystore -storepass android -alias androiddebugkey | grep -E "SHA256:|Alias name:"
 
       - name: Build release APK
         working-directory: mobile/android
@@ -68,11 +67,25 @@ jobs:
 
       - name: Verify APK package/label and signature
         working-directory: mobile/android
+        env:
+          # The committed debug.keystore's own SHA-256 cert fingerprint
+          # (see "Restore stable QA signing key" above) — asserted against
+          # below so a signing misconfiguration that silently falls back to
+          # a fresh, differently-fingerprinted ad-hoc keystore fails this
+          # build loudly instead of shipping an APK nothing can be
+          # reinstalled over.
+          EXPECTED_CERT_SHA256: cd7447b277c7d1dbefcac2aa4751993bca3027afdec8d9bfb7a644ad9464fc72
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
           SDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           "$SDK_BUILD_TOOLS/aapt" dump badging "$APK" | grep -E "^package:|^application-label:|^application-icon-"
-          "$SDK_BUILD_TOOLS/apksigner" verify --print-certs "$APK"
+          SIGNING_OUTPUT="$("$SDK_BUILD_TOOLS/apksigner" verify --print-certs "$APK")"
+          echo "$SIGNING_OUTPUT"
+          ACTUAL_CERT_SHA256="$(echo "$SIGNING_OUTPUT" | grep -oE '[0-9a-f]{64}' | head -1)"
+          if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::APK is signed with an unexpected key (got $ACTUAL_CERT_SHA256, expected $EXPECTED_CERT_SHA256) — the stable QA keystore was not actually used."
+            exit 1
+          fi
 
       - name: Collect APK
         run: |

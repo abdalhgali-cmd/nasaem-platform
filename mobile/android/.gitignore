@@ -57,6 +57,13 @@ captures/
 #*.jks
 #*.keystore
 
+# The decoded signing key itself — only the base64 text
+# (../android-debug.keystore.b64) is committed; app/build.gradle's release
+# signingConfig expects this exact decoded path, written fresh by the CI
+# workflow's "Restore stable QA signing key" step (or manually for a local
+# release build).
+debug.keystore
+
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
 .cxx/

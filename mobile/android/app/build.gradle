@@ -16,16 +16,27 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // An explicit storeFile (not AGP's implicit `signingConfigs.debug`,
+    // which resolves against $ANDROID_SDK_HOME/user.home and silently
+    // falls back to a freshly auto-generated, differently-fingerprinted
+    // keystore if that resolution doesn't land where a CI step expects)
+    // — every local and CI build decodes the exact same committed key to
+    // this exact path (see mobile/android-debug.keystore.b64 and the CI
+    // workflow's "Restore stable QA signing key" step), so this is a real,
+    // consistently-signed, installable QA build, not a Play Store release.
+    signingConfigs {
+        release {
+            storeFile rootProject.file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // Signed with the same stable QA/debug key every CI build
-            // restores to ~/.android/debug.keystore (see
-            // mobile/android-debug.keystore.b64 and the CI workflow) —
-            // produces a real, installable, verifiable release build for
-            // testing, not a Play Store production release.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
         }
     }
 }

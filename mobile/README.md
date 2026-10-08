@@ -76,10 +76,25 @@ Point the app at a different backend by editing `apiBaseUrl` in
 `android-debug.keystore.b64` is a **stable QA/debug key**, not a Play Store
 production key — committed so every CI build (and every developer's local
 build) signs with the same key, so APKs can be installed over each other
-instead of requiring an uninstall each time. `android/app/build.gradle`'s
-`release` build type signs with it (`signingConfig signingConfigs.debug`).
-This is deliberate: the task this app was built under explicitly excludes
-any production deployment or Play Store signing.
+instead of requiring an uninstall each time. `android/app/build.gradle`
+defines an explicit `release` signingConfig pointing at `android/debug.keystore`
+(deliberately not AGP's implicit `signingConfigs.debug`, which resolves
+against `$ANDROID_SDK_HOME`/`user.home` and silently falls back to a
+freshly auto-generated, differently-fingerprinted keystore if that doesn't
+land where you expect — exactly what happened on this app's first CI run,
+caught and fixed by the signature assertion the workflow now runs). Before
+a release build, decode the key to that exact path:
+
+```bash
+base64 -d android-debug.keystore.b64 > android/debug.keystore
+```
+
+CI does this automatically (`.github/workflows/android-apk.yml`'s
+"Restore stable QA signing key" step), and also asserts the built APK's
+certificate fingerprint matches the committed key's, so a future signing
+misconfiguration fails the build instead of shipping silently. This is
+deliberate: the task this app was built under explicitly excludes any
+production deployment or Play Store signing.
 
 ## CI
 
