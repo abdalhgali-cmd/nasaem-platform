@@ -23,17 +23,21 @@ export async function renderUmrahScreen({ bodyEl, params }) {
       <div id="packagesList" class="package-list">${skeletonList(3)}</div>
     </section>
 
-    <button class="primary" id="startUmrahBtn">ابدأ طلب العمرة (تأشيرة فقط)</button>
     <div id="umrahIntakeMount"></div>
   `;
 
-  bodyEl.querySelector("#startUmrahBtn").addEventListener("click", () => mountIntake(bodyEl, item));
-
   const packagesList = bodyEl.querySelector("#packagesList");
   try {
-    const packages = await loadPackages();
+    const packages = (await loadPackages()).filter((pkg) =>
+      String(pkg.category || "").toUpperCase() === "UMRAH_PACKAGE" ||
+      String(pkg.code || "").toUpperCase().startsWith("SVC-UMRAH-")
+    );
     if (!packages.length) {
-      packagesList.innerHTML = `<p class="field-hint">لا توجد باقات منشورة حالياً — يمكنك إرسال طلب تأشيرة عمرة مباشرة.</p>`;
+      packagesList.innerHTML = `
+        <p class="field-hint">لا توجد باقات عمرة منشورة حالياً.</p>
+        <button class="primary" id="fallbackUmrahBtn">إرسال طلب عمرة عام</button>
+      `;
+      packagesList.querySelector("#fallbackUmrahBtn").addEventListener("click", () => mountIntake(bodyEl, item));
     } else {
       packagesList.innerHTML = packages.map((pkg) => `
         <button class="package-card" data-id="${esc(pkg.id)}">

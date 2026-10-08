@@ -23,7 +23,7 @@ const ORDER_STATUS_AR = {
 const REQUEST_STATUS_AR = { NEW: "جديد", CONTACTED: "تم التواصل", CLOSED: "مغلق" };
 const REQUEST_OUTCOME_AR = { COMPLETED: "مكتمل", REJECTED: "مرفوض", CANCELLED: "ملغي" };
 
-const MAIN_SERVICE_ORDER = ["SVC-UMRAH", "SVC-FLIGHT", "VISA-FAMILY-VISIT", "SVC-EGYPT-CLEARANCE", "SVC-HOTEL", "SVC-FERRY", "SVC-INTL-VISA", "SVC-WORK-VISA"];
+const MAIN_SERVICE_ORDER = ["SVC-UMRAH", "SVC-FLIGHT", "SVC-HOTEL", "SVC-FERRY"];
 
 const VISAS_HUB_CARD = { id: VISAS_HUB_CODE, code: VISAS_HUB_CODE, name: "التأشيرات", category: "visa" };
 
@@ -33,8 +33,7 @@ function pickMainServices(catalog) {
   for (const visaType of catalog.visaTypes) if (!byCode.has(visaType.code)) byCode.set(visaType.code, { ...visaType, isVisaType: true });
 
   const ordered = MAIN_SERVICE_ORDER.map((code) => byCode.get(code)).filter(Boolean);
-  const rest = [...catalog.services, ...catalog.visaTypes].filter((item) => !MAIN_SERVICE_ORDER.includes(item.code));
-  return [VISAS_HUB_CARD, ...ordered, ...rest].slice(0, 9);
+  return [VISAS_HUB_CARD, ...ordered];
 }
 
 function serviceCard(item) {
@@ -59,18 +58,12 @@ export async function renderHomeScreen({ bodyEl }) {
       <div class="home-mark"><img src="assets/brand/logo-mark.png" alt="نسائم الحرمين" width="52" height="52"></div>
     </section>
 
-    <section class="quick-actions">
-      <button id="quickRequests" class="quick-action">${icon("requests", { size: 20 })}<span>طلباتي</span></button>
-      <button id="quickNotifications" class="quick-action">${icon("bell", { size: 20 })}<span>الإشعارات</span></button>
-      <button id="quickAccount" class="quick-action">${icon("user", { size: 20 })}<span>حسابي</span></button>
-    </section>
-
     <section class="section">
       <div class="section-head">
         <h2>الخدمات الرئيسية</h2>
         <button class="link-btn" id="seeAllServices">عرض الكل</button>
       </div>
-      <div id="servicesGrid" class="services-grid">${skeletonGrid(8)}</div>
+      <div id="servicesGrid" class="services-grid">${skeletonGrid(5)}</div>
     </section>
 
     <section class="section" id="offersSection" hidden>
@@ -84,9 +77,6 @@ export async function renderHomeScreen({ bodyEl }) {
     </section>
   `;
 
-  bodyEl.querySelector("#quickRequests").addEventListener("click", () => document.querySelector('[data-tab="requests"]')?.click());
-  bodyEl.querySelector("#quickNotifications").addEventListener("click", () => document.querySelector('[data-tab="notifications"]')?.click());
-  bodyEl.querySelector("#quickAccount").addEventListener("click", () => document.querySelector('[data-tab="account"]')?.click());
   bodyEl.querySelector("#seeAllServices").addEventListener("click", () => go("services", {}, { title: "كل الخدمات", tab: "home" }));
 
   loadCatalogSection(bodyEl);

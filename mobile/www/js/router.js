@@ -24,6 +24,7 @@ async function render(entry, { isRoot = false } = {}) {
   }
 
   screenEl.scrollTop = 0;
+  window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   screenEl.innerHTML = `
     <header class="screen-head ${isRoot ? "screen-head-root" : ""}">
       ${isRoot ? "" : `<button class="icon-btn back-btn" aria-label="رجوع">${icon("chevron-start", { size: 24 })}</button>`}
