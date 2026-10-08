@@ -14,7 +14,12 @@ const PRODUCTION_WEB_HOSTS = new Set([
   "nasaem-platform.vercel.app",
   "nasaem-platform-abdalhgali-cmds-projects.vercel.app",
 ]);
-const API_BASE = PRODUCTION_WEB_HOSTS.has(window.location.hostname) ? PRODUCTION_API_BASE : "/api";
+const LOCAL_WEB_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const API_BASE = PRODUCTION_WEB_HOSTS.has(window.location.hostname)
+  ? PRODUCTION_API_BASE
+  : LOCAL_WEB_HOSTS.has(window.location.hostname)
+    ? "http://localhost:5000/api"
+    : "/api";
 
 class ApiError extends Error {
   constructor(message, status, errors) {
