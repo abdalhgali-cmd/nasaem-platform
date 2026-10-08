@@ -1,5 +1,12 @@
 import Constants from "expo-constants";
-const API_URL=process.env.EXPO_PUBLIC_API_URL??(Constants.expoConfig?.extra?.apiUrl as string|undefined);
+import { Platform } from "react-native";
+
+const environmentApiUrl=process.env.EXPO_PUBLIC_API_URL;
+const configuredApiUrl=Constants.expoConfig?.extra?.apiUrl as string|undefined;
+const localWebApiUrl=Platform.OS==="web"&&typeof window!=="undefined"&&["localhost","127.0.0.1"].includes(window.location.hostname)
+ ?"http://localhost:5000"
+ :undefined;
+const API_URL=environmentApiUrl??localWebApiUrl??configuredApiUrl;
 if(!API_URL)throw new Error("Missing EXPO_PUBLIC_API_URL");
 let bearerToken:string|null=null;
 export function setApiToken(token:string|null){bearerToken=token;}

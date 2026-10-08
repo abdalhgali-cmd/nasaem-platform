@@ -55,6 +55,27 @@ function matchesKind(kind:string,category?:string|null,code?:string){
  return false;
 }
 
+function normalizedOptions(options:unknown){
+ if(!Array.isArray(options))return [];
+ return options.flatMap((option)=>{
+   if(typeof option==="string"||typeof option==="number"){
+     const value=String(option);
+     return [{label:value,value}];
+   }
+   if(option&&typeof option==="object"){
+     const record=option as Record<string,unknown>;
+     const value=record.value==null?"":String(record.value);
+     const label=record.label==null?value:String(record.label);
+     return value?[{label,value}]:[];
+   }
+   return [];
+ });
+}
+
+function answerLabel(req:PublicRequirement,answer:string){
+ return normalizedOptions(req.options).find(option=>option.value===answer)?.label??answer;
+}
+
 export default function ServiceRequest(){
  const params=useLocalSearchParams<{kind:string;serviceId?:string;visaTypeId?:string;serviceName?:string;country?:string;visaTypeName?:string;from?:string;to?:string;date?:string;returnDate?:string;travelers?:string;tripType?:string;selectedFlight?:string;origin?:string;destination?:string;operatorName?:string;scheduleId?:string;departureTime?:string;basePrice?:string;currency?:string}>();
  const kind=params.kind??"generic";
@@ -200,7 +221,7 @@ export default function ServiceRequest(){
 
  if(requestId)return <SafeAreaView style={s.safe}><BrandHeader compact title="تم استلام طلبك" subtitle="أرسلنا الطلب والمستندات إلى فريق نسائم الحرمين للمراجعة."/><View style={s.successPage}><SurfaceCard style={s.successCard}><View style={s.successBubble}><Text style={s.successIcon}>✓</Text></View><Text style={s.successTitle}>طلبك وصلنا بنجاح</Text><Text style={s.desc}>سنراجع البيانات ثم نحدّث السعر وخطوة الدفع داخل صفحة المتابعة.</Text><View style={s.requestBox}><Text style={s.label}>رقم الطلب</Text><Text style={s.requestId}>{requestId}</Text></View><AppButton label="متابعة الطلب" onPress={()=>router.push({pathname:"/track",params:{requestId,phone:values[meta.phoneField]}})} style={s.full}/></SurfaceCard></View></SafeAreaView>;
 
- if(review)return <SafeAreaView style={s.safe}><BrandHeader compact title="راجع طلبك" subtitle={serviceName||meta.title}/><StepIndicator steps={REQUEST_STEPS} current={3}/><ScrollView contentContainerStyle={s.page}>{meta.fields.map(f=>values[f]?<Review key={f} label={f} value={values[f]}/>:null)}{meta.multiTraveler?travelers.map((t,i)=><SurfaceCard key={t.id} style={s.card}><Text style={s.cardTitle}>مسافر {i+1} — {t.fullName}</Text><Text style={s.line}>الجواز: {t.passportNo}</Text><Text style={s.line}>الجنسية: {t.nationality}</Text><Text style={s.line}>تاريخ الميلاد: {t.birthDate}</Text>{documentTravelerRequirements.map(r=><Text key={r.id} style={travelerDocs[t.id]?.[r.id]?s.ok:s.error}>{travelerDocs[t.id]?.[r.id]?`✓ ${r.name}: ${travelerDocs[t.id]?.[r.id]?.name}`:`${r.name}: غير مرفق`}</Text>)}</SurfaceCard>):null}{caseRequirements.map(r=><Review key={r.id} label={r.name} value={r.type==="DOCUMENT"?(docs[r.id]?.name??"غير مرفق"):(answers[r.id]??"")}/>)}<Text style={s.note}>{meta.note}</Text>{!!error&&<Text style={s.error}>{error}</Text>}<View style={s.actions}><AppButton label="تعديل" variant="outline" onPress={()=>setReview(false)} disabled={busy} style={s.flex}/><AppButton label="إرسال للوكالة" onPress={submit} busy={busy} style={s.flex}/></View></ScrollView></SafeAreaView>;
+ if(review)return <SafeAreaView style={s.safe}><BrandHeader compact title="راجع طلبك" subtitle={serviceName||meta.title}/><StepIndicator steps={REQUEST_STEPS} current={3}/><ScrollView contentContainerStyle={s.page}>{meta.fields.map(f=>values[f]?<Review key={f} label={f} value={values[f]}/>:null)}{meta.multiTraveler?travelers.map((t,i)=><SurfaceCard key={t.id} style={s.card}><Text style={s.cardTitle}>مسافر {i+1} — {t.fullName}</Text><Text style={s.line}>الجواز: {t.passportNo}</Text><Text style={s.line}>الجنسية: {t.nationality}</Text><Text style={s.line}>تاريخ الميلاد: {t.birthDate}</Text>{documentTravelerRequirements.map(r=><Text key={r.id} style={travelerDocs[t.id]?.[r.id]?s.ok:s.error}>{travelerDocs[t.id]?.[r.id]?`✓ ${r.name}: ${travelerDocs[t.id]?.[r.id]?.name}`:`${r.name}: غير مرفق`}</Text>)}</SurfaceCard>):null}{caseRequirements.map(r=><Review key={r.id} label={r.name} value={r.type==="DOCUMENT"?(docs[r.id]?.name??"غير مرفق"):answerLabel(r,answers[r.id]??"")}/>)}<Text style={s.note}>{meta.note}</Text>{!!error&&<Text style={s.error}>{error}</Text>}<View style={s.actions}><AppButton label="تعديل" variant="outline" onPress={()=>setReview(false)} disabled={busy} style={s.flex}/><AppButton label="إرسال للوكالة" onPress={submit} busy={busy} style={s.flex}/></View></ScrollView></SafeAreaView>;
 
  return <SafeAreaView style={s.safe}><BrandHeader compact title={serviceName||meta.title} subtitle={meta.note}/><StepIndicator steps={REQUEST_STEPS} current={meta.multiTraveler?1:0}/><ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled"><SurfaceCard style={s.formCard}><Text style={s.sectionTitle}>بيانات الطلب الأساسية</Text>{meta.fields.map(f=><FormField key={f} label={f.replace(" (اختياري)","")} optional={f.includes("اختياري")||f.includes("إن وجد")||f==="ملاحظات"} editable={!(kind==="visas"&&(f==="الدولة"||f==="نوع التأشيرة"))} value={values[f]??""} onChangeText={v=>setValues(x=>({...x,[f]:v}))} placeholder={f} style={kind==="visas"&&(f==="الدولة"||f==="نوع التأشيرة")?s.readonly:undefined} multiline={f==="ملاحظات"} keyboardType={f.includes("عدد")||f==="رقم الهاتف"?"phone-pad":"default"}/>)}</SurfaceCard>
  {meta.multiTraveler&&<View style={s.requirements}>
@@ -218,10 +239,10 @@ export default function ServiceRequest(){
 }
 
 function RequirementField({req,answer,file,onAnswer,onPick,onRemove}:{req:PublicRequirement;answer:string;file:UploadAsset|null;onAnswer:(v:string)=>void;onPick:()=>void;onRemove:()=>void}){
- const opts=Array.isArray(req.options)?req.options.map(String):[];
+ const opts=normalizedOptions(req.options);
  if(req.type==="DOCUMENT")return <View style={s.reqCard}><Text style={s.reqTitle}>{req.name}{req.required?" *":""}</Text>{!!req.description&&<Text style={s.reqDesc}>{req.description}</Text>}<Pressable style={[s.docButton,file&&s.docDone]} onPress={file?onRemove:onPick}><Text style={file?s.docDoneText:s.docButtonText}>{file?`✓ ${file.name}`:"اختيار ملف"}</Text></Pressable></View>;
  if(req.type==="YES_NO")return <View style={s.reqCard}><Text style={s.reqTitle}>{req.name}{req.required?" *":""}</Text><View style={s.chips}>{["نعم","لا"].map(v=><Pressable key={v} style={[s.chip,answer===v&&s.chipActive]} onPress={()=>onAnswer(v)}><Text style={answer===v?s.chipTextActive:s.chipText}>{v}</Text></Pressable>)}</View></View>;
- if(req.type==="SELECT"&&opts.length)return <View style={s.reqCard}><Text style={s.reqTitle}>{req.name}{req.required?" *":""}</Text><View style={s.chips}>{opts.map(v=><Pressable key={v} style={[s.chip,answer===v&&s.chipActive]} onPress={()=>onAnswer(v)}><Text style={answer===v?s.chipTextActive:s.chipText}>{v}</Text></Pressable>)}</View></View>;
+ if(req.type==="SELECT"&&opts.length)return <View style={s.reqCard}><Text style={s.reqTitle}>{req.name}{req.required?" *":""}</Text><View style={s.chips}>{opts.map(option=><Pressable key={option.value} style={[s.chip,answer===option.value&&s.chipActive]} onPress={()=>onAnswer(option.value)}><Text style={answer===option.value?s.chipTextActive:s.chipText}>{option.label}</Text></Pressable>)}</View></View>;
  return <View style={s.reqCard}><Text style={s.reqTitle}>{req.name}{req.required?" *":""}</Text>{!!req.description&&<Text style={s.reqDesc}>{req.description}</Text>}<TextInput value={answer} onChangeText={onAnswer} placeholder={req.name} style={s.input} textAlign="right" keyboardType={req.type==="NUMBER"?"numeric":"default"}/></View>;
 }
 function Review({label,value}:{label:string;value:string}){return <View style={s.review}><Text style={s.label}>{label}</Text><Text style={s.value}>{value}</Text></View>}

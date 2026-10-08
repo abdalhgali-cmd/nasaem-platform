@@ -21,5 +21,6 @@ export function formatPrice(
 }
 
 export function formatSdgEquivalent(priceSdg?: number | null): string | null {
-  return priceSdg != null ? `≈ ${Math.round(priceSdg).toLocaleString()} SDG` : null;
+  const numeric = Number(priceSdg);
+  return Number.isFinite(numeric) && numeric > 0 ? `≈ ${Math.round(numeric).toLocaleString()} SDG` : null;
 }
