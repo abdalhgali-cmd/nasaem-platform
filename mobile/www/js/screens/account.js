@@ -19,6 +19,11 @@ export function setOnLoggedOut(callback) {
   onLoggedOut = callback;
 }
 
+let onReplayOnboarding = () => {};
+export function setOnReplayOnboarding(callback) {
+  onReplayOnboarding = callback;
+}
+
 export async function renderAccountScreen({ bodyEl }) {
   let customer = getCustomer();
   try {
@@ -42,12 +47,19 @@ export async function renderAccountScreen({ bodyEl }) {
       <button class="account-menu-item" id="myDocumentsBtn">${icon("document", { size: 18 })}<span>مستنداتي</span>${icon("chevron-start", { size: 16 })}</button>
     </div>
 
+    <div class="account-menu">
+      <button class="account-menu-item" id="aboutBtn">${icon("info", { size: 18 })}<span>من نحن وتواصل معنا</span>${icon("chevron-start", { size: 16 })}</button>
+      <button class="account-menu-item" id="replayOnboardingBtn">${icon("plane", { size: 18 })}<span>عرض الجولة التعريفية</span>${icon("chevron-start", { size: 16 })}</button>
+    </div>
+
     <button class="danger-btn" id="logoutBtn">${icon("logout", { size: 18 })}<span>تسجيل الخروج</span></button>
   `;
 
   bodyEl.querySelector("#editProfileBtn").addEventListener("click", () => go("editProfile", { customer }, { title: "تعديل البيانات", tab: "account" }));
   bodyEl.querySelector("#securityBtn").addEventListener("click", () => go("security", {}, { title: "الأمان", tab: "account" }));
   bodyEl.querySelector("#changePasswordBtn").addEventListener("click", () => go("changePassword", {}, { title: "تغيير كلمة المرور", tab: "account" }));
+  bodyEl.querySelector("#aboutBtn").addEventListener("click", () => go("about", {}, { title: "من نحن", tab: "account" }));
+  bodyEl.querySelector("#replayOnboardingBtn").addEventListener("click", () => onReplayOnboarding());
   bodyEl.querySelector("#myDocumentsBtn").addEventListener("click", () => go("myDocuments", {}, { title: "مستنداتي", tab: "account" }));
   bodyEl.querySelector("#logoutBtn").addEventListener("click", async () => {
     if (!confirmDialog("هل تريد تسجيل الخروج؟")) return;

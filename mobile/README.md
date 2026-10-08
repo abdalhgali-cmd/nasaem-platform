@@ -102,6 +102,29 @@ the first time a customer uses one of those actions.
 In a plain browser (developing `www/` without Android) there is no Keystore:
 tokens go to sessionStorage and biometrics show as unavailable.
 
+## Customer experience (onboarding, welcome, home, About)
+
+- **Onboarding** (`js/screens/onboarding.js`): three slides shown once, on the
+  first launch with no stored session. Native swipe (CSS scroll-snap, RTL),
+  Skip / Next / ابدأ الآن, page dots, keyboard arrows. Completion is a plain
+  preference (`nasaem.onboarding.v1`), separate from authentication; a stored
+  session always goes straight to the session / biometric flow
+  (`js/experience-core.js` `launchRoute`). Replay: Account → عرض الجولة التعريفية.
+- **About Us** (`js/screens/about.js`): agency identity and contacts from
+  `js/agency.js` — the agency's published details (same as the web site's
+  `site-config.ts`); phone, e-mail, address and WhatsApp can be changed from
+  the back-office settings (`CONTACT_PHONE`, `CONTACT_EMAIL`,
+  `CONTACT_ADDRESS`, `WHATSAPP_NUMBER`) without an app release.
+- **Home**: greeting, banner carousel built only from published homepage
+  content and the customer's available coupons (brand slide otherwise),
+  service cards, latest request + unread notification, WhatsApp help.
+- **Motion** (`css/motion.css`, `js/motion.js`): transform/opacity only,
+  short durations, all disabled under the system "reduce motion" setting.
+- **Status bar**: always light icons on navy. Capacitor 8 draws the app
+  edge-to-edge, so the page paints the navy strip itself (`.status-scrim`);
+  see `capacitor.config.ts`.
+- **Font**: Cairo (SIL OFL), bundled in `www/assets/fonts` so it works offline.
+
 ## Local development
 
 ```bash

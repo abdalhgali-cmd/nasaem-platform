@@ -22,21 +22,31 @@ export function setOnAuthenticated(callback) {
 export function renderWelcomeScreen({ bodyEl, params = {} }) {
   bodyEl.innerHTML = `
     <div class="welcome-screen">
-      ${params.notice ? `<p class="session-notice" role="status">${esc(params.notice)}</p>` : ""}
-      <div class="welcome-mark"><img src="assets/brand/logo-mark.png" alt="نسائم الحرمين" width="88" height="88"></div>
-      <h1>نسائم الحرمين</h1>
-      <p class="welcome-tagline">رحلتك للعمرة والسفر والتأشيرات، في مكان واحد موثوق.</p>
-      <div class="welcome-points">
-        <span>${icon("shield-check", { size: 18 })} بياناتك محمية ولا يراها إلا فريقنا</span>
-        <span>${icon("clock", { size: 18 })} تابع طلبك لحظة بلحظة</span>
-        <span>${icon("umrah", { size: 18 })} عمرة، طيران، تأشيرات، فنادق وبواخر</span>
+      <div class="welcome-top">
+        <button type="button" class="welcome-about chip-btn" id="welcomeAbout">${icon("info", { size: 16 })}<span>من نحن</span></button>
       </div>
-      <button class="primary" id="goLogin">تسجيل الدخول</button>
-      <button class="secondary" id="goRegister">إنشاء حساب جديد</button>
+      ${params.notice ? `<p class="session-notice" role="status">${esc(params.notice)}</p>` : ""}
+      <div class="welcome-hero">
+        <div class="welcome-mark pop-in"><img src="assets/brand/logo-mark.png" alt="شعار نسائم الحرمين" width="96" height="96"></div>
+        <h1 class="reveal" style="--i:1">نسائم الحرمين</h1>
+        <p class="welcome-sub reveal" style="--i:2">للسفر والسياحة</p>
+        <p class="welcome-tagline reveal" style="--i:3">رحلتك تبدأ معنا بثقة</p>
+        <p class="welcome-intro reveal" style="--i:4">عمرة، تذاكر طيران، تأشيرات، فنادق ورحلات بحرية — قدّم طلبك وتابعه من هاتفك.</p>
+      </div>
+      <div class="welcome-actions">
+        <div class="welcome-points" role="list">
+          <span role="listitem" class="reveal" style="--i:5">${icon("shield-check", { size: 20 })}<b>نحافظ على خصوصية بياناتك</b></span>
+          <span role="listitem" class="reveal" style="--i:6">${icon("clock", { size: 20 })}<b>تابع طلبك خطوة بخطوة</b></span>
+          <span role="listitem" class="reveal" style="--i:7">${icon("umrah", { size: 20 })}<b>خدمات سفرك في مكان واحد</b></span>
+        </div>
+        <button class="primary welcome-login" id="goLogin">تسجيل الدخول</button>
+        <button class="secondary" id="goRegister">إنشاء حساب جديد</button>
+      </div>
     </div>
   `;
   bodyEl.querySelector("#goLogin").addEventListener("click", () => go("login", {}, { title: "تسجيل الدخول" }));
   bodyEl.querySelector("#goRegister").addEventListener("click", () => go("register", {}, { title: "إنشاء حساب" }));
+  bodyEl.querySelector("#welcomeAbout").addEventListener("click", () => go("about", {}, { title: "من نحن" }));
 }
 
 export function renderLoginScreen({ bodyEl }) {

@@ -15,21 +15,27 @@ import { renderSaudiFamilyVisitScreen } from "./screens/saudi-family-visit.js";
 import { renderRequestSubmittedScreen } from "./screens/intake.js";
 import { renderMyRequestsScreen, renderRequestDetailScreen, renderOrderDetailScreen } from "./screens/requests.js";
 import { renderNotificationsScreen } from "./screens/notifications.js";
-import { renderAccountScreen, renderEditProfileScreen, renderChangePasswordScreen, renderMyDocumentsScreen, setOnLoggedOut } from "./screens/account.js";
+import { renderAccountScreen, renderEditProfileScreen, renderChangePasswordScreen, renderMyDocumentsScreen, setOnLoggedOut, setOnReplayOnboarding } from "./screens/account.js";
 import { renderSecurityScreen } from "./screens/security.js";
+import { renderOnboardingScreen, isOnboardingDone, markOnboardingDone } from "./screens/onboarding.js";
+import { renderAboutScreen } from "./screens/about.js";
+import { launchRoute } from "./experience-core.js";
+import { tapFeedback } from "./motion.js";
 import { renderSessionCheckScreen, renderSessionOfflineScreen, renderBiometricLockScreen } from "./screens/session-screens.js";
 
 const screenEl = document.getElementById("screen");
 const navEl = document.getElementById("bottomNav");
 
 function registerAllScreens() {
-  registerScreen("welcome", renderWelcomeScreen);
+  registerScreen("onboarding", renderOnboardingScreen, { chrome: false });
+  registerScreen("welcome", renderWelcomeScreen, { chrome: false });
+  registerScreen("about", renderAboutScreen);
   registerScreen("login", renderLoginScreen);
   registerScreen("register", renderRegisterScreen);
   registerScreen("forgotPassword", renderForgotPasswordScreen);
   registerScreen("resetPassword", renderResetPasswordScreen);
 
-  registerScreen("home", renderHomeScreen);
+  registerScreen("home", renderHomeScreen, { chrome: false });
   registerScreen("services", renderServicesScreen);
   registerScreen("visasHub", renderVisasHubScreen);
   registerScreen("serviceDetail", renderServiceDetailScreen);
@@ -53,9 +59,9 @@ function registerAllScreens() {
   registerScreen("myDocuments", renderMyDocumentsScreen);
   registerScreen("security", renderSecurityScreen);
 
-  registerScreen("sessionCheck", renderSessionCheckScreen);
-  registerScreen("sessionOffline", renderSessionOfflineScreen);
-  registerScreen("biometricLock", renderBiometricLockScreen);
+  registerScreen("sessionCheck", renderSessionCheckScreen, { chrome: false });
+  registerScreen("sessionOffline", renderSessionOfflineScreen, { chrome: false });
+  registerScreen("biometricLock", renderBiometricLockScreen, { chrome: false });
 }
 
 async function enterAuthenticatedShell() {
@@ -110,16 +116,46 @@ async function showBiometricLock() {
   }, { root: true });
 }
 
+// First launch: the introduction, then the login/register choice. A stored
+// session always goes straight to the session / biometric flow, so the
+// introduction can never stand in front of (or around) authentication.
+async function showOnboarding({ replay = false } = {}) {
+  navEl.hidden = true;
+  await go("onboarding", {
+    onFinish: replay ? () => enterAuthenticatedShellAt("account") : () => enterAuthFlow(),
+  }, { root: true });
+}
+
+async function enterAuthenticatedShellAt(tab) {
+  navEl.hidden = false;
+  await goToTab(tab, tab, { title: tab === "account" ? "حسابي" : "" });
+}
+
 async function startFromStoredSession() {
   const stored = await auth.loadStoredSession();
-  if (stored.kind === "biometric") return showBiometricLock();
-  if (stored.kind === "token") return verifyAndEnter();
+  const onboardingDone = await isOnboardingDone();
+  // Customers who already had a session before this version never need the intro.
+  if (stored.kind !== "none" && !onboardingDone) markOnboardingDone();
+  const route = launchRoute({ storedKind: stored.kind, onboardingDone });
+  if (route === "biometric") return showBiometricLock();
+  if (route === "verify") return verifyAndEnter();
+  if (route === "onboarding") return showOnboarding();
   return enterAuthFlow();
+}
+
+// Light status-bar icons over the navy strip, on every Android version (see
+// capacitor.config.ts). Both plugins write the same window flag; setting it
+// from here wins over any default applied while the bridge started.
+function applySystemBarStyle() {
+  const plugins = window.Capacitor?.Plugins || {};
+  plugins.SystemBars?.setStyle?.({ style: "DARK" })?.catch?.(() => {});
+  plugins.StatusBar?.setStyle?.({ style: "DARK" })?.catch?.(() => {});
 }
 
 function wireBottomNav() {
   navEl.querySelectorAll("button[data-tab]").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      tapFeedback();
       const tab = btn.dataset.tab;
       if (currentTab() === tab && stackDepth() === 1) return; // already at tab root
       const titleByTab = { home: "", requests: "طلباتي", notifications: "الإشعارات", account: "حسابي" };
@@ -159,9 +195,12 @@ async function boot() {
   wireBottomNav();
   wireBackButton();
   wireConnectivity();
+  applySystemBarStyle();
+  window.Capacitor?.Plugins?.App?.addListener?.("resume", applySystemBarStyle);
 
   setOnAuthenticated(enterAuthenticatedShell);
   setOnLoggedOut(() => enterAuthFlow());
+  setOnReplayOnboarding(() => showOnboarding({ replay: true }));
   auth.setOnSessionEnded(() => enterAuthFlow({ notice: SESSION_ENDED_NOTICE }));
 
   await startFromStoredSession();

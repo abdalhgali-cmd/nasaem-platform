@@ -6,8 +6,10 @@ let screenEl;
 let navEl;
 let onEmptyStack = null;
 
-export function registerScreen(name, render) {
-  screens.set(name, render);
+// options.chrome === false: a full-bleed screen (welcome, onboarding) that
+// draws its own layout instead of the standard header bar.
+export function registerScreen(name, render, options = {}) {
+  screens.set(name, { render, chrome: options.chrome !== false });
 }
 
 export function initRouter({ screenElement, navElement, emptyStackHandler }) {
@@ -16,7 +18,10 @@ export function initRouter({ screenElement, navElement, emptyStackHandler }) {
   onEmptyStack = emptyStackHandler;
 }
 
-async function render(entry, { isRoot = false } = {}) {
+// direction: "forward" (go), "back" (back), "fade" (tab switch / new root).
+// The animation itself is pure CSS (css/motion.css) on transform/opacity and
+// is switched off under prefers-reduced-motion.
+async function render(entry, { isRoot = false, direction = "fade" } = {}) {
   const definition = screens.get(entry.name);
   if (!definition) {
     console.error(`[router] unknown screen: ${entry.name}`);
@@ -25,21 +30,32 @@ async function render(entry, { isRoot = false } = {}) {
 
   screenEl.scrollTop = 0;
   window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-  screenEl.innerHTML = `
+  screenEl.dataset.chrome = definition.chrome ? "1" : "0";
+  screenEl.dataset.screen = entry.name;
+  screenEl.innerHTML = definition.chrome
+    ? `
     <header class="screen-head ${isRoot ? "screen-head-root" : ""}">
       ${isRoot ? "" : `<button class="icon-btn back-btn" aria-label="رجوع">${icon("chevron-start", { size: 24 })}</button>`}
       <h1>${entry.title || ""}</h1>
       <span class="screen-head-spacer"></span>
     </header>
-    <div class="screen-body" id="screenBody"></div>
-  `;
+    <div class="screen-body screen-enter screen-enter-${direction}" id="screenBody"></div>
+  `
+    : `<div class="screen-body screen-body-bleed screen-enter screen-enter-${direction}" id="screenBody"></div>`;
 
   if (!isRoot) {
     screenEl.querySelector(".back-btn")?.addEventListener("click", () => back());
   }
 
   const bodyEl = screenEl.querySelector("#screenBody");
-  const result = await definition({ params: entry.params, bodyEl, setTitle: (t) => (screenEl.querySelector("h1").textContent = t) });
+  const result = await definition.render({
+    params: entry.params,
+    bodyEl,
+    setTitle: (t) => {
+      const h1 = screenEl.querySelector(".screen-head h1");
+      if (h1) h1.textContent = t;
+    },
+  });
   entry.cleanup = result?.cleanup || null;
   updateNavActive(entry.tab);
 }
@@ -53,7 +69,7 @@ export async function go(name, params = {}, { title = "", tab = null, root = fal
   }
   const entry = { name, params, title, tab: tab || stack[stack.length - 1]?.tab || null };
   stack.push(entry);
-  await render(entry, { isRoot: stack.length === 1 });
+  await render(entry, { isRoot: stack.length === 1, direction: root ? "fade" : "forward" });
 }
 
 export async function replace(name, params = {}, { title = "", tab = null } = {}) {
@@ -71,7 +87,7 @@ export async function back() {
   }
   const popped = stack.pop();
   popped.cleanup?.();
-  await render(stack[stack.length - 1], { isRoot: stack.length === 1 });
+  await render(stack[stack.length - 1], { isRoot: stack.length === 1, direction: "back" });
 }
 
 export async function goToTab(tabName, rootScreen, { title = "" } = {}) {
@@ -88,8 +104,15 @@ export function currentTab() {
 
 function updateNavActive(tab) {
   if (!navEl) return;
-  navEl.querySelectorAll("button[data-tab]").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === tab);
+  navEl.querySelectorAll("button[data-tab]").forEach((btn, i) => {
+    const active = btn.dataset.tab === tab;
+    btn.classList.toggle("active", active);
+    if (active) {
+      btn.setAttribute("aria-current", "page");
+      navEl.style.setProperty("--tab", String(i)); // slides the gold indicator (css/motion.css)
+    } else {
+      btn.removeAttribute("aria-current");
+    }
   });
 }
 

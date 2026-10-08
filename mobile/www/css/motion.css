@@ -1,0 +1,95 @@
+/*
+ * Motion system. Only transform and opacity are animated (compositor-only,
+ * no layout work), durations stay short, and everything collapses to an
+ * instant change under prefers-reduced-motion (bottom of this file).
+ */
+:root {
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-spring: cubic-bezier(.34, 1.4, .64, 1);
+  --dur-fast: 140ms;
+  --dur-base: 260ms;
+  --dur-slow: 480ms;
+}
+
+@keyframes fade-up { from { opacity: 0; transform: translate3d(0, 10px, 0); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* RTL: going forward the new screen comes from the left, back from the right. */
+@keyframes enter-forward { from { opacity: 0; transform: translate3d(-22px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes enter-back { from { opacity: 0; transform: translate3d(22px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { 0% { opacity: 0; transform: scale(.6); } 70% { opacity: 1; transform: scale(1.06); } 100% { transform: scale(1); } }
+@keyframes shimmer-sweep { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+@keyframes pulse-dot { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: .7; } }
+@keyframes float-y { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(0, -6px, 0); } }
+@keyframes orbit { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
+@keyframes draw-line { from { stroke-dashoffset: var(--len, 600); } to { stroke-dashoffset: 0; } }
+
+/* 1. Screen appearance + 2. navigation transitions (router.js sets the class) */
+.screen-enter { animation: fade-up var(--dur-base) var(--ease-out) both; }
+.screen-enter-forward { animation-name: enter-forward; }
+.screen-enter-back { animation-name: enter-back; }
+
+/* Staggered entrance (motion.js stagger()) */
+.reveal { animation: fade-up var(--dur-slow) var(--ease-out) both; animation-delay: calc(var(--i, 0) * 55ms); }
+
+/* 3. Card interactions + 4. button press feedback */
+.service-card, .quick-action, .account-menu-item, .last-order-card, .list-item, .feature-card, .about-contact-row,
+.primary, .secondary, .danger-btn, .icon-btn, .bottom-nav button, .chip-btn {
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast) linear;
+  -webkit-tap-highlight-color: transparent;
+}
+.service-card:active, .feature-card:active, .last-order-card:active, .list-item:active, .account-menu-item:active,
+.about-contact-row:active, .chip-btn:active { transform: scale(.97); }
+.primary:active, .secondary:active, .danger-btn:active { transform: scale(.98); }
+
+/* 5. Loading / skeleton (cards and rows already shimmer in app.css) */
+.skeleton-banner { position: relative; overflow: hidden; }
+.skeleton-banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .55), transparent);
+  animation: shimmer-sweep 1.3s linear infinite;
+}
+
+/* 6. Expandable content */
+.faq-item[open] > :not(summary) { animation: fade-up var(--dur-base) var(--ease-out) both; }
+.faq-item summary::-webkit-details-marker { display: none; }
+
+/* 7. Successful actions */
+.success-icon, .pop-in { animation: pop-in 520ms var(--ease-spring) both; }
+
+/* 8. Notification indicators */
+.unread-dot { animation: pulse-dot 1.8s ease-in-out 3; }
+
+/* 10. Bottom navigation selection */
+.bottom-nav .nav-indicator {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 25%;
+  height: 3px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  transform: translate3d(calc(var(--tab, 0) * -100%), 0, 0);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.bottom-nav .nav-indicator::before { content: ""; width: 34px; height: 3px; border-radius: 0 0 3px 3px; background: var(--gold); }
+[dir="ltr"] .bottom-nav .nav-indicator { transform: translate3d(calc(var(--tab, 0) * 100%), 0, 0); }
+.bottom-nav button .nav-icon { transition: transform var(--dur-base) var(--ease-spring); }
+.bottom-nav button.active .nav-icon { transform: translate3d(0, -2px, 0) scale(1.08); }
+
+/* Gentle continuous motion (onboarding / welcome art only) */
+.float-y { animation: float-y 5s ease-in-out infinite; }
+
+/* Reduced motion: no movement, content appears immediately. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .float-y, .ob-orbit, .skeleton-card, .skeleton-row, .skeleton-banner::after { animation: none !important; }
+}
