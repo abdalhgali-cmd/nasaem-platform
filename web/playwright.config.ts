@@ -4,7 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 // Mobile-viewport regression coverage for the staff-facing surfaces most
 // likely to be used from a phone in the field: the Operations Center and
 // Payment Review pages (web/, Next.js) and the customer-facing document
-// upload flow (frontend/request.html, served by the Express backend).
+// upload flow (backend/public/request.html, served by the Express backend).
 // Also the Platform 3.0 "platform3" project (see below) covering the
 // plan's required E2E scenarios.
 //

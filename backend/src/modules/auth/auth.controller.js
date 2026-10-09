@@ -5,7 +5,7 @@ import { logActivity } from "../../utils/activityLog.js";
 
 // Production now also serves a legitimate cross-site caller (the Vercel-hosted
 // marketing site's static admin pages, calling the Railway-hosted API) on top
-// of the same-origin Express-served frontend/ back-office. SameSite=Lax
+// of the same-origin Express-served backend/public/ back-office. SameSite=Lax
 // cookies aren't sent on cross-site fetch/XHR (only top-level navigation),
 // which broke exactly that case — proven by reproducing it locally with two
 // distinct hostnames: login succeeded (200) but the session cookie never

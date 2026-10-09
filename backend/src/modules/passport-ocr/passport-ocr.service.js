@@ -231,7 +231,7 @@ export function comparePassportDataToCustomer(extracted, customer) {
   // Never compared: the MRZ gives an ISO 3166-1 alpha-3 code (e.g. "SDN")
   // while Customer.nationality is free text that, depending on how the
   // record was created, might hold that same code, an English name, or an
-  // Arabic name (see frontend/assets/request.js's COUNTRY_NAME_AR mapping
+  // Arabic name (see backend/public/assets/request.js's COUNTRY_NAME_AR mapping
   // used when this same OCR result fills the intake form). Comparing those
   // formats directly would produce false "mismatch" results far more often
   // than it would catch a real one, so this is reported for staff to read,
