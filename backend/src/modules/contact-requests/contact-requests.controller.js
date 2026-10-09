@@ -483,7 +483,7 @@ export async function getCustomerMessages(req, res, next) {
 export async function retryCustomerConfirmation(req, res, next) {
   try {
     if (!(await findStaffCase(req))) return res.status(404).json({ success: false, message: "Contact request not found" });
-    const delivery = await sendRequestConfirmation(req.params.id);
+    const delivery = await sendRequestConfirmation(req.params.id, { manual: true });
     return res.status(200).json({ success: true, data: delivery });
   } catch (error) {
     next(error);

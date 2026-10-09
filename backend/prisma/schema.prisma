@@ -1551,6 +1551,7 @@ model CustomerMessageDelivery {
   providerMessageId String?
   lastError         String?
   lastAttemptAt     DateTime?
+  nextAttemptAt     DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -1558,4 +1559,5 @@ model CustomerMessageDelivery {
 
   @@unique([contactRequestId, kind, channel])
   @@index([status])
+  @@index([status, nextAttemptAt])
 }

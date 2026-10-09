@@ -1,5 +1,6 @@
 import path from "path";
-import { sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
+import { publicOrganizationId } from "../../utils/publicOrganization.js";
+import { pendingConfirmationCreate, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
@@ -193,7 +194,7 @@ async function createContactRequestOnce(data, req, files) {
 
   const baseData = {
     name: data.name,
-    organizationId: req.customer?.organizationId || "org_nasaem_default",
+    organizationId: req.customer?.organizationId || publicOrganizationId(),
     phone: data.phone,
     phoneNormalized: normalizePhone(data.phone),
     email: data.email || null,
@@ -215,6 +216,7 @@ async function createContactRequestOnce(data, req, files) {
     message: data.message,
     customerId: req.customer?.id || null,
     submissionKey: data.submissionKey || null,
+    customerMessages: pendingConfirmationCreate(normalizePhone(data.phone)),
   };
 
   // Two code paths on purpose: when the submission doesn't use the new

@@ -24,8 +24,14 @@ import { getTrackingTokenMaxAgeMs } from "../../utils/jwt.js";
 const isProduction = process.env.NODE_ENV === "production";
 const TRACKING_COOKIE_OPTIONS = { httpOnly: true, sameSite: isProduction ? "none" : "lax", secure: isProduction };
 
+// No code could be sent: say so plainly and point to a person instead.
+const OTP_ERROR_MESSAGES = {
+  OTP_CHANNEL_UNAVAILABLE: "إرسال رمز التحقق عبر واتساب غير متاح حاليًا. تواصل معنا هاتفيًا أو عبر واتساب لمتابعة طلبك.",
+  OTP_DELIVERY_FAILED: "تعذّر إرسال رمز التحقق عبر واتساب. أعد المحاولة بعد قليل، أو تواصل معنا لمتابعة طلبك.",
+};
+
 export async function requestCode(req, res, next) {
-  try { const parsed = requestCodeSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() }); const { debugCode } = await requestLoginCode(parsed.data.phone); return res.status(200).json({ success: true, message: "إذا كان الرقم مسجلاً، سيصلك رمز التحقق عبر واتساب", ...(debugCode ? { debugCode } : {}) }); } catch (error) { next(error); }
+  try { const parsed = requestCodeSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() }); const result = await requestLoginCode(parsed.data.phone); if (result.error) return res.status(503).json({ success: false, code: result.error, message: OTP_ERROR_MESSAGES[result.error] }); return res.status(200).json({ success: true, delivery: result.delivery, message: "طلبنا إرسال رمز التحقق إلى هذا الرقم عبر واتساب. إن لم يصلك خلال دقائق فأعد المحاولة أو تواصل معنا.", ...(result.debugCode ? { debugCode: result.debugCode } : {}) }); } catch (error) { next(error); }
 }
 export async function verifyCode(req, res, next) {
   try { const parsed = verifyCodeSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() }); const result = await verifyLoginCode(parsed.data.phone, parsed.data.code); if (!result.success) return res.status(400).json({ success: false, message: result.message }); res.cookie("trackingAccessToken", result.token, { ...TRACKING_COOKIE_OPTIONS, maxAge: getTrackingTokenMaxAgeMs() }); return res.status(200).json({ success: true, message: "تم تسجيل الدخول بنجاح", data: { token: result.token } }); } catch (error) { next(error); }

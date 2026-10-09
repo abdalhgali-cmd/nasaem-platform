@@ -4,7 +4,7 @@ import { icon } from "../icons.js";
 import { goToTab } from "../router.js";
 import { getCustomer, isAccountUnlocked } from "../auth.js";
 import { newSubmissionKey, submitRequestForm, submitFailureMessage, showSubmitted } from "../submission.js";
-import { confirmationNotice } from "../experience-core.js";
+import { confirmationNotice, countSelectedDocuments, parseRequirementsResponse } from "../experience-core.js";
 import { setTrackingPrefill } from "../tracking.js";
 
 // Hard backend limits (upload.middleware.js: .array("documents", 6);
@@ -97,25 +97,26 @@ function travelerFieldset(index) {
     </fieldset>`;
 }
 
+// Resolves to the service's checklist ([] only when the server confirmed it
+// is empty, or the item has no checklist at all). Throws when it couldn't be
+// loaded: the form is then not shown, so nothing is submitted unchecked.
 async function fetchRequirements(item) {
   if (!item.id) return [];
   const scope = item.isVisaType ? "visa-types" : "services";
-  try {
-    const res = await api(`/${scope}/${item.id}/requirements/public`);
-    return Array.isArray(res.data) ? res.data : [];
-  } catch {
-    return [];
-  }
+  const requirements = parseRequirementsResponse(await api(`/${scope}/${item.id}/requirements/public`));
+  if (!requirements) throw new ApiError("وصلت استجابة غير متوقعة من الخادم.", { status: 0, code: "BAD_RESPONSE" });
+  return requirements;
 }
 
-function countPlannedDocuments(form, requirements, travelerCount) {
-  let count = travelerCount; // one passport photo per traveler
-  for (const requirement of requirements) {
-    if (requirement.type !== "DOCUMENT") continue;
-    const el = form.querySelector(`[data-req="${CSS.escape(requirement.id)}"] input[type="file"]`);
-    if (el?.files?.length) count += 1;
-  }
-  return count;
+function countPlannedDocuments(form, requirements, answers) {
+  const travelerFiles = [...form.querySelectorAll('input[type="file"][name^="t_doc_"]')].map((el) => Boolean(el.files?.length));
+  const requirementFiles = requirements
+    .filter((requirement) => requirement.type === "DOCUMENT")
+    .map((requirement) => {
+      const el = form.querySelector(`[data-req="${CSS.escape(requirement.id)}"] input[type="file"]`);
+      return { applies: requirementApplies(requirement, answers), selected: Boolean(el?.files?.length) };
+    });
+  return countSelectedDocuments({ travelerFiles, requirementFiles });
 }
 
 function validateFile(file) {
@@ -136,7 +137,24 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   setTitle(`طلب ${item.name}`);
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل متطلبات الخدمة…</p></div>`;
 
-  const requirements = await fetchRequirements(item);
+  let requirements;
+  try {
+    requirements = await fetchRequirements(item);
+  } catch (error) {
+    // Without the checklist we can't tell the customer what to send, so the
+    // form is not offered at all — only a retry.
+    bodyEl.innerHTML = `
+      <div class="empty-state" id="requirementsError" role="alert">
+        ${icon("alert", { size: 28 })}
+        <h3>تعذّر تحميل متطلبات الخدمة</h3>
+        <p>${esc(error?.status === 0 ? "تحقق من اتصالك بالإنترنت ثم أعد المحاولة." : "حدث خطأ في الخادم. أعد المحاولة بعد قليل.")} لن نعرض النموذج قبل التأكد من المستندات المطلوبة لهذه الخدمة.</p>
+        <button type="button" class="primary" id="retryRequirementsBtn">إعادة المحاولة</button>
+      </div>`;
+    bodyEl.querySelector("#retryRequirementsBtn").addEventListener("click", () =>
+      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection })
+    );
+    return;
+  }
   // Prefill from the account only when it is actually unlocked.
   const customer = isAccountUnlocked() ? getCustomer() : null;
   // One key for this form, reused on every retry (no duplicate requests).
@@ -234,7 +252,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   }
 
   function updateDocBudgetNote() {
-    const count = countPlannedDocuments(form, requirements, Number(travelerCountInput.value) || 1);
+    const count = countPlannedDocuments(form, requirements, answersFromForm());
     docBudgetNote.textContent = `المستندات المرفقة: ${count} من أصل ${MAX_DOCUMENTS} كحد أقصى لكل طلب.`;
     docBudgetNote.classList.toggle("field-hint-warn", count > MAX_DOCUMENTS);
   }
@@ -252,9 +270,9 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     form.querySelectorAll(".field-error").forEach((el) => el.remove());
 
     const travelerCount = Number(travelerCountInput.value) || 1;
-    const plannedDocs = countPlannedDocuments(form, requirements, travelerCount);
+    const plannedDocs = countPlannedDocuments(form, requirements, answersFromForm());
     if (plannedDocs > MAX_DOCUMENTS) {
-      toast(`الحد الأقصى ${MAX_DOCUMENTS} مستندات لكل طلب. قلّل عدد المسافرين أو المرفقات الإضافية.`, { tone: "error" });
+      toast(`يمكن إرفاق ${MAX_DOCUMENTS} ملفات كحد أقصى مع الطلب (اخترت ${plannedDocs}). أزل بعضها وأرسلها لاحقًا من «طلباتي».`, { tone: "error" });
       return;
     }
 

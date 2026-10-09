@@ -67,8 +67,19 @@ The app is fully usable without an account (`js/app.js`, `js/experience-core.js`
 - **Account tab** states: guest (optional sign in / create account), locked
   (unlock with fingerprint or password), verifying, could-not-verify (Retry),
   signed in. Expired or revoked sessions return to guest; the app keeps working.
-- Contact needs a phone number; e-mail is optional (e-mail-only contact is not
-  supported yet: there is no verified e-mail channel for tracking).
+- **Documents**: the form counts only files actually selected (empty optional
+  passport inputs take no slot; a hidden conditional document isn't sent) and
+  blocks more than 6 before uploading.
+- **Service checklist**: if the requirements can't be loaded (offline, server
+  error, malformed answer) the form is not shown — only an error and Retry.
+  A checklist the server confirms is empty shows the form without it.
+- **Codes that can't be sent**: when the server answers
+  `OTP_CHANNEL_UNAVAILABLE` / `OTP_DELIVERY_FAILED` (or doesn't answer), the
+  tracking and password-reset screens say no code was sent and offer the
+  agency's WhatsApp and phone (`js/otp-support.js`).
+- Contact needs a phone number; e-mail is optional. **E-mail-only requests are
+  BLOCKED** until there is an e-mail provider, e-mail ownership verification
+  and secure e-mail tracking; until then a phone number is always required.
 
 ## Authentication model
 

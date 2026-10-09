@@ -1,7 +1,8 @@
 import { randomInt } from "node:crypto";
+import { trackingScope } from "../../utils/publicOrganization.js";
 import prisma from "../../config/database.js";
 import { normalizePhone } from "../../utils/phone.js";
-import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { sendWhatsAppMessage, whatsAppReadiness } from "../../utils/whatsapp.js";
 import { signTrackingToken } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { deriveTrackingStatusLabel } from "./contact-request-tracking.status.js";
@@ -18,23 +19,46 @@ const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
 
+// Sends a one-time tracking code over WhatsApp, the only channel that proves
+// possession of the phone. Never reports success for a code nobody can
+// receive:
+//   - WhatsApp not configured / switched off → OTP_CHANNEL_UNAVAILABLE, and
+//     no code is created (except in test/development, below);
+//   - Meta refuses or is unreachable → the code is withdrawn, OTP_DELIVERY_FAILED.
+// "ACCEPTED" means Meta took the message, not that it reached the handset;
+// the reply wording says so.
 export async function requestLoginCode(rawPhone) {
   const phone = normalizePhone(rawPhone);
-  const code = String(randomInt(0, 1000000)).padStart(6, "0");
-  const expiresAt = new Date(Date.now() + CODE_TTL_MS);
-  await prisma.contactRequestLoginCode.updateMany({
-    where: { phone, consumedAt: null },
-    data: { consumedAt: new Date() },
-  });
-  await prisma.contactRequestLoginCode.create({ data: { phone, code, expiresAt } });
-  sendWhatsAppMessage(phone, `رمز التحقق الخاص بك لتتبع طلبك: ${code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.`);
   // Exposed only under "test" (CI/local test runs) and "development" (local
   // `npm run dev`, no WhatsApp provider configured) — never in "production",
   // where NODE_ENV is always "production" and this stays undefined. Lets a
   // developer complete the tracking OTP flow against localhost without a
   // real WhatsApp/SMS provider.
   const isDebugOtpAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
-  return { debugCode: isDebugOtpAllowed ? code : undefined };
+  const channel = await whatsAppReadiness();
+  if (channel !== "AVAILABLE" && !isDebugOtpAllowed) {
+    return { error: "OTP_CHANNEL_UNAVAILABLE", channel };
+  }
+
+  const code = String(randomInt(0, 1000000)).padStart(6, "0");
+  const expiresAt = new Date(Date.now() + CODE_TTL_MS);
+  await prisma.contactRequestLoginCode.updateMany({
+    where: { phone, consumedAt: null },
+    data: { consumedAt: new Date() },
+  });
+  const loginCode = await prisma.contactRequestLoginCode.create({ data: { phone, code, expiresAt } });
+
+  if (channel !== "AVAILABLE") {
+    return { delivery: "DEBUG_ONLY", debugCode: code };
+  }
+  const outcome = await sendWhatsAppMessage(phone, `رمز التحقق الخاص بك لتتبع طلبك: ${code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.`);
+  if (outcome.status !== "ACCEPTED") {
+    // Nobody can have received it: withdraw it so it can't be guessed later.
+    await prisma.contactRequestLoginCode.update({ where: { id: loginCode.id }, data: { consumedAt: new Date() } });
+    console.error("Tracking OTP not sent:", outcome.status, outcome.error || "");
+    return { error: "OTP_DELIVERY_FAILED", channel: outcome.status };
+  }
+  return { delivery: "ACCEPTED", debugCode: isDebugOtpAllowed ? code : undefined };
 }
 
 export async function verifyLoginCode(rawPhone, code) {
@@ -59,7 +83,8 @@ export async function verifyLoginCode(rawPhone, code) {
 
 export async function listContactRequestsForPhone(phoneNormalized) {
   const requests = await prisma.contactRequest.findMany({
-    where: { phoneNormalized },
+    // Scoped server-side to the public organization (utils/publicOrganization.js).
+    where: trackingScope(phoneNormalized),
     orderBy: { createdAt: "desc" },
     include: {
       invoice: true,
@@ -132,7 +157,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
 
 async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
   return prisma.contactRequest.findFirst({
-    where: { id: contactRequestId, phoneNormalized },
+    where: { id: contactRequestId, ...trackingScope(phoneNormalized) },
     include: { invoice: true, offers: true },
   });
 }

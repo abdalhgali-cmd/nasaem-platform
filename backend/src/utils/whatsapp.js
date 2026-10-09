@@ -55,6 +55,16 @@ export function whatsAppAvailability() {
   return "AVAILABLE";
 }
 
+// Same answer as whatsAppAvailability, but reads the WHATSAPP flag from the
+// database instead of the cache: for callers that must not promise a message
+// (the tracking OTP) and can afford one query.
+export async function whatsAppReadiness() {
+  if (!isConfigured()) return "NOT_CONFIGURED";
+  const enabled = await isFeatureEnabled("WHATSAPP").catch(() => false);
+  whatsAppFlagCache = { enabled, checkedAt: Date.now() };
+  return enabled ? "AVAILABLE" : "DISABLED";
+}
+
 export async function sendWhatsAppMessage(to, body) {
   if (!isConfigured()) return { status: "NOT_CONFIGURED" };
   if (!to) return { status: "INVALID_RECIPIENT" };
@@ -107,6 +117,7 @@ export async function sendWhatsAppMessage(to, body) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000),
       }
     );
 

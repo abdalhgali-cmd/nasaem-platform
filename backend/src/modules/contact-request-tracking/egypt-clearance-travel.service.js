@@ -1,4 +1,5 @@
 import prisma from "../../config/database.js";
+import { trackingScope } from "../../utils/publicOrganization.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createContactRequestDocument } from "../contact-request-documents/contact-request-documents.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
@@ -172,7 +173,7 @@ export async function saveMyEgyptTravelPlan(
   file
 ) {
   const request = await prisma.contactRequest.findFirst({
-    where: { id: contactRequestId, phoneNormalized },
+    where: { id: contactRequestId, ...trackingScope(phoneNormalized) },
     include: {
       visaType: { select: { code: true } },
       deliverables: { select: { id: true } },

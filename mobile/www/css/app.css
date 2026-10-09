@@ -694,3 +694,9 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 .selection-card h3 { display: flex; align-items: center; gap: 6px; color: var(--success); }
 .selection-card p { margin: 0; font-size: 13px; line-height: 1.7; }
 .stale-note { display: flex; align-items: center; gap: 6px; margin: -4px 0 10px; color: var(--warn-text); }
+
+/* WhatsApp code could not be sent: plain notice + a person to contact. */
+.otp-support { margin-top: 14px; background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); border-radius: var(--radius-sm); padding: 12px; font-size: 13px; line-height: 1.7; }
+.otp-support p { margin: 0 0 10px; }
+.otp-support-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.otp-support-actions a { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; min-height: 44px; padding: 0 14px; }

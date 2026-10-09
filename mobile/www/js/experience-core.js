@@ -97,3 +97,37 @@ export function newSubmissionKey(cryptoImpl = globalThis.crypto) {
   cryptoImpl.getRandomValues(bytes);
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+// A WhatsApp code that could not be sent (server answered 503 with
+// OTP_CHANNEL_UNAVAILABLE / OTP_DELIVERY_FAILED, or the request never got an
+// answer). The customer is told plainly that no code is on its way, and is
+// offered a person to talk to instead of waiting for a message.
+export function otpFailureNotice(error) {
+  const code = error?.code;
+  if (code === "OTP_CHANNEL_UNAVAILABLE") {
+    return { retry: false, message: error.message || "إرسال رمز التحقق عبر واتساب غير متاح حاليًا. تواصل معنا هاتفيًا أو عبر واتساب." };
+  }
+  if (code === "OTP_DELIVERY_FAILED") {
+    return { retry: true, message: error.message || "تعذّر إرسال رمز التحقق عبر واتساب. أعد المحاولة بعد قليل، أو تواصل معنا." };
+  }
+  if (error?.status === 0 || error?.status >= 500) {
+    return { retry: true, message: "لم نتمكن من طلب رمز التحقق الآن، ولم يُرسل أي رمز. أعد المحاولة أو تواصل معنا." };
+  }
+  return null;
+}
+
+// How many files a request form will upload: only inputs that actually hold
+// a file count. Optional passport inputs left empty take no slot, and a
+// service document counts only while its field applies (a conditional field
+// that was hidden after a file was picked is not sent).
+//   travelerFiles:    one boolean per traveler — a passport file is selected
+//   requirementFiles: one { applies, selected } per DOCUMENT requirement
+export function countSelectedDocuments({ travelerFiles = [], requirementFiles = [] } = {}) {
+  return travelerFiles.filter(Boolean).length + requirementFiles.filter((r) => r.applies && r.selected).length;
+}
+
+// Requirements response → checklist, or null when it can't be trusted. A
+// failed or malformed response is never read as "this service needs nothing".
+export function parseRequirementsResponse(body) {
+  return Array.isArray(body?.data) ? body.data : null;
+}

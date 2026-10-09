@@ -4,6 +4,7 @@ import { esc, money, toast, skeletonList, emptyState, errorState, setLoading } f
 import { icon } from "../icons.js";
 import { go } from "../router.js";
 import * as tracking from "../tracking.js";
+import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
@@ -184,12 +185,13 @@ export async function renderGuestTrackingScreen({ bodyEl }) {
     container.innerHTML = `
       <section class="form-section">
         <h3>تتبع طلبك</h3>
-        <p class="field-hint">أدخل رقم الهاتف الذي استخدمته في الطلب، وسيصلك رمز تحقق عبر واتساب. لا تحتاج إلى حساب.</p>
+        <p class="field-hint">أدخل رقم الهاتف الذي استخدمته في الطلب، وسنرسل إليه رمز تحقق عبر واتساب. لا تحتاج إلى حساب.</p>
         ${notice ? `<p class="session-notice">${esc(notice)}</p>` : ""}
         <form id="trackPhoneForm" class="form" novalidate>
           <label class="field"><span>رقم الهاتف *</span><input name="phone" inputmode="tel" autocomplete="tel" required value="${esc(prefill)}"></label>
           <button type="submit" class="primary" id="sendCodeBtn">إرسال رمز التحقق</button>
         </form>
+        <div id="otpSupportSlot"></div>
       </section>`;
     const form = container.querySelector("#trackPhoneForm");
     form.addEventListener("submit", async (event) => {
@@ -201,12 +203,14 @@ export async function renderGuestTrackingScreen({ bodyEl }) {
       }
       const btn = container.querySelector("#sendCodeBtn");
       setLoading(btn, true, "جارٍ الإرسال…");
+      const slot = container.querySelector("#otpSupportSlot");
       try {
         await tracking.requestTrackingCode(phone);
         showCodeStep(phone);
       } catch (error) {
         setLoading(btn, false);
-        toast(error.message, { tone: "error" });
+        // No code was sent: say so on the screen and offer a person instead.
+        if (!(await showOtpSupport(slot, error, { context: "تتبع طلب" }))) toast(error.message, { tone: "error" });
       }
     });
   };
@@ -215,7 +219,7 @@ export async function renderGuestTrackingScreen({ bodyEl }) {
     container.innerHTML = `
       <section class="form-section">
         <h3>أدخل رمز التحقق</h3>
-        <p class="field-hint">إذا كان الرقم <b dir="ltr">${esc(phone)}</b> مستخدمًا في طلب، يصله رمز من 6 أرقام عبر واتساب خلال لحظات. الرمز صالح 10 دقائق.</p>
+        <p class="field-hint">إذا كان الرقم <b dir="ltr">${esc(phone)}</b> مستخدمًا في طلب، طلبنا إرسال رمز من 6 أرقام إليه عبر واتساب. الرمز صالح 10 دقائق. إن لم يصلك خلال دقائق، أعد الإرسال أو تواصل معنا.</p>
         <form id="trackCodeForm" class="form" novalidate>
           <label class="field"><span>رمز التحقق *</span><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
           <button type="submit" class="primary" id="verifyCodeBtn">تأكيد</button>

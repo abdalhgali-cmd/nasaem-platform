@@ -3,7 +3,7 @@ import prisma from "../../config/database.js";
 import { hashPassword, comparePassword } from "../../utils/password.js";
 import { signCustomerToken } from "../../utils/jwt.js";
 import { normalizePhone } from "../../utils/phone.js";
-import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { sendWhatsAppMessage, whatsAppReadiness } from "../../utils/whatsapp.js";
 import { generateCustomerNo } from "../customers/customers.service.js";
 
 const RESET_CODE_TTL_MS = 10 * 60 * 1000;
@@ -173,6 +173,14 @@ export async function changeCustomerPassword(customerId, currentPassword, newPas
 }
 
 export async function requestPasswordReset(rawPhone) {
+  // See contact-request-tracking.service.js's requestLoginCode for why
+  // "development" is included alongside "test" here — never "production".
+  const isDebugOtpAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
+  // Checked before the account lookup, so the answer is the same for every
+  // number: no code is promised when WhatsApp cannot carry one.
+  const channel = await whatsAppReadiness();
+  if (channel !== "AVAILABLE" && !isDebugOtpAllowed) return { error: "OTP_CHANNEL_UNAVAILABLE" };
+
   const customer = await findCustomerByPhone(rawPhone);
   // Never reveal whether a phone number has an account — always return a
   // generic success shape; only actually send a code when one does.
@@ -186,14 +194,22 @@ export async function requestPasswordReset(rawPhone) {
     data: { passwordResetCode: code, passwordResetExpiresAt, passwordResetAttempts: 0 },
   });
 
-  sendWhatsAppMessage(
-    customer.phone,
-    `رمز إعادة تعيين كلمة المرور لحسابك في نسائم الحرمين: ${code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.`
-  );
+  if (channel === "AVAILABLE") {
+    // Not awaited, so the response time doesn't tell whether the number has
+    // an account. A code Meta refused is withdrawn: nobody received it.
+    sendWhatsAppMessage(
+      customer.phone,
+      `رمز إعادة تعيين كلمة المرور لحسابك في نسائم الحرمين: ${code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.`
+    ).then((outcome) => {
+      if (outcome.status === "ACCEPTED") return;
+      console.error("Password reset code not sent:", outcome.status, outcome.error || "");
+      return prisma.customer.updateMany({
+        where: { id: customer.id, passwordResetCode: code },
+        data: { passwordResetCode: null, passwordResetExpiresAt: null },
+      });
+    }).catch(() => {});
+  }
 
-  // See contact-request-tracking.service.js's requestLoginCode for why
-  // "development" is included alongside "test" here — never "production".
-  const isDebugOtpAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development";
   return { debugCode: isDebugOtpAllowed ? code : undefined };
 }
 

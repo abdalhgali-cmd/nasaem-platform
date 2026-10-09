@@ -3,6 +3,7 @@ import { icon } from "../icons.js";
 import * as auth from "../auth.js";
 import { ApiError } from "../api.js";
 import { go } from "../router.js";
+import { showOtpSupport } from "../otp-support.js";
 
 function applyFieldErrors(form, errors) {
   const fieldErrors = errors?.fieldErrors || {};
@@ -153,6 +154,7 @@ export function renderForgotPasswordScreen({ bodyEl }) {
         <input name="phone" required inputmode="tel" autocomplete="tel">
       </label>
       <button type="submit" class="primary" id="forgotSubmit">إرسال رمز التحقق</button>
+      <div id="otpSupportSlot"></div>
     </form>
   `;
   const form = bodyEl.querySelector("#forgotForm");
@@ -163,11 +165,13 @@ export function renderForgotPasswordScreen({ bodyEl }) {
     setLoading(submitBtn, true, "جارٍ الإرسال…");
     try {
       await auth.requestPasswordReset(phone);
-      toast("إذا كان الرقم مسجلاً، سيصلك رمز التحقق عبر واتساب");
+      toast("إذا كان الرقم مسجلاً، طلبنا إرسال رمز التحقق إليه عبر واتساب");
       go("resetPassword", { phone }, { title: "تعيين كلمة مرور جديدة" });
     } catch (error) {
       setLoading(submitBtn, false);
-      toast(error.message, { tone: "error" });
+      if (!(await showOtpSupport(bodyEl.querySelector("#otpSupportSlot"), error, { context: "استعادة كلمة المرور" }))) {
+        toast(error.message, { tone: "error" });
+      }
     }
   });
 }

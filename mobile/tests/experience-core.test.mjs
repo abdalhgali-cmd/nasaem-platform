@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { launchRoute, firstName, greeting, buildBannerSlides, nextSlide, ONBOARDING_KEY, submissionOutcome, confirmationNotice, newSubmissionKey } from "../www/js/experience-core.js";
+import { launchRoute, firstName, greeting, buildBannerSlides, nextSlide, ONBOARDING_KEY, submissionOutcome, confirmationNotice, newSubmissionKey, countSelectedDocuments, parseRequirementsResponse, otpFailureNotice } from "../www/js/experience-core.js";
 import { AGENCY, mergeAgencySettings, whatsappLink, telLink } from "../www/js/agency.js";
 
 test("launch: intro only on a first launch with nothing stored; otherwise the public home", () => {
@@ -113,5 +113,45 @@ test("submission keys are random, server-valid and stable per call", () => {
   assert.notEqual(a, b);
   for (const key of [a, newSubmissionKey({ getRandomValues: (arr) => arr.fill(7) })]) {
     assert.match(key, /^[A-Za-z0-9-]{16,64}$/);
+  }
+});
+
+test("documents: empty optional passport inputs take no slot", () => {
+  // 6 travelers, no passport photos, one required service document → 1 file.
+  assert.equal(countSelectedDocuments({ travelerFiles: [false, false, false, false, false, false], requirementFiles: [{ applies: true, selected: true }] }), 1);
+  assert.equal(countSelectedDocuments({ travelerFiles: Array(6).fill(false), requirementFiles: [] }), 0);
+  assert.equal(countSelectedDocuments(), 0);
+});
+
+test("documents: multi-traveler with some passports and required service documents", () => {
+  const requirementFiles = [{ applies: true, selected: true }, { applies: true, selected: false }, { applies: true, selected: true }];
+  assert.equal(countSelectedDocuments({ travelerFiles: [true, false, true], requirementFiles }), 4);
+  // every traveler + every document selected → over the 6-file limit, as it should be
+  assert.equal(countSelectedDocuments({ travelerFiles: Array(5).fill(true), requirementFiles }), 7);
+});
+
+test("documents: a hidden conditional document is not counted (it is not sent)", () => {
+  assert.equal(countSelectedDocuments({ travelerFiles: [true], requirementFiles: [{ applies: false, selected: true }] }), 1);
+});
+
+test("requirements: confirmed-empty differs from an unusable response", () => {
+  assert.deepEqual(parseRequirementsResponse({ success: true, data: [] }), []);
+  const list = [{ id: "r1" }];
+  assert.equal(parseRequirementsResponse({ data: list }), list);
+  for (const bad of [undefined, null, {}, { data: null }, { data: "x" }, { success: false }]) {
+    assert.equal(parseRequirementsResponse(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("OTP: undeliverable codes are reported plainly with a support path; other errors pass through", () => {
+  const unavailable = otpFailureNotice({ code: "OTP_CHANNEL_UNAVAILABLE", status: 503, message: "" });
+  assert.equal(unavailable.retry, false);
+  assert.match(unavailable.message, /غير متاح/);
+  assert.equal(otpFailureNotice({ code: "OTP_DELIVERY_FAILED", status: 503, message: "x" }).retry, true);
+  assert.match(otpFailureNotice({ status: 0, code: "TIMEOUT" }).message, /لم يُرسل أي رمز/);
+  assert.equal(otpFailureNotice({ status: 400, message: "Validation failed" }), null);
+  assert.equal(otpFailureNotice({ status: 429 }), null);
+  for (const notice of [unavailable, otpFailureNotice({ code: "OTP_DELIVERY_FAILED" })]) {
+    assert.doesNotMatch(notice.message, /تم إرسال|سيصلك/);
   }
 });

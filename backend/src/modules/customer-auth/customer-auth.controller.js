@@ -163,11 +163,18 @@ export async function forgotPassword(req, res, next) {
     const parsed = forgotPasswordSchema.safeParse(req.body);
     if (!parsed.success) return validationError(res, parsed.error);
 
-    const { debugCode } = await requestPasswordReset(parsed.data.phone);
+    const { debugCode, error } = await requestPasswordReset(parsed.data.phone);
+    if (error) {
+      return res.status(503).json({
+        success: false,
+        code: error,
+        message: "إرسال الرموز عبر واتساب غير متاح حاليًا. تواصل معنا هاتفيًا أو عبر واتساب لاستعادة حسابك.",
+      });
+    }
 
     return res.status(200).json({
       success: true,
-      message: "إذا كان الرقم مسجلاً لدينا فسيصلك رمز إعادة تعيين كلمة المرور عبر واتساب",
+      message: "إذا كان الرقم مسجلاً لدينا فقد طلبنا إرسال رمز إعادة التعيين إليه عبر واتساب. إن لم يصلك خلال دقائق فأعد المحاولة أو تواصل معنا.",
       ...(debugCode ? { debugCode } : {}),
     });
   } catch (error) {

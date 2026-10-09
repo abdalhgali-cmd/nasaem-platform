@@ -6,7 +6,7 @@ import prisma from "../src/config/database.js";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 import { createContactRequest } from "../src/modules/contact-requests/contact-requests.service.js";
 import { createContactRequestSchema } from "../src/modules/contact-requests/contact-requests.validators.js";
-import { sendRequestConfirmation, buildRequestConfirmationText } from "../src/modules/customer-messages/customer-messages.service.js";
+import { sendRequestConfirmation, buildRequestConfirmationText, processPendingConfirmations, pendingConfirmationCreate, MAX_AUTO_ATTEMPTS } from "../src/modules/customer-messages/customer-messages.service.js";
 import { signTrackingToken } from "../src/utils/jwt.js";
 import { normalizePhone } from "../src/utils/phone.js";
 
@@ -135,7 +135,7 @@ describe("request confirmation over WhatsApp (provider stubbed)", () => {
     // createContactRequest fires the confirmation in the background; wait for it.
     for (let i = 0; i < 50; i += 1) {
       const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: created.id } });
-      if (row && row.status !== "PENDING" && row.status !== "SENDING") return { created, row };
+      if (row && row.attempts > 0 && row.status !== "SENDING") return { created, row };
       await new Promise((r) => setTimeout(r, 40));
     }
     throw new Error("confirmation did not settle");
@@ -160,17 +160,106 @@ describe("request confirmation over WhatsApp (provider stubbed)", () => {
     assert.equal(sent.length, before);
   });
 
-  test("a provider failure is recorded, the request survives, and a retry succeeds once", async () => {
+  test("a provider failure is recorded, the request survives, and the reconciler retries it once due", async () => {
     respond = () => ({ ok: false, status: 500, json: async () => ({}), text: async () => "boom" });
     const { created, row } = await newGuestRequest();
-    assert.equal(row.status, "FAILED");
+    assert.equal(row.status, "PENDING", "scheduled for another attempt, not reported as sent");
     assert.equal(row.lastError, "HTTP 500");
+    assert.ok(row.nextAttemptAt > new Date(), "with a back-off");
     assert.ok(await prisma.contactRequest.findUnique({ where: { id: created.id } }), "request still stored");
 
     respond = () => ({ ok: true, status: 200, json: async () => ({ messages: [{ id: "wamid.retry" }] }), text: async () => "" });
-    const retried = await sendRequestConfirmation(created.id);
+    const early = await sendRequestConfirmation(created.id);
+    assert.equal(early.status, "PENDING", "an automatic call before the back-off sends nothing");
+    assert.equal(early.attempts, 1);
+
+    await prisma.customerMessageDelivery.update({ where: { id: row.id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } });
+    await processPendingConfirmations({ limit: 500 });
+    const retried = await prisma.customerMessageDelivery.findUnique({ where: { id: row.id } });
     assert.equal(retried.status, "ACCEPTED");
     assert.equal(retried.attempts, 2);
+  });
+
+  test("the confirmation is stored as PENDING with the request; a crash before sending is recovered", async () => {
+    // As if the process died right after the INSERT: the outbox row exists,
+    // nothing was sent.
+    const phone = phoneFor(uniqueSuffix());
+    const stored = await prisma.contactRequest.create({
+      data: {
+        name: "ضيف",
+        phone,
+        phoneNormalized: normalizePhone(phone),
+        message: "طلب",
+        customerMessages: pendingConfirmationCreate(normalizePhone(phone)),
+      },
+      include: { customerMessages: true },
+    });
+    assert.equal(stored.customerMessages.length, 1);
+    assert.equal(stored.customerMessages[0].status, "PENDING");
+
+    const before = sent.length;
+    await Promise.all([processPendingConfirmations({ limit: 500 }), processPendingConfirmations({ limit: 500 })]);
+    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: stored.id } });
+    assert.equal(row.status, "ACCEPTED");
+    assert.equal(sent.slice(before).filter((m) => m.to === normalizePhone(phone)).length, 1, "two reconcilers still send once");
+  });
+
+  test("createContactRequest writes the outbox row in the same insert", async () => {
+    let release;
+    respond = () => new Promise((resolve) => { release = () => resolve({ ok: true, status: 200, json: async () => ({ messages: [{ id: "wamid.slow" }] }), text: async () => "" }); });
+    const data = createContactRequestSchema.parse(guestForm());
+    const created = await createContactRequest(data, fakeReq);
+    const rows = await prisma.customerMessageDelivery.findMany({ where: { contactRequestId: created.id } });
+    assert.equal(rows.length, 1, "exactly one confirmation row exists as soon as the request does");
+    for (let i = 0; i < 50 && !release; i += 1) await new Promise((r) => setTimeout(r, 20));
+    release?.();
+    respond = () => ({ ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.${uniqueSuffix()}` }] }), text: async () => "" });
+  });
+
+  test("an interrupted send becomes UNCERTAIN and is never re-sent automatically; staff can re-send", async () => {
+    const phone = phoneFor(uniqueSuffix());
+    const stored = await prisma.contactRequest.create({
+      data: { name: "ضيف", phone, phoneNormalized: normalizePhone(phone), message: "طلب", customerMessages: pendingConfirmationCreate(normalizePhone(phone)) },
+    });
+    await prisma.customerMessageDelivery.updateMany({
+      where: { contactRequestId: stored.id },
+      data: { status: "SENDING", attempts: 1, lastAttemptAt: new Date(Date.now() - 10 * 60 * 1000) },
+    });
+    const before = sent.length;
+    await processPendingConfirmations({ limit: 500 });
+    await sendRequestConfirmation(stored.id);
+    let row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: stored.id } });
+    assert.equal(row.status, "UNCERTAIN");
+    assert.equal(sent.length, before, "no automatic duplicate");
+
+    row = await sendRequestConfirmation(stored.id, { manual: true });
+    assert.equal(row.status, "ACCEPTED");
+    assert.equal(row.attempts, 2);
+  });
+
+  test("automatic retries stop after the maximum; stale confirmations expire", async () => {
+    respond = () => ({ ok: false, status: 503, json: async () => ({}), text: async () => "down" });
+    const phone = phoneFor(uniqueSuffix());
+    const stored = await prisma.contactRequest.create({
+      data: { name: "ضيف", phone, phoneNormalized: normalizePhone(phone), message: "طلب", customerMessages: pendingConfirmationCreate(normalizePhone(phone)) },
+    });
+    for (let i = 0; i < MAX_AUTO_ATTEMPTS + 2; i += 1) {
+      await prisma.customerMessageDelivery.updateMany({ where: { contactRequestId: stored.id, status: "PENDING" }, data: { nextAttemptAt: null } });
+      await sendRequestConfirmation(stored.id);
+    }
+    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: stored.id } });
+    assert.equal(row.status, "FAILED");
+    assert.equal(row.attempts, MAX_AUTO_ATTEMPTS);
+
+    const old = await prisma.contactRequest.create({
+      data: { name: "ضيف", phone, phoneNormalized: normalizePhone(phone), message: "طلب قديم", customerMessages: pendingConfirmationCreate(normalizePhone(phone)) },
+    });
+    await prisma.customerMessageDelivery.updateMany({ where: { contactRequestId: old.id }, data: { createdAt: new Date(Date.now() - 72 * 60 * 60 * 1000) } });
+    await processPendingConfirmations({ limit: 500 });
+    const expired = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: old.id } });
+    assert.equal(expired.status, "FAILED");
+    assert.equal(expired.lastError, "EXPIRED");
+    respond = () => ({ ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.${uniqueSuffix()}` }] }), text: async () => "" });
   });
 
   test("confirmation text template", () => {
