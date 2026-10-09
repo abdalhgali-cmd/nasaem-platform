@@ -43,10 +43,37 @@ mobile/
     app/src/main/res/...        Launcher icon, adaptive icon, splash — Nasaem-branded, not Capacitor defaults
 ```
 
+## Guest-first: no account needed
+
+The app is fully usable without an account (`js/app.js`, `js/experience-core.js`):
+
+- **Launch**: first-launch introduction (optional, skippable), then the public
+  home. No login or registration screen is ever required. A stored account
+  session is verified in the background; a biometric-locked account stays
+  locked (no account API calls) until the customer opens account content.
+- **Tabs**: الرئيسية · الخدمات · طلباتي · حسابي. Account-dependent tabs re-draw
+  when the account state changes (`auth.onAccountStateChange`).
+- **Requests**: every service form posts to `POST /contact-requests` with or
+  without an account (`js/submission.js`). Each form sends one random
+  `submissionKey` on every attempt, so a retry after a lost response returns
+  the already-stored request instead of a duplicate. Success is shown only
+  when the server returned the stored id; the confirmation screen shows that
+  reference (copy, track, home) and an honest confirmation-message status.
+- **Tracking without an account** (طلباتي when signed out): phone → WhatsApp
+  code (`/tracking/request-code`, `/tracking/verify-code`) → that phone's
+  requests (`/tracking/requests`). The tracking token is stored separately and
+  tracking calls never carry the account token. A reference alone opens
+  nothing.
+- **Account tab** states: guest (optional sign in / create account), locked
+  (unlock with fingerprint or password), verifying, could-not-verify (Retry),
+  signed in. Expired or revoked sessions return to guest; the app keeps working.
+- Contact needs a phone number; e-mail is optional (e-mail-only contact is not
+  supported yet: there is no verified e-mail channel for tracking).
+
 ## Authentication model
 
-Every screen beyond Welcome/Login/Register/Forgot-Password requires a
-signed-in customer account (`js/auth.js`, `js/app.js`).
+Accounts are optional (see above). When a customer signs in, this is how
+the session is kept (`js/auth.js`).
 
 **Where the session lives.** The customer token (and the separate tracking
 token, see below) is stored by the app's own native plugin,

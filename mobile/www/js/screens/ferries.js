@@ -1,7 +1,8 @@
 import { api } from "../api.js";
 import { esc, toast, setLoading } from "../ui.js";
 import { icon } from "../icons.js";
-import { getCustomer } from "../auth.js";
+import { getCustomer, isAccountUnlocked } from "../auth.js";
+import { newSubmissionKey, submitRequestJson, submitFailureMessage, showSubmitted } from "../submission.js";
 import { go } from "../router.js";
 
 const FALLBACK_ROUTES = ["سواكن → جدة", "جدة → سواكن", "مسار آخر"];
@@ -9,7 +10,10 @@ const FALLBACK_CARRIERS = ["تاركو البحرية", "الجودي", "كنز�
 
 export async function renderFerriesScreen({ bodyEl, params }) {
   const { item } = params;
-  const customer = getCustomer();
+  // Account details prefill the form only when the account is unlocked.
+  const customer = isAccountUnlocked() ? getCustomer() : null;
+  // One key per form on screen: retries never create a second request.
+  const submissionKey = newSubmissionKey();
   let routes = FALLBACK_ROUTES;
   let carriers = FALLBACK_CARRIERS;
 
@@ -61,9 +65,7 @@ export async function renderFerriesScreen({ bodyEl, params }) {
     const submitBtn = bodyEl.querySelector("#ferrySubmitBtn");
     setLoading(submitBtn, true, "جارٍ الإرسال…");
     try {
-      await api("/contact-requests", {
-        method: "POST",
-        body: JSON.stringify({
+      const outcome = await submitRequestJson({
           name: data.name,
           phone: data.phone,
           email: data.email || undefined,
@@ -72,13 +74,11 @@ export async function renderFerriesScreen({ bodyEl, params }) {
           travelerCount: Number(data.travelers) || 1,
           intakeData: { route: data.route, travelDate: data.travelDate, travelers: Number(data.travelers) || 1, carrier: data.carrier, notes: data.notes },
           message: `طلب حجز عبارة: ${data.route} بتاريخ ${data.travelDate}، الناقل المفضل: ${data.carrier}، عدد المسافرين: ${data.travelers}. ${data.notes || ""}`,
-        }),
-      });
-      toast("تم إرسال طلب الحجز بنجاح");
-      go("requestSubmitted", { serviceName: "حجز العبارات", travelerCount: data.travelers }, { title: "تم الإرسال" });
+        }, submissionKey);
+      showSubmitted(outcome, { serviceName: "حجز العبارات", phone: data.phone, travelerCount: data.travelers });
     } catch (error) {
       setLoading(submitBtn, false);
-      toast(error.message, { tone: "error" });
+      toast(submitFailureMessage(error), { tone: "error" });
     }
   });
 }

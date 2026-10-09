@@ -4,7 +4,7 @@ import { esc, money, toast, skeletonList, emptyState, errorState, setLoading } f
 import { icon } from "../icons.js";
 import { go } from "../router.js";
 import * as tracking from "../tracking.js";
-import { getCustomer } from "../auth.js";
+import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
 // these three values — everything a customer actually cares about day to
@@ -62,14 +62,25 @@ function statusLabel(status) {
   return ORDER_STATUS_AR[status] || status;
 }
 
+// The Requests tab: the account's requests when the account is unlocked
+// and verified; otherwise phone-verified guest tracking. The banner always
+// says which of the two is on screen.
+export async function renderRequestsTabScreen(ctx) {
+  if (isAccountUnlocked()) return renderMyRequestsScreen(ctx);
+  return renderGuestTrackingScreen(ctx);
+}
+
 export async function renderMyRequestsScreen({ bodyEl }) {
   bodyEl.innerHTML = `
+    <p class="mode-banner">${icon("user", { size: 16 })}<span>طلبات حسابك</span></p>
     <div class="segmented" id="requestsFilter">
       <button class="segmented-btn active" data-filter="current">الحالية</button>
       <button class="segmented-btn" data-filter="past">السابقة</button>
     </div>
     <div id="requestsList" class="list">${skeletonList(4)}</div>
+    <button class="link-btn track-other-btn" id="trackOtherBtn">تتبع طلب أُرسل برقم هاتف آخر</button>
   `;
+  bodyEl.querySelector("#trackOtherBtn").addEventListener("click", () => go("guestTracking", {}, { title: "تتبع برقم الهاتف", tab: "requests" }));
 
   let all = [];
   const listEl = bodyEl.querySelector("#requestsList");
@@ -116,6 +127,138 @@ export async function renderMyRequestsScreen({ bodyEl }) {
   });
 
   await load();
+}
+
+// ---- Guest tracking (no account) -------------------------------------------
+// Requests are shown only after the phone is proven with a WhatsApp code
+// (POST /tracking/request-code → /tracking/verify-code). A request id alone
+// never opens anything. The tracking token is separate from any account token.
+export async function renderGuestTrackingScreen({ bodyEl }) {
+  const locked = getSessionState() === SessionState.LOCKED;
+  bodyEl.innerHTML = `
+    <p class="mode-banner mode-banner-guest">${icon("phone", { size: 16 })}<span>متابعة برقم الهاتف — بدون حساب</span></p>
+    ${locked ? `<p class="field-hint">حسابك مقفل بالبصمة. افتحه من «حسابي» لعرض طلبات الحساب.</p>` : ""}
+    <div id="guestTrackingBody"></div>`;
+  const container = bodyEl.querySelector("#guestTrackingBody");
+
+  const showList = async () => {
+    container.innerHTML = `<div class="list">${skeletonList(3)}</div>`;
+    try {
+      const requests = await tracking.listTrackedRequests();
+      const phone = await tracking.getTrackedPhone();
+      container.innerHTML = `
+        <div class="tracking-head">
+          <span>الرقم: <b dir="ltr">${esc(phone || "")}</b></span>
+          <button class="link-btn" id="changePhoneBtn">تغيير الرقم</button>
+        </div>
+        <div class="list" id="trackedList">
+          ${requests.length ? requests.map((request) => `
+            <button class="list-item request-row" data-id="${esc(request.id)}">
+              <div class="list-item-icon">${icon("requests", { size: 20 })}</div>
+              <div class="list-item-body">
+                <strong>${esc(request.serviceRef?.name || request.visaType?.name || request.service || "طلب خدمة")}</strong>
+                <p>${esc(request.statusLabel || "")}</p>
+                <small dir="ltr">${esc(request.id)}</small>
+              </div>
+            </button>`).join("") : emptyState({ icon: "requests", title: "لا توجد طلبات بهذا الرقم", hint: "تأكد أن الرقم هو نفسه المستخدم في الطلب." })}
+        </div>`;
+      container.querySelector("#changePhoneBtn").addEventListener("click", async () => {
+        await tracking.clearTrackingSession();
+        showPhoneStep();
+      });
+      container.querySelectorAll(".request-row").forEach((row) => {
+        row.addEventListener("click", () => go("trackedRequestDetail", { requestId: row.dataset.id }, { title: "تفاصيل الطلب", tab: "requests" }));
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        await tracking.clearTrackingSession();
+        showPhoneStep("انتهت صلاحية التحقق، أدخل رقمك لإرسال رمز جديد.");
+        return;
+      }
+      container.innerHTML = errorState(error.message, { onRetry: showList });
+    }
+  };
+
+  const showPhoneStep = (notice = "") => {
+    const prefill = tracking.takeTrackingPrefill();
+    container.innerHTML = `
+      <section class="form-section">
+        <h3>تتبع طلبك</h3>
+        <p class="field-hint">أدخل رقم الهاتف الذي استخدمته في الطلب، وسيصلك رمز تحقق عبر واتساب. لا تحتاج إلى حساب.</p>
+        ${notice ? `<p class="session-notice">${esc(notice)}</p>` : ""}
+        <form id="trackPhoneForm" class="form" novalidate>
+          <label class="field"><span>رقم الهاتف *</span><input name="phone" inputmode="tel" autocomplete="tel" required value="${esc(prefill)}"></label>
+          <button type="submit" class="primary" id="sendCodeBtn">إرسال رمز التحقق</button>
+        </form>
+      </section>`;
+    const form = container.querySelector("#trackPhoneForm");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const phone = String(new FormData(form).get("phone") || "").trim();
+      if (phone.length < 6) {
+        toast("أدخل رقم هاتف صحيح", { tone: "error" });
+        return;
+      }
+      const btn = container.querySelector("#sendCodeBtn");
+      setLoading(btn, true, "جارٍ الإرسال…");
+      try {
+        await tracking.requestTrackingCode(phone);
+        showCodeStep(phone);
+      } catch (error) {
+        setLoading(btn, false);
+        toast(error.message, { tone: "error" });
+      }
+    });
+  };
+
+  const showCodeStep = (phone) => {
+    container.innerHTML = `
+      <section class="form-section">
+        <h3>أدخل رمز التحقق</h3>
+        <p class="field-hint">إذا كان الرقم <b dir="ltr">${esc(phone)}</b> مستخدمًا في طلب، يصله رمز من 6 أرقام عبر واتساب خلال لحظات. الرمز صالح 10 دقائق.</p>
+        <form id="trackCodeForm" class="form" novalidate>
+          <label class="field"><span>رمز التحقق *</span><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
+          <button type="submit" class="primary" id="verifyCodeBtn">تأكيد</button>
+          <button type="button" class="link-btn" id="backToPhoneBtn">تغيير الرقم أو إعادة الإرسال</button>
+        </form>
+      </section>`;
+    container.querySelector("#backToPhoneBtn").addEventListener("click", () => {
+      tracking.setTrackingPrefill(phone);
+      showPhoneStep();
+    });
+    const form = container.querySelector("#trackCodeForm");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const code = String(new FormData(form).get("code") || "").trim();
+      const btn = container.querySelector("#verifyCodeBtn");
+      setLoading(btn, true, "جارٍ التحقق…");
+      try {
+        await tracking.verifyTrackingCode(phone, code);
+        await showList();
+      } catch (error) {
+        setLoading(btn, false);
+        toast(error.message || "رمز التحقق غير صحيح", { tone: "error" });
+      }
+    });
+  };
+
+  if (await tracking.hasTrackingSession()) await showList();
+  else showPhoneStep();
+}
+
+// Detail of a phone-tracked request (same view as an account request, data
+// from GET /tracking/requests, actions through the tracking session).
+export async function renderTrackedRequestDetailScreen(ctx) {
+  return renderRequestDetailScreen({ ...ctx, params: { ...ctx.params, source: "tracking" } });
+}
+
+function fromTracking(request) {
+  return {
+    ...request,
+    service: request.serviceRef || (request.service ? { name: request.service } : null),
+    nextAction: request.statusLabel || "",
+    timeline: [],
+  };
 }
 
 function trackingLoginPanel({ phone, onVerified }) {
@@ -199,8 +342,17 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   setTitle("تفاصيل الطلب");
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل الطلب…</p></div>`;
 
+  const viaTracking = params.source === "tracking";
+
   async function load() {
     try {
+      if (viaTracking) {
+        const list = await tracking.listTrackedRequests();
+        const found = list.find((request) => request.id === params.requestId);
+        if (!found) throw new ApiError("الطلب غير متاح لهذا الرقم", { status: 404 });
+        renderDetail(fromTracking(found));
+        return;
+      }
       const res = await api(`/customer/requests/${params.requestId}`);
       renderDetail(res.data);
     } catch (error) {
@@ -292,7 +444,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
       });
     });
     bodyEl.querySelectorAll(".deliverable-btn").forEach((btn) => {
-      btn.addEventListener("click", () => downloadDeliverable(request.id, btn.dataset.id));
+      btn.addEventListener("click", () => (viaTracking ? downloadTrackedDeliverable(request.id, btn.dataset.id) : downloadDeliverable(request.id, btn.dataset.id)));
     });
   }
 
@@ -441,6 +593,15 @@ async function downloadDeliverable(requestId, deliverableId) {
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
+  } catch (error) {
+    toast(error.message, { tone: "error" });
+  }
+}
+
+async function downloadTrackedDeliverable(requestId, deliverableId) {
+  try {
+    const blob = await tracking.fetchTrackedFile(`/tracking/requests/${requestId}/deliverables/${deliverableId}/file`);
+    window.open(URL.createObjectURL(blob), "_blank");
   } catch (error) {
     toast(error.message, { tone: "error" });
   }

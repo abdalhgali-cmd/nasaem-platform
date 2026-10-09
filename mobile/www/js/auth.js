@@ -22,6 +22,31 @@ const SESSION_CHECK_TIMEOUT_MS = 15000;
 let currentCustomer = null;
 let state = SessionState.NO_SESSION;
 let onSessionEnded = () => {};
+const listeners = new Set();
+
+function setState(next) {
+  if (state === next) return;
+  state = next;
+  listeners.forEach((listener) => {
+    try {
+      listener(state);
+    } catch {
+      // a broken listener must not break authentication
+    }
+  });
+}
+
+// Screens that show account-dependent content (home, account, requests)
+// re-render when the account state changes. Returns an unsubscribe function.
+export function onAccountStateChange(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+// Whether protected account data may be shown right now.
+export function isAccountUnlocked() {
+  return state === SessionState.VALID && Boolean(currentCustomer);
+}
 
 export function getCustomer() {
   return currentCustomer;
@@ -59,7 +84,7 @@ async function persistToken(token) {
 async function clearLocalSession() {
   setSessionToken(null);
   currentCustomer = null;
-  state = SessionState.NO_SESSION;
+  setState(SessionState.NO_SESSION);
   forgetTrackingSession();
   await secureClearAll();
   await removePreference(LEGACY_TOKEN_KEY).catch(() => {});
@@ -73,14 +98,17 @@ async function clearLocalSession() {
 export async function loadStoredSession() {
   await migrateLegacyPreference(LEGACY_TOKEN_KEY, TOKEN_KEY);
   const { enabled } = await nativeBiometricStatus(TOKEN_KEY);
-  if (enabled) return { kind: "biometric" };
+  if (enabled) {
+    setState(SessionState.LOCKED);
+    return { kind: "biometric" };
+  }
   const token = await secureGet(TOKEN_KEY);
   if (!token) {
-    state = SessionState.NO_SESSION;
+    setState(SessionState.NO_SESSION);
     return { kind: "none" };
   }
   setSessionToken(token);
-  state = SessionState.PENDING;
+  setState(SessionState.PENDING);
   return { kind: "token" };
 }
 
@@ -95,7 +123,7 @@ export async function unlockWithBiometric() {
   const token = await nativeUnlockBiometric(TOKEN_KEY, PROMPT_TEXT);
   if (!token) throw Object.assign(new Error("empty"), { code: "KEY_INVALIDATED" });
   setSessionToken(token);
-  state = SessionState.PENDING;
+  setState(SessionState.PENDING);
 }
 
 /**
@@ -104,17 +132,19 @@ export async function unlockWithBiometric() {
  */
 export async function verifySession() {
   const token = getToken();
-  state = token ? SessionState.PENDING : SessionState.NO_SESSION;
+  setState(token ? SessionState.PENDING : SessionState.NO_SESSION);
   const result = await verifyToken(token, () =>
     api("/customer-auth/me", { timeoutMs: SESSION_CHECK_TIMEOUT_MS, skipSessionCheck: true })
   );
-  state = result.state;
   if (result.state === SessionState.VALID) {
     currentCustomer = result.customer;
+    setState(SessionState.VALID);
     renewInBackground(token);
+  } else if (result.state === SessionState.OFFLINE) {
+    setState(SessionState.OFFLINE);
   } else if (result.state === SessionState.EXPIRED) {
     await clearLocalSession();
-    state = SessionState.EXPIRED;
+    setState(SessionState.EXPIRED);
   }
   // OFFLINE: the token stays stored and in memory; the caller offers Retry.
   return result;
@@ -152,7 +182,7 @@ async function confirmSessionAfterRejection(error) {
   confirming = (async () => {
     const result = await verifySession();
     if (result.state === SessionState.EXPIRED) onSessionEnded();
-    else if (result.state === SessionState.OFFLINE) state = SessionState.VALID; // keep working; checked again later
+    else if (result.state === SessionState.OFFLINE) setState(SessionState.VALID); // keep working; checked again later
   })().finally(() => {
     confirming = null;
   });
@@ -162,7 +192,7 @@ setSessionRejectedHandler(confirmSessionAfterRejection);
 async function startSession(res) {
   await persistToken(res.data.token);
   currentCustomer = res.data.customer;
-  state = SessionState.VALID;
+  setState(SessionState.VALID);
   return currentCustomer;
 }
 

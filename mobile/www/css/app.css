@@ -661,3 +661,36 @@ button, input, select, textarea { font-family: inherit; font-size: 16px; }
 button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 
 .account-menu + .account-menu { margin-top: 14px; }
+
+/* ---------- Guest-first (account card, tracking, confirmation) ---------- */
+.guest-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 18px; margin: 4px 16px 14px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+.guest-card h2 { margin: 0; font-size: 18px; color: var(--navy); }
+.guest-card p { margin: 0; font-size: 14px; line-height: 1.75; color: var(--text-muted); }
+.guest-card .guest-card-benefits { font-size: 13px; color: var(--text-faint); }
+.guest-card-icon { width: 60px; height: 60px; margin: 0 auto 2px; border-radius: 18px; display: grid; place-items: center; background: #edf4fc; color: var(--navy-light); }
+.guest-card .primary { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.guest-card .link-btn { text-align: center; }
+
+.mode-banner { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 9px 12px; border-radius: 12px; background: #eef4fb; color: var(--navy-light); font-size: 13px; font-weight: 800; }
+.mode-banner-guest { background: var(--warn-bg); color: var(--warn-text); }
+.tracking-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-size: 13px; color: var(--text-muted); }
+.tracking-head b { color: var(--text); }
+.track-other-btn { display: block; margin: 14px auto 0; text-align: center; }
+.list-item-body small[dir="ltr"] { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-faint); }
+
+.track-card { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 18px; border: 1px solid var(--border); background: linear-gradient(135deg, #fff, #f3f7fc); color: var(--text); text-align: start; }
+.track-card-icon { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 14px; display: grid; place-items: center; background: var(--navy); color: var(--gold); }
+.track-card-body { flex: 1; display: grid; }
+.track-card-body b { font-size: 15px; }
+.track-card-body small { color: var(--text-muted); font-size: 12px; }
+
+.reference-box { display: grid; gap: 6px; justify-items: center; margin: 6px 0 4px; padding: 14px; border-radius: 16px; border: 1px dashed #d8c48f; background: #fffaf0; width: 100%; }
+.reference-box span { font-size: 12px; font-weight: 800; color: var(--gold-dark); }
+.reference-box code { font-size: 15px; font-weight: 800; color: var(--navy); letter-spacing: .5px; overflow-wrap: anywhere; user-select: all; }
+.confirmation-notice { text-align: center; }
+.success-card .primary, .success-card .secondary { display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+.selection-card { background: #f3f8f4; border-color: #cfe6d7; }
+.selection-card h3 { display: flex; align-items: center; gap: 6px; color: var(--success); }
+.selection-card p { margin: 0; font-size: 13px; line-height: 1.7; }
+.stale-note { display: flex; align-items: center; gap: 6px; margin: -4px 0 10px; color: var(--warn-text); }

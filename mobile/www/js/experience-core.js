@@ -3,13 +3,14 @@
 
 export const ONBOARDING_KEY = "nasaem.onboarding.v1";
 
-// What the app opens at launch. Onboarding never stands in front of a stored
-// session: a returning customer goes straight to the existing session /
-// biometric flow (auth.js decides validity, not this function).
+// What the app opens at launch. The app is usable without an account: the
+// only thing that can come before the public home is the one-time
+// introduction. A stored account session (token or biometric-locked) never
+// blocks the home screen; it is verified in the background, and biometrics
+// are asked for only when account data is opened.
 export function launchRoute({ storedKind, onboardingDone }) {
-  if (storedKind === "biometric") return "biometric";
-  if (storedKind === "token") return "verify";
-  return onboardingDone ? "auth" : "onboarding";
+  if (storedKind === "none" && !onboardingDone) return "onboarding";
+  return "home";
 }
 
 export function firstName(fullName) {
@@ -64,4 +65,35 @@ export function buildBannerSlides({ hero = null, sections = [], coupons = [] } =
 export function nextSlide(index, count) {
   if (count <= 1) return 0;
   return (index + 1) % count;
+}
+
+// The submit endpoint answers 201 with data.id when the request was stored,
+// 200 with data.duplicate when a retry hit the already-stored request, and a
+// 201 without any id for submissions it silently discards (spam trap). Only
+// a real id counts as success.
+export function submissionOutcome(body) {
+  const id = body?.data?.id;
+  if (!id || typeof id !== "string") return { ok: false };
+  return {
+    ok: true,
+    id,
+    duplicate: Boolean(body.data.duplicate),
+    customerConfirmation: body.data.customerConfirmation === "QUEUED" ? "QUEUED" : "NOT_AVAILABLE",
+  };
+}
+
+// Honest wording for the confirmation screen: a message being attempted is
+// never described as delivered.
+export function confirmationNotice(customerConfirmation) {
+  return customerConfirmation === "QUEUED"
+    ? "نحاول إرسال رسالة تأكيد عبر واتساب إلى رقمك. إن لم تصلك خلال دقائق، احتفظ بالرقم المرجعي للمتابعة."
+    : "لن تصلك رسالة تأكيد تلقائية حاليًا. احتفظ بالرقم المرجعي، وتابع طلبك من «طلباتي» برقم هاتفك.";
+}
+
+// Random idempotency key for one submission (kept across retries).
+export function newSubmissionKey(cryptoImpl = globalThis.crypto) {
+  if (cryptoImpl?.randomUUID) return cryptoImpl.randomUUID();
+  const bytes = new Uint8Array(16);
+  cryptoImpl.getRandomValues(bytes);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

@@ -1,5 +1,5 @@
 import { icon } from "./icons.js";
-import { offlineBanner, confirmDialog } from "./ui.js";
+import { offlineBanner, confirmDialog, toast } from "./ui.js";
 import { registerScreen, initRouter, go, goToTab, back, stackDepth, currentTab } from "./router.js";
 import * as auth from "./auth.js";
 
@@ -13,7 +13,7 @@ import { renderHotelsScreen } from "./screens/hotels.js";
 import { renderEgyptClearanceScreen } from "./screens/egypt-clearance.js";
 import { renderSaudiFamilyVisitScreen } from "./screens/saudi-family-visit.js";
 import { renderRequestSubmittedScreen } from "./screens/intake.js";
-import { renderMyRequestsScreen, renderRequestDetailScreen, renderOrderDetailScreen } from "./screens/requests.js";
+import { renderRequestsTabScreen, renderRequestDetailScreen, renderOrderDetailScreen, renderTrackedRequestDetailScreen, renderGuestTrackingScreen } from "./screens/requests.js";
 import { renderNotificationsScreen } from "./screens/notifications.js";
 import { renderAccountScreen, renderEditProfileScreen, renderChangePasswordScreen, renderMyDocumentsScreen, setOnLoggedOut, setOnReplayOnboarding } from "./screens/account.js";
 import { renderSecurityScreen } from "./screens/security.js";
@@ -21,7 +21,6 @@ import { renderOnboardingScreen, isOnboardingDone, markOnboardingDone } from "./
 import { renderAboutScreen } from "./screens/about.js";
 import { launchRoute } from "./experience-core.js";
 import { tapFeedback } from "./motion.js";
-import { renderSessionCheckScreen, renderSessionOfflineScreen, renderBiometricLockScreen } from "./screens/session-screens.js";
 
 const screenEl = document.getElementById("screen");
 const navEl = document.getElementById("bottomNav");
@@ -47,7 +46,7 @@ function registerAllScreens() {
   registerScreen("saudiFamilyVisit", renderSaudiFamilyVisitScreen);
   registerScreen("requestSubmitted", renderRequestSubmittedScreen);
 
-  registerScreen("requests", renderMyRequestsScreen);
+  registerScreen("requests", renderRequestsTabScreen);
   registerScreen("requestDetail", renderRequestDetailScreen);
   registerScreen("orderDetail", renderOrderDetailScreen);
 
@@ -59,76 +58,25 @@ function registerAllScreens() {
   registerScreen("myDocuments", renderMyDocumentsScreen);
   registerScreen("security", renderSecurityScreen);
 
-  registerScreen("sessionCheck", renderSessionCheckScreen, { chrome: false });
-  registerScreen("sessionOffline", renderSessionOfflineScreen, { chrome: false });
-  registerScreen("biometricLock", renderBiometricLockScreen, { chrome: false });
+  registerScreen("trackedRequestDetail", renderTrackedRequestDetailScreen);
+  registerScreen("guestTracking", renderGuestTrackingScreen);
 }
 
-async function enterAuthenticatedShell() {
+// The app is usable without an account: every launch ends on the public
+// shell (Home, Services, Requests, Account). An account session, if one is
+// stored, is checked in the background and only unlocks account content.
+const TAB_TITLES = { home: "", services: "الخدمات", requests: "طلباتي", account: "حسابي" };
+const ACCOUNT_DEPENDENT_TABS = new Set(["home", "requests", "account"]);
+const SESSION_ENDED_NOTICE = "انتهت جلسة حسابك. يمكنك متابعة التصفح، وسجّل الدخول متى شئت لعرض حسابك.";
+
+async function enterShell(tab = "home") {
   navEl.hidden = false;
-  await goToTab("home", "home", { title: "" });
+  await goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
 }
 
-async function enterAuthFlow({ notice = "" } = {}) {
-  navEl.hidden = true;
-  await go("welcome", { notice }, { root: true });
-}
-
-const SESSION_ENDED_NOTICE = "انتهت جلستك أو تم إنهاؤها. يرجى تسجيل الدخول مجددًا.";
-
-// Launch: what is stored → (fingerprint, if enabled) → server check.
-// Only a server "session over" (401) leads to the login screen; anything
-// temporary leads to the offline screen with the session kept.
-async function verifyAndEnter() {
-  navEl.hidden = true;
-  await go("sessionCheck", {}, { root: true });
-  const result = await auth.verifySession();
-  if (result.state === auth.SessionState.VALID) {
-    await enterAuthenticatedShell();
-  } else if (result.state === auth.SessionState.EXPIRED) {
-    await enterAuthFlow({ notice: SESSION_ENDED_NOTICE });
-  } else if (result.state === auth.SessionState.OFFLINE) {
-    await go("sessionOffline", {
-      message: result.error?.message,
-      onRetry: verifyAndEnter,
-      onUsePassword: switchAccount,
-    }, { root: true });
-  } else {
-    await enterAuthFlow();
-  }
-}
-
-async function switchAccount() {
-  if (!confirmDialog("سيتم تسجيل الخروج من الحساب المحفوظ على هذا الجهاز. هل تريد المتابعة؟")) return;
-  await auth.logout();
-  await enterAuthFlow();
-}
-
-async function showBiometricLock() {
-  navEl.hidden = true;
-  await go("biometricLock", {
-    unlock: auth.unlockWithBiometric,
-    onUnlocked: verifyAndEnter,
-    // Password fallback: the stored biometric session stays until a password
-    // login replaces it (auth.login turns biometrics off then), unless the
-    // key is gone for good (enrollment changed), which already wiped it.
-    onUsePassword: () => go("login", {}, { title: "تسجيل الدخول" }),
-  }, { root: true });
-}
-
-// First launch: the introduction, then the login/register choice. A stored
-// session always goes straight to the session / biometric flow, so the
-// introduction can never stand in front of (or around) authentication.
 async function showOnboarding({ replay = false } = {}) {
   navEl.hidden = true;
-  await go("onboarding", {
-    onFinish: replay ? () => enterAuthenticatedShellAt("account") : () => enterAuthFlow(),
-  }, { root: true });
-}
-
-async function enterAuthenticatedShellAt(tab) {
-  navEl.hidden = false;
-  await goToTab(tab, tab, { title: tab === "account" ? "حسابي" : "" });
+  await go("onboarding", { onFinish: () => enterShell(replay ? "account" : "home") }, { root: true });
 }
 
 async function startFromStoredSession() {
@@ -136,11 +84,27 @@ async function startFromStoredSession() {
   const onboardingDone = await isOnboardingDone();
   // Customers who already had a session before this version never need the intro.
   if (stored.kind !== "none" && !onboardingDone) markOnboardingDone();
-  const route = launchRoute({ storedKind: stored.kind, onboardingDone });
-  if (route === "biometric") return showBiometricLock();
-  if (route === "verify") return verifyAndEnter();
-  if (route === "onboarding") return showOnboarding();
-  return enterAuthFlow();
+  if (launchRoute({ storedKind: stored.kind, onboardingDone }) === "onboarding") await showOnboarding();
+  else await enterShell("home");
+
+  // Saved account (no biometric lock): confirm it with the server without
+  // holding up the public screens. A biometric-locked account stays locked
+  // until the customer opens account content (screens/account.js).
+  if (stored.kind === "token") {
+    auth.verifySession().then((result) => {
+      if (result.state === auth.SessionState.EXPIRED) toast(SESSION_ENDED_NOTICE);
+    });
+  }
+}
+
+// Account state changed (verified, locked, expired, signed out): re-draw the
+// account-dependent tab the customer is looking at, if they are on its root.
+function wireAccountStateRefresh() {
+  auth.onAccountStateChange(() => {
+    const tab = currentTab();
+    if (navEl.hidden || stackDepth() !== 1 || !ACCOUNT_DEPENDENT_TABS.has(tab)) return;
+    goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
+  });
 }
 
 // Light status-bar icons over the navy strip, on every Android version (see
@@ -158,9 +122,7 @@ function wireBottomNav() {
       tapFeedback();
       const tab = btn.dataset.tab;
       if (currentTab() === tab && stackDepth() === 1) return; // already at tab root
-      const titleByTab = { home: "", requests: "طلباتي", notifications: "الإشعارات", account: "حسابي" };
-      const screenByTab = { home: "home", requests: "requests", notifications: "notifications", account: "account" };
-      await goToTab(tab, screenByTab[tab], { title: titleByTab[tab] });
+      await goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
     });
   });
 }
@@ -198,10 +160,13 @@ async function boot() {
   applySystemBarStyle();
   window.Capacitor?.Plugins?.App?.addListener?.("resume", applySystemBarStyle);
 
-  setOnAuthenticated(enterAuthenticatedShell);
-  setOnLoggedOut(() => enterAuthFlow());
+  // Signing in / creating an account lands on the account tab; signing out
+  // returns to the public home. Neither is ever required to use the app.
+  setOnAuthenticated(() => enterShell("account"));
+  setOnLoggedOut(() => enterShell("home"));
   setOnReplayOnboarding(() => showOnboarding({ replay: true }));
-  auth.setOnSessionEnded(() => enterAuthFlow({ notice: SESSION_ENDED_NOTICE }));
+  auth.setOnSessionEnded(() => toast(SESSION_ENDED_NOTICE));
+  wireAccountStateRefresh();
 
   await startFromStoredSession();
 
