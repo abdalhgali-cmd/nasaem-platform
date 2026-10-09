@@ -1208,6 +1208,10 @@ enum ContactRequestPaymentStatus {
 
 model ContactRequest {
   id                   String                      @id @default(cuid())
+  // Client-generated key for one submission (the mobile app keeps it across
+  // retries): a retried POST returns the request already created instead of
+  // a duplicate. Null for every submission that doesn't send one.
+  submissionKey        String?                     @unique
   name                 String
   phone                String
   phoneNormalized      String                      @default("")
@@ -1261,6 +1265,7 @@ model ContactRequest {
   tasks               CaseTask[]
   notes               CaseNote[]
   notifications       Notification[]
+  customerMessages    CustomerMessageDelivery[]
 
   @@index([status])
   @@index([createdAt])
@@ -1527,4 +1532,30 @@ model RevokedCustomerToken {
 
   @@index([customerId])
   @@index([expiresAt])
+}
+
+// One outbound message to a customer (e.g. the "we received your request"
+// confirmation) and what the provider said about it. One row per
+// (request, kind, channel): retries update it instead of sending twice.
+// status: PENDING | SENDING | ACCEPTED (provider accepted the message;
+// not proof of delivery to the handset) | FAILED | SKIPPED (channel not
+// configured). The message text itself is not stored.
+model CustomerMessageDelivery {
+  id                String    @id @default(cuid())
+  contactRequestId  String
+  kind              String
+  channel           String
+  recipient         String
+  status            String    @default("PENDING")
+  attempts          Int       @default(0)
+  providerMessageId String?
+  lastError         String?
+  lastAttemptAt     DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([contactRequestId, kind, channel])
+  @@index([status])
 }

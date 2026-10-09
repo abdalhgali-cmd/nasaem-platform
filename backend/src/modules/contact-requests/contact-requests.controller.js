@@ -1,3 +1,5 @@
+import { confirmationOutlook, listCustomerMessages, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
+import prisma from "../../config/database.js";
 import {
   assignContactRequestSchema,
   createContactRequestSchema,
@@ -46,6 +48,7 @@ const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
   FEATURE_DISABLED: "This service is currently unavailable",
   // Smart Case Operations — Release A.
   TRAVELER_NOT_FOUND: "One of the uploaded documents references a traveler that wasn't submitted",
+  SUBMISSION_KEY_CONFLICT: "تعذر إكمال الإرسال، يرجى المحاولة مرة أخرى",
 };
 
 export async function storeContactRequest(req, res, next) {
@@ -74,7 +77,7 @@ export async function storeContactRequest(req, res, next) {
     // submission is rejected (nothing was created), same posture as any
     // other validation failure on this route.
     if (contactRequest?.error) {
-      const status = contactRequest.error === "FEATURE_DISABLED" ? 403 : 400;
+      const status = contactRequest.error === "FEATURE_DISABLED" ? 403 : contactRequest.error === "SUBMISSION_KEY_CONFLICT" ? 409 : 400;
       return res.status(status).json({
         success: false,
         message: UPLOAD_REQUIREMENT_ERROR_MESSAGES[contactRequest.error] || "Validation failed",
@@ -82,10 +85,20 @@ export async function storeContactRequest(req, res, next) {
       });
     }
 
+    if (contactRequest?.duplicate) {
+      return res.status(200).json({
+        success: true,
+        message: "Request already received",
+        data: { id: contactRequest.id, duplicate: true, customerConfirmation: confirmationOutlook() },
+      });
+    }
+
     return res.status(201).json({
       success: true,
       message: "Request received",
-      data: { id: contactRequest.id },
+      // customerConfirmation: QUEUED (a WhatsApp confirmation is being sent;
+      // not yet delivered) or NOT_AVAILABLE (no channel configured).
+      data: { id: contactRequest.id, customerConfirmation: confirmationOutlook() },
     });
   } catch (error) {
     next(error);
@@ -447,6 +460,31 @@ export async function downloadDeliverableFile(req, res, next) {
     if (!file) return res.status(404).json({ success: false, message: "Deliverable not found" });
 
     return res.sendFile(file.absolutePath, { headers: { "Content-Type": file.mimeType } });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Staff: delivery records of customer messages for one case, and a manual
+// retry of the request confirmation (no-op once the provider accepted it).
+async function findStaffCase(req) {
+  return prisma.contactRequest.findFirst({ where: { id: req.params.id, organizationId: req.user.organizationId }, select: { id: true } });
+}
+
+export async function getCustomerMessages(req, res, next) {
+  try {
+    if (!(await findStaffCase(req))) return res.status(404).json({ success: false, message: "Contact request not found" });
+    return res.status(200).json({ success: true, data: await listCustomerMessages(req.params.id) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function retryCustomerConfirmation(req, res, next) {
+  try {
+    if (!(await findStaffCase(req))) return res.status(404).json({ success: false, message: "Contact request not found" });
+    const delivery = await sendRequestConfirmation(req.params.id);
+    return res.status(200).json({ success: true, data: delivery });
   } catch (error) {
     next(error);
   }

@@ -1,4 +1,5 @@
 import path from "path";
+import { sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
@@ -62,7 +63,38 @@ export async function notifyAdmins({ title, message, type, organizationId = "org
 // defaults to none and behaves exactly as before. Documents are created in
 // the same nested-write as the ContactRequest itself so a request is never
 // left without the documents the customer attached to it.
+// A retried submission (same client submissionKey) returns the request the
+// first attempt already created. The phone must match, so a key alone never
+// reveals someone else's request.
+async function findExistingSubmission(data) {
+  if (!data.submissionKey) return null;
+  const existing = await prisma.contactRequest.findUnique({
+    where: { submissionKey: data.submissionKey },
+    select: { id: true, phoneNormalized: true },
+  });
+  if (!existing) return null;
+  if (existing.phoneNormalized !== normalizePhone(data.phone)) return { error: "SUBMISSION_KEY_CONFLICT" };
+  return { id: existing.id, duplicate: true };
+}
+
 export async function createContactRequest(data, req, files = []) {
+  const existingSubmission = await findExistingSubmission(data);
+  if (existingSubmission) return existingSubmission;
+
+  try {
+    return await createContactRequestOnce(data, req, files);
+  } catch (error) {
+    // Two concurrent retries with the same key: the loser of the unique
+    // index race gets the winner's request.
+    if (error?.code === "P2002" && data.submissionKey) {
+      const raced = await findExistingSubmission(data);
+      if (raced) return raced;
+    }
+    throw error;
+  }
+}
+
+async function createContactRequestOnce(data, req, files) {
   const documentLabels = data.documentLabels || [];
   const documentRequirementIds = data.documentRequirementIds || [];
   // Smart Case Operations — Release A (Customer/Traveler separation). Both
@@ -182,6 +214,7 @@ export async function createContactRequest(data, req, files = []) {
     requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
     message: data.message,
     customerId: req.customer?.id || null,
+    submissionKey: data.submissionKey || null,
   };
 
   // Two code paths on purpose: when the submission doesn't use the new
@@ -291,6 +324,11 @@ export async function announceNewContactRequest(contactRequest, { documentCount 
   // Not awaited: a slow/unreachable WhatsApp API must not delay the
   // response to whoever submitted the contact form. No-ops entirely when
   // WHATSAPP_* env vars aren't set (see utils/whatsapp.js).
+  // Confirmation to the customer who submitted (recorded per attempt in
+  // CustomerMessageDelivery). Not awaited: the request is already stored and
+  // a slow provider must not delay or fail the submission.
+  sendRequestConfirmation(contactRequest.id).catch((error) => console.error("[customer-messages] confirmation failed", error?.message));
+
   sendWhatsAppMessage(
     process.env.WHATSAPP_ADMIN_NUMBER,
     `طلب تواصل جديد من الموقع\nالاسم: ${contactRequest.name}\nالهاتف: ${contactRequest.phone}\nالرسالة: ${contactRequest.message.slice(0, 200)}`

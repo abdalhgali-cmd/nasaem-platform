@@ -2,6 +2,7 @@ import "./env.js";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import prisma from "../src/config/database.js";
 
 // Phase 1.5 — "close the loop": auto-completion (payment CONFIRMED + at
 // least one deliverable → CLOSED/COMPLETED) and the customer-facing
@@ -46,7 +47,20 @@ async function submitContactRequest(phone, extra = {}) {
     });
 
   assert.equal(res.status, 201, JSON.stringify(res.body));
+  // Submission now also sends the customer a "request received" WhatsApp
+  // confirmation in the background (customer-messages). Let it settle so
+  // the per-step message counts below only see the step under test.
+  await waitForConfirmation(res.body.data.id);
   return res.body.data.id;
+}
+
+async function waitForConfirmation(contactRequestId) {
+  for (let i = 0; i < 50; i += 1) {
+    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId } });
+    if (row && row.status !== "PENDING" && row.status !== "SENDING") return row;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("request confirmation did not settle");
 }
 
 async function loginTrackingAgent(phone) {

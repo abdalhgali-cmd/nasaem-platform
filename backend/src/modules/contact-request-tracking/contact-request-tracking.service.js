@@ -112,6 +112,10 @@ export async function listContactRequestsForPhone(phoneNormalized) {
 
     return {
       ...request,
+      // Internal file locations are never sent to the customer; files are
+      // downloaded through the ownership-checked /file routes instead.
+      documents: request.documents.map(({ storagePath, ...document }) => document),
+      deliverables: request.deliverables.map(({ storagePath, ...deliverable }) => deliverable),
       intakeData: request.intakeData
         ? { ...request.intakeData, ...(liveEgyptTravel ? { egyptTravel: liveEgyptTravel } : {}) }
         : request.intakeData,

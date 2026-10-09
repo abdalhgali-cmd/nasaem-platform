@@ -41,12 +41,27 @@ function isWhatsAppFeatureEnabled() {
 // template already approved in Meta Business Manager; this sends that
 // template with `body` as its single parameter instead of a free-form text
 // message. See https://developers.facebook.com/docs/whatsapp/cloud-api.
+//
+// Resolves (never rejects) to what actually happened, for callers that keep
+// a delivery record (customer-messages):
+//   { status: "NOT_CONFIGURED" | "DISABLED" | "INVALID_RECIPIENT" }  nothing sent
+//   { status: "ACCEPTED", providerMessageId }  Meta accepted the message
+//     (not proof it reached the handset; that needs Meta's status webhooks)
+//   { status: "FAILED", error }
+// Fire-and-forget callers can keep ignoring the result.
+export function whatsAppAvailability() {
+  if (!isConfigured()) return "NOT_CONFIGURED";
+  if (!isWhatsAppFeatureEnabled()) return "DISABLED";
+  return "AVAILABLE";
+}
+
 export async function sendWhatsAppMessage(to, body) {
-  if (!isConfigured() || !to) return;
+  if (!isConfigured()) return { status: "NOT_CONFIGURED" };
+  if (!to) return { status: "INVALID_RECIPIENT" };
   // Platform 3.0 Phase 13: gated at the source so every caller (order
   // notifications, contact-request notifications, tracking OTP, ...) is
   // covered by a single check instead of each needing its own.
-  if (!isWhatsAppFeatureEnabled()) return;
+  if (!isWhatsAppFeatureEnabled()) return { status: "DISABLED" };
 
   // Normalized here rather than trusted from the caller: the
   // ContactRequest flow already normalizes before calling this (it stores
@@ -58,7 +73,7 @@ export async function sendWhatsAppMessage(to, body) {
   // every current and future caller gets this for free instead of each
   // one needing to remember to do it.
   const recipient = normalizePhone(to);
-  if (!recipient) return;
+  if (!recipient) return { status: "INVALID_RECIPIENT" };
 
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = process.env.WHATSAPP_API_TOKEN;
@@ -96,9 +111,19 @@ export async function sendWhatsAppMessage(to, body) {
     );
 
     if (!response.ok) {
-      console.error("WhatsApp send failed:", response.status, await response.text());
+      const detail = await response.text().catch(() => "");
+      console.error("WhatsApp send failed:", response.status, detail);
+      return { status: "FAILED", error: `HTTP ${response.status}` };
     }
+    let json = {};
+    try {
+      json = typeof response.json === "function" ? await response.json() : {};
+    } catch {
+      json = {};
+    }
+    return { status: "ACCEPTED", providerMessageId: json?.messages?.[0]?.id || null };
   } catch (error) {
     console.error("WhatsApp send failed:", error);
+    return { status: "FAILED", error: error?.message || "network error" };
   }
 }

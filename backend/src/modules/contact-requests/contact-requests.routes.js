@@ -10,6 +10,8 @@ import {
   uploadContactRequestIntakeDocuments,
 } from "../../middleware/upload.middleware.js";
 import {
+  getCustomerMessages,
+  retryCustomerConfirmation,
   confirmPayment,
   downloadDeliverableFile,
   downloadDocumentFile,
@@ -82,6 +84,10 @@ const publicContactLimiter = rateLimit({
 });
 
 router.post("/", publicContactLimiter, attachOptionalCustomer, handleIntakeDocumentsUpload, storeContactRequest);
+
+// Staff: customer message delivery records for a case + manual retry.
+router.get("/:id/customer-messages", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), getCustomerMessages);
+router.post("/:id/customer-messages/confirmation", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), retryCustomerConfirmation);
 
 router.get(
   "/",
