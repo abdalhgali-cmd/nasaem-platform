@@ -51,9 +51,11 @@ export async function clearTrackingSession() {
   await secureRemove(TRACKING_TOKEN_KEY);
 }
 
+// Always carries an Authorization key so api.js never substitutes the
+// customer account token on tracking routes.
 async function trackingHeaders() {
   const token = await getTrackingToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return { Authorization: token ? `Bearer ${token}` : "" };
 }
 
 export async function approveInvoice(requestId) {
@@ -93,6 +95,53 @@ export async function saveEgyptTravelPlan(requestId, { entryMode, bookingStatus,
 }
 
 async function trackingUpload(path, form, onProgress) {
+  return apiUpload(path, form, onProgress, await trackingHeaders());
+}
+
+// ---- Guest tracking (no account): list requests for the verified phone ----
+
+let prefillPhone = "";
+let lastList = null;
+
+// The confirmation screen hands the submitted phone to the Track screen.
+export function setTrackingPrefill(phone) {
+  prefillPhone = String(phone || "");
+}
+export function takeTrackingPrefill() {
+  const value = prefillPhone;
+  prefillPhone = "";
+  return value;
+}
+
+// The phone this device verified (read from the token, display only).
+export async function getTrackedPhone() {
   const token = await getTrackingToken();
-  return apiUpload(path, form, onProgress, token ? { Authorization: `Bearer ${token}` } : {});
+  if (!token) return null;
+  try {
+    const part = token.split(".")[1];
+    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "="));
+    return JSON.parse(json).sub || null;
+  } catch {
+    return null;
+  }
+}
+
+// Requests whose phone was verified on this device. Throws ApiError (401 when
+// the tracking session ended, so the caller can ask for a new code).
+export async function listTrackedRequests() {
+  const res = await api("/tracking/requests", { headers: await trackingHeaders() });
+  lastList = res.data || [];
+  return lastList;
+}
+
+export function trackedRequestFromCache(id) {
+  return lastList?.find((request) => request.id === id) || null;
+}
+
+// Files of a tracked request, through the ownership-checked routes.
+export async function fetchTrackedFile(path) {
+  const { CONFIG } = await import("./config.js");
+  const response = await fetch(`${CONFIG.apiBaseUrl}${path}`, { credentials: "include", headers: await trackingHeaders() });
+  if (!response.ok) throw new Error("تعذر فتح الملف");
+  return response.blob();
 }

@@ -56,7 +56,10 @@ export async function renderFlightsScreen({ bodyEl, params }) {
           <button class="secondary book-flight-btn" data-index="${index}">طلب هذا الحجز</button>
         </div>`).join("");
       resultsEl.querySelectorAll(".book-flight-btn").forEach((btn) => {
-        btn.addEventListener("click", () => openIntake(bodyEl, item));
+        btn.addEventListener("click", () => {
+          const flight = flights[Number(btn.dataset.index)];
+          openIntake(bodyEl, item, flightSelection(flight, data, res.currency));
+        });
       });
     } catch (error) {
       setLoading(submitBtn, false);
@@ -66,10 +69,30 @@ export async function renderFlightsScreen({ bodyEl, params }) {
   });
 }
 
-function openIntake(bodyEl, item) {
+// The flight the customer picked travels with the request (shown on the
+// form, appended to the message, stored in intakeData.selection) so the
+// agency sees what was chosen. Prices from the search are an indication
+// only; the agency confirms the price.
+function flightSelection(flight, search, currency) {
+  if (!flight) return null;
+  const from = flight.originCode || flight.from || search.from.toUpperCase();
+  const to = flight.destinationCode || flight.to || search.to.toUpperCase();
+  const when = flight.departureAt || flight.departureTime || search.date;
+  const carrier = flight.airline || flight.carrier || "";
+  const price = flight.price ? `${flight.price} ${flight.currency || currency || ""}`.trim() : "";
+  const summary = `الرحلة المختارة: ${carrier ? `${carrier} — ` : ""}${from} ← ${to}، ${when}${price ? `، السعر المعروض عند البحث: ${price} (يؤكده فريقنا)` : ""}، عدد المسافرين: ${search.travelers || 1}`;
+  return {
+    summary,
+    details: { type: "FLIGHT", from, to, departure: when, carrier, flightNumber: flight.flightNumber || flight.number || null, quotedPrice: flight.price ?? null, currency: flight.currency || currency || null, travelers: Number(search.travelers) || 1, source: flight.source || null, flightId: flight.id ?? null },
+  };
+}
+
+function openIntake(bodyEl, item, selection = null) {
+  // One form at a time: picking another flight replaces it.
+  bodyEl.querySelector("#flightIntakeMount")?.remove();
   const mount = document.createElement("div");
   mount.id = "flightIntakeMount";
   bodyEl.appendChild(mount);
   mount.scrollIntoView({ behavior: "smooth" });
-  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item });
+  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection });
 }

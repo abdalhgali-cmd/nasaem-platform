@@ -53,9 +53,14 @@ export function isOnline() {
 function buildHeaders(extra, isFormData) {
   const headers = { Accept: "application/json", ...extra };
   if (!isFormData) headers["Content-Type"] = "application/json";
-  // A caller-supplied Authorization (tracking.js's phone-OTP session) wins
-  // over the signed-in customer's own token — never silently overwritten.
-  if (!headers.Authorization && sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+  // A caller that passes an Authorization key (tracking.js's phone-OTP
+  // session) decides it alone: its own token, or none at all. The customer
+  // account token is never sent on its behalf.
+  if (extra && Object.prototype.hasOwnProperty.call(extra, "Authorization")) {
+    if (!headers.Authorization) delete headers.Authorization;
+  } else if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
+  }
   return headers;
 }
 
@@ -130,10 +135,16 @@ export function apiUpload(path, formData, onProgress, authOverride) {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", CONFIG.apiBaseUrl + path, true);
     xhr.withCredentials = true;
+    // Bounded like api(): large uploads on slow networks get two minutes.
+    xhr.timeout = 120000;
+    xhr.ontimeout = () => {
+      reject(new ApiError("انتهت مهلة رفع الطلب. تحقق من الاتصال وحاول مرة أخرى.", { status: 0, code: "TIMEOUT" }));
+    };
     xhr.setRequestHeader("Accept", "application/json");
 
-    Promise.resolve(authOverride?.Authorization ? null : sessionToken).then((token) => {
-      const authHeader = authOverride?.Authorization || (token ? `Bearer ${token}` : null);
+    // authOverride given (tracking): only its token, never the account's.
+    Promise.resolve(authOverride ? null : sessionToken).then((token) => {
+      const authHeader = authOverride ? authOverride.Authorization || null : token ? `Bearer ${token}` : null;
       if (authHeader) xhr.setRequestHeader("Authorization", authHeader);
 
       xhr.upload.onprogress = (event) => {
@@ -156,7 +167,7 @@ export function apiUpload(path, formData, onProgress, authOverride) {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve(body);
         } else {
-          reject(new ApiError(body.message || "تعذر رفع الملف.", { status: xhr.status, errors: body.errors || null }));
+          reject(new ApiError(body.message || "تعذر رفع الملف.", { status: xhr.status, errors: body.errors || null, code: body.code || null }));
         }
       };
 

@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import { esc, skeletonGrid } from "../ui.js";
 import { icon, iconForService } from "../icons.js";
-import { getCustomer } from "../auth.js";
+import { getCustomer, isAccountUnlocked } from "../auth.js";
 import { loadCatalog, loadHomepage } from "../catalog.js";
 import { go, goToTab } from "../router.js";
 import { openServiceById, VISAS_HUB_CODE } from "./services.js";
@@ -51,8 +51,12 @@ function serviceCard(item) {
 
 const AUTOPLAY_MS = 5500;
 
+// Public home for everyone. Personal parts (name, bell, coupons, account
+// activity) appear only for a verified, unlocked account; a guest gets the
+// public content and a clear "track your request" action instead.
 export async function renderHomeScreen({ bodyEl }) {
-  const customer = getCustomer();
+  const signedIn = isAccountUnlocked();
+  const customer = signedIn ? getCustomer() : null;
   const name = firstName(customer?.fullName);
   bodyEl.innerHTML = `
     <section class="home-hero">
@@ -61,13 +65,13 @@ export async function renderHomeScreen({ bodyEl }) {
       </svg>
       <div class="home-hero-top">
         <div class="home-hero-greeting">
-          <span class="eyebrow">${esc(greeting())}${name ? `، ${esc(name)}` : ""}</span>
+          <span class="eyebrow">${signedIn ? `${esc(greeting())}${name ? `، ${esc(name)}` : ""}` : "أهلاً بك في نسائم الحرمين"}</span>
           <h1>رحلتك تبدأ معنا بثقة</h1>
           <p>خدمات السفر والعمرة والتأشيرات في مكان واحد</p>
         </div>
-        <button class="home-bell" id="homeBell" aria-label="الإشعارات">
+        ${signedIn ? `<button class="home-bell" id="homeBell" aria-label="الإشعارات">
           ${icon("bell", { size: 22 })}<span class="home-bell-dot" id="homeBellDot" hidden></span>
-        </button>
+        </button>` : ""}
       </div>
     </section>
 
@@ -81,8 +85,18 @@ export async function renderHomeScreen({ bodyEl }) {
         <h2>خدماتنا</h2>
         <button class="link-btn" id="seeAllServices">عرض الكل</button>
       </div>
+      <p class="field-hint stale-note" id="catalogStale" hidden>${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>
       <div id="servicesGrid" class="services-grid home-services">${skeletonGrid(6)}</div>
     </section>
+
+    ${signedIn ? "" : `
+    <section class="section">
+      <button class="track-card" id="homeTrackBtn">
+        <span class="track-card-icon">${icon("requests", { size: 22 })}</span>
+        <span class="track-card-body"><b>تتبع طلبك</b><small>برقم هاتفك ورمز تحقق عبر واتساب، دون حساب</small></span>
+        ${icon("chevron-start", { size: 18 })}
+      </button>
+    </section>`}
 
     <section class="section" id="activitySection" hidden>
       <div class="section-head"><h2>نشاطك</h2></div>
@@ -99,14 +113,15 @@ export async function renderHomeScreen({ bodyEl }) {
   `;
 
   bodyEl.querySelector("#seeAllServices").addEventListener("click", () => go("services", {}, { title: "كل الخدمات", tab: "home" }));
-  bodyEl.querySelector("#homeBell").addEventListener("click", () => {
+  bodyEl.querySelector("#homeBell")?.addEventListener("click", () => {
     tapFeedback();
-    goToTab("notifications", "notifications", { title: "الإشعارات" });
+    go("notifications", {}, { title: "الإشعارات", tab: "home" });
   });
+  bodyEl.querySelector("#homeTrackBtn")?.addEventListener("click", () => goToTab("requests", "requests", { title: "طلباتي" }));
 
-  const stopBanner = mountBanner(bodyEl);
+  const stopBanner = mountBanner(bodyEl, { signedIn });
   loadCatalogSection(bodyEl);
-  loadActivitySection(bodyEl);
+  if (signedIn) loadActivitySection(bodyEl);
   loadAgency().then((agency) => {
     const strip = bodyEl.querySelector("#helpStrip");
     if (strip) strip.href = whatsappLink(agency.whatsapp, "السلام عليكم، أحتاج مساعدة في طلبي");
@@ -120,7 +135,7 @@ export async function renderHomeScreen({ bodyEl }) {
 // Swipe works natively (scroll-snap, RTL-aware); auto-advance pauses while
 // the customer touches it, when the app is in the background, and is off
 // entirely under reduced motion.
-function mountBanner(bodyEl) {
+function mountBanner(bodyEl, { signedIn }) {
   const track = bodyEl.querySelector("#bannerTrack");
   const dotsEl = bodyEl.querySelector("#bannerDots");
   let timer = 0;
@@ -149,7 +164,8 @@ function mountBanner(bodyEl) {
   (async () => {
     const [homepage, couponsRes] = await Promise.all([
       loadHomepage().catch(() => ({ hero: null, sections: [] })),
-      api("/customer/coupons").catch(() => ({ data: { available: [] } })),
+      // Coupons are personal: only for a verified account, never for guests.
+      signedIn ? api("/customer/coupons").catch(() => ({ data: { available: [] } })) : Promise.resolve({ data: { available: [] } }),
     ]);
     if (disposed) return;
     const slides = buildBannerSlides({ hero: homepage.hero, sections: homepage.sections || [], coupons: couponsRes.data?.available || [] });
@@ -189,6 +205,7 @@ async function loadCatalogSection(bodyEl) {
   const grid = bodyEl.querySelector("#servicesGrid");
   try {
     const catalog = await loadCatalog();
+    bodyEl.querySelector("#catalogStale").hidden = !catalog.stale;
     const items = pickMainServices(catalog);
     if (!items.length) {
       grid.innerHTML = `<p class="field-hint">لا توجد خدمات منشورة حالياً.</p>`;
@@ -273,7 +290,7 @@ async function loadActivitySection(bodyEl) {
     stagger(list);
     section.hidden = false;
     bodyEl.querySelector("#lastOrderBtn")?.addEventListener("click", () => openLatest?.());
-    bodyEl.querySelector("#latestNotificationBtn")?.addEventListener("click", () => goToTab("notifications", "notifications", { title: "الإشعارات" }));
+    bodyEl.querySelector("#latestNotificationBtn")?.addEventListener("click", () => go("notifications", {}, { title: "الإشعارات", tab: "home" }));
   } catch {
     // Activity is a convenience: never block the rest of Home on it.
   }

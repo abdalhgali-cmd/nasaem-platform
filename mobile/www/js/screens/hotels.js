@@ -1,12 +1,16 @@
 import { api } from "../api.js";
 import { esc, toast, setLoading } from "../ui.js";
 import { icon } from "../icons.js";
-import { getCustomer } from "../auth.js";
+import { getCustomer, isAccountUnlocked } from "../auth.js";
+import { newSubmissionKey, submitRequestJson, submitFailureMessage, showSubmitted } from "../submission.js";
 import { go } from "../router.js";
 
 export async function renderHotelsScreen({ bodyEl, params }) {
   const { item } = params;
-  const customer = getCustomer();
+  // Account details prefill the form only when the account is unlocked.
+  const customer = isAccountUnlocked() ? getCustomer() : null;
+  // One key per form on screen: retries never create a second request.
+  const submissionKey = newSubmissionKey();
   const today = new Date().toISOString().slice(0, 10);
 
   bodyEl.innerHTML = `
@@ -50,9 +54,7 @@ export async function renderHotelsScreen({ bodyEl, params }) {
     const submitBtn = bodyEl.querySelector("#hotelSubmitBtn");
     setLoading(submitBtn, true, "جارٍ الإرسال…");
     try {
-      await api("/contact-requests", {
-        method: "POST",
-        body: JSON.stringify({
+      const outcome = await submitRequestJson({
           name: data.name,
           phone: data.phone,
           email: data.email || undefined,
@@ -61,13 +63,11 @@ export async function renderHotelsScreen({ bodyEl, params }) {
           travelerCount: Number(data.guests) || 1,
           intakeData: { city: data.city, checkin: data.checkin, checkout: data.checkout, guests: Number(data.guests) || 1, rooms: Number(data.rooms) || 1, notes: data.notes },
           message: `طلب فندق في ${data.city} من ${data.checkin} إلى ${data.checkout}، عدد النزلاء ${data.guests}، الغرف ${data.rooms}. ${data.notes || ""}`,
-        }),
-      });
-      toast("تم إرسال طلب الفندق بنجاح");
-      go("requestSubmitted", { serviceName: "حجز الفنادق", travelerCount: data.guests }, { title: "تم الإرسال" });
+        }, submissionKey);
+      showSubmitted(outcome, { serviceName: "حجز الفنادق", phone: data.phone, travelerCount: data.guests });
     } catch (error) {
       setLoading(submitBtn, false);
-      toast(error.message, { tone: "error" });
+      toast(submitFailureMessage(error), { tone: "error" });
     }
   });
 }

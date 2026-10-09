@@ -1,8 +1,18 @@
 import { api, ApiError } from "../api.js";
 import { esc, toast, fieldError, setLoading, confirmDialog } from "../ui.js";
 import { icon } from "../icons.js";
-import { getCustomer, refreshProfile, logout, changePassword } from "../auth.js";
-import { go } from "../router.js";
+import {
+  getCustomer,
+  refreshProfile,
+  logout,
+  changePassword,
+  getSessionState,
+  SessionState,
+  unlockWithBiometric,
+  verifySession,
+} from "../auth.js";
+import { go, goToTab } from "../router.js";
+import { biometricFailure } from "../session-core.js";
 
 function applyFieldErrors(form, errors) {
   const fieldErrors = errors?.fieldErrors || {};
@@ -24,12 +34,122 @@ export function setOnReplayOnboarding(callback) {
   onReplayOnboarding = callback;
 }
 
+// Public part of the Account tab, shown in every state.
+function publicMenu() {
+  return `
+    <div class="account-menu">
+      <button class="account-menu-item" id="trackGuestBtn">${icon("requests", { size: 18 })}<span>تتبع طلب برقم الهاتف</span>${icon("chevron-start", { size: 16 })}</button>
+      <button class="account-menu-item" id="aboutBtn">${icon("info", { size: 18 })}<span>من نحن وتواصل معنا</span>${icon("chevron-start", { size: 16 })}</button>
+      <button class="account-menu-item" id="replayOnboardingBtn">${icon("plane", { size: 18 })}<span>عرض الجولة التعريفية</span>${icon("chevron-start", { size: 16 })}</button>
+    </div>`;
+}
+
+function wirePublicMenu(bodyEl) {
+  bodyEl.querySelector("#trackGuestBtn")?.addEventListener("click", () => goToTab("requests", "requests", { title: "طلباتي" }));
+  bodyEl.querySelector("#aboutBtn")?.addEventListener("click", () => go("about", {}, { title: "من نحن", tab: "account" }));
+  bodyEl.querySelector("#replayOnboardingBtn")?.addEventListener("click", () => onReplayOnboarding());
+}
+
+// The Account tab. Account content is drawn only once the server confirmed
+// the session (SessionState.VALID); a biometric-locked, unverified or
+// signed-out account shows its own card instead, and public items stay.
 export async function renderAccountScreen({ bodyEl }) {
+  const state = getSessionState();
+  if (state === SessionState.VALID && getCustomer()) return renderSignedIn(bodyEl);
+  if (state === SessionState.LOCKED) return renderLocked(bodyEl);
+  if (state === SessionState.PENDING) return renderVerifying(bodyEl);
+  if (state === SessionState.OFFLINE) return renderUnverified(bodyEl);
+  return renderGuest(bodyEl);
+}
+
+function renderGuest(bodyEl) {
+  bodyEl.innerHTML = `
+    <section class="guest-card">
+      <div class="guest-card-icon">${icon("user", { size: 28 })}</div>
+      <h2>أنت تتصفح كضيف</h2>
+      <p>يمكنك استخدام كل الخدمات وإرسال طلباتك ومتابعتها برقم هاتفك دون حساب.</p>
+      <p class="guest-card-benefits">الحساب اختياري: يجمع طلباتك ومستنداتك في مكان واحد، ويتيح الدخول بالبصمة.</p>
+      <button class="primary" id="guestLoginBtn">تسجيل الدخول</button>
+      <button class="secondary" id="guestRegisterBtn">إنشاء حساب</button>
+    </section>
+    ${publicMenu()}`;
+  bodyEl.querySelector("#guestLoginBtn").addEventListener("click", () => go("login", {}, { title: "تسجيل الدخول", tab: "account" }));
+  bodyEl.querySelector("#guestRegisterBtn").addEventListener("click", () => go("register", {}, { title: "إنشاء حساب", tab: "account" }));
+  wirePublicMenu(bodyEl);
+}
+
+function renderLocked(bodyEl) {
+  bodyEl.innerHTML = `
+    <section class="guest-card">
+      <div class="guest-card-icon">${icon("lock", { size: 28 })}</div>
+      <h2>حسابك محمي بالبصمة</h2>
+      <p>افتح حسابك ببصمتك لعرض بياناتك وطلبات حسابك.</p>
+      <p class="field-error session-message" id="unlockMessage" role="status"></p>
+      <button class="primary" id="unlockBtn">${icon("shield-check", { size: 18 })}<span>فتح الحساب بالبصمة</span></button>
+      <button class="secondary" id="unlockPasswordBtn">الدخول بكلمة المرور</button>
+    </section>
+    ${publicMenu()}`;
+  const messageEl = bodyEl.querySelector("#unlockMessage");
+  const unlockBtn = bodyEl.querySelector("#unlockBtn");
+  unlockBtn.addEventListener("click", async () => {
+    unlockBtn.disabled = true;
+    messageEl.textContent = "";
+    try {
+      await unlockWithBiometric();
+      // The fingerprint only released the token: the server still decides.
+      const result = await verifySession();
+      if (result.state === SessionState.EXPIRED) toast("انتهت جلسة حسابك، سجّل الدخول مجددًا.");
+      // onAccountStateChange (app.js) re-draws this tab for the new state.
+    } catch (error) {
+      unlockBtn.disabled = false;
+      const outcome = biometricFailure(error?.code);
+      messageEl.textContent = outcome.message;
+      if (outcome.action === "password") unlockBtn.hidden = true;
+    }
+  });
+  bodyEl.querySelector("#unlockPasswordBtn").addEventListener("click", () => go("login", {}, { title: "تسجيل الدخول", tab: "account" }));
+  wirePublicMenu(bodyEl);
+}
+
+function renderVerifying(bodyEl) {
+  bodyEl.innerHTML = `
+    <div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ التحقق من حسابك…</p></div>
+    ${publicMenu()}`;
+  wirePublicMenu(bodyEl);
+}
+
+function renderUnverified(bodyEl) {
+  bodyEl.innerHTML = `
+    <section class="guest-card">
+      <div class="guest-card-icon session-icon-warn">${icon("wifi-off", { size: 28 })}</div>
+      <h2>تعذر التحقق من حسابك</h2>
+      <p>جلستك محفوظة على هذا الجهاز. تحقق من الاتصال ثم أعد المحاولة لعرض بيانات حسابك. يمكنك متابعة تصفح الخدمات وإرسال الطلبات الآن.</p>
+      <button class="primary" id="verifyRetryBtn">${icon("refresh", { size: 18 })}<span>إعادة المحاولة</span></button>
+      <button class="link-btn" id="signOutLocalBtn">تسجيل الخروج من هذا الجهاز</button>
+    </section>
+    ${publicMenu()}`;
+  bodyEl.querySelector("#verifyRetryBtn").addEventListener("click", async (event) => {
+    setLoading(event.currentTarget, true, "جارٍ التحقق…");
+    const result = await verifySession();
+    if (result.state === SessionState.OFFLINE) {
+      setLoading(event.currentTarget, false);
+      toast(result.error?.message || "تعذر الاتصال بالخادم", { tone: "error" });
+    }
+  });
+  bodyEl.querySelector("#signOutLocalBtn").addEventListener("click", async () => {
+    if (!confirmDialog("سيتم تسجيل الخروج من الحساب المحفوظ على هذا الجهاز. هل تريد المتابعة؟")) return;
+    await logout();
+    onLoggedOut();
+  });
+  wirePublicMenu(bodyEl);
+}
+
+async function renderSignedIn(bodyEl) {
   let customer = getCustomer();
   try {
     customer = await refreshProfile();
   } catch {
-    // Keep showing the cached profile if a refresh fails (offline, etc.).
+    // Keep showing the verified profile if a refresh fails (offline, etc.).
   }
 
   bodyEl.innerHTML = `
@@ -42,25 +162,23 @@ export async function renderAccountScreen({ bodyEl }) {
 
     <div class="account-menu">
       <button class="account-menu-item" id="editProfileBtn">${icon("user", { size: 18 })}<span>تعديل البيانات الشخصية</span>${icon("chevron-start", { size: 16 })}</button>
+      <button class="account-menu-item" id="notificationsBtn">${icon("bell", { size: 18 })}<span>الإشعارات</span>${icon("chevron-start", { size: 16 })}</button>
       <button class="account-menu-item" id="securityBtn">${icon("shield-check", { size: 18 })}<span>الأمان والدخول بالبصمة</span>${icon("chevron-start", { size: 16 })}</button>
       <button class="account-menu-item" id="changePasswordBtn">${icon("lock", { size: 18 })}<span>تغيير كلمة المرور</span>${icon("chevron-start", { size: 16 })}</button>
       <button class="account-menu-item" id="myDocumentsBtn">${icon("document", { size: 18 })}<span>مستنداتي</span>${icon("chevron-start", { size: 16 })}</button>
     </div>
 
-    <div class="account-menu">
-      <button class="account-menu-item" id="aboutBtn">${icon("info", { size: 18 })}<span>من نحن وتواصل معنا</span>${icon("chevron-start", { size: 16 })}</button>
-      <button class="account-menu-item" id="replayOnboardingBtn">${icon("plane", { size: 18 })}<span>عرض الجولة التعريفية</span>${icon("chevron-start", { size: 16 })}</button>
-    </div>
+    ${publicMenu()}
 
     <button class="danger-btn" id="logoutBtn">${icon("logout", { size: 18 })}<span>تسجيل الخروج</span></button>
   `;
 
   bodyEl.querySelector("#editProfileBtn").addEventListener("click", () => go("editProfile", { customer }, { title: "تعديل البيانات", tab: "account" }));
+  bodyEl.querySelector("#notificationsBtn").addEventListener("click", () => go("notifications", {}, { title: "الإشعارات", tab: "account" }));
   bodyEl.querySelector("#securityBtn").addEventListener("click", () => go("security", {}, { title: "الأمان", tab: "account" }));
   bodyEl.querySelector("#changePasswordBtn").addEventListener("click", () => go("changePassword", {}, { title: "تغيير كلمة المرور", tab: "account" }));
-  bodyEl.querySelector("#aboutBtn").addEventListener("click", () => go("about", {}, { title: "من نحن", tab: "account" }));
-  bodyEl.querySelector("#replayOnboardingBtn").addEventListener("click", () => onReplayOnboarding());
   bodyEl.querySelector("#myDocumentsBtn").addEventListener("click", () => go("myDocuments", {}, { title: "مستنداتي", tab: "account" }));
+  wirePublicMenu(bodyEl);
   bodyEl.querySelector("#logoutBtn").addEventListener("click", async () => {
     if (!confirmDialog("هل تريد تسجيل الخروج؟")) return;
     await logout();

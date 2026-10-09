@@ -1,4 +1,5 @@
 import prisma from "../../config/database.js";
+import { trackingScope } from "../../utils/publicOrganization.js";
 
 // Smart Case Operations — Release G (intelligence). Deterministic,
 // explainable warnings only — every rule below is a plain comparison a
@@ -181,7 +182,7 @@ export async function findReusableDocuments(phoneNormalized, { requirementId } =
       supersededAt: null,
       ...(requirementId ? { requirementId } : {}),
       classification: "CUSTOMER_DOCUMENT",
-      contactRequest: { phoneNormalized },
+      contactRequest: trackingScope(phoneNormalized),
     },
     orderBy: { createdAt: "desc" },
     take: 10,

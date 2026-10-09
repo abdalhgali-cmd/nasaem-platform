@@ -1,8 +1,11 @@
-import { api, apiUpload, ApiError } from "../api.js";
+import { api, ApiError } from "../api.js";
 import { esc, toast, fieldError, setLoading } from "../ui.js";
 import { icon } from "../icons.js";
-import { go } from "../router.js";
-import { getCustomer } from "../auth.js";
+import { goToTab } from "../router.js";
+import { getCustomer, isAccountUnlocked } from "../auth.js";
+import { newSubmissionKey, submitRequestForm, submitFailureMessage, showSubmitted } from "../submission.js";
+import { confirmationNotice, countSelectedDocuments, parseRequirementsResponse } from "../experience-core.js";
+import { setTrackingPrefill } from "../tracking.js";
 
 // Hard backend limits (upload.middleware.js: .array("documents", 6);
 // contact-requests.validators.js caps documentLabels/documentRequirementIds/
@@ -87,32 +90,33 @@ function travelerFieldset(index) {
         </label>
       </div>
       <label class="field" data-doc-field>
-        <span>صورة الجواز *</span>
-        <input name="t_doc_${index}" type="file" accept="${ALLOWED_DOC_ACCEPT}" required>
-        <span class="field-hint">صورة واضحة أو PDF، بحد أقصى 10MB</span>
+        <span>صورة الجواز (اختياري)</span>
+        <input name="t_doc_${index}" type="file" accept="${ALLOWED_DOC_ACCEPT}">
+        <span class="field-hint">أرفقها إن كانت متوفرة. المستندات المطلوبة فعلًا لهذه الخدمة تظهر في «متطلبات الخدمة»، ويمكن إرسال أي مستند لاحقًا من «طلباتي».</span>
       </label>
     </fieldset>`;
 }
 
+// Resolves to the service's checklist ([] only when the server confirmed it
+// is empty, or the item has no checklist at all). Throws when it couldn't be
+// loaded: the form is then not shown, so nothing is submitted unchecked.
 async function fetchRequirements(item) {
   if (!item.id) return [];
   const scope = item.isVisaType ? "visa-types" : "services";
-  try {
-    const res = await api(`/${scope}/${item.id}/requirements/public`);
-    return Array.isArray(res.data) ? res.data : [];
-  } catch {
-    return [];
-  }
+  const requirements = parseRequirementsResponse(await api(`/${scope}/${item.id}/requirements/public`));
+  if (!requirements) throw new ApiError("وصلت استجابة غير متوقعة من الخادم.", { status: 0, code: "BAD_RESPONSE" });
+  return requirements;
 }
 
-function countPlannedDocuments(form, requirements, travelerCount) {
-  let count = travelerCount; // one passport photo per traveler
-  for (const requirement of requirements) {
-    if (requirement.type !== "DOCUMENT") continue;
-    const el = form.querySelector(`[data-req="${CSS.escape(requirement.id)}"] input[type="file"]`);
-    if (el?.files?.length) count += 1;
-  }
-  return count;
+function countPlannedDocuments(form, requirements, answers) {
+  const travelerFiles = [...form.querySelectorAll('input[type="file"][name^="t_doc_"]')].map((el) => Boolean(el.files?.length));
+  const requirementFiles = requirements
+    .filter((requirement) => requirement.type === "DOCUMENT")
+    .map((requirement) => {
+      const el = form.querySelector(`[data-req="${CSS.escape(requirement.id)}"] input[type="file"]`);
+      return { applies: requirementApplies(requirement, answers), selected: Boolean(el?.files?.length) };
+    });
+  return countSelectedDocuments({ travelerFiles, requirementFiles });
 }
 
 function validateFile(file) {
@@ -126,17 +130,42 @@ function validateFile(file) {
 // (they come straight from that service/visa type's own requirement
 // checklist, configured in the admin dashboard), so this stays honest with
 // "لا تستخدم نموذجاً عاماً إذا كانت الخدمة تحتاج حقولاً خاصة".
-export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true }) {
+// `selection` (optional): what the customer already picked before the form,
+// e.g. a specific flight — { summary: "PZU ← JED …", details: {...} }. It is
+// shown on the form and sent with the request so the agency sees it.
+export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null }) {
   setTitle(`طلب ${item.name}`);
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل متطلبات الخدمة…</p></div>`;
 
-  const requirements = await fetchRequirements(item);
-  const customer = getCustomer();
+  let requirements;
+  try {
+    requirements = await fetchRequirements(item);
+  } catch (error) {
+    // Without the checklist we can't tell the customer what to send, so the
+    // form is not offered at all — only a retry.
+    bodyEl.innerHTML = `
+      <div class="empty-state" id="requirementsError" role="alert">
+        ${icon("alert", { size: 28 })}
+        <h3>تعذّر تحميل متطلبات الخدمة</h3>
+        <p>${esc(error?.status === 0 ? "تحقق من اتصالك بالإنترنت ثم أعد المحاولة." : "حدث خطأ في الخادم. أعد المحاولة بعد قليل.")} لن نعرض النموذج قبل التأكد من المستندات المطلوبة لهذه الخدمة.</p>
+        <button type="button" class="primary" id="retryRequirementsBtn">إعادة المحاولة</button>
+      </div>`;
+    bodyEl.querySelector("#retryRequirementsBtn").addEventListener("click", () =>
+      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection })
+    );
+    return;
+  }
+  // Prefill from the account only when it is actually unlocked.
+  const customer = isAccountUnlocked() ? getCustomer() : null;
+  // One key for this form, reused on every retry (no duplicate requests).
+  const submissionKey = newSubmissionKey();
 
   bodyEl.innerHTML = `
     <form id="intakeForm" class="form" novalidate>
+      ${selection ? `<section class="form-section selection-card"><h3>${icon("check-circle", { size: 18 })} اختيارك</h3><p>${esc(selection.summary)}</p></section>` : ""}
       <section class="form-section">
         <h3>بيانات التواصل</h3>
+        <p class="field-hint">لا تحتاج إلى حساب. سنستخدم رقم هاتفك للتواصل معك ولمتابعة طلبك برمز تحقق عبر واتساب.</p>
         <label class="field">
           <span>الاسم الكامل *</span>
           <input name="name" required value="${esc(customer?.fullName || "")}">
@@ -223,7 +252,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   }
 
   function updateDocBudgetNote() {
-    const count = countPlannedDocuments(form, requirements, Number(travelerCountInput.value) || 1);
+    const count = countPlannedDocuments(form, requirements, answersFromForm());
     docBudgetNote.textContent = `المستندات المرفقة: ${count} من أصل ${MAX_DOCUMENTS} كحد أقصى لكل طلب.`;
     docBudgetNote.classList.toggle("field-hint-warn", count > MAX_DOCUMENTS);
   }
@@ -241,9 +270,9 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     form.querySelectorAll(".field-error").forEach((el) => el.remove());
 
     const travelerCount = Number(travelerCountInput.value) || 1;
-    const plannedDocs = countPlannedDocuments(form, requirements, travelerCount);
+    const plannedDocs = countPlannedDocuments(form, requirements, answersFromForm());
     if (plannedDocs > MAX_DOCUMENTS) {
-      toast(`الحد الأقصى ${MAX_DOCUMENTS} مستندات لكل طلب. قلّل عدد المسافرين أو المرفقات الإضافية.`, { tone: "error" });
+      toast(`يمكن إرفاق ${MAX_DOCUMENTS} ملفات كحد أقصى مع الطلب (اخترت ${plannedDocs}). أزل بعضها وأرسلها لاحقًا من «طلباتي».`, { tone: "error" });
       return;
     }
 
@@ -302,11 +331,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     payload.set("service", item.name);
     if (item.id) payload.set(item.isVisaType ? "visaTypeId" : "serviceId", item.id);
     if (item.serviceId) payload.set("serviceId", item.serviceId);
-    payload.set("message", raw.get("notes") || `طلب ${item.name}`);
+    const notes = raw.get("notes") || `طلب ${item.name}`;
+    payload.set("message", selection ? `${notes}\n${selection.summary}` : notes);
     payload.set("travelerCount", String(travelerCount));
     payload.set("travelers", JSON.stringify(travelers));
     payload.set("answers", JSON.stringify(answers));
-    payload.set("intakeData", JSON.stringify({ travelers, answers, notes: raw.get("notes") || "" }));
+    payload.set("intakeData", JSON.stringify({ travelers, answers, notes: raw.get("notes") || "", ...(selection ? { selection: selection.details || { summary: selection.summary } } : {}) }));
     payload.set("documentLabels", JSON.stringify(labels));
     payload.set("documentTravelerIndexes", JSON.stringify(indexes));
     payload.set("documentRequirementIds", JSON.stringify(requirementIds));
@@ -318,12 +348,11 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     if (files.length) progressWrap.hidden = false;
 
     try {
-      await apiUpload("/contact-requests", payload, (percent) => {
+      const outcome = await submitRequestForm(payload, submissionKey, (percent) => {
         progressFill.style.width = `${percent}%`;
         progressLabel.textContent = `${percent}%`;
       });
-      toast("تم إرسال طلبك بنجاح");
-      go("requestSubmitted", { serviceName: item.name, travelerCount }, { title: "تم الإرسال" });
+      showSubmitted(outcome, { serviceName: item.name, phone: raw.get("phone"), travelerCount });
     } catch (error) {
       setLoading(submitBtn, false);
       progressWrap.hidden = true;
@@ -331,7 +360,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         toast("تحقق من الحقول المظللة وحاول مرة أخرى.", { tone: "error" });
         applyFieldErrors(form, error.errors);
       } else {
-        toast(error.message, { tone: "error" });
+        toast(submitFailureMessage(error), { tone: "error" });
       }
     }
   });
@@ -347,20 +376,55 @@ function applyFieldErrors(form, errors) {
   }
 }
 
+// Shown only after the server returned the stored request's id (see
+// submission.js). The reference alone never opens the request's details:
+// tracking needs the phone + WhatsApp code (or the signed-in account).
 export function renderRequestSubmittedScreen({ bodyEl, params }) {
+  const reference = params.id || "";
   bodyEl.innerHTML = `
     <div class="success-card">
       <div class="success-icon">${icon("check-circle", { size: 40 })}</div>
       <h2>تم استلام طلبك</h2>
-      <p>تم إرسال بيانات ${esc(params.travelerCount || 1)} مسافر وطلب "${esc(params.serviceName || "")}" إلى فريق نسائم الحرمين. سنتواصل معك فور المراجعة.</p>
-      <button class="primary" id="goToRequestsBtn">عرض طلباتي</button>
+      <p>وصل طلب «${esc(params.serviceName || "")}» إلى فريق نسائم الحرمين وتم حفظه. سنتواصل معك بعد المراجعة.</p>
+      <div class="reference-box">
+        <span>الرقم المرجعي</span>
+        <code id="requestReference" dir="ltr">${esc(reference)}</code>
+        <button type="button" class="chip-btn" id="copyReferenceBtn">${icon("document", { size: 16 })}<span>نسخ الرقم</span></button>
+      </div>
+      <p class="field-hint confirmation-notice" id="confirmationNotice">${esc(confirmationNotice(params.customerConfirmation))}</p>
+      <button class="primary" id="trackRequestBtn">${icon("requests", { size: 18 })}<span>تتبع الطلب</span></button>
       <button class="secondary" id="goToHomeBtn">العودة للرئيسية</button>
     </div>
   `;
-  bodyEl.querySelector("#goToRequestsBtn").addEventListener("click", () => {
-    document.querySelector('[data-tab="requests"]')?.click();
+  bodyEl.querySelector("#copyReferenceBtn").addEventListener("click", async () => {
+    const copied = await copyText(reference);
+    toast(copied ? "تم نسخ الرقم المرجعي" : "تعذر النسخ، يمكنك تحديد الرقم ونسخه يدويًا", { tone: copied ? "default" : "error" });
   });
-  bodyEl.querySelector("#goToHomeBtn").addEventListener("click", () => {
-    document.querySelector('[data-tab="home"]')?.click();
+  bodyEl.querySelector("#trackRequestBtn").addEventListener("click", () => {
+    if (params.phone) setTrackingPrefill(params.phone);
+    goToTab("requests", "requests", { title: "طلباتي" });
   });
+  bodyEl.querySelector("#goToHomeBtn").addEventListener("click", () => goToTab("home", "home", { title: "" }));
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
 }

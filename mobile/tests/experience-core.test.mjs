@@ -2,18 +2,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { launchRoute, firstName, greeting, buildBannerSlides, nextSlide, ONBOARDING_KEY } from "../www/js/experience-core.js";
+import { launchRoute, firstName, greeting, buildBannerSlides, nextSlide, ONBOARDING_KEY, submissionOutcome, confirmationNotice, newSubmissionKey, countSelectedDocuments, parseRequirementsResponse, otpFailureNotice } from "../www/js/experience-core.js";
 import { AGENCY, mergeAgencySettings, whatsappLink, telLink } from "../www/js/agency.js";
 
-test("launch: onboarding only on a first launch with nothing stored", () => {
+test("launch: intro only on a first launch with nothing stored; otherwise the public home", () => {
   assert.equal(launchRoute({ storedKind: "none", onboardingDone: false }), "onboarding");
-  assert.equal(launchRoute({ storedKind: "none", onboardingDone: true }), "auth");
+  assert.equal(launchRoute({ storedKind: "none", onboardingDone: true }), "home");
 });
 
-test("launch: a stored session always goes to the session / biometric flow, never the intro", () => {
+test("launch: a stored account (token or biometric-locked) never blocks the home screen", () => {
   for (const onboardingDone of [true, false]) {
-    assert.equal(launchRoute({ storedKind: "token", onboardingDone }), "verify");
-    assert.equal(launchRoute({ storedKind: "biometric", onboardingDone }), "biometric");
+    assert.equal(launchRoute({ storedKind: "token", onboardingDone }), "home");
+    assert.equal(launchRoute({ storedKind: "biometric", onboardingDone }), "home");
   }
 });
 
@@ -85,4 +85,73 @@ test("agency links", () => {
   assert.equal(whatsappLink("+249 91 103 4372"), "https://wa.me/249911034372");
   assert.match(whatsappLink("249911034372", "مرحبا"), /^https:\/\/wa\.me\/249911034372\?text=%D9%85/);
   assert.equal(telLink("+249 91 103 4372"), "tel:+249911034372");
+});
+
+test("submission: success only with a real stored id", () => {
+  assert.deepEqual(submissionOutcome({ success: true, data: { id: "cm123", customerConfirmation: "QUEUED" } }), { ok: true, id: "cm123", duplicate: false, customerConfirmation: "QUEUED" });
+  assert.equal(submissionOutcome({ success: true, data: { id: "cm123", duplicate: true } }).duplicate, true);
+  // spam-trap answer: 201 without an id is NOT a success
+  assert.deepEqual(submissionOutcome({ success: true, message: "Request received" }), { ok: false });
+  assert.deepEqual(submissionOutcome({}), { ok: false });
+  assert.deepEqual(submissionOutcome(null), { ok: false });
+  assert.deepEqual(submissionOutcome({ data: { id: 42 } }), { ok: false });
+  assert.equal(submissionOutcome({ data: { id: "x", customerConfirmation: "DELIVERED" } }).customerConfirmation, "NOT_AVAILABLE", "unknown statuses never read as sent");
+});
+
+test("confirmation wording never claims delivery", () => {
+  for (const status of ["QUEUED", "NOT_AVAILABLE", undefined]) {
+    const text = confirmationNotice(status);
+    assert.ok(text.length > 20);
+    assert.doesNotMatch(text, /تم إرسال|وصلت|تم التسليم/);
+  }
+  assert.match(confirmationNotice("QUEUED"), /نحاول/);
+});
+
+test("submission keys are random, server-valid and stable per call", () => {
+  const a = newSubmissionKey();
+  const b = newSubmissionKey();
+  assert.notEqual(a, b);
+  for (const key of [a, newSubmissionKey({ getRandomValues: (arr) => arr.fill(7) })]) {
+    assert.match(key, /^[A-Za-z0-9-]{16,64}$/);
+  }
+});
+
+test("documents: empty optional passport inputs take no slot", () => {
+  // 6 travelers, no passport photos, one required service document → 1 file.
+  assert.equal(countSelectedDocuments({ travelerFiles: [false, false, false, false, false, false], requirementFiles: [{ applies: true, selected: true }] }), 1);
+  assert.equal(countSelectedDocuments({ travelerFiles: Array(6).fill(false), requirementFiles: [] }), 0);
+  assert.equal(countSelectedDocuments(), 0);
+});
+
+test("documents: multi-traveler with some passports and required service documents", () => {
+  const requirementFiles = [{ applies: true, selected: true }, { applies: true, selected: false }, { applies: true, selected: true }];
+  assert.equal(countSelectedDocuments({ travelerFiles: [true, false, true], requirementFiles }), 4);
+  // every traveler + every document selected → over the 6-file limit, as it should be
+  assert.equal(countSelectedDocuments({ travelerFiles: Array(5).fill(true), requirementFiles }), 7);
+});
+
+test("documents: a hidden conditional document is not counted (it is not sent)", () => {
+  assert.equal(countSelectedDocuments({ travelerFiles: [true], requirementFiles: [{ applies: false, selected: true }] }), 1);
+});
+
+test("requirements: confirmed-empty differs from an unusable response", () => {
+  assert.deepEqual(parseRequirementsResponse({ success: true, data: [] }), []);
+  const list = [{ id: "r1" }];
+  assert.equal(parseRequirementsResponse({ data: list }), list);
+  for (const bad of [undefined, null, {}, { data: null }, { data: "x" }, { success: false }]) {
+    assert.equal(parseRequirementsResponse(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("OTP: undeliverable codes are reported plainly with a support path; other errors pass through", () => {
+  const unavailable = otpFailureNotice({ code: "OTP_CHANNEL_UNAVAILABLE", status: 503, message: "" });
+  assert.equal(unavailable.retry, false);
+  assert.match(unavailable.message, /غير متاح/);
+  assert.equal(otpFailureNotice({ code: "OTP_DELIVERY_FAILED", status: 503, message: "x" }).retry, true);
+  assert.match(otpFailureNotice({ status: 0, code: "TIMEOUT" }).message, /لم يُرسل أي رمز/);
+  assert.equal(otpFailureNotice({ status: 400, message: "Validation failed" }), null);
+  assert.equal(otpFailureNotice({ status: 429 }), null);
+  for (const notice of [unavailable, otpFailureNotice({ code: "OTP_DELIVERY_FAILED" })]) {
+    assert.doesNotMatch(notice.message, /تم إرسال|سيصلك/);
+  }
 });

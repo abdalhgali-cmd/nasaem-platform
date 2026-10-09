@@ -10,6 +10,7 @@ export const SessionState = Object.freeze({
   VALID: "VALID", // server confirmed the session
   OFFLINE: "OFFLINE", // server could not be reached / could not check: keep the session, offer retry
   EXPIRED: "EXPIRED", // server says expired or revoked: clear it, sign in again
+  LOCKED: "LOCKED", // biometric login on: token stays encrypted until the customer unlocks
 });
 
 // 401 is the backend's "this session is over" (customer-auth.middleware.js
