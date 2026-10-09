@@ -96,14 +96,18 @@ localStorage or Capacitor Preferences; JS keeps it in memory only and sends
 it as `Authorization: Bearer`. Tokens left in Preferences by older versions
 are moved into secure storage on first launch and deleted.
 
-**Launch sequence** (`app.js` → `auth.js`, rules in `js/session-core.js`):
+**Launch sequence** (`app.js` → `auth.js`, rules in `js/session-core.js`).
+The public home always opens first (after the one-time introduction on a
+fresh install); the account check runs in the background and only decides
+what the account-dependent parts show:
 
 | Stored on device | Server answer to `GET /customer-auth/me` | Result |
 |---|---|---|
-| nothing | — (no request) | Welcome / login |
-| token | 200 | Signed in |
-| token | 401 (`SESSION_EXPIRED` / `SESSION_INVALID` / `SESSION_REVOKED`) | Local session wiped, login with a notice |
-| token | no network, timeout (15 s), 5xx, 429 | "تعذر التحقق من الجلسة" screen with **Retry**; token kept; retried automatically when the device comes back online |
+| nothing | — (no request) | Guest: public home; Account tab offers optional sign in / create account |
+| token | 200 | Signed in (personal home, account requests, notifications) |
+| token | 401 (`SESSION_EXPIRED` / `SESSION_INVALID` / `SESSION_REVOKED`) | Local session wiped; back to guest with a notice; the app keeps working |
+| token | no network, timeout (15 s), 5xx, 429 | Public home works; Account tab shows "تعذر التحقق من الجلسة" with **Retry**; token kept; retried automatically when the device comes back online |
+| biometric-protected token | — (no request until unlocked) | Public home; account content stays locked until the customer opens it and unlocks with fingerprint or password |
 
 Only a 401 from the server ends a session. The backend returns **503**
 (`SESSION_CHECK_UNAVAILABLE`), never 401, when it cannot check a session
@@ -116,8 +120,9 @@ active customer is not asked to log in again.
 **Biometric login** (Account → الأمان والدخول بالبصمة) is optional and
 off by default. Enabling it re-encrypts the stored token with a second
 Keystore key that requires a strong biometric for every use and is
-invalidated by Android when fingerprints change. At launch the system
-fingerprint prompt decrypts the token (BiometricPrompt + CryptoObject, via
+invalidated by Android when fingerprints change. When the customer opens
+account content (not at launch), the system fingerprint prompt decrypts the
+token (BiometricPrompt + CryptoObject, via
 AndroidX Biometric); the server check above still runs afterwards, so a
 fingerprint never revives a revoked session. If the fingerprints change, the
 protected copy is dropped and the customer signs in with their password
@@ -132,22 +137,23 @@ the biometric key, the tracking session and memory. A password change ends
 every other session and gives this device a fresh token; a password reset
 ends all sessions.
 
-A second, independent session (`js/tracking.js`) covers price-approval and
-payment-receipt actions, which live under the backend's separate phone-OTP
-`/api/tracking/*` routes. The UI only asks for this once per device, inline,
-the first time a customer uses one of those actions.
+A second, independent session (`js/tracking.js`) is the phone-OTP tracking
+session (`/api/tracking/*`): it is how guests see their requests (طلباتي
+without an account) and how price-approval / payment-receipt actions are
+authorised. It only ever reaches requests of the public organization, and
+it never carries the account token.
 
 In a plain browser (developing `www/` without Android) there is no Keystore:
 tokens go to sessionStorage and biometrics show as unavailable.
 
-## Customer experience (onboarding, welcome, home, About)
+## Customer experience (onboarding, home, About)
 
 - **Onboarding** (`js/screens/onboarding.js`): three slides shown once, on the
   first launch with no stored session. Native swipe (CSS scroll-snap, RTL),
   Skip / Next / ابدأ الآن, page dots, keyboard arrows. Completion is a plain
   preference (`nasaem.onboarding.v1`), separate from authentication; a stored
-  session always goes straight to the session / biometric flow
-  (`js/experience-core.js` `launchRoute`). Replay: Account → عرض الجولة التعريفية.
+  session skips it and opens the public home, with the account verified or
+  kept locked in the background (`js/experience-core.js` `launchRoute`). Replay: Account → عرض الجولة التعريفية.
 - **About Us** (`js/screens/about.js`): agency identity and contacts from
   `js/agency.js` — the agency's published details (same as the web site's
   `site-config.ts`); phone, e-mail, address and WhatsApp can be changed from
