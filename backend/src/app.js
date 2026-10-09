@@ -26,8 +26,11 @@ import { trustProxyHops } from "./utils/trustProxy.js";
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// backend/src/app.js -> repo root/frontend
-const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
+// The staff back-office (login, dashboard, request intake): plain HTML/JS
+// that calls this API same-origin (/api, cookie session). It lives inside
+// backend/ so it ships in the same image as the API — Railway builds from
+// backend/ only, so a folder at the repo root was never deployed.
+const STAFF_FRONTEND_DIR = path.join(__dirname, "..", "public");
 
 const app = express();
 
@@ -57,9 +60,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
-// Static frontend pages (login/request/dashboard) are served same-origin so
-// the cookie-based auth session works without any CORS configuration.
-app.use(express.static(FRONTEND_DIR));
+// Static back-office pages are served same-origin so the cookie-based auth
+// session works without any CORS configuration. They are public shells:
+// every piece of data they show comes from /api routes that enforce
+// requireAuth/requireRole. Only files inside public/ are reachable; dotfiles
+// are refused and there is no directory listing or index page.
+app.use(express.static(STAFF_FRONTEND_DIR, { dotfiles: "deny", index: false, redirect: false }));
 
 app.get("/", (req, res) => {
   res.json({

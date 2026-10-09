@@ -1,5 +1,5 @@
 // This copy of api.js is served by the Vercel-hosted marketing site
-// (web/), which has no backend of its own — unlike frontend/assets/api.js,
+// (web/), which has no backend of its own — unlike backend/public/assets/api.js,
 // which the Express backend serves same-origin alongside its own API (see
 // backend/src/app.js's static-serving comment), a relative "/api" here
 // resolves against Vercel itself and 404s. There's no build-time env
