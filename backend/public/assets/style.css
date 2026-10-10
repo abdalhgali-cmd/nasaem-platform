@@ -599,3 +599,33 @@ tbody tr:hover {
   margin: 2px 0 0;
   font-weight: 600;
 }
+
+.card.inset {
+  background: var(--color-bg);
+  box-shadow: none;
+  margin-top: 12px;
+}
+
+.card h4 {
+  margin: 0 0 10px;
+}
+
+label.checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--color-text);
+  margin: 6px 0 10px;
+}
+
+label.checkbox input {
+  width: auto;
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+.money-grid dd {
+  font-variant-numeric: tabular-nums;
+}

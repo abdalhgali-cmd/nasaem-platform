@@ -12,7 +12,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "finance:diagnose": "node src/scripts/financial-diagnostics.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

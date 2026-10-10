@@ -21,7 +21,9 @@ export async function getDashboardStats(organizationId) {
   ]);
   const [salesByCurrency, paidByCurrency, serviceSales, latestOrders] = await Promise.all([
     prisma.order.groupBy({ by: ["currency"], where: orgWhere, _sum: { totalAmount: true }, _count: { _all: true } }),
-    prisma.payment.groupBy({ by: ["currency", "status"], where: { status: { not: "REFUNDED" }, ...orderOrgWhere }, _sum: { amount: true }, _count: { _all: true } }),
+    // Confirmed money in, per currency (refunds and pending reviews excluded;
+    // refundsByCurrency below is the money returned).
+    prisma.payment.groupBy({ by: ["currency", "status"], where: { status: "PAID", kind: "PAYMENT", ...orderOrgWhere }, _sum: { amount: true }, _count: { _all: true } }),
     prisma.orderItem.groupBy({ by: ["serviceId"], where: orderOrgWhere, _sum: { total: true }, _count: { _all: true } }),
     prisma.order.findMany({ where: orgWhere, orderBy: { createdAt: "desc" }, take: 5, include: { customer: { select: safeCustomerSelect } } }),
   ]);
@@ -89,10 +91,24 @@ export async function getDashboardSummary(organizationId) {
         // review (status stays UNPAID until confirmed, see
         // payments.service.js) must not inflate "paid" before staff have
         // actually confirmed it, same fix as recalculateOrderPaymentStatus.
-        prisma.payment.aggregate({ where: { createdAt: { gte: startToday }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startWeek }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startMonth }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
+        // Grouped by currency: amounts in different currencies are never
+        // added together. Refunds (kind REFUND) are not money collected.
+        prisma.payment.groupBy({ by: ["currency"], where: { createdAt: { gte: startToday }, status: "PAID", kind: "PAYMENT", ...orderOrgFilter }, _sum: { amount: true } }),
+        prisma.payment.groupBy({ by: ["currency"], where: { createdAt: { gte: startWeek }, status: "PAID", kind: "PAYMENT", ...orderOrgFilter }, _sum: { amount: true } }),
+        prisma.payment.groupBy({ by: ["currency"], where: { createdAt: { gte: startMonth }, status: "PAID", kind: "PAYMENT", ...orderOrgFilter }, _sum: { amount: true } }),
     prisma.contactRequest.count({ where: { status: { not: "CLOSED" }, ...orgFilter } }),
   ]);
-  return { periods: { today: { orders: todayOrders, paid: todayPayments._sum.amount || 0 }, last7Days: { orders: weekOrders, paid: weekPayments._sum.amount || 0 }, month: { orders: monthOrders, paid: monthPayments._sum.amount || 0 } }, openContactRequests: openRequests, profit: null, profitNote: "لا يتم احتساب الربح حتى تتوفر تكلفة المورد الفعلية للطلب." };
+  // `paid` stays a single number only when one currency is involved (its
+  // currency in `paidCurrency`); with several it is null and `paidByCurrency`
+  // carries the amounts.
+  const period = (orders, groups) => {
+    const paidByCurrency = groups.map((g) => ({ currency: g.currency, amount: g._sum.amount || 0 }));
+    return {
+      orders,
+      paid: paidByCurrency.length > 1 ? null : paidByCurrency[0]?.amount || 0,
+      paidCurrency: paidByCurrency.length === 1 ? paidByCurrency[0].currency : null,
+      paidByCurrency,
+    };
+  };
+  return { periods: { today: period(todayOrders, todayPayments), last7Days: period(weekOrders, weekPayments), month: period(monthOrders, monthPayments) }, openContactRequests: openRequests, profit: null, profitNote: "لا يتم احتساب الربح حتى تتوفر تكلفة المورد الفعلية للطلب." };
 }

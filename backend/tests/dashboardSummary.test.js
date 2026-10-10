@@ -27,15 +27,17 @@ describe("dashboard summary and operations", () => {
     const serviceRes = await agent.post("/api/services").send({ code: "SUMREG-" + suffix, name: "Summary regression service", category: "test", basePrice: 100 });
     const orderRes = await agent.post("/api/orders").send({ customerId: customerRes.body.data.id, items: [{ serviceId: serviceRes.body.data.id, quantity: 1, unitPrice: 100 }] });
 
-    const before = Number((await getDashboardSummary()).periods.today.paid);
+    // Amounts are reported per currency (never summed across currencies).
+    const paidSar = (summary) => Number(summary.periods.today.paidByCurrency.find((row) => row.currency === "SAR")?.amount || 0);
+    const before = paidSar(await getDashboardSummary());
 
     await agent.post("/api/payments").send({ orderId: orderRes.body.data.id, amount: 100, paymentMethod: "bank_transfer", pendingReview: true });
-    const withPending = Number((await getDashboardSummary()).periods.today.paid);
+    const withPending = paidSar(await getDashboardSummary());
     assert.equal(withPending, before, "a pending-review payment must not count as paid yet");
 
     const paymentsRes = await agent.get(`/api/payments?orderId=${orderRes.body.data.id}`);
     await agent.post(`/api/payments/${paymentsRes.body.data[0].id}/confirm`);
-    const afterConfirm = Number((await getDashboardSummary()).periods.today.paid);
+    const afterConfirm = paidSar(await getDashboardSummary());
     assert.equal(afterConfirm, before + 100, "a confirmed payment must count as paid");
   });
 
