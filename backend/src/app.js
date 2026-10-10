@@ -12,6 +12,7 @@ import rateLimit from "express-rate-limit";
 import apiRouter from "./routes/index.js";
 import notFoundMiddleware from "./middleware/notFound.middleware.js";
 import errorMiddleware from "./middleware/error.middleware.js";
+import { createCsrfProtection } from "./middleware/csrf.middleware.js";
 import { trustProxyHops } from "./utils/trustProxy.js";
 
 // Must run before the cors() call below reads process.env.CORS_ORIGIN.
@@ -78,6 +79,10 @@ app.get("/", (req, res) => {
 
 const configuredApiRateLimit = Number.parseInt(process.env.API_RATE_LIMIT || "200", 10);
 const apiRateLimit = Number.isFinite(configuredApiRateLimit) && configuredApiRateLimit > 0 ? configuredApiRateLimit : 200;
+
+// Cookie-authenticated writes must come from a trusted page; see
+// middleware/csrf.middleware.js for the exact policy.
+app.use("/api", createCsrfProtection());
 
 app.use(
   "/api",

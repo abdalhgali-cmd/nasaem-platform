@@ -36,8 +36,14 @@ export default function errorMiddleware(err, req, res, next) {
   const message = prismaDescription?.message ||
     (isProduction && statusCode >= 500 ? "حدث خطأ داخلي. حاول مرة أخرى لاحقًا." : err.message || "Internal server error");
 
+  // Application errors may carry a stable machine-readable code (e.g.
+  // LAST_SUPER_ADMIN) so the back-office can react without parsing text.
+  // Prisma's own codes (P2002...) are internal and never forwarded.
+  const code = !prismaDescription && typeof err.code === "string" && !/^P\d{4}$/.test(err.code) && statusCode < 500 ? err.code : undefined;
+
   res.status(statusCode).json({
     success: false,
     message,
+    ...(code ? { code } : {}),
   });
 }

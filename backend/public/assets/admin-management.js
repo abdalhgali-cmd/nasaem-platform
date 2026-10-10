@@ -263,11 +263,11 @@ async function loadBranches() {
       .map(
         (b) => `
         <tr>
-          <td>${b.code}</td>
-          <td>${b.name}</td>
-          <td>${b.phone || "-"}</td>
+          <td>${escapeHtml(b.code)}</td>
+          <td>${escapeHtml(b.name)}</td>
+          <td>${escapeHtml(b.phone || "-")}</td>
           <td>${b.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
-          <td>${mgmtCanWrite("branches") ? `<button type="button" class="btn secondary" data-toggle-branch="${b.id}" data-active="${b.active}">${b.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>${mgmtCanWrite("branches") ? `<button type="button" class="btn secondary" data-toggle-branch="${escapeHtml(b.id)}" data-active="${escapeHtml(b.active)}">${b.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
         </tr>`
       )
       .join("");
@@ -312,11 +312,11 @@ async function loadSuppliers() {
       .map(
         (s) => `
         <tr>
-          <td>${s.code}</td>
-          <td>${s.name}</td>
-          <td>${s.type}</td>
+          <td>${escapeHtml(s.code)}</td>
+          <td>${escapeHtml(s.name)}</td>
+          <td>${escapeHtml(s.type)}</td>
           <td>${s.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
-          <td>${mgmtCanWrite("suppliers") ? `<button type="button" class="btn secondary" data-toggle-supplier="${s.id}" data-active="${s.active}">${s.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>${mgmtCanWrite("suppliers") ? `<button type="button" class="btn secondary" data-toggle-supplier="${escapeHtml(s.id)}" data-active="${escapeHtml(s.active)}">${s.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
         </tr>`
       )
       .join("");
@@ -363,14 +363,14 @@ async function loadServices() {
       .map(
         (sv) => `
         <tr>
-          <td>${sv.code}</td>
-          <td>${sv.name}</td>
-          <td>${sv.category}</td>
+          <td>${escapeHtml(sv.code)}</td>
+          <td>${escapeHtml(sv.name)}</td>
+          <td>${escapeHtml(sv.category)}</td>
           <td>${formatMoney(sv.basePrice, sv.currency)}</td>
           <td>${sv.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
           <td>
-            <button type="button" class="btn secondary" data-manage-service="${sv.id}" data-name="${escapeHtml(sv.name)}">تعديل / تفاصيل</button>
-            ${mgmtCanWrite("services") ? `<button type="button" class="btn secondary" data-toggle-service="${sv.id}" data-active="${sv.active}">${sv.active ? "تعطيل" : "تفعيل"}</button>` : ""}
+            <button type="button" class="btn secondary" data-manage-service="${escapeHtml(sv.id)}" data-name="${escapeHtml(sv.name)}">تعديل / تفاصيل</button>
+            ${mgmtCanWrite("services") ? `<button type="button" class="btn secondary" data-toggle-service="${escapeHtml(sv.id)}" data-active="${escapeHtml(sv.active)}">${sv.active ? "تعطيل" : "تفعيل"}</button>` : ""}
           </td>
         </tr>`
       )
@@ -453,7 +453,7 @@ function openServiceDetails(serviceId, serviceName) {
   currentServiceDetailsId = serviceId;
   el("service-details-title").textContent = serviceName || "";
   el("sv-icon").innerHTML =
-    '<option value="">بدون أيقونة</option>' + SERVICE_ICON_KEYS.map((key) => `<option value="${key}">${key}</option>`).join("");
+    '<option value="">بدون أيقونة</option>' + SERVICE_ICON_KEYS.map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`).join("");
   const canWrite = mgmtCanWrite("services");
   ["sv-edit-name", "sv-edit-category", "sv-edit-basePrice", "sv-edit-currency", "sv-icon", "sv-image", "sv-features", "service-details-save-btn", "sv-move-up-btn", "sv-move-down-btn"].forEach((id) => {
     el(id).disabled = !canWrite;
@@ -479,7 +479,7 @@ async function loadServiceDetails() {
     el("sv-icon").value = data.iconKey || "";
     el("sv-features").value = (data.features || []).join("\n");
     el("service-details-image-preview").innerHTML = data.imageKey
-      ? `<img src="/api/site-assets/${data.imageKey}/file?v=${Date.now()}" alt="" style="max-height: 80px; border-radius: 6px" />`
+      ? `<img src="/api/site-assets/${escapeHtml(data.imageKey)}/file?v=${Date.now()}" alt="" style="max-height: 80px; border-radius: 6px" />`
       : "لا توجد صورة مرفوعة بعد.";
   } catch (error) {
     showAlert(mgmtAlert(), error.message);
@@ -525,7 +525,7 @@ function handleServiceImageChange(e) {
   showAlert(mgmtAlert(), "");
 
   api
-    .upload(`/services/${currentServiceDetailsId}/image`, formData)
+    .upload(`/services/${encodeURIComponent(currentServiceDetailsId)}/image`, formData)
     .then(loadServiceDetails)
     .catch((error) => showAlert(mgmtAlert(), error.message));
 }
@@ -562,11 +562,11 @@ async function loadOffers() {
       .map(
         (o) => `
         <tr>
-          <td>${o.title}</td>
+          <td>${escapeHtml(o.title)}</td>
           <td>${formatMoney(o.price, o.currency)}</td>
           <td>${statusBadge(o.status)}</td>
           <td>${mgmtCanWrite("offers") ? `
-            <select data-offer-status="${o.id}">
+            <select data-offer-status="${escapeHtml(o.id)}">
               <option value="DRAFT" ${o.status === "DRAFT" ? "selected" : ""}>مسودة</option>
               <option value="ACTIVE" ${o.status === "ACTIVE" ? "selected" : ""}>نشط</option>
               <option value="ARCHIVED" ${o.status === "ARCHIVED" ? "selected" : ""}>مؤرشف</option>
@@ -620,16 +620,16 @@ async function populateCouponScopeDropdowns() {
       api.get("/visa-types?limit=100"),
     ]);
     el("cp-serviceId").innerHTML =
-      '<option value="">كل الخدمات</option>' + services.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("");
+      '<option value="">كل الخدمات</option>' + services.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join("");
     el("cp-visaTypeId").innerHTML =
-      '<option value="">كل الفئات</option>' + visaTypes.map((v) => `<option value="${v.id}">${escapeHtml(v.name)} — ${escapeHtml(v.country)}</option>`).join("");
+      '<option value="">كل الفئات</option>' + visaTypes.map((v) => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.name)} — ${escapeHtml(v.country)}</option>`).join("");
   } catch (error) {
     // Non-fatal: the create form still works with "all services/types".
   }
 }
 
 function couponDiscountLabel(coupon) {
-  return `${Number(coupon.discountValue)}${COUPON_DISCOUNT_LABELS[coupon.discountType]}`;
+  return `${escapeHtml(Number(coupon.discountValue))}${COUPON_DISCOUNT_LABELS[coupon.discountType]}`;
 }
 
 async function loadCoupons() {
@@ -639,7 +639,7 @@ async function loadCoupons() {
     const canWrite = mgmtCanWrite("coupons");
     el("coupons-body").innerHTML = data
       .map((cp) => {
-        const usageLimitLabel = cp.usageLimit ? `${cp._count.usages}/${cp.usageLimit}` : `${cp._count.usages}/∞`;
+        const usageLimitLabel = cp.usageLimit ? `${escapeHtml(cp._count.usages)}/${escapeHtml(cp.usageLimit)}` : `${escapeHtml(cp._count.usages)}/∞`;
         const statusBadgeHtml = cp.archived
           ? '<span class="badge status-CANCELLED">مؤرشف</span>'
           : cp.active
@@ -652,13 +652,13 @@ async function loadCoupons() {
           <td>${formatDate(cp.expiryDate)}</td>
           <td>${usageLimitLabel}</td>
           <td>${cp.service ? escapeHtml(cp.service.name) : "الكل"}</td>
-          <td>${statusBadgeHtml}</td>
+          <td>${escapeHtml(statusBadgeHtml)}</td>
           <td>
-            <button type="button" class="btn secondary" data-coupon-usages="${cp.id}">سجل الاستخدام</button>
+            <button type="button" class="btn secondary" data-coupon-usages="${escapeHtml(cp.id)}">سجل الاستخدام</button>
             ${
               canWrite && !cp.archived
-                ? `<button type="button" class="btn secondary" data-toggle-coupon="${cp.id}" data-active="${cp.active}">${cp.active ? "تعطيل" : "تفعيل"}</button>
-                   <button type="button" class="btn secondary" data-archive-coupon="${cp.id}">أرشفة</button>`
+                ? `<button type="button" class="btn secondary" data-toggle-coupon="${escapeHtml(cp.id)}" data-active="${escapeHtml(cp.active)}">${cp.active ? "تعطيل" : "تفعيل"}</button>
+                   <button type="button" class="btn secondary" data-archive-coupon="${escapeHtml(cp.id)}">أرشفة</button>`
                 : ""
             }
           </td>
@@ -775,12 +775,12 @@ async function loadUsers() {
       .map(
         (u) => `
         <tr>
-          <td>${u.employeeNo}</td>
-          <td>${u.fullName}</td>
-          <td>${u.email}</td>
-          <td>${ROLE_LABELS_AR[u.role] || u.role}</td>
+          <td>${escapeHtml(u.employeeNo)}</td>
+          <td>${escapeHtml(u.fullName)}</td>
+          <td>${escapeHtml(u.email)}</td>
+          <td>${escapeHtml(ROLE_LABELS_AR[u.role] || u.role)}</td>
           <td>${statusBadge(u.status)}</td>
-          <td>${canToggleUserStatus() && u.id !== currentUser.id ? `<button type="button" class="btn secondary" data-toggle-user="${u.id}" data-status="${u.status}">${u.status === "ACTIVE" ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>${canToggleUserStatus() && u.id !== currentUser.id ? `<button type="button" class="btn secondary" data-toggle-user="${escapeHtml(u.id)}" data-status="${escapeHtml(u.status)}">${u.status === "ACTIVE" ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
         </tr>`
       )
       .join("");
@@ -824,7 +824,7 @@ async function loadSettings() {
     const { data } = await api.get("/settings");
     el("settings-body").innerHTML = data
       .map(
-        (s) => `<tr><td>${s.key}</td><td>${s.value}</td><td>${formatDate(s.updatedAt)}</td></tr>`
+        (s) => `<tr><td>${escapeHtml(s.key)}</td><td>${escapeHtml(s.value)}</td><td>${formatDate(s.updatedAt)}</td></tr>`
       )
       .join("");
   } catch (error) {
@@ -859,9 +859,9 @@ async function loadActivityLogs() {
       .map(
         (log) => `
         <tr>
-          <td>${log.user ? log.user.fullName : "-"}</td>
-          <td>${ACTIVITY_ACTION_LABELS_AR[log.action] || log.action}</td>
-          <td>${log.entity}${log.entityId ? " #" + log.entityId.slice(-6) : ""}</td>
+          <td>${escapeHtml(log.user ? log.user.fullName : "-")}</td>
+          <td>${escapeHtml(ACTIVITY_ACTION_LABELS_AR[log.action] || log.action)}</td>
+          <td>${escapeHtml(log.entity)}${log.entityId ? " #" + escapeHtml(log.entityId.slice(-6)) : ""}</td>
           <td>${formatDate(log.createdAt)}</td>
         </tr>`
       )
@@ -895,10 +895,10 @@ function invoiceCellHtml(req) {
     <div class="stack" style="margin-top: 6px; gap: 6px">
       <input
         type="number" min="0" step="0.01" placeholder="المبلغ (ر.س)" style="width: 100px"
-        data-invoice-amount-input="${req.id}"
-        value="${req.invoice ? req.invoice.amount : ""}"
+        data-invoice-amount-input="${escapeHtml(req.id)}"
+        value="${req.invoice ? escapeHtml(req.invoice.amount) : ""}"
       />
-      <button type="button" class="btn secondary" data-set-invoice="${req.id}">
+      <button type="button" class="btn secondary" data-set-invoice="${escapeHtml(req.id)}">
         ${req.invoice ? "تحديث السعر" : "تحديد السعر"}
       </button>
     </div>`;
@@ -907,12 +907,12 @@ function invoiceCellHtml(req) {
 function offerAddFormHtml(req) {
   return `
     <div class="stack" style="margin-top: 6px; gap: 4px">
-      <input type="text" placeholder="الناقل" style="width: 80px" data-offer-carrier-input="${req.id}" />
+      <input type="text" placeholder="الناقل" style="width: 80px" data-offer-carrier-input="${escapeHtml(req.id)}" />
       <input
         type="number" min="0" step="0.01" placeholder="المبلغ" style="width: 80px"
-        data-offer-amount-input="${req.id}"
+        data-offer-amount-input="${escapeHtml(req.id)}"
       />
-      <button type="button" class="btn secondary" data-add-offer="${req.id}">إضافة عرض</button>
+      <button type="button" class="btn secondary" data-add-offer="${escapeHtml(req.id)}">إضافة عرض</button>
     </div>`;
 }
 
@@ -957,7 +957,7 @@ function paymentCellHtml(req) {
     return badge;
   }
 
-  return `${badge}<div style="margin-top: 6px"><button type="button" class="btn secondary" data-confirm-payment="${req.id}">تأكيد الدفع</button></div>`;
+  return `${badge}<div style="margin-top: 6px"><button type="button" class="btn secondary" data-confirm-payment="${escapeHtml(req.id)}">تأكيد الدفع</button></div>`;
 }
 
 // label/reviewNote both come from free text (customer-entered label, staff-
@@ -971,20 +971,20 @@ function customerDocumentsHtml(req) {
 
   return req.documents
     .map((doc) => {
-      const fileUrl = `/api/contact-requests/${req.id}/documents/${doc.id}/file`;
+      const fileUrl = `/api/contact-requests/${encodeURIComponent(req.id)}/documents/${encodeURIComponent(doc.id)}/file`;
       const reviewControls =
         canReview && doc.status === "PENDING"
           ? `
         <div class="stack" style="margin-top: 4px; gap: 4px">
-          <button type="button" class="btn secondary" data-accept-document="${doc.id}" data-request-id="${req.id}">قبول</button>
-          <input type="text" placeholder="سبب الرفض" style="width: 110px" data-reject-note-input="${doc.id}" />
-          <button type="button" class="btn secondary" data-reject-document="${doc.id}" data-request-id="${req.id}">رفض</button>
+          <button type="button" class="btn secondary" data-accept-document="${escapeHtml(doc.id)}" data-request-id="${escapeHtml(req.id)}">قبول</button>
+          <input type="text" placeholder="سبب الرفض" style="width: 110px" data-reject-note-input="${escapeHtml(doc.id)}" />
+          <button type="button" class="btn secondary" data-reject-document="${escapeHtml(doc.id)}" data-request-id="${escapeHtml(req.id)}">رفض</button>
         </div>`
           : "";
 
       return `
         <div style="margin-bottom: 8px">
-          <a href="${fileUrl}" target="_blank" rel="noopener">${escapeHtml(doc.label)}</a>
+          <a href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener">${escapeHtml(doc.label)}</a>
           ${statusBadge(doc.status)}
           ${doc.reviewNote ? `<div class="muted" style="font-size: 0.75rem">${escapeHtml(doc.reviewNote)}</div>` : ""}
           ${reviewControls}
@@ -999,17 +999,17 @@ function customerDocumentsHtml(req) {
 function deliverablesHtml(req) {
   const items = (req.deliverables || [])
     .map((d) => {
-      const fileUrl = `/api/contact-requests/${req.id}/deliverables/${d.id}/file`;
-      return `<div style="margin-bottom: 4px"><a href="${fileUrl}" target="_blank" rel="noopener">${escapeHtml(d.label)}</a></div>`;
+      const fileUrl = `/api/contact-requests/${encodeURIComponent(req.id)}/deliverables/${encodeURIComponent(d.id)}/file`;
+      return `<div style="margin-bottom: 4px"><a href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener">${escapeHtml(d.label)}</a></div>`;
     })
     .join("");
 
   const addForm = canManageInvoice()
     ? `
     <div class="stack" style="margin-top: 4px; gap: 4px">
-      <input type="text" placeholder="اسم الملف" style="width: 90px" data-deliverable-label-input="${req.id}" />
-      <input type="file" style="width: 120px" data-deliverable-file-input="${req.id}" />
-      <button type="button" class="btn secondary" data-upload-deliverable="${req.id}">رفع</button>
+      <input type="text" placeholder="اسم الملف" style="width: 90px" data-deliverable-label-input="${escapeHtml(req.id)}" />
+      <input type="file" style="width: 120px" data-deliverable-file-input="${escapeHtml(req.id)}" />
+      <button type="button" class="btn secondary" data-upload-deliverable="${escapeHtml(req.id)}">رفع</button>
     </div>`
     : "";
 
@@ -1035,7 +1035,7 @@ function serviceCellHtml(req) {
   }
 
   if (req.travelerCount) {
-    parts.push(`<div class="muted" style="font-size: 0.75rem">عدد المسافرين: ${req.travelerCount}</div>`);
+    parts.push(`<div class="muted" style="font-size: 0.75rem">عدد المسافرين: ${escapeHtml(req.travelerCount)}</div>`);
   }
 
   if (req.intakeData && Object.keys(req.intakeData).length > 0) {
@@ -1058,11 +1058,11 @@ function documentsCellHtml(req) {
 
 function statusCellHtml(req) {
   const selectHtml = `
-    <select data-contact-request-status="${req.id}">
+    <select data-contact-request-status="${escapeHtml(req.id)}">
       ${Object.entries(CONTACT_REQUEST_STATUS_LABELS_AR)
         .map(
           ([value, label]) =>
-            `<option value="${value}" ${value === req.status ? "selected" : ""}>${label}</option>`
+            `<option value="${escapeHtml(value)}" ${value === req.status ? "selected" : ""}>${escapeHtml(label)}</option>`
         )
         .join("")}
     </select>`;
@@ -1076,7 +1076,7 @@ function statusCellHtml(req) {
     <div style="margin-top: 4px">
       ${statusBadge(req.outcome)}
       ${req.outcomeNote ? `<div class="muted" style="font-size: 0.75rem">${escapeHtml(req.outcomeNote)}</div>` : ""}
-      <button type="button" class="btn secondary" data-edit-close-outcome="${req.id}" style="margin-top: 4px">تعديل النتيجة</button>
+      <button type="button" class="btn secondary" data-edit-close-outcome="${escapeHtml(req.id)}" style="margin-top: 4px">تعديل النتيجة</button>
     </div>`;
 }
 
@@ -1094,13 +1094,13 @@ function showCloseOutcomeForm(select) {
   wrapper.style.marginTop = "6px";
   wrapper.style.gap = "6px";
   wrapper.innerHTML = `
-    <select data-close-outcome-select="${id}">
+    <select data-close-outcome-select="${escapeHtml(id)}">
       ${CONTACT_REQUEST_OUTCOMES.map(
-        (value) => `<option value="${value}">${STATUS_LABELS_AR[value] || value}</option>`
+        (value) => `<option value="${escapeHtml(value)}">${escapeHtml(STATUS_LABELS_AR[value] || value)}</option>`
       ).join("")}
     </select>
-    <input type="text" placeholder="ملاحظة (اختياري)" style="width: 120px" data-close-outcome-note="${id}" />
-    <button type="button" class="btn secondary" data-confirm-close="${id}">تأكيد الإغلاق</button>
+    <input type="text" placeholder="ملاحظة (اختياري)" style="width: 120px" data-close-outcome-note="${escapeHtml(id)}" />
+    <button type="button" class="btn secondary" data-confirm-close="${escapeHtml(id)}">تأكيد الإغلاق</button>
   `;
   select.insertAdjacentElement("afterend", wrapper);
 }
@@ -1180,7 +1180,7 @@ function handleContactRequestActionClick(e) {
       ?.value.trim();
 
     api
-      .patch(`/contact-requests/${id}/status`, {
+      .patch(`/contact-requests/${encodeURIComponent(id)}/status`, {
         status: "CLOSED",
         outcome,
         ...(outcomeNote ? { outcomeNote } : {}),
@@ -1202,7 +1202,7 @@ function handleContactRequestActionClick(e) {
     }
 
     api
-      .post(`/contact-requests/${id}/invoice`, { amount, currency: "SAR" })
+      .post(`/contact-requests/${encodeURIComponent(id)}/invoice`, { amount, currency: "SAR" })
       .then(loadContactRequests)
       .catch((error) => showAlert(mgmtAlert(), error.message));
     return;
@@ -1224,7 +1224,7 @@ function handleContactRequestActionClick(e) {
     }
 
     api
-      .post(`/contact-requests/${id}/offers`, { carrier, amount, currency: "SAR" })
+      .post(`/contact-requests/${encodeURIComponent(id)}/offers`, { carrier, amount, currency: "SAR" })
       .then(loadContactRequests)
       .catch((error) => showAlert(mgmtAlert(), error.message));
     return;
@@ -1291,7 +1291,7 @@ function handleContactRequestActionClick(e) {
     formData.append("file", file);
 
     api
-      .upload(`/contact-requests/${id}/deliverables`, formData)
+      .upload(`/contact-requests/${encodeURIComponent(id)}/deliverables`, formData)
       .then(loadContactRequests)
       .catch((error) => showAlert(mgmtAlert(), error.message));
   }
@@ -1324,22 +1324,22 @@ async function loadSiteAssets() {
       .map(([key, label]) => {
         const asset = byKey[key];
         const previewSrc = asset
-          ? `/api/site-assets/${key}/file?v=${new Date(asset.updatedAt).getTime()}`
+          ? `/api/site-assets/${encodeURIComponent(key)}/file?v=${new Date(asset.updatedAt).getTime()}`
           : "";
 
         return `
           <div class="card" style="text-align: center">
-            <div style="font-weight: 700; margin-bottom: 10px">${label}</div>
+            <div style="font-weight: 700; margin-bottom: 10px">${escapeHtml(label)}</div>
             <div style="height: 84px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; background: #f5f7fa; border-radius: 10px; overflow: hidden">
               ${
                 previewSrc
-                  ? `<img src="${previewSrc}" alt="" style="max-height: 72px; max-width: 100%; object-fit: contain" />`
+                  ? `<img src="${escapeHtml(previewSrc)}" alt="" style="max-height: 72px; max-width: 100%; object-fit: contain" />`
                   : `<span class="muted" style="font-size: 12px">لم يتم الرفع بعد</span>`
               }
             </div>
             ${
               canWrite
-                ? `<input type="file" accept="image/png,image/jpeg,image/webp" data-site-asset-key="${key}" />`
+                ? `<input type="file" accept="image/png,image/jpeg,image/webp" data-site-asset-key="${escapeHtml(key)}" />`
                 : `<span class="muted" style="font-size: 12px">لا تملك صلاحية التعديل</span>`
             }
             ${asset ? `<div class="muted" style="font-size: 11px; margin-top: 8px">آخر تحديث: ${formatDate(asset.updatedAt)}</div>` : ""}
@@ -1363,7 +1363,7 @@ function handleSiteAssetFileChange(e) {
   input.disabled = true;
 
   api
-    .upload(`/site-assets/${key}`, formData)
+    .upload(`/site-assets/${encodeURIComponent(key)}`, formData)
     .then(loadSiteAssets)
     .catch((error) => {
       showAlert(mgmtAlert(), error.message);
@@ -1415,7 +1415,7 @@ async function createUmrahGroup() {
 }
 
 function readinessBadge(ok, label) {
-  return `<span class="badge ${ok ? "status-ACTIVE" : "status-INACTIVE"}">${label}: ${ok ? "جاهز" : "غير جاهز"}</span>`;
+  return `<span class="badge ${ok ? "status-ACTIVE" : "status-INACTIVE"}">${escapeHtml(label)}: ${ok ? "جاهز" : "غير جاهز"}</span>`;
 }
 
 function renderUmrahGroups() {
@@ -1434,21 +1434,21 @@ function renderUmrahGroupCard(group) {
     <div class="card" style="margin-bottom: 14px">
       <div class="stack" style="justify-content: space-between; flex-wrap: wrap">
         <div>
-          <div style="font-weight: 700">${group.name} <span class="muted">(${group.code})</span></div>
+          <div style="font-weight: 700">${escapeHtml(group.name)} <span class="muted">(${escapeHtml(group.code)})</span></div>
           <div class="muted" style="font-size: 12px">
             ${group.travelDate ? `السفر: ${formatDate(group.travelDate)}` : "بلا تاريخ سفر محدد"}
-            ${group.airline ? ` · ${group.airline}` : ""}${group.hotel ? ` · ${group.hotel}` : ""}${group.transport ? ` · ${group.transport}` : ""}
+            ${group.airline ? ` · ${escapeHtml(group.airline)}` : ""}${group.hotel ? ` · ${escapeHtml(group.hotel)}` : ""}${group.transport ? ` · ${escapeHtml(group.transport)}` : ""}
           </div>
         </div>
-        <button type="button" class="btn secondary" data-toggle-group="${group.id}">${expanded ? "إخفاء الأعضاء" : "عرض الأعضاء"}</button>
+        <button type="button" class="btn secondary" data-toggle-group="${escapeHtml(group.id)}">${expanded ? "إخفاء الأعضاء" : "عرض الأعضاء"}</button>
       </div>
       <div class="grid cols-3" style="margin-top: 12px">
-        <div class="muted" style="font-size: 12px">إجمالي الأعضاء: <b>${s.totalMembers}</b></div>
-        <div class="muted" style="font-size: 12px">تأشيرة جاهزة: <b>${s.visaReady}</b></div>
-        <div class="muted" style="font-size: 12px">تذكرة جاهزة: <b>${s.ticketReady}</b></div>
-        <div class="muted" style="font-size: 12px">دفع مكتمل: <b>${s.paymentComplete}</b></div>
-        <div class="muted" style="font-size: 12px">مستندات مكتملة: <b>${s.documentsComplete}</b></div>
-        <div class="muted" style="font-size: 12px">جاهز بالكامل: <b>${s.fullyReady}</b></div>
+        <div class="muted" style="font-size: 12px">إجمالي الأعضاء: <b>${escapeHtml(s.totalMembers)}</b></div>
+        <div class="muted" style="font-size: 12px">تأشيرة جاهزة: <b>${escapeHtml(s.visaReady)}</b></div>
+        <div class="muted" style="font-size: 12px">تذكرة جاهزة: <b>${escapeHtml(s.ticketReady)}</b></div>
+        <div class="muted" style="font-size: 12px">دفع مكتمل: <b>${escapeHtml(s.paymentComplete)}</b></div>
+        <div class="muted" style="font-size: 12px">مستندات مكتملة: <b>${escapeHtml(s.documentsComplete)}</b></div>
+        <div class="muted" style="font-size: 12px">جاهز بالكامل: <b>${escapeHtml(s.fullyReady)}</b></div>
       </div>
       ${expanded ? renderUmrahGroupDetail(group.id) : ""}
     </div>`;
@@ -1471,14 +1471,14 @@ function renderUmrahGroupDetail(groupId) {
                   .map(
                     (m) => `
               <tr>
-                <td>${m.customer.fullName}</td>
-                <td dir="ltr">${m.customer.passportNo}</td>
-                <td>${m.order ? m.order.orderNumber : '<span class="muted">بلا طلب مرتبط</span>'}</td>
+                <td>${escapeHtml(m.customer.fullName)}</td>
+                <td dir="ltr">${escapeHtml(m.customer.passportNo)}</td>
+                <td>${m.order ? escapeHtml(m.order.orderNumber) : '<span class="muted">بلا طلب مرتبط</span>'}</td>
                 <td>${readinessBadge(m.readiness.visaReady, "")}</td>
                 <td>${readinessBadge(m.readiness.ticketReady, "")}</td>
                 <td>${readinessBadge(m.readiness.paymentReady, "")}</td>
                 <td>${readinessBadge(m.readiness.documentsReady, "")}</td>
-                <td>${mgmtCanWrite("umrah-groups") ? `<button type="button" class="btn secondary" data-remove-member="${groupId}:${m.id}">إزالة</button>` : ""}</td>
+                <td>${mgmtCanWrite("umrah-groups") ? `<button type="button" class="btn secondary" data-remove-member="${escapeHtml(groupId)}:${escapeHtml(m.id)}">إزالة</button>` : ""}</td>
               </tr>`
                   )
                   .join("")
@@ -1490,8 +1490,8 @@ function renderUmrahGroupDetail(groupId) {
         mgmtCanWrite("umrah-groups")
           ? `
       <div class="stack" style="margin-top: 14px; flex-wrap: wrap">
-        <input placeholder="رقم جواز العميل" data-lookup-passport="${groupId}" style="max-width: 200px" />
-        <button type="button" class="btn secondary" data-lookup-btn="${groupId}">بحث عن عميل</button>
+        <input placeholder="رقم جواز العميل" data-lookup-passport="${escapeHtml(groupId)}" style="max-width: 200px" />
+        <button type="button" class="btn secondary" data-lookup-btn="${escapeHtml(groupId)}">بحث عن عميل</button>
       </div>
       ${lookup ? renderUmrahLookupResult(groupId, lookup) : ""}
       `
@@ -1504,23 +1504,23 @@ function renderUmrahLookupResult(groupId, lookup) {
   if (lookup === "NOT_FOUND") return '<p class="muted" style="margin-top: 10px">لم يتم العثور على عميل بهذا الجواز.</p>';
 
   const orderOptions = (lookup.orders || [])
-    .map((o) => `<option value="${o.id}">${o.orderNumber} — ${o.items?.[0]?.service?.name || "طلب"}</option>`)
+    .map((o) => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.orderNumber)} — ${escapeHtml(o.items?.[0]?.service?.name || "طلب")}</option>`)
     .join("");
 
   return `
     <div class="card" style="margin-top: 10px; background: #f9fafb">
-      <div style="font-weight: 700">${lookup.fullName}</div>
-      <div class="muted" style="font-size: 12px">رقم الجواز: ${lookup.passportNo}</div>
+      <div style="font-weight: 700">${escapeHtml(lookup.fullName)}</div>
+      <div class="muted" style="font-size: 12px">رقم الجواز: ${escapeHtml(lookup.passportNo)}</div>
       <div class="grid cols-2" style="margin-top: 10px">
         <div class="field">
           <label>ربط بطلب (اختياري)</label>
-          <select data-member-order="${groupId}">
+          <select data-member-order="${escapeHtml(groupId)}">
             <option value="">بدون ربط بطلب</option>
             ${orderOptions}
           </select>
         </div>
       </div>
-      <button type="button" class="btn" style="margin-top: 10px" data-add-member="${groupId}:${lookup.id}">إضافة للفوج</button>
+      <button type="button" class="btn" style="margin-top: 10px" data-add-member="${escapeHtml(groupId)}:${escapeHtml(lookup.id)}">إضافة للفوج</button>
     </div>`;
 }
 
@@ -1651,11 +1651,11 @@ async function loadHomepageSections() {
       .map(
         (s) => `
         <tr>
-          <td>${s.key}</td>
-          <td>${s.title}</td>
-          <td>${s.sortOrder}</td>
+          <td>${escapeHtml(s.key)}</td>
+          <td>${escapeHtml(s.title)}</td>
+          <td>${escapeHtml(s.sortOrder)}</td>
           <td>${s.visible ? '<span class="badge status-ACTIVE">ظاهر</span>' : '<span class="badge status-INACTIVE">مخفي</span>'}</td>
-          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-section="${s.id}" data-visible="${s.visible}">${s.visible ? "إخفاء" : "إظهار"}</button>` : ""}</td>
+          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-section="${escapeHtml(s.id)}" data-visible="${escapeHtml(s.visible)}">${s.visible ? "إخفاء" : "إظهار"}</button>` : ""}</td>
         </tr>`
       )
       .join("");
@@ -1727,15 +1727,15 @@ async function loadVisaTypes() {
       .map(
         (vt) => `
         <tr>
-          <td>${vt.code}</td>
-          <td>${vt.name}</td>
-          <td>${vt.country}</td>
-          <td>${VISA_TYPE_CATEGORY_LABELS[vt.category] || vt.category || "—"}</td>
+          <td>${escapeHtml(vt.code)}</td>
+          <td>${escapeHtml(vt.name)}</td>
+          <td>${escapeHtml(vt.country)}</td>
+          <td>${escapeHtml(VISA_TYPE_CATEGORY_LABELS[vt.category] || vt.category || "—")}</td>
           <td>${formatMoney(vt.basePrice, vt.currency)}</td>
           <td>${vt.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
           <td>
-            <button type="button" class="btn secondary" data-manage-requirements="${vt.id}" data-name="${escapeHtml(vt.name)}">المتطلبات</button>
-            ${canWrite ? `<button type="button" class="btn secondary" data-toggle-visa="${vt.id}" data-active="${vt.active}">${vt.active ? "تعطيل" : "تفعيل"}</button>` : ""}
+            <button type="button" class="btn secondary" data-manage-requirements="${escapeHtml(vt.id)}" data-name="${escapeHtml(vt.name)}">المتطلبات</button>
+            ${canWrite ? `<button type="button" class="btn secondary" data-toggle-visa="${escapeHtml(vt.id)}" data-active="${escapeHtml(vt.active)}">${vt.active ? "تعطيل" : "تفعيل"}</button>` : ""}
           </td>
         </tr>`
       )
@@ -1818,13 +1818,13 @@ async function loadVisaRequirements() {
         <tr>
           <td>${escapeHtml(r.name)}${r.nameEn ? `<div class="muted" style="font-size: 11px">${escapeHtml(r.nameEn)}</div>` : ""}</td>
           <td>${r.attachmentType ? escapeHtml(r.attachmentType) : "—"}</td>
-          <td>${r.maxFiles ?? "—"}</td>
+          <td>${escapeHtml(r.maxFiles ?? "—")}</td>
           <td>${r.required ? "نعم" : "لا"}</td>
           <td>${r.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
           <td>${
             canWrite
-              ? `<button type="button" class="btn secondary" data-toggle-requirement="${r.id}" data-active="${r.active}">${r.active ? "تعطيل" : "تفعيل"}</button>
-                 <button type="button" class="btn secondary" data-delete-requirement="${r.id}">حذف</button>`
+              ? `<button type="button" class="btn secondary" data-toggle-requirement="${escapeHtml(r.id)}" data-active="${escapeHtml(r.active)}">${r.active ? "تعطيل" : "تفعيل"}</button>
+                 <button type="button" class="btn secondary" data-delete-requirement="${escapeHtml(r.id)}">حذف</button>`
               : ""
           }</td>
         </tr>`
@@ -1892,11 +1892,11 @@ async function loadAirlines() {
       .map(
         (a) => `
         <tr>
-          <td>${a.name}</td>
-          <td dir="ltr">${a.iataCode || "-"}</td>
-          <td dir="ltr">${a.icaoCode || "-"}</td>
+          <td>${escapeHtml(a.name)}</td>
+          <td dir="ltr">${escapeHtml(a.iataCode || "-")}</td>
+          <td dir="ltr">${escapeHtml(a.icaoCode || "-")}</td>
           <td>${a.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
-          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-airline="${a.id}" data-active="${a.active}">${a.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-airline="${escapeHtml(a.id)}" data-active="${escapeHtml(a.active)}">${a.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
         </tr>`
       )
       .join("");
@@ -1947,11 +1947,11 @@ async function loadAirports() {
       .map(
         (ap) => `
         <tr>
-          <td>${ap.nameAr}${ap.nameEn ? `<div class="muted" style="font-size: 11px">${ap.nameEn}</div>` : ""}</td>
-          <td>${ap.cityAr}${ap.cityEn ? `<div class="muted" style="font-size: 11px">${ap.cityEn}</div>` : ""}</td>
-          <td>${ap.countryAr}</td>
-          <td dir="ltr">${ap.iataCode || "-"}</td>
-          <td dir="ltr">${ap.icaoCode || "-"}</td>
+          <td>${escapeHtml(ap.nameAr)}${ap.nameEn ? `<div class="muted" style="font-size: 11px">${escapeHtml(ap.nameEn)}</div>` : ""}</td>
+          <td>${escapeHtml(ap.cityAr)}${ap.cityEn ? `<div class="muted" style="font-size: 11px">${escapeHtml(ap.cityEn)}</div>` : ""}</td>
+          <td>${escapeHtml(ap.countryAr)}</td>
+          <td dir="ltr">${escapeHtml(ap.iataCode || "-")}</td>
+          <td dir="ltr">${escapeHtml(ap.icaoCode || "-")}</td>
         </tr>`
       )
       .join("");
@@ -1998,16 +1998,16 @@ async function loadFerryOperators() {
       .map(
         (fo) => `
         <tr>
-          <td>${fo.name}</td>
+          <td>${escapeHtml(fo.name)}</td>
           <td>${fo.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
-          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-ferry-operator="${fo.id}" data-active="${fo.active}">${fo.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-ferry-operator="${escapeHtml(fo.id)}" data-active="${escapeHtml(fo.active)}">${fo.active ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
         </tr>`
       )
       .join("");
 
     // Schedule creation is nested under an operator, so its picker needs
     // the same operator list this panel already loaded.
-    el("fs-operatorId").innerHTML = data.map((fo) => `<option value="${fo.id}">${escapeHtml(fo.name)}</option>`).join("");
+    el("fs-operatorId").innerHTML = data.map((fo) => `<option value="${escapeHtml(fo.id)}">${escapeHtml(fo.name)}</option>`).join("");
   } catch (error) {
     showAlert(mgmtAlert(), error.message);
   }
@@ -2054,8 +2054,8 @@ async function loadFerrySchedules() {
           <td>${fs.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
           <td>${
             canWrite
-              ? `<button type="button" class="btn secondary" data-toggle-ferry-schedule="${fs.id}" data-active="${fs.active}">${fs.active ? "تعطيل" : "تفعيل"}</button>
-                 <button type="button" class="btn secondary" data-delete-ferry-schedule="${fs.id}">حذف</button>`
+              ? `<button type="button" class="btn secondary" data-toggle-ferry-schedule="${escapeHtml(fs.id)}" data-active="${escapeHtml(fs.active)}">${fs.active ? "تعطيل" : "تفعيل"}</button>
+                 <button type="button" class="btn secondary" data-delete-ferry-schedule="${escapeHtml(fs.id)}">حذف</button>`
               : ""
           }</td>
         </tr>`
@@ -2132,10 +2132,10 @@ async function loadFeatureFlags() {
       .map(
         (f) => `
         <tr>
-          <td>${f.key}</td>
-          <td class="muted" style="font-size: 12px">${f.description || "-"}</td>
+          <td>${escapeHtml(f.key)}</td>
+          <td class="muted" style="font-size: 12px">${escapeHtml(f.description || "-")}</td>
           <td>${f.enabled ? '<span class="badge status-ACTIVE">مفعّلة</span>' : '<span class="badge status-INACTIVE">معطّلة</span>'}</td>
-          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-flag="${f.key}" data-enabled="${f.enabled}">${f.enabled ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
+          <td>${canWrite ? `<button type="button" class="btn secondary" data-toggle-flag="${escapeHtml(f.key)}" data-enabled="${escapeHtml(f.enabled)}">${f.enabled ? "تعطيل" : "تفعيل"}</button>` : ""}</td>
         </tr>`
       )
       .join("");

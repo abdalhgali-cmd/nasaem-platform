@@ -165,6 +165,10 @@ main {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+.grid.cols-4 {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
 label {
   display: block;
   font-size: 0.85rem;
@@ -478,4 +482,120 @@ tbody tr:hover {
 
 .hidden {
   display: none !important;
+}
+
+/* Shown by api.js when the session could not be checked (server/network). */
+.connection-problem {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.connection-problem[hidden] {
+  display: none;
+}
+
+.connection-problem .card {
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.plain-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+
+.plain-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.stack.wrap {
+  flex-wrap: wrap;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.filters .field {
+  min-width: 180px;
+  flex: 1 1 180px;
+  margin: 0;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.detail-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.detail-header h2 {
+  margin: 0;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.detail-grid dt {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.detail-grid dd {
+  margin: 2px 0 0;
+  font-weight: 600;
 }

@@ -373,18 +373,21 @@ model ProviderSubmissionDocument {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  employeeNo   String     @unique
-  fullName     String
-  email        String     @unique
-  phone        String?    @unique
-  passwordHash String
-  role         UserRole   @default(EMPLOYEE)
-  status       UserStatus @default(ACTIVE)
-  branchId     String?
-  lastLogin    DateTime?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id             String     @id @default(cuid())
+  employeeNo     String     @unique
+  fullName       String
+  email          String     @unique
+  phone          String?    @unique
+  passwordHash   String
+  role           UserRole   @default(EMPLOYEE)
+  status         UserStatus @default(ACTIVE)
+  branchId       String?
+  lastLogin      DateTime?
+  // Bumped when the account is deactivated or its password changes; staff
+  // tokens carry it as `sv` and stop working once it moves on.
+  sessionVersion Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   organizationId String @default("org_nasaem_default")
 
@@ -408,6 +411,7 @@ model User {
   caseTasksCompleted                 CaseTask[]                  @relation("CaseTaskCompletedBy")
   caseTasksCreated                   CaseTask[]                  @relation("CaseTaskCreatedBy")
   caseNotesAuthored                  CaseNote[]                  @relation("CaseNoteAuthor")
+  revokedTokens                      RevokedStaffToken[]
 
   @@index([role])
   @@index([status])
@@ -460,13 +464,13 @@ model Customer {
 
   organizationId String @default("org_nasaem_default")
 
-  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   orders           Order[]
   contactRequests  ContactRequest[]
   notifications    Notification[]
   documents        Document[]
   umrahGroupMember UmrahGroupMember[]
-  coupons          Coupon[]           @relation("CouponCustomerRestriction")
+  coupons          Coupon[]               @relation("CouponCustomerRestriction")
   couponUsages     CouponUsage[]
   revokedTokens    RevokedCustomerToken[]
 
@@ -894,20 +898,20 @@ model OrderStatusHistory {
 }
 
 model Notification {
-  id         String    @id @default(cuid())
-  title      String
-  message    String
-  type       String
-  userId     String?
-  customerId String?
+  id               String    @id @default(cuid())
+  title            String
+  message          String
+  type             String
+  userId           String?
+  customerId       String?
   orderId          String?
   contactRequestId String?
   readAt           DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  user     User?     @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  user           User?           @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
+  customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
   order          Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
   contactRequest ContactRequest? @relation(fields: [contactRequestId], references: [id], onDelete: SetNull)
 
@@ -1560,4 +1564,19 @@ model CustomerMessageDelivery {
   @@unique([contactRequestId, kind, channel])
   @@index([status])
   @@index([status, nextAttemptAt])
+}
+
+// Staff tokens revoked by logout. Keyed by the token's jti (or a SHA-256 of
+// the token for legacy tokens issued before jti existed). Rows past
+// expiresAt are harmless and can be pruned.
+model RevokedStaffToken {
+  tokenId   String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }

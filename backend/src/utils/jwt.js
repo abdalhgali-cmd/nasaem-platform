@@ -7,8 +7,11 @@ export function signAccessToken(payload) {
     throw new Error("JWT_SECRET is not configured");
   }
 
+  // jwtid makes every issued staff token unique, so logging out one
+  // device revokes exactly that token and not a twin issued the same second.
   return jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+    jwtid: randomUUID(),
   });
 }
 
