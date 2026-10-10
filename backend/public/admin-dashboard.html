@@ -12,32 +12,67 @@
   <main>
     <div id="page-alert"></div>
 
-    <div class="tabs" id="tabs">
-      <button type="button" data-tab="overview" class="active">نظرة عامة</button>
-      <button type="button" data-tab="orders">الطلبات</button>
-      <button type="button" data-tab="customers">العملاء</button>
-      <button type="button" data-tab="payments">الدفعات</button>
-      <button type="button" data-tab="management">الإدارة</button>
-    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="أقسام لوحة التحكم">
+      <button type="button" role="tab" id="tabbtn-overview" data-tab="overview" aria-controls="tab-overview">نظرة عامة</button>
+      <button type="button" role="tab" id="tabbtn-requests" data-tab="requests" aria-controls="tab-requests">طلبات العملاء</button>
+      <button type="button" role="tab" id="tabbtn-orders" data-tab="orders" aria-controls="tab-orders">الطلبات</button>
+      <button type="button" role="tab" id="tabbtn-flights" data-tab="flights" aria-controls="tab-flights">حجوزات الطيران</button>
+      <button type="button" role="tab" id="tabbtn-customers" data-tab="customers" aria-controls="tab-customers">العملاء</button>
+      <button type="button" role="tab" id="tabbtn-payments" data-tab="payments" aria-controls="tab-payments">الدفعات</button>
+      <button type="button" role="tab" id="tabbtn-management" data-tab="management" aria-controls="tab-management">الإدارة</button>
+    </nav>
 
-    <section id="tab-overview">
+    <section id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview" class="hidden">
       <div class="stat-tiles" id="stat-tiles"></div>
       <div class="card">
         <h2>أحدث الطلبات</h2>
-        <table>
-          <thead>
-            <tr><th>رقم الطلب</th><th>العميل</th><th>الحالة</th><th>الإجمالي</th><th>تاريخ الإنشاء</th></tr>
-          </thead>
-          <tbody id="latest-orders-body"></tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th>رقم الطلب</th><th>العميل</th><th>الحالة</th><th>الإجمالي</th><th>تاريخ الإنشاء</th></tr>
+            </thead>
+            <tbody id="latest-orders-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
-    <section id="tab-orders" class="hidden">
+    <section id="tab-requests" role="tabpanel" aria-labelledby="tabbtn-requests" class="hidden">
       <div class="card">
-        <div class="stack" style="justify-content: space-between; margin-bottom: 14px">
+        <h2>طلبات العملاء</h2>
+        <p class="muted small">طلبات الخدمات المرسلة من الموقع والتطبيق (عمرة، تأشيرات، موافقات أمنية...). منفصلة عن "الطلبات" المسجلة داخليًا وعن حجوزات الطيران.</p>
+        <div class="filters">
+          <div class="field"><label for="cr-search">بحث</label><input id="cr-search" type="search" placeholder="المرجع أو الاسم أو الهاتف أو البريد" /></div>
+          <div class="field"><label for="cr-filter-status">الحالة</label>
+            <select id="cr-filter-status"><option value="">كل الحالات</option><option value="NEW">جديد</option><option value="CONTACTED">تم التواصل</option><option value="CLOSED">مغلق</option></select></div>
+          <div class="field"><label for="cr-filter-payment">الدفع</label>
+            <select id="cr-filter-payment"><option value="">الكل</option><option value="NOT_REQUIRED">لا يوجد سعر</option><option value="AWAITING_TRANSFER">بانتظار التحويل</option><option value="UNDER_REVIEW">إشعار دفع للمراجعة</option><option value="CONFIRMED">الدفع مؤكد</option></select></div>
+          <div class="field"><label for="cr-filter-assignee">الإسناد</label>
+            <select id="cr-filter-assignee"><option value="">الكل</option><option value="mine">طلباتي</option><option value="unassigned">غير مُسندة</option></select></div>
+          <div class="field"><label for="cr-filter-category">نوع الخدمة</label>
+            <select id="cr-filter-category"><option value="">كل الخدمات</option></select></div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>المرجع</th><th>العميل</th><th>الخدمة</th><th>الحالة</th><th>الدفع</th><th>المسؤول</th><th>الإجراء التالي</th><th>التاريخ</th></tr></thead>
+            <tbody id="cr-body"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="cr-pagination"></div>
+      </div>
+      <div class="card hidden" id="cr-detail" aria-live="polite"></div>
+    </section>
+
+    <section id="tab-orders" role="tabpanel" aria-labelledby="tabbtn-orders" class="hidden">
+      <div class="card">
+        <div class="stack wrap" style="justify-content: space-between; margin-bottom: 14px">
           <h2 style="margin: 0">الطلبات</h2>
-          <div class="stack">
+          <a href="/request.html" class="btn secondary" id="new-order-link">+ طلب جديد</a>
+        </div>
+        <div class="filters">
+          <div class="field"><label for="order-search">بحث</label><input type="search" id="order-search" placeholder="رقم الطلب أو اسم العميل أو الجواز" /></div>
+          <div class="field">
+            <label for="order-status-filter">الحالة</label>
             <select id="order-status-filter">
               <option value="">كل الحالات</option>
               <option value="NEW">جديد</option>
@@ -50,26 +85,59 @@
               <option value="REJECTED">مرفوض</option>
               <option value="CANCELLED">ملغي</option>
             </select>
-            <a href="/request.html" class="btn secondary" style="text-decoration: none">+ طلب جديد</a>
           </div>
+          <div class="field"><label for="order-assignee-filter">الإسناد</label>
+            <select id="order-assignee-filter"><option value="">الكل</option><option value="mine">طلباتي</option><option value="unassigned">غير مُسندة</option></select></div>
         </div>
-        <table>
-          <thead>
-            <tr><th>رقم الطلب</th><th>العميل</th><th>الحالة</th><th>الدفع</th><th>الإجمالي</th><th></th></tr>
-          </thead>
-          <tbody id="orders-body"></tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th>رقم الطلب</th><th>العميل</th><th>الحالة</th><th>الدفع</th><th>الإجمالي</th><th>المسؤول</th></tr>
+            </thead>
+            <tbody id="orders-body"></tbody>
+          </table>
+        </div>
         <div class="pagination" id="orders-pagination"></div>
       </div>
 
-      <div class="card hidden" id="order-detail-card"></div>
+      <div class="card hidden" id="order-detail-card" aria-live="polite"></div>
     </section>
 
-    <section id="tab-customers" class="hidden">
+    <section id="tab-flights" role="tabpanel" aria-labelledby="tabbtn-flights" class="hidden">
+      <div class="card">
+        <div class="stack wrap" style="justify-content: space-between; margin-bottom: 14px">
+          <h2 style="margin: 0">حجوزات الطيران</h2>
+          <a class="btn secondary" href="/flight-management.html" id="flight-management-link">إدارة الرحلات وحسابات الدفع</a>
+        </div>
+        <div class="filters">
+          <div class="field"><label for="flight-search">بحث</label><input id="flight-search" type="search" placeholder="رقم الحجز أو الاسم أو الهاتف" /></div>
+          <div class="field">
+            <label for="flight-status-filter">الحالة</label>
+            <select id="flight-status-filter">
+              <option value="">كل الحالات</option>
+              <option value="REQUESTED">طلبات جديدة</option>
+              <option value="PAYMENT_PENDING">بانتظار الدفع</option>
+              <option value="PAYMENT_UNDER_REVIEW">إشعار الدفع قيد المراجعة</option>
+              <option value="PAYMENT_CONFIRMED">تم تأكيد الدفع</option>
+              <option value="FINAL_TICKET_ISSUED">الحجز النهائي</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>رقم الحجز</th><th>العميل</th><th>المبلغ</th><th>الحالة</th><th>الإجراء التالي</th><th>التاريخ</th></tr></thead>
+            <tbody id="flight-bookings-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card hidden" id="flight-booking-detail" aria-live="polite"></div>
+    </section>
+
+    <section id="tab-customers" role="tabpanel" aria-labelledby="tabbtn-customers" class="hidden">
       <div class="card">
         <div class="stack" style="justify-content: space-between; margin-bottom: 14px">
           <h2 style="margin: 0">العملاء</h2>
-          <input type="search" id="customer-search" placeholder="بحث بالاسم أو رقم الجواز..." style="max-width: 260px" />
+          <label for="customer-search" class="sr-only">بحث العملاء</label><input type="search" id="customer-search" placeholder="بحث بالاسم أو رقم الجواز..." style="max-width: 260px" />
         </div>
         <table>
           <thead>
@@ -81,7 +149,7 @@
       </div>
     </section>
 
-    <section id="tab-payments" class="hidden">
+    <section id="tab-payments" role="tabpanel" aria-labelledby="tabbtn-payments" class="hidden">
       <div class="card">
         <h2>الدفعات</h2>
         <table>
@@ -94,7 +162,7 @@
       </div>
     </section>
 
-    <section id="tab-management" class="hidden">
+    <section id="tab-management" role="tabpanel" aria-labelledby="tabbtn-management" class="hidden">
       <!-- Platform 3.0 Phase 14 — grouped into a clear configuration
            center instead of one flat, unstructured tab list. Groups are
            visual only (a non-clickable label between clusters); the
@@ -125,7 +193,6 @@
         <button type="button" data-mgmt="offers">العروض</button>
         <button type="button" data-mgmt="coupons">الكوبونات</button>
         <button type="button" data-mgmt="users">المستخدمون</button>
-        <button type="button" data-mgmt="contact-requests">طلبات التواصل</button>
         <button type="button" data-mgmt="umrah-groups">أفواج العمرة</button>
       </div>
 
@@ -390,26 +457,6 @@
       </div>
 
       <!-- Contact requests (from the public marketing site's contact form) -->
-      <div id="mgmt-contact-requests" class="hidden">
-        <div class="card">
-          <div class="stack" style="justify-content: space-between; margin-bottom: 14px">
-            <h2 style="margin: 0">طلبات التواصل</h2>
-            <select id="contact-request-status-filter">
-              <option value="">كل الحالات</option>
-              <option value="NEW">جديد</option>
-              <option value="CONTACTED">تم التواصل</option>
-              <option value="CLOSED">مغلق</option>
-            </select>
-          </div>
-          <table>
-            <thead><tr><th>الاسم</th><th>الهاتف</th><th>الخدمة</th><th>الرسالة</th><th>الحالة</th><th>السعر</th><th>الدفع</th><th>المستندات</th><th>التاريخ</th></tr></thead>
-            <tbody id="contact-requests-body"></tbody>
-          </table>
-          <div class="pagination" id="contact-requests-pagination"></div>
-        </div>
-      </div>
-
-      <!-- Umrah Groups -->
       <div id="mgmt-umrah-groups" class="hidden">
         <div class="card hidden" id="umrah-group-create-card">
           <h2>فوج عمرة جديد</h2>
@@ -641,7 +688,9 @@
 
   <script src="/assets/api.js"></script>
   <script src="/assets/layout.js"></script>
-  <script src="/assets/admin-dashboard.js"></script>
+  <script src="/assets/flight-bookings-view.js"></script>
+  <script src="/assets/contact-requests-view.js"></script>
   <script src="/assets/admin-management.js"></script>
+  <script src="/assets/admin-dashboard.js"></script>
 </body>
 </html>

@@ -629,3 +629,14 @@ label.checkbox input {
 .money-grid dd {
   font-variant-numeric: tabular-nums;
 }
+
+.pre-wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+details > summary {
+  cursor: pointer;
+  color: var(--color-primary);
+  margin: 8px 0;
+}

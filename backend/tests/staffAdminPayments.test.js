@@ -35,15 +35,15 @@ function routes({ failFirstPayment = false } = {}) {
   };
 }
 
+const ORDER_URL = "http://backoffice.test/admin-dashboard.html#/orders/o-usd";
+
 async function openOrder(window, document) {
-  await settle(60);
-  document.querySelector("#orders-body [data-order-id]").click();
-  await settle(60);
+  await settle(120);
   assert.ok(document.getElementById("payment-form"), "accountant sees the payment form");
 }
 
 test("the payment form sends the order currency and an idempotency key, once per click burst", async () => {
-  const { window, document, calls } = loadBackOffice("admin-dashboard.html", { routes: routes() });
+  const { window, document, calls } = loadBackOffice("admin-dashboard.html", { routes: routes(), url: ORDER_URL });
   await openOrder(window, document);
 
   assert.equal(document.getElementById("payment-currency").value, "USD");
@@ -64,7 +64,7 @@ test("the payment form sends the order currency and an idempotency key, once per
 });
 
 test("retrying the same payment after a failure reuses the idempotency key", async () => {
-  const { window, document, calls } = loadBackOffice("admin-dashboard.html", { routes: routes({ failFirstPayment: true }) });
+  const { window, document, calls } = loadBackOffice("admin-dashboard.html", { routes: routes({ failFirstPayment: true }), url: ORDER_URL });
   await openOrder(window, document);
   document.getElementById("payment-amount").value = "100";
   document.getElementById("payment-method").value = "cash";
