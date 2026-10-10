@@ -120,6 +120,9 @@ export const updateContactRequestStatusSchema = z
     status: z.enum(["NEW", "CONTACTED", "CLOSED"]),
     outcome: z.enum(["COMPLETED", "REJECTED", "CANCELLED"]).optional(),
     outcomeNote: z.string().trim().max(2000).optional().or(z.literal("")),
+    // Required when re-opening a closed request (see the transition rules in
+    // contact-requests.service.js updateContactRequestStatus).
+    reason: z.string().trim().max(1000).optional().or(z.literal("")),
   })
   // outcome only makes sense once the request is actually closed — required
   // there, not accepted (silently or otherwise) anywhere else.

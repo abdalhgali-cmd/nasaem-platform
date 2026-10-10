@@ -91,10 +91,16 @@ describe("contact request close outcomes", () => {
     assert.equal(tracked.statusLabel, "تم إنجاز طلبك بنجاح");
 
     // Reopening clears the stale outcome — it shouldn't linger on a request
-    // that's active again.
-    const reopenRes = await superAdminAgent
+    // that's active again. Re-opening needs a written reason.
+    const noReasonRes = await superAdminAgent
       .patch(`/api/contact-requests/${contactRequestId}/status`)
       .send({ status: "NEW" });
+    assert.equal(noReasonRes.status, 400);
+    assert.equal(noReasonRes.body.code, "REOPEN_REASON_REQUIRED");
+
+    const reopenRes = await superAdminAgent
+      .patch(`/api/contact-requests/${contactRequestId}/status`)
+      .send({ status: "NEW", reason: "طلب العميل تعديل التأشيرة" });
 
     assert.equal(reopenRes.status, 200);
     assert.equal(reopenRes.body.data.outcome, null);

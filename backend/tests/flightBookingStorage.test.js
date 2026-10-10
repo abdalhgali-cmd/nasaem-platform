@@ -8,6 +8,12 @@ import prisma from "../src/config/database.js";
 import { UPLOAD_ROOT, resolveUploadPath } from "../src/config/uploadRoot.js";
 import { getBookingFile } from "../src/modules/flight-bookings/flight-bookings.service.js";
 
+// Ticket/receipt uploads are type-checked by their bytes: fixtures are
+// minimal real PDFs carrying the given text.
+// PDF responses are binary to supertest; read them back as text.
+const asText = (res, cb) => { let data = ""; res.setEncoding("utf8"); res.on("data", (c) => { data += c; }); res.on("end", () => cb(null, data)); };
+const pdfBuffer = (text) => Buffer.from(`%PDF-1.4\n% ${text}\n%%EOF\n`);
+
 // Phase 1 (storage): flight booking files (provisional tickets, payment
 // receipts, final tickets) used to bypass the shared UPLOAD_ROOT via a
 // standalone UPLOAD_DIR/env var. These tests cover the persistent-storage
@@ -74,7 +80,7 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
 
     const uploadRes = await admin
       .post(`/api/flight-bookings/${booking.id}/provisional-ticket`)
-      .attach("file", Buffer.from("provisional contents"), "provisional.txt");
+      .attach("file", pdfBuffer("provisional contents"), "provisional.pdf");
     assert.equal(uploadRes.status, 200);
 
     const row = (
@@ -84,33 +90,33 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
     assert.ok(!path.isAbsolute(row.provisional_ticket_path));
 
     const onDisk = path.join(UPLOAD_ROOT, row.provisional_ticket_path);
-    assert.equal(await fs.readFile(onDisk, "utf8"), "provisional contents");
+    assert.equal(await fs.readFile(onDisk, "utf8"), pdfBuffer("provisional contents").toString());
   });
 
   test("payment receipt and final ticket also resolve through the staff-file route after the new writes", async () => {
     const phone = `24995${uniqueSuffix().slice(-7)}`;
     const booking = await createBooking(phone);
 
-    await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", Buffer.from("p"), "p.txt");
+    await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", pdfBuffer("p"), "p.pdf");
     const receiptRes = await request(app)
       .post(`/api/flight-bookings/${booking.booking_number}/payment-receipt`)
       .field("phone", phone)
-      .attach("file", Buffer.from("receipt contents"), "receipt.txt");
+      .attach("file", pdfBuffer("receipt contents"), "receipt.pdf");
     assert.equal(receiptRes.status, 200);
 
     await admin.post(`/api/flight-bookings/${booking.id}/confirm-payment`).send({});
     const finalRes = await admin
       .post(`/api/flight-bookings/${booking.id}/final-ticket`)
-      .attach("file", Buffer.from("final contents"), "final.txt");
+      .attach("file", pdfBuffer("final contents"), "final.pdf");
     assert.equal(finalRes.status, 200);
 
-    const receiptFile = await admin.get(`/api/flight-bookings/${booking.id}/staff-file/receipt`);
+    const receiptFile = await admin.get(`/api/flight-bookings/${booking.id}/staff-file/receipt`).buffer(true).parse(asText);
     assert.equal(receiptFile.status, 200);
-    assert.equal(receiptFile.text, "receipt contents");
+    assert.equal(receiptFile.body, pdfBuffer("receipt contents").toString());
 
-    const finalFile = await admin.get(`/api/flight-bookings/${booking.id}/staff-file/final`);
+    const finalFile = await admin.get(`/api/flight-bookings/${booking.id}/staff-file/final`).buffer(true).parse(asText);
     assert.equal(finalFile.status, 200);
-    assert.equal(finalFile.text, "final contents");
+    assert.equal(finalFile.body, pdfBuffer("final contents").toString());
   });
 
   test("reads a historical uploads/flight-bookings/... relative path (pre-fix rows) onto the current UPLOAD_ROOT", async () => {
@@ -119,7 +125,7 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
 
     const legacyDir = resolveUploadPath("flight-bookings", booking.booking_number);
     await fs.mkdir(legacyDir, { recursive: true });
-    await fs.writeFile(path.join(legacyDir, "legacy-provisional.txt"), "legacy provisional contents");
+    await fs.writeFile(path.join(legacyDir, "legacy-provisional.pdf"), "legacy provisional contents");
 
     // Pre-fix rows stored `path.relative(process.cwd(), fullPath)` against a
     // default UPLOAD_DIR of `<cwd>/uploads/flight-bookings/...` — reproduced
@@ -129,13 +135,13 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
       "uploads",
       "flight-bookings",
       booking.booking_number,
-      "legacy-provisional.txt"
+      "legacy-provisional.pdf"
     );
     await prisma.$executeRawUnsafe(
       `UPDATE flight_bookings SET provisional_ticket_path=$2, provisional_ticket_name=$3 WHERE id=$1`,
       booking.id,
       legacyStoredPath,
-      "legacy-provisional.txt"
+      "legacy-provisional.pdf"
     );
 
     const file = await getBookingFile(booking.id, "provisional", { organizationId: undefined });
@@ -190,7 +196,7 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
   test("path resolution is stable across repeated resolution (equivalent to surviving a process restart)", async () => {
     const phone = `24981${uniqueSuffix().slice(-7)}`;
     const booking = await createBooking(phone);
-    await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", Buffer.from("stable"), "s.txt");
+    await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", pdfBuffer("stable"), "s.pdf");
 
     const first = await getBookingFile(booking.id, "provisional", { organizationId: undefined });
     const second = await getBookingFile(booking.id, "provisional", { organizationId: undefined });

@@ -1,15 +1,23 @@
 import { Router } from "express";
 import multer from "multer";
+import rateLimit from "express-rate-limit";
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
 import { confirmPayment, createFlightBooking, getBankAccounts, getBookingFile, getFlightBooking, getPublicFlightBooking, issueFinalTicket, listFlightBookings, submitPaymentReceipt, uploadProvisionalTicket, upsertBankAccount } from "./flight-bookings.service.js";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+// Tickets/receipts are at most 10 MB and one file per request; the bytes
+// are type-checked by the service before anything is written.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
-router.post("/", async (req, res, next) => { try { res.status(201).json({ success: true, booking: await createFlightBooking(req.body) }); } catch (e) { next(e); } });
+// Public, phone-verified endpoints: limits slow down guessing a booking's
+// phone number and keep anonymous uploads/creations bounded per client.
+const publicLookupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "محاولات كثيرة. حاول لاحقًا." } });
+const publicWriteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "محاولات كثيرة. حاول لاحقًا." } });
+
+router.post("/", publicWriteLimiter, async (req, res, next) => { try { res.status(201).json({ success: true, booking: await createFlightBooking(req.body) }); } catch (e) { next(e); } });
 router.get("/bank-accounts", async (req, res, next) => { try { res.json({ success: true, accounts: await getBankAccounts() }); } catch (e) { next(e); } });
-router.get("/public/:id", async (req, res, next) => { try { const booking = await getPublicFlightBooking(req.params.id, req.query.phone); if (!booking) return res.status(404).json({ success: false, message: "رقم الحجز أو رقم الهاتف غير صحيح" }); res.json({ success: true, booking }); } catch (e) { next(e); } });
-router.post("/:id/payment-receipt", upload.single("file"), async (req, res, next) => { try { res.json({ success: true, booking: await submitPaymentReceipt(req.params.id, req.file, req.body.phone) }); } catch (e) { next(e); } });
+router.get("/public/:id", publicLookupLimiter, async (req, res, next) => { try { const booking = await getPublicFlightBooking(req.params.id, req.query.phone); if (!booking) return res.status(404).json({ success: false, message: "رقم الحجز أو رقم الهاتف غير صحيح" }); res.json({ success: true, booking }); } catch (e) { next(e); } });
+router.post("/:id/payment-receipt", publicWriteLimiter, upload.single("file"), async (req, res, next) => { try { res.json({ success: true, booking: await submitPaymentReceipt(req.params.id, req.file, req.body.phone) }); } catch (e) { next(e); } });
 // Customer-facing file download: a booking's documents (provisional ticket,
 // payment receipt, final ticket) are only handed out to whoever knows both
 // the booking id/number AND the phone number on the booking — the same
@@ -17,12 +25,12 @@ router.post("/:id/payment-receipt", upload.single("file"), async (req, res, next
 // Without this, anyone who obtained a booking link (forwarded, logged,
 // guessed from the fairly short booking_number) could download another
 // customer's documents.
-router.get("/:id/file/:kind", async (req, res, next) => { try { const file = await getBookingFile(req.params.id, req.params.kind, { phone: req.query.phone, requirePhoneMatch: true }); res.download(file.path, file.name); } catch (e) { next(e); } });
+router.get("/:id/file/:kind", publicLookupLimiter, async (req, res, next) => { try { const file = await getBookingFile(req.params.id, req.params.kind, { phone: req.query.phone, requirePhoneMatch: true }); res.download(file.path, file.name); } catch (e) { next(e); } });
 
 router.use(requireAuth);
 router.get("/:id", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), async (req, res, next) => { try { const booking = await getFlightBooking(req.params.id, req.user.organizationId); if (!booking) return res.status(404).json({ success: false, message: "Booking not found" }); res.json({ success: true, booking }); } catch (e) { next(e); } });
 router.get("/:id/staff-file/:kind", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), async (req, res, next) => { try { const file = await getBookingFile(req.params.id, req.params.kind, { organizationId: req.user.organizationId }); res.download(file.path, file.name); } catch (e) { next(e); } });
-router.get("/admin/list", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), async (req, res, next) => { try { res.json({ success: true, bookings: await listFlightBookings(req.query.status, req.user.organizationId) }); } catch (e) { next(e); } });
+router.get("/admin/list", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), async (req, res, next) => { try { res.json({ success: true, bookings: await listFlightBookings(req.query.status, req.user.organizationId, req.query.search) }); } catch (e) { next(e); } });
 router.get("/admin/bank-accounts", requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"), async (req, res, next) => { try { res.json({ success: true, accounts: await getBankAccounts() }); } catch (e) { next(e); } });
 router.post("/admin/bank-accounts", requireRole("SUPER_ADMIN", "ADMIN"), async (req, res, next) => { try { res.status(201).json({ success: true, account: await upsertBankAccount(req.body) }); } catch (e) { next(e); } });
 router.post("/:id/provisional-ticket", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), upload.single("file"), async (req, res, next) => { try { res.json({ success: true, booking: await uploadProvisionalTicket(req.params.id, req.file, req.user.organizationId) }); } catch (e) { next(e); } });

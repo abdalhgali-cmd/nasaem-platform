@@ -292,11 +292,12 @@ describe("auto-completion + customer WhatsApp notifications", () => {
     globalThis.fetch = async () => {
       throw new Error("simulated WhatsApp outage");
     };
+    // (CONTACTED -> NEW is not an allowed transition; closing is.)
     const duringOutageRes = await superAdminAgent
       .patch(`/api/contact-requests/${contactRequestId}/status`)
-      .send({ status: "NEW" });
+      .send({ status: "CLOSED", outcome: "CANCELLED" });
     assert.equal(duringOutageRes.status, 200, "the status change itself must not fail");
-    assert.equal(duringOutageRes.body.data.status, "NEW");
+    assert.equal(duringOutageRes.body.data.status, "CLOSED");
 
     // Restore the recording mock for the document-review checks below.
     whatsapp.restore();
