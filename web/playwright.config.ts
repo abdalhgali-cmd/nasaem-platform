@@ -31,6 +31,13 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     trace: "retain-on-failure",
+    // The backend refuses cookie-authenticated writes that carry no proof of
+    // coming from a trusted page (CSRF protection, backend/src/middleware/
+    // csrf.middleware.js). Real browsers send Origin on those writes; the
+    // Playwright API request context these specs use for setup
+    // (page.request.post/patch/...) sends no Origin, so it sends the same
+    // X-Requested-With header the back-office's own api.js sends.
+    extraHTTPHeaders: { "X-Requested-With": "XMLHttpRequest" },
     // Matches this development sandbox's pre-installed Chromium regardless
     // of which @playwright/test version resolves — see AGENTS.md/session
     // notes on PLAYWRIGHT_BROWSERS_PATH. Only applied when that sandbox
