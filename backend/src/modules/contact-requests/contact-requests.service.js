@@ -1,4 +1,5 @@
 import path from "path";
+import prismaPackage from "@prisma/client";
 import { publicOrganizationId } from "../../utils/publicOrganization.js";
 import { pendingConfirmationCreate, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
 import prisma from "../../config/database.js";
@@ -18,6 +19,8 @@ import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
+
+const { Prisma } = prismaPackage;
 
 // Short, consistent "which request is this about" prefix for every
 // customer-facing WhatsApp notification below — reuses the same `service`
@@ -418,15 +421,67 @@ export function computeReadiness(contactRequest) {
 // real user id (exact match), or the sentinel "unassigned" for the "New" /
 // unowned work-queue view — kept as one filter param rather than a second
 // boolean flag, mirroring how `status` already works here.
-export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId }) {
+const CONTACT_REQUEST_CASE_INCLUDE = {
+  invoice: true,
+  documents: { orderBy: { createdAt: "desc" } },
+  offers: { orderBy: { createdAt: "desc" } },
+  deliverables: { orderBy: { createdAt: "desc" } },
+  // Smart Case Operations — Release A. Empty array for every request
+  // predating this release (or any submission that doesn't use the
+  // structured traveler form) — same shape staff already handle for
+  // documents/offers/deliverables.
+  travelers: { orderBy: { sortOrder: "asc" } },
+  // Selected fields only — staff need the human-readable name/category
+  // for a Service Intake submission, not the full catalog row.
+  serviceRef: { select: { id: true, name: true, category: true } },
+  visaType: { select: { id: true, name: true, country: true } },
+  // Smart Case Operations — Release C groundwork.
+  assignedUser: { select: safeUserSelect },
+  // Release F/E: needed by computeReadiness's WAITING_PROVIDER bucket
+  // and by the case workspace's Provider/Activity sections. Selected
+  // fields only — the full submission detail has its own endpoint.
+  providerSubmissions: {
+    orderBy: { createdAt: "desc" },
+    select: { id: true, status: true, channel: true, submittedAt: true, externalReference: true, supplierId: true },
+  },
+  tasks: {
+    where: { status: "OPEN" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, type: true, title: true, status: true, dueAt: true, assignedUserId: true },
+  },
+};
+
+// Staff search: the reference (request id), the customer's name, phone
+// (any formatting) or e-mail. Case-insensitive.
+function contactRequestSearchWhere(search) {
+  const term = String(search || "").trim();
+  if (!term) return {};
+  const digits = term.replace(/\D/g, "");
+  return {
+    OR: [
+      { id: term },
+      { id: { startsWith: term } },
+      { name: { contains: term, mode: "insensitive" } },
+      { email: { contains: term, mode: "insensitive" } },
+      { phone: { contains: term } },
+      ...(digits.length >= 4 ? [{ phoneNormalized: { contains: digits } }] : []),
+    ],
+  };
+}
+
+export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId, search, paymentStatus, serviceId, category }) {
   const where = {
     organizationId,
     ...(status ? { status } : {}),
+    ...(paymentStatus ? { paymentStatus } : {}),
+    ...(serviceId ? { serviceId } : {}),
+    ...(category ? { serviceRef: { category } } : {}),
     ...(assignedUserId === "unassigned"
       ? { assignedUserId: null }
       : assignedUserId
         ? { assignedUserId }
         : {}),
+    ...contactRequestSearchWhere(search),
   };
 
   const [data, total] = await Promise.all([
@@ -435,35 +490,7 @@ export async function listContactRequests({ page, limit, skip, status, organizat
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
-      include: {
-        invoice: true,
-        documents: { orderBy: { createdAt: "desc" } },
-        offers: { orderBy: { createdAt: "desc" } },
-        deliverables: { orderBy: { createdAt: "desc" } },
-        // Smart Case Operations — Release A. Empty array for every request
-        // predating this release (or any submission that doesn't use the
-        // structured traveler form) — same shape staff already handle for
-        // documents/offers/deliverables.
-        travelers: { orderBy: { sortOrder: "asc" } },
-        // Selected fields only — staff need the human-readable name/category
-        // for a Service Intake submission, not the full catalog row.
-        serviceRef: { select: { id: true, name: true, category: true } },
-        visaType: { select: { id: true, name: true, country: true } },
-        // Smart Case Operations — Release C groundwork.
-        assignedUser: { select: safeUserSelect },
-        // Release F/E: needed by computeReadiness's WAITING_PROVIDER bucket
-        // and by the case workspace's Provider/Activity sections. Selected
-        // fields only — the full submission detail has its own endpoint.
-        providerSubmissions: {
-          orderBy: { createdAt: "desc" },
-          select: { id: true, status: true, channel: true, submittedAt: true, externalReference: true, supplierId: true },
-        },
-        tasks: {
-          where: { status: "OPEN" },
-          orderBy: { createdAt: "asc" },
-          select: { id: true, type: true, title: true, status: true, dueAt: true, assignedUserId: true },
-        },
-      },
+      include: CONTACT_REQUEST_CASE_INCLUDE,
     }),
     prisma.contactRequest.count({ where }),
   ]);
@@ -472,6 +499,21 @@ export async function listContactRequests({ page, limit, skip, status, organizat
     data: data.map((contactRequest) => ({ ...contactRequest, readiness: computeReadiness(contactRequest) })),
     meta: buildPaginationMeta(page, limit, total),
   };
+}
+
+// One request with everything the staff detail view shows. Scoped to the
+// organization (null for another tenant's id, same as a missing one).
+export async function getContactRequestById(id, organizationId) {
+  const contactRequest = await prisma.contactRequest.findFirst({
+    where: { id, organizationId },
+    include: {
+      ...CONTACT_REQUEST_CASE_INCLUDE,
+      customer: { select: { id: true, customerNo: true, fullName: true, phone: true, email: true, nationality: true } },
+      selectedOffer: true,
+    },
+  });
+  if (!contactRequest) return null;
+  return { ...contactRequest, readiness: computeReadiness(contactRequest) };
 }
 
 // Smart Case Operations — Release E. Recomputes a single case's readiness
@@ -615,26 +657,97 @@ export async function assignContactRequest(id, assignedUserId, actingUserId, org
 // CLOSED — set together with it, and cleared together if the request is
 // ever reopened (moved back to NEW/CONTACTED), so a stale outcome from a
 // previous closure can never linger on a request that's active again.
-export async function updateContactRequestStatus(id, { status, outcome, outcomeNote }, userId, organizationId = null) {
-  const existing = await prisma.contactRequest.findFirst({ where: { id, ...(organizationId ? { organizationId } : {}) } });
+function transitionError(statusCode, code, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
+}
 
-  if (!existing) {
-    return null;
+// Contact request lifecycle:
+//   NEW -> CONTACTED -> CLOSED(outcome)      NEW -> CLOSED(outcome)
+//   CLOSED -> NEW | CONTACTED                 re-open: SUPER_ADMIN/ADMIN only,
+//                                             with a written reason (audited)
+//   CONTACTED -> NEW                          not allowed (no backward step)
+// Outcomes are distinct:
+//   COMPLETED  the service was delivered. For a priced request (invoice,
+//              offers, or any payment state other than NOT_REQUIRED) this
+//              needs a confirmed payment AND at least one delivered file;
+//              an unpriced inquiry can be completed once answered.
+//   REJECTED   the agency declined (e.g. ineligible); no payment needed.
+//   CANCELLED  the customer withdrew; no payment needed.
+//   Rejecting/cancelling after a payment was confirmed needs a note saying
+//   how the money is being handled (there is no refund record for requests).
+const CONTACT_TRANSITIONS = {
+  NEW: new Set(["NEW", "CONTACTED", "CLOSED"]),
+  CONTACTED: new Set(["CONTACTED", "CLOSED"]),
+  CLOSED: new Set(["CLOSED", "NEW", "CONTACTED"]),
+};
+const REOPEN_ROLES = new Set(["SUPER_ADMIN", "ADMIN"]);
+
+export function checkContactRequestTransition(existing, { status, outcome, outcomeNote, reason }, actorRole) {
+  if (!CONTACT_TRANSITIONS[existing.status]?.has(status)) {
+    throw transitionError(409, "INVALID_TRANSITION", "لا يمكن إرجاع الطلب إلى حالة سابقة إلا بإعادة فتحه بعد الإغلاق.");
   }
+  if (existing.status === "CLOSED" && status !== "CLOSED") {
+    if (!REOPEN_ROLES.has(actorRole)) {
+      throw transitionError(403, "REOPEN_FORBIDDEN", "إعادة فتح طلب مغلق متاحة للمدير فقط.");
+    }
+    if (!reason || reason.trim().length < 5) {
+      throw transitionError(400, "REOPEN_REASON_REQUIRED", "اكتب سبب إعادة فتح الطلب (5 أحرف على الأقل).");
+    }
+  }
+  if (status !== "CLOSED") return;
 
-  const updated = await prisma.contactRequest.update({
-    where: { id },
-    data:
-      status === "CLOSED"
-        ? { status, outcome, outcomeNote: outcomeNote || null, closedAt: new Date() }
-        : { status, outcome: null, outcomeNote: null, closedAt: null },
+  const priced = Boolean(existing.invoice) || existing.offers.length > 0 || existing.paymentStatus !== "NOT_REQUIRED";
+  if (outcome === "COMPLETED" && priced) {
+    if (existing.paymentStatus !== "CONFIRMED") {
+      throw transitionError(409, "COMPLETION_NEEDS_PAYMENT", "لا يمكن اعتبار الطلب مكتملًا قبل تأكيد استلام الدفع.");
+    }
+    if (existing.deliverables.length === 0) {
+      throw transitionError(409, "COMPLETION_NEEDS_DELIVERABLE", "ارفع الملف النهائي للعميل (التأشيرة أو التذكرة...) قبل إغلاق الطلب كمكتمل.");
+    }
+  }
+  if ((outcome === "REJECTED" || outcome === "CANCELLED") && existing.paymentStatus === "CONFIRMED" && (!outcomeNote || outcomeNote.trim().length < 5)) {
+    throw transitionError(400, "REFUND_NOTE_REQUIRED", "الدفع مؤكد لهذا الطلب: اكتب في الملاحظة كيف سيُعالج المبلغ (استرجاع أو غيره).");
+  }
+}
+
+export async function updateContactRequestStatus(id, { status, outcome, outcomeNote, reason }, actor, organizationId = null) {
+  const userId = typeof actor === "string" ? actor : actor?.id;
+  const actorRole = typeof actor === "string" ? null : actor?.role;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw`SELECT id FROM "ContactRequest" WHERE id = ${id} ${organizationId ? Prisma.sql`AND "organizationId" = ${organizationId}` : Prisma.empty} FOR UPDATE`;
+    if (locked.length === 0) return null;
+    const existing = await tx.contactRequest.findUnique({
+      where: { id },
+      include: { invoice: { select: { id: true, status: true } }, offers: { select: { id: true } }, deliverables: { select: { id: true } } },
+    });
+
+    checkContactRequestTransition(existing, { status, outcome, outcomeNote, reason }, actorRole);
+
+    const updated = await tx.contactRequest.update({
+      where: { id },
+      data:
+        status === "CLOSED"
+          ? { status, outcome, outcomeNote: outcomeNote || null, closedAt: existing.status === "CLOSED" ? existing.closedAt : new Date() }
+          : { status, outcome: null, outcomeNote: null, closedAt: null },
+    });
+    return { existing, updated };
   });
+
+  if (!result) return null;
+  const { existing, updated } = result;
+  const reopened = existing.status === "CLOSED" && updated.status !== "CLOSED";
 
   logActivity({
     userId,
-    action: "CONTACT_REQUEST_STATUS_CHANGED",
+    action: reopened ? "CONTACT_REQUEST_REOPENED" : "CONTACT_REQUEST_STATUS_CHANGED",
     entity: "ContactRequest",
     entityId: id,
+    oldValue: { status: existing.status, outcome: existing.outcome, outcomeNote: existing.outcomeNote },
+    newValue: { status: updated.status, outcome: updated.outcome, outcomeNote: updated.outcomeNote, ...(reopened ? { reason } : {}) },
   });
 
   // Guarded on the status actually changing — staff editing only the

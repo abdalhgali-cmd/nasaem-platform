@@ -2,7 +2,7 @@ let currentUser = null;
 const pageAlert = document.getElementById("page-alert");
 
 const state = {
-  orders: { page: 1, limit: 10, status: "" },
+  orders: { page: 1, limit: 10, status: "", search: "", assignee: "" },
   customers: { page: 1, limit: 10, search: "" },
   payments: { page: 1, limit: 10 },
 };
@@ -23,6 +23,45 @@ const ORDER_STATUSES = [
   "CANCELLED",
 ];
 
+// Which top-level tabs each role sees (docs/staff-role-matrix.md). It only
+// hides what the backend would refuse anyway; the API stays authoritative.
+const ROLE_TABS = {
+  SUPER_ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
+  ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
+  EMPLOYEE: ["requests", "orders", "flights", "customers"],
+  ACCOUNTANT: ["requests", "orders", "flights", "customers", "payments"],
+  CONTENT_MANAGER: ["management"],
+};
+const TAB_KEYS = ["overview", "requests", "orders", "flights", "customers", "payments", "management"];
+
+let crView = null;
+let flightView = null;
+let routeSyncing = false;
+
+function allowedTabs() {
+  return ROLE_TABS[currentUser.role] || [];
+}
+
+function canSeeOverview() {
+  return allowedTabs().includes("overview");
+}
+
+function canSeePayments() {
+  return allowedTabs().includes("payments");
+}
+
+function canRecordPayment() {
+  return ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"].includes(currentUser.role);
+}
+
+function canSeeManagement() {
+  return allowedTabs().includes("management");
+}
+
+function canAssignOrders() {
+  return ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(currentUser.role);
+}
+
 async function bootstrap() {
   currentUser = await requireSession();
   if (!currentUser) return;
@@ -30,64 +69,154 @@ async function bootstrap() {
   renderHeader(currentUser, "dashboard");
   setupTabVisibility();
   setupTabSwitching();
-
-  loadActiveTabData();
-}
-
-function canSeeOverview() {
-  return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
-}
-
-function canSeePayments() {
-  return ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"].includes(currentUser.role);
-}
-
-function canRecordPayment() {
-  return ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"].includes(currentUser.role);
-}
-
-// Platform 3.0 Phase 15: CONTENT_MANAGER can reach Management (the
-// Configuration Center panels live there) — mgmtCanWrite() and the
-// backend's own requireRole checks are what actually keep this role off
-// financial/operational sub-tabs, not this gate.
-function canSeeManagement() {
-  return ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"].includes(currentUser.role);
+  mountViews();
+  applyRoute();
+  window.addEventListener("hashchange", applyRoute);
 }
 
 function setupTabVisibility() {
-  const tabButtons = document.querySelectorAll("#tabs button");
+  const allowed = new Set(allowedTabs());
+  document.querySelectorAll("#tabs [data-tab]").forEach((btn) => {
+    btn.classList.toggle("hidden", !allowed.has(btn.dataset.tab));
+  });
+  if (!["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(currentUser.role)) el("new-order-link")?.classList.add("hidden");
+  if (!["SUPER_ADMIN", "ADMIN"].includes(currentUser.role)) el("flight-management-link")?.classList.add("hidden");
+}
 
-  if (!canSeeOverview()) {
-    document.querySelector('[data-tab="overview"]').classList.add("hidden");
+function mountViews() {
+  if (allowedTabs().includes("requests")) {
+    crView = createContactRequestsView({
+      user: currentUser,
+      listBody: el("cr-body"),
+      pagination: el("cr-pagination"),
+      filters: {
+        search: el("cr-search"),
+        status: el("cr-filter-status"),
+        payment: el("cr-filter-payment"),
+        assignee: el("cr-filter-assignee"),
+        category: el("cr-filter-category"),
+      },
+      detailCard: el("cr-detail"),
+      onOpen: (id) => setRoute("requests", id),
+    });
+    loadServiceCategories();
   }
-  if (!canSeePayments()) {
-    document.querySelector('[data-tab="payments"]').classList.add("hidden");
-  }
-  if (!canSeeManagement()) {
-    document.querySelector('[data-tab="management"]').classList.add("hidden");
-  }
-
-  // CONTENT_MANAGER has no access to Orders (the next tab in DOM order
-  // once Overview is hidden) — land on Management, the only top-level
-  // tab this role can actually use, instead of a tab that just 403s.
-  const defaultTab = currentUser.role === "CONTENT_MANAGER" ? "management" : null;
-  const firstVisible =
-    (defaultTab && document.querySelector(`[data-tab="${defaultTab}"]`)) ||
-    Array.from(tabButtons).find((btn) => !btn.classList.contains("hidden"));
-  if (firstVisible) {
-    activateTab(firstVisible.dataset.tab);
+  if (allowedTabs().includes("flights")) {
+    flightView = createFlightBookingsView({
+      user: currentUser,
+      listBody: el("flight-bookings-body"),
+      statusFilter: el("flight-status-filter"),
+      searchInput: el("flight-search"),
+      detailCard: el("flight-booking-detail"),
+      onOpen: (id) => setRoute("flights", id),
+    });
   }
 }
 
+async function loadServiceCategories() {
+  try {
+    const { data } = await api.get("/services?limit=100");
+    const categories = [...new Map(data.filter((s) => s.category).map((s) => [s.category, s.name])).entries()];
+    el("cr-filter-category").insertAdjacentHTML(
+      "beforeend",
+      categories.map(([category, name]) => `<option value="${escapeHtml(category)}">${escapeHtml(SERVICE_CATEGORY_AR[category] || name || category)}</option>`).join("")
+    );
+  } catch (error) {
+    // The filter is optional; the list still works without it.
+  }
+}
+
+const SERVICE_CATEGORY_AR = {
+  umrah: "عمرة",
+  UMRAH: "عمرة",
+  UMRAH_PACKAGE: "باقات العمرة",
+  intl_visa: "تأشيرات دولية",
+  work_visa: "تأشيرات عمل",
+  egypt_clearance: "موافقة أمنية (مصر)",
+  family_visit: "زيارة عائلية",
+  FAMILY_VISIT: "زيارة عائلية",
+  flight: "طيران",
+  hotel: "فنادق",
+  ferry: "عبارات",
+  package: "باقات",
+  tasheel: "تسهيل",
+};
+
+// --- Routing: #/<tab> or #/<tab>/<record id> (orders, requests, flights).
+// A link copied from the address bar opens the same record for a colleague.
+function parseRoute() {
+  const match = window.location.hash.match(/^#\/([a-z]+)(?:\/([^/?#]+))?/);
+  if (!match) return { tab: null, id: null };
+  return { tab: match[1], id: match[2] ? decodeURIComponent(match[2]) : null };
+}
+
+function setRoute(tab, id) {
+  const hash = id ? `#/${tab}/${encodeURIComponent(id)}` : `#/${tab}`;
+  if (window.location.hash !== hash) {
+    routeSyncing = true;
+    window.history.replaceState(null, "", hash);
+    routeSyncing = false;
+  }
+}
+
+function applyRoute() {
+  if (routeSyncing) return;
+  const { tab, id } = parseRoute();
+  const allowed = allowedTabs();
+  const target = tab && allowed.includes(tab) ? tab : allowed[0];
+  if (!target) {
+    showAlert(pageAlert, "لا توجد أقسام متاحة لدورك في هذه اللوحة.");
+    return;
+  }
+  if (tab && !allowed.includes(tab)) {
+    showAlert(pageAlert, "هذا القسم غير متاح لدورك.");
+  }
+  activateTab(target, { fromRoute: true });
+  if (id && target === "orders") openOrderDetail(id);
+  if (id && target === "requests" && crView) crView.openDetail(id);
+  if (id && target === "flights" && flightView) flightView.openDetail(id);
+}
+
 function setupTabSwitching() {
-  document.querySelectorAll("#tabs button").forEach((btn) => {
+  const tabs = Array.from(document.querySelectorAll("#tabs [data-tab]"));
+  tabs.forEach((btn) => {
     btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+    // Arrow keys move between visible tabs (WAI-ARIA tabs pattern; RTL:
+    // ArrowLeft goes to the next tab).
+    btn.addEventListener("keydown", (event) => {
+      const visible = tabs.filter((t) => !t.classList.contains("hidden"));
+      const index = visible.indexOf(btn);
+      let next = null;
+      if (event.key === "ArrowLeft") next = visible[(index + 1) % visible.length];
+      if (event.key === "ArrowRight") next = visible[(index - 1 + visible.length) % visible.length];
+      if (event.key === "Home") next = visible[0];
+      if (event.key === "End") next = visible[visible.length - 1];
+      if (next) {
+        event.preventDefault();
+        next.focus();
+        activateTab(next.dataset.tab);
+      }
+    });
   });
 
   el("order-status-filter").addEventListener("change", (e) => {
     state.orders.status = e.target.value;
     state.orders.page = 1;
     loadOrders();
+  });
+  el("order-assignee-filter").addEventListener("change", (e) => {
+    state.orders.assignee = e.target.value;
+    state.orders.page = 1;
+    loadOrders();
+  });
+  let orderSearchTimer = null;
+  el("order-search").addEventListener("input", (e) => {
+    clearTimeout(orderSearchTimer);
+    orderSearchTimer = setTimeout(() => {
+      state.orders.search = e.target.value.trim();
+      state.orders.page = 1;
+      loadOrders();
+    }, 350);
   });
 
   let searchTimer = null;
@@ -107,6 +236,7 @@ function setupTabSwitching() {
 
   for (const containerId of ["orders-body", "latest-orders-body"]) {
     el(containerId).addEventListener("click", (event) => {
+      if (event.target.closest("[data-orders-retry]")) return void loadOrders();
       const target = event.target.closest("[data-order-id]");
       if (!target) return;
       if (activeTabKey() !== "orders") activateTab("orders");
@@ -115,25 +245,34 @@ function setupTabSwitching() {
   }
 }
 
-function activateTab(tabKey) {
-  document.querySelectorAll("#tabs button").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === tabKey);
+function activateTab(tabKey, { fromRoute = false } = {}) {
+  document.querySelectorAll("#tabs [data-tab]").forEach((btn) => {
+    const active = btn.dataset.tab === tabKey;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+    btn.tabIndex = active ? 0 : -1;
   });
-  ["overview", "orders", "customers", "payments", "management"].forEach((key) => {
+  TAB_KEYS.forEach((key) => {
     el(`tab-${key}`).classList.toggle("hidden", key !== tabKey);
   });
+  if (!fromRoute) {
+    const openId = tabKey === "orders" ? openOrderId : tabKey === "requests" ? crView?.openId : tabKey === "flights" ? flightView?.openId : null;
+    setRoute(tabKey, openId || null);
+  }
   loadActiveTabData();
 }
 
 function activeTabKey() {
   const active = document.querySelector("#tabs button.active");
-  return active ? active.dataset.tab : "overview";
+  return active ? active.dataset.tab : null;
 }
 
 function loadActiveTabData() {
   const tab = activeTabKey();
   if (tab === "overview" && canSeeOverview()) loadOverview();
+  if (tab === "requests" && crView) crView.load();
   if (tab === "orders") loadOrders();
+  if (tab === "flights" && flightView) flightView.load();
   if (tab === "customers") loadCustomers();
   if (tab === "payments" && canSeePayments()) loadPayments();
   if (tab === "management" && canSeeManagement()) initManagementTab();
@@ -179,34 +318,46 @@ async function loadOverview() {
 
 // --- Orders ---
 
+let ordersSeq = 0;
+
 async function loadOrders() {
+  const seq = ++ordersSeq;
+  const body = el("orders-body");
+  body.innerHTML = '<tr><td colspan="6" class="muted">جارٍ التحميل...</td></tr>';
   try {
     const { orders } = state;
     const params = new URLSearchParams({ page: orders.page, limit: orders.limit });
     if (orders.status) params.set("status", orders.status);
+    if (orders.search) params.set("search", orders.search);
+    if (orders.assignee === "mine") params.set("assignedUserId", currentUser.id);
+    else if (orders.assignee === "unassigned") params.set("assignedUserId", "UNASSIGNED");
 
     const { data, meta } = await api.get(`/orders?${params.toString()}`);
+    if (seq !== ordersSeq) return;
 
-    el("orders-body").innerHTML = data
-      .map(
-        (order) => `
-        <tr data-order-id="${escapeHtml(order.id)}" style="cursor: pointer">
-          <td><button type="button" class="btn secondary" data-order-id="${escapeHtml(order.id)}" aria-label="فتح الطلب ${escapeHtml(order.orderNumber)}">${escapeHtml(order.orderNumber)}</button></td>
+    body.innerHTML = data.length
+      ? data
+          .map(
+            (order) => `
+        <tr data-order-id="${escapeHtml(order.id)}" class="clickable-row">
+          <td><button type="button" class="link-button" data-order-id="${escapeHtml(order.id)}" aria-label="فتح الطلب ${escapeHtml(order.orderNumber)}" dir="ltr">${escapeHtml(order.orderNumber)}</button></td>
           <td>${escapeHtml(order.customer?.fullName || "-")}</td>
           <td>${statusBadge(order.status)}</td>
           <td>${statusBadge(order.paymentStatus)}</td>
           <td>${formatMoney(order.totalAmount, order.currency)}</td>
-          <td><button type="button" class="btn secondary" data-order-id="${escapeHtml(order.id)}">عرض</button></td>
+          <td>${escapeHtml(order.assignedUser?.fullName || "غير مُسند")}</td>
         </tr>`
-      )
-      .join("");
+          )
+          .join("")
+      : '<tr><td colspan="6" class="muted">لا توجد طلبات مطابقة.</td></tr>';
 
     renderPagination("orders-pagination", meta, (page) => {
       state.orders.page = page;
       loadOrders();
     });
   } catch (error) {
-    showAlert(pageAlert, error.message);
+    if (seq !== ordersSeq) return;
+    body.innerHTML = `<tr><td colspan="6"><div class="alert error" role="alert">${escapeHtml(error.message)} <button type="button" class="btn secondary" data-orders-retry="1">إعادة المحاولة</button></div></td></tr>`;
   }
 }
 
@@ -218,6 +369,7 @@ let openOrderId = null;
 async function openOrderDetail(orderId, { focus = true } = {}) {
   const seq = ++orderDetailSeq;
   openOrderId = orderId;
+  setRoute("orders", orderId);
   const card = el("order-detail-card");
   card.classList.remove("hidden");
   card.innerHTML = '<p class="muted">جارٍ تحميل الطلب...</p>';
@@ -238,6 +390,7 @@ async function openOrderDetail(orderId, { focus = true } = {}) {
 function closeOrderDetail() {
   orderDetailSeq += 1;
   openOrderId = null;
+  setRoute("orders", null);
   const card = el("order-detail-card");
   card.classList.add("hidden");
   card.innerHTML = "";
@@ -334,7 +487,7 @@ function renderOrderDetail(order) {
     </div>
 
     <dl class="detail-grid">
-      <div><dt>المسؤول</dt><dd>${escapeHtml(order.assignedUser?.fullName || "غير مُسند")}</dd></div>
+      <div><dt>المسؤول</dt><dd>${escapeHtml(order.assignedUser?.fullName || "غير مُسند")}${canAssignOrders() && order.assignedUserId !== currentUser.id ? ' <button type="button" class="btn secondary" id="assign-to-me-btn">إسناده لي</button>' : ""}</dd></div>
       <div><dt>تاريخ الإنشاء</dt><dd>${formatDateTime(order.createdAt)}</dd></div>
       <div><dt>الفرع</dt><dd>${escapeHtml(order.branch?.name || "-")}</dd></div>
     </dl>
@@ -399,6 +552,20 @@ function renderOrderDetail(order) {
   `;
 
   el("close-detail-btn").addEventListener("click", closeOrderDetail);
+  const assignToMe = el("assign-to-me-btn");
+  if (assignToMe) {
+    assignToMe.addEventListener("click", async () => {
+      assignToMe.disabled = true;
+      try {
+        await api.patch(`/orders/${encodeURIComponent(order.id)}/assign`, { assignedUserId: currentUser.id });
+        await openOrderDetail(order.id, { focus: false });
+        loadOrders();
+      } catch (error) {
+        showAlert(el("status-alert"), error.message);
+        assignToMe.disabled = false;
+      }
+    });
+  }
   el("change-status-btn").addEventListener("click", () => changeOrderStatus(order.id));
   el("order-payments-body").addEventListener("click", (event) => handlePaymentAction(event, order));
 

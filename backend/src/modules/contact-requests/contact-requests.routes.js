@@ -16,6 +16,7 @@ import {
   downloadDeliverableFile,
   downloadDocumentFile,
   getContactRequests,
+  getContactRequest,
   getQueueSummary,
   patchContactRequestAssignment,
   patchContactRequestStatus,
@@ -89,10 +90,12 @@ router.post("/", publicContactLimiter, attachOptionalCustomer, handleIntakeDocum
 router.get("/:id/customer-messages", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), getCustomerMessages);
 router.post("/:id/customer-messages/confirmation", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), retryCustomerConfirmation);
 
+// ACCOUNTANT reads requests (list + detail) for the financial context of a
+// payment review; it cannot change their status, documents or pricing.
 router.get(
   "/",
   requireAuth,
-  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
   getContactRequests
 );
 // Smart Case Operations — Release G. Declared before "/:id/..." routes so
@@ -102,6 +105,13 @@ router.get(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getQueueSummary
+);
+router.get(
+  "/:id",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireContactRequestOrganization,
+  getContactRequest
 );
 // Smart Case Operations — Release G (case intelligence: expiry, OCR
 // mismatch and duplicate warnings — advisory only, never a rejection).

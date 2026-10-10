@@ -16,6 +16,7 @@ import {
   getOperationsQueueSummary,
   listContactRequests,
   updateContactRequestStatus,
+  getContactRequestById,
 } from "./contact-requests.service.js";
 import {
   buildPricingDescription,
@@ -105,6 +106,18 @@ export async function storeContactRequest(req, res, next) {
   }
 }
 
+export async function getContactRequest(req, res, next) {
+  try {
+    const contactRequest = await getContactRequestById(req.params.id, req.user.organizationId);
+    if (!contactRequest) {
+      return res.status(404).json({ success: false, message: "Contact request not found" });
+    }
+    return res.status(200).json({ success: true, data: contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getContactRequests(req, res, next) {
   try {
     // Smart Case Operations — Release C groundwork. `assignedUserId=mine`
@@ -121,6 +134,10 @@ export async function getContactRequests(req, res, next) {
       status: req.query.status,
       organizationId: req.user.organizationId,
       assignedUserId,
+      search: typeof req.query.search === "string" ? req.query.search.slice(0, 100) : undefined,
+      paymentStatus: req.query.paymentStatus,
+      serviceId: req.query.serviceId,
+      category: req.query.category,
     });
 
     return res.status(200).json({
@@ -157,7 +174,7 @@ export async function patchContactRequestStatus(req, res, next) {
       });
     }
 
-    const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user.id, req.user.organizationId);
+    const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user, req.user.organizationId);
 
     if (!contactRequest) {
       return res.status(404).json({

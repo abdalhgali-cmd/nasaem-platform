@@ -2,10 +2,12 @@ const mgmtState = {
   wired: false,
   services: { page: 1, limit: 10 },
   activity: { page: 1, limit: 15 },
-  contactRequests: { page: 1, limit: 10, status: "" },
 };
 
 const ACTIVITY_ACTION_LABELS_AR = {
+  CONTACT_REQUEST_REOPENED: "إعادة فتح طلب",
+  PAYMENT_REFUNDED: "استرجاع مبلغ",
+  PASSWORD_CHANGED: "تغيير كلمة المرور",
   LOGIN: "تسجيل دخول",
   LOGOUT: "تسجيل خروج",
   ORDER_CREATED: "إنشاء طلب",
@@ -27,17 +29,6 @@ const ACTIVITY_ACTION_LABELS_AR = {
   CONTACT_REQUEST_DOCUMENT_UPLOADED: "رفع العميل مستندًا",
 };
 
-const CONTACT_REQUEST_STATUS_LABELS_AR = {
-  NEW: "جديد",
-  CONTACTED: "تم التواصل",
-  CLOSED: "مغلق",
-};
-
-// Only meaningful once a request is CLOSED (see contact-requests.validators.js).
-// Reuses STATUS_LABELS_AR's existing COMPLETED/REJECTED/CANCELLED entries
-// (api.js) rather than a duplicate label map — same words OrderStatus
-// already uses for the same meanings.
-const CONTACT_REQUEST_OUTCOMES = ["COMPLETED", "REJECTED", "CANCELLED"];
 
 function mgmtCanWrite(entity) {
   // Mirrors the requireRole(...) checks on each backend POST route.
@@ -73,18 +64,7 @@ function canToggleUserStatus() {
   return ["SUPER_ADMIN", "ADMIN"].includes(currentUser.role);
 }
 
-// Mirrors contact-requests.routes.js: POST /:id/invoice is SUPER_ADMIN,
-// ADMIN, or EMPLOYEE (same roles that can already work a contact request).
-function canManageInvoice() {
-  return ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(currentUser.role);
-}
 
-// Mirrors contact-requests.routes.js: POST /:id/confirm-payment is
-// SUPER_ADMIN, ADMIN, or ACCOUNTANT — same split as payments.routes.js for
-// financial actions specifically (narrower than general request handling).
-function canConfirmPayment() {
-  return ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"].includes(currentUser.role);
-}
 
 function initManagementTab() {
   if (!mgmtState.wired) {
@@ -153,13 +133,6 @@ function wireManagementTabs() {
   el("services-body").addEventListener("click", handleServiceRowClick);
   el("offers-body").addEventListener("change", handleOfferStatusChange);
   el("users-body").addEventListener("click", handleUserRowClick);
-  el("contact-requests-body").addEventListener("change", handleContactRequestStatusChange);
-  el("contact-requests-body").addEventListener("click", handleContactRequestActionClick);
-  el("contact-request-status-filter").addEventListener("change", (e) => {
-    mgmtState.contactRequests.status = e.target.value;
-    mgmtState.contactRequests.page = 1;
-    loadContactRequests();
-  });
   el("site-assets-grid").addEventListener("change", handleSiteAssetFileChange);
   el("umrah-group-create-btn").addEventListener("click", createUmrahGroup);
   el("umrah-groups-body").addEventListener("click", handleUmrahGroupsClick);
@@ -203,7 +176,6 @@ function activateMgmtSubTab(key) {
     "users",
     "settings",
     "activity",
-    "contact-requests",
     "umrah-groups",
     "site-assets",
     "homepage",
@@ -234,7 +206,6 @@ function loadActiveMgmtSubTab() {
   if (tab === "users") loadUsers();
   if (tab === "settings") loadSettings();
   if (tab === "activity") loadActivityLogs();
-  if (tab === "contact-requests") loadContactRequests();
   if (tab === "umrah-groups") loadUmrahGroups();
   if (tab === "site-assets") loadSiteAssets();
   if (tab === "homepage") {
@@ -877,425 +848,6 @@ async function loadActivityLogs() {
 }
 
 // --- Contact requests (public marketing-site form submissions) ---
-
-// Invoices/offers are quoted in SAR only for now, matching every other
-// price field in this frontend (services/offers-catalog forms have no
-// currency picker either — the backend's per-model `currency` default is
-// always "SAR").
-function invoiceCellHtml(req) {
-  const info = req.invoice
-    ? `<div>${formatMoney(req.invoice.amount, req.invoice.currency)}</div><div>${statusBadge(req.invoice.status)}</div>`
-    : `<div class="muted">لم يُحدد بعد</div>`;
-
-  const canSet = canManageInvoice() && req.invoice?.status !== "APPROVED";
-  if (!canSet) return info;
-
-  return `
-    ${info}
-    <div class="stack" style="margin-top: 6px; gap: 6px">
-      <input
-        type="number" min="0" step="0.01" placeholder="المبلغ (ر.س)" style="width: 100px"
-        data-invoice-amount-input="${escapeHtml(req.id)}"
-        value="${req.invoice ? escapeHtml(req.invoice.amount) : ""}"
-      />
-      <button type="button" class="btn secondary" data-set-invoice="${escapeHtml(req.id)}">
-        ${req.invoice ? "تحديث السعر" : "تحديد السعر"}
-      </button>
-    </div>`;
-}
-
-function offerAddFormHtml(req) {
-  return `
-    <div class="stack" style="margin-top: 6px; gap: 4px">
-      <input type="text" placeholder="الناقل" style="width: 80px" data-offer-carrier-input="${escapeHtml(req.id)}" />
-      <input
-        type="number" min="0" step="0.01" placeholder="المبلغ" style="width: 80px"
-        data-offer-amount-input="${escapeHtml(req.id)}"
-      />
-      <button type="button" class="btn secondary" data-add-offer="${escapeHtml(req.id)}">إضافة عرض</button>
-    </div>`;
-}
-
-function offersCellHtml(req) {
-  const offersList = req.offers
-    .map((offer) => {
-      const isSelected = offer.id === req.selectedOfferId;
-      return `
-        <div style="margin-bottom: 6px${isSelected ? "; font-weight: bold" : ""}">
-          ${escapeHtml(offer.carrier)}: ${formatMoney(offer.amount, offer.currency)}
-          ${isSelected ? statusBadge("APPROVED") : ""}
-        </div>`;
-    })
-    .join("");
-
-  const canAdd = canManageInvoice() && !req.selectedOfferId;
-
-  return `${offersList}${canAdd ? offerAddFormHtml(req) : ""}`;
-}
-
-// A request is priced via a single Invoice OR a set of multi-carrier
-// ContactRequestOffer options — never both (enforced server-side too, see
-// contact-requests.service.js). Nothing priced yet offers staff a choice
-// between the two mechanisms.
-function pricingCellHtml(req) {
-  if (req.offers && req.offers.length > 0) {
-    return offersCellHtml(req);
-  }
-
-  const invoiceHtml = invoiceCellHtml(req);
-
-  if (!req.invoice && canManageInvoice()) {
-    return `${invoiceHtml}<div class="muted" style="margin-top: 6px; font-size: 0.75rem">— أو —</div>${offerAddFormHtml(req)}`;
-  }
-
-  return invoiceHtml;
-}
-
-function paymentCellHtml(req) {
-  const badge = statusBadge(req.paymentStatus);
-  if (req.paymentStatus !== "UNDER_REVIEW" || !canConfirmPayment()) {
-    return badge;
-  }
-
-  return `${badge}<div style="margin-top: 6px"><button type="button" class="btn secondary" data-confirm-payment="${escapeHtml(req.id)}">تأكيد الدفع</button></div>`;
-}
-
-// label/reviewNote both come from free text (customer-entered label, staff-
-// entered rejection reason) rendered via innerHTML — escapeHtml() required.
-function customerDocumentsHtml(req) {
-  if (!req.documents || req.documents.length === 0) {
-    return `<div class="muted">لا توجد مستندات</div>`;
-  }
-
-  const canReview = canManageInvoice();
-
-  return req.documents
-    .map((doc) => {
-      const fileUrl = `/api/contact-requests/${encodeURIComponent(req.id)}/documents/${encodeURIComponent(doc.id)}/file`;
-      const reviewControls =
-        canReview && doc.status === "PENDING"
-          ? `
-        <div class="stack" style="margin-top: 4px; gap: 4px">
-          <button type="button" class="btn secondary" data-accept-document="${escapeHtml(doc.id)}" data-request-id="${escapeHtml(req.id)}">قبول</button>
-          <input type="text" placeholder="سبب الرفض" style="width: 110px" data-reject-note-input="${escapeHtml(doc.id)}" />
-          <button type="button" class="btn secondary" data-reject-document="${escapeHtml(doc.id)}" data-request-id="${escapeHtml(req.id)}">رفض</button>
-        </div>`
-          : "";
-
-      return `
-        <div style="margin-bottom: 8px">
-          <a href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener">${escapeHtml(doc.label)}</a>
-          ${statusBadge(doc.status)}
-          ${doc.reviewNote ? `<div class="muted" style="font-size: 0.75rem">${escapeHtml(doc.reviewNote)}</div>` : ""}
-          ${reviewControls}
-        </div>`;
-    })
-    .join("");
-}
-
-// Staff-delivered final files (issued visa, ticket, voucher) — the other
-// direction from customerDocumentsHtml's customer-uploaded, staff-reviewed
-// files. No review status here: the file itself is the deliverable.
-function deliverablesHtml(req) {
-  const items = (req.deliverables || [])
-    .map((d) => {
-      const fileUrl = `/api/contact-requests/${encodeURIComponent(req.id)}/deliverables/${encodeURIComponent(d.id)}/file`;
-      return `<div style="margin-bottom: 4px"><a href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener">${escapeHtml(d.label)}</a></div>`;
-    })
-    .join("");
-
-  const addForm = canManageInvoice()
-    ? `
-    <div class="stack" style="margin-top: 4px; gap: 4px">
-      <input type="text" placeholder="اسم الملف" style="width: 90px" data-deliverable-label-input="${escapeHtml(req.id)}" />
-      <input type="file" style="width: 120px" data-deliverable-file-input="${escapeHtml(req.id)}" />
-      <button type="button" class="btn secondary" data-upload-deliverable="${escapeHtml(req.id)}">رفع</button>
-    </div>`
-    : "";
-
-  return `${items}${addForm}`;
-}
-
-// Service Intake submissions (Umrah/Visas/Packages) carry a real
-// Service/VisaType catalog reference plus optional traveler count and
-// free-form intakeData (see contact-requests.service.js's listContactRequests
-// include). Plain contact-form submissions have none of these, so this
-// gracefully falls back to just the free-text service label as before.
-function serviceCellHtml(req) {
-  const parts = [escapeHtml(req.service || "-")];
-
-  if (req.serviceRef) {
-    parts.push(`<div class="muted" style="font-size: 0.75rem">${escapeHtml(req.serviceRef.name)}</div>`);
-  }
-
-  if (req.visaType) {
-    parts.push(
-      `<div class="muted" style="font-size: 0.75rem">تأشيرة: ${escapeHtml(req.visaType.name)}</div>`
-    );
-  }
-
-  if (req.travelerCount) {
-    parts.push(`<div class="muted" style="font-size: 0.75rem">عدد المسافرين: ${escapeHtml(req.travelerCount)}</div>`);
-  }
-
-  if (req.intakeData && Object.keys(req.intakeData).length > 0) {
-    parts.push(
-      `<details style="margin-top: 4px"><summary class="muted" style="font-size: 0.75rem; cursor: pointer">بيانات الطلب</summary>` +
-        `<pre style="white-space: pre-wrap; font-size: 0.7rem; margin: 4px 0 0">${escapeHtml(JSON.stringify(req.intakeData, null, 2))}</pre></details>`
-    );
-  }
-
-  return parts.join("");
-}
-
-function documentsCellHtml(req) {
-  return `
-    <div><strong>مستندات العميل</strong></div>
-    ${customerDocumentsHtml(req)}
-    <div style="margin-top: 10px"><strong>الملفات النهائية</strong></div>
-    ${deliverablesHtml(req)}`;
-}
-
-function statusCellHtml(req) {
-  const selectHtml = `
-    <select data-contact-request-status="${escapeHtml(req.id)}">
-      ${Object.entries(CONTACT_REQUEST_STATUS_LABELS_AR)
-        .map(
-          ([value, label]) =>
-            `<option value="${escapeHtml(value)}" ${value === req.status ? "selected" : ""}>${escapeHtml(label)}</option>`
-        )
-        .join("")}
-    </select>`;
-
-  if (req.status !== "CLOSED" || !req.outcome) {
-    return selectHtml;
-  }
-
-  return `
-    ${selectHtml}
-    <div style="margin-top: 4px">
-      ${statusBadge(req.outcome)}
-      ${req.outcomeNote ? `<div class="muted" style="font-size: 0.75rem">${escapeHtml(req.outcomeNote)}</div>` : ""}
-      <button type="button" class="btn secondary" data-edit-close-outcome="${escapeHtml(req.id)}" style="margin-top: 4px">تعديل النتيجة</button>
-    </div>`;
-}
-
-// Rendered below the status <select> when closing needs an outcome — either
-// because the staff member just picked "مغلق" (the PATCH below came back
-// 400) or because they clicked "تعديل النتيجة" on an already-closed row.
-function showCloseOutcomeForm(select) {
-  const id = select.dataset.contactRequestStatus;
-  const existing = select.parentElement.querySelector(`[data-close-outcome-form="${id}"]`);
-  if (existing) return;
-
-  const wrapper = document.createElement("div");
-  wrapper.dataset.closeOutcomeForm = id;
-  wrapper.className = "stack";
-  wrapper.style.marginTop = "6px";
-  wrapper.style.gap = "6px";
-  wrapper.innerHTML = `
-    <select data-close-outcome-select="${escapeHtml(id)}">
-      ${CONTACT_REQUEST_OUTCOMES.map(
-        (value) => `<option value="${escapeHtml(value)}">${escapeHtml(STATUS_LABELS_AR[value] || value)}</option>`
-      ).join("")}
-    </select>
-    <input type="text" placeholder="ملاحظة (اختياري)" style="width: 120px" data-close-outcome-note="${escapeHtml(id)}" />
-    <button type="button" class="btn secondary" data-confirm-close="${escapeHtml(id)}">تأكيد الإغلاق</button>
-  `;
-  select.insertAdjacentElement("afterend", wrapper);
-}
-
-async function loadContactRequests() {
-  try {
-    const { page, limit, status } = mgmtState.contactRequests;
-    const params = new URLSearchParams({ page, limit });
-    if (status) params.set("status", status);
-
-    const { data, meta } = await api.get(`/contact-requests?${params.toString()}`);
-
-    // name/phone/service/message all come from an unauthenticated public
-    // endpoint — escapeHtml() is required here, not optional, since this is
-    // rendered straight into the staff dashboard via innerHTML.
-    el("contact-requests-body").innerHTML = data
-      .map(
-        (req) => `
-        <tr>
-          <td>${escapeHtml(req.name)}</td>
-          <td dir="ltr">${escapeHtml(req.phone)}</td>
-          <td>${serviceCellHtml(req)}</td>
-          <td style="max-width: 280px; white-space: normal">${escapeHtml(req.message)}</td>
-          <td>${statusCellHtml(req)}</td>
-          <td>${pricingCellHtml(req)}</td>
-          <td>${paymentCellHtml(req)}</td>
-          <td>${documentsCellHtml(req)}</td>
-          <td>${formatDate(req.createdAt)}</td>
-        </tr>`
-      )
-      .join("");
-
-    renderPagination("contact-requests-pagination", meta, (page) => {
-      mgmtState.contactRequests.page = page;
-      loadContactRequests();
-    });
-  } catch (error) {
-    showAlert(mgmtAlert(), error.message);
-  }
-}
-
-function handleContactRequestStatusChange(e) {
-  const select = e.target.closest("[data-contact-request-status]");
-  if (!select) return;
-  api
-    .patch(`/contact-requests/${select.dataset.contactRequestStatus}/status`, {
-      status: select.value,
-    })
-    .then(loadContactRequests)
-    .catch((error) => {
-      // CLOSED requires an outcome (see contact-requests.validators.js) —
-      // reveal the outcome mini-form right here instead of just alerting,
-      // so completing the close is a two-click fix, not a dead end.
-      if (select.value === "CLOSED" && error.status === 400) {
-        showCloseOutcomeForm(select);
-        return;
-      }
-      showAlert(mgmtAlert(), error.message);
-    });
-}
-
-function handleContactRequestActionClick(e) {
-  const editCloseOutcomeBtn = e.target.closest("[data-edit-close-outcome]");
-  if (editCloseOutcomeBtn) {
-    const id = editCloseOutcomeBtn.dataset.editCloseOutcome;
-    const select = document.querySelector(`[data-contact-request-status="${id}"]`);
-    if (select) showCloseOutcomeForm(select);
-    return;
-  }
-
-  const confirmCloseBtn = e.target.closest("[data-confirm-close]");
-  if (confirmCloseBtn) {
-    const id = confirmCloseBtn.dataset.confirmClose;
-    const outcome = document.querySelector(`[data-close-outcome-select="${id}"]`)?.value;
-    const outcomeNote = document
-      .querySelector(`[data-close-outcome-note="${id}"]`)
-      ?.value.trim();
-
-    api
-      .patch(`/contact-requests/${encodeURIComponent(id)}/status`, {
-        status: "CLOSED",
-        outcome,
-        ...(outcomeNote ? { outcomeNote } : {}),
-      })
-      .then(loadContactRequests)
-      .catch((error) => showAlert(mgmtAlert(), error.message));
-    return;
-  }
-
-  const setInvoiceBtn = e.target.closest("[data-set-invoice]");
-  if (setInvoiceBtn) {
-    const id = setInvoiceBtn.dataset.setInvoice;
-    const input = document.querySelector(`[data-invoice-amount-input="${id}"]`);
-    const amount = Number(input?.value);
-
-    if (!amount || amount <= 0) {
-      showAlert(mgmtAlert(), "أدخل مبلغًا صحيحًا أكبر من صفر");
-      return;
-    }
-
-    api
-      .post(`/contact-requests/${encodeURIComponent(id)}/invoice`, { amount, currency: "SAR" })
-      .then(loadContactRequests)
-      .catch((error) => showAlert(mgmtAlert(), error.message));
-    return;
-  }
-
-  const addOfferBtn = e.target.closest("[data-add-offer]");
-  if (addOfferBtn) {
-    const id = addOfferBtn.dataset.addOffer;
-    const carrier = document.querySelector(`[data-offer-carrier-input="${id}"]`)?.value.trim();
-    const amount = Number(document.querySelector(`[data-offer-amount-input="${id}"]`)?.value);
-
-    if (!carrier) {
-      showAlert(mgmtAlert(), "أدخل اسم الناقل/الجهة");
-      return;
-    }
-    if (!amount || amount <= 0) {
-      showAlert(mgmtAlert(), "أدخل مبلغًا صحيحًا أكبر من صفر");
-      return;
-    }
-
-    api
-      .post(`/contact-requests/${encodeURIComponent(id)}/offers`, { carrier, amount, currency: "SAR" })
-      .then(loadContactRequests)
-      .catch((error) => showAlert(mgmtAlert(), error.message));
-    return;
-  }
-
-  const confirmPaymentBtn = e.target.closest("[data-confirm-payment]");
-  if (confirmPaymentBtn) {
-    api
-      .post(`/contact-requests/${confirmPaymentBtn.dataset.confirmPayment}/confirm-payment`, {})
-      .then(loadContactRequests)
-      .catch((error) => showAlert(mgmtAlert(), error.message));
-    return;
-  }
-
-  const acceptDocBtn = e.target.closest("[data-accept-document]");
-  if (acceptDocBtn) {
-    api
-      .patch(
-        `/contact-requests/${acceptDocBtn.dataset.requestId}/documents/${acceptDocBtn.dataset.acceptDocument}/status`,
-        { status: "ACCEPTED" }
-      )
-      .then(loadContactRequests)
-      .catch((error) => showAlert(mgmtAlert(), error.message));
-    return;
-  }
-
-  const rejectDocBtn = e.target.closest("[data-reject-document]");
-  if (rejectDocBtn) {
-    const documentId = rejectDocBtn.dataset.rejectDocument;
-    const note = document.querySelector(`[data-reject-note-input="${documentId}"]`)?.value.trim();
-
-    if (!note) {
-      showAlert(mgmtAlert(), "يرجى كتابة سبب الرفض");
-      return;
-    }
-
-    api
-      .patch(`/contact-requests/${rejectDocBtn.dataset.requestId}/documents/${documentId}/status`, {
-        status: "REJECTED",
-        reviewNote: note,
-      })
-      .then(loadContactRequests)
-      .catch((error) => showAlert(mgmtAlert(), error.message));
-    return;
-  }
-
-  const uploadDeliverableBtn = e.target.closest("[data-upload-deliverable]");
-  if (uploadDeliverableBtn) {
-    const id = uploadDeliverableBtn.dataset.uploadDeliverable;
-    const label = document.querySelector(`[data-deliverable-label-input="${id}"]`)?.value.trim();
-    const file = document.querySelector(`[data-deliverable-file-input="${id}"]`)?.files[0];
-
-    if (!label) {
-      showAlert(mgmtAlert(), "أدخل اسم الملف");
-      return;
-    }
-    if (!file) {
-      showAlert(mgmtAlert(), "اختر ملفًا لرفعه");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("label", label);
-    formData.append("file", file);
-
-    api
-      .upload(`/contact-requests/${encodeURIComponent(id)}/deliverables`, formData)
-      .then(loadContactRequests)
-      .catch((error) => showAlert(mgmtAlert(), error.message));
-  }
-}
 
 // --- Branding / icons (shown on the public marketing site) ---
 
