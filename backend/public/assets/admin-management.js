@@ -774,7 +774,7 @@ async function createUserAccount() {
     el("u-password").value = "";
     loadUsers();
   } catch (error) {
-    showAlert(mgmtAlert(), error.message + (error.errors ? " — " + formatErrors(error.errors) : ""));
+    showAlert(mgmtAlert(), error.message);
   }
 }
 

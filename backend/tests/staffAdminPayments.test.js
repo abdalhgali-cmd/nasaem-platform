@@ -71,7 +71,7 @@ test("retrying the same payment after a failure reuses the idempotency key", asy
   const form = document.getElementById("payment-form");
   form.dispatchEvent(new window.Event("submit", { cancelable: true }));
   await settle(200);
-  assert.match(document.getElementById("payment-alert").textContent, /unavailable/);
+  assert.match(document.getElementById("payment-alert").textContent, /غير متاحة مؤقتًا/, "a 503 is explained in Arabic");
   form.dispatchEvent(new window.Event("submit", { cancelable: true }));
   await settle(200);
 

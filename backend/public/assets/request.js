@@ -238,7 +238,7 @@ async function submitRequest() {
     el("success-summary").textContent =
       `رقم الطلب: ${order.orderNumber} — العميل: ${customer.fullName} (${customer.customerNo})`;
   } catch (error) {
-    showAlert(pageAlert, error.message + (error.errors ? " — " + formatErrors(error.errors) : ""));
+    showAlert(pageAlert, error.message);
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = "إنشاء الطلب";
