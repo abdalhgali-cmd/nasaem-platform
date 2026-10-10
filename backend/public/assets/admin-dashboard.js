@@ -100,10 +100,14 @@ function setupTabSwitching() {
     }, 350);
   });
 
-  el("orders-body").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-order-id]");
-    if (btn) openOrderDetail(btn.dataset.orderId);
-  });
+  for (const containerId of ["orders-body", "latest-orders-body"]) {
+    el(containerId).addEventListener("click", (event) => {
+      const target = event.target.closest("[data-order-id]");
+      if (!target) return;
+      if (activeTabKey() !== "orders") activateTab("orders");
+      openOrderDetail(target.dataset.orderId);
+    });
+  }
 }
 
 function activateTab(tabKey) {
@@ -154,8 +158,8 @@ async function loadOverview() {
     el("latest-orders-body").innerHTML = data.latestOrders
       .map(
         (order) => `
-        <tr>
-          <td>${order.orderNumber}</td>
+        <tr data-order-id="${escapeHtml(order.id)}" style="cursor: pointer">
+          <td><button type="button" class="btn secondary" data-order-id="${escapeHtml(order.id)}" aria-label="فتح الطلب ${escapeHtml(order.orderNumber)}">${escapeHtml(order.orderNumber)}</button></td>
           <td>${order.customer?.fullName || "-"}</td>
           <td>${statusBadge(order.status)}</td>
           <td>${formatMoney(order.totalAmount, order.currency)}</td>
@@ -181,13 +185,13 @@ async function loadOrders() {
     el("orders-body").innerHTML = data
       .map(
         (order) => `
-        <tr>
-          <td>${order.orderNumber}</td>
+        <tr data-order-id="${escapeHtml(order.id)}" style="cursor: pointer">
+          <td><button type="button" class="btn secondary" data-order-id="${escapeHtml(order.id)}" aria-label="فتح الطلب ${escapeHtml(order.orderNumber)}">${escapeHtml(order.orderNumber)}</button></td>
           <td>${order.customer?.fullName || "-"}</td>
           <td>${statusBadge(order.status)}</td>
           <td>${statusBadge(order.paymentStatus)}</td>
           <td>${formatMoney(order.totalAmount, order.currency)}</td>
-          <td><button type="button" class="btn secondary" data-order-id="${order.id}">عرض</button></td>
+          <td><button type="button" class="btn secondary" data-order-id="${escapeHtml(order.id)}">عرض</button></td>
         </tr>`
       )
       .join("");
