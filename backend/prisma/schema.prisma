@@ -52,6 +52,15 @@ enum PaymentStatus {
   REFUNDED
 }
 
+// A Payment row is either money received from the customer (PAYMENT) or
+// money returned to them (REFUND, linked to the confirmed payment it
+// reverses). For either kind, status PAID means the movement is confirmed;
+// UNPAID with reviewStatus PENDING means it still awaits review.
+enum PaymentKind {
+  PAYMENT
+  REFUND
+}
+
 // Optional review lifecycle for an individual Payment record, layered on top
 // of the existing `status` field without changing its values (flight-booking
 // payment confirmation and other existing writers keep working unchanged).
@@ -401,6 +410,7 @@ model User {
   notifications                      Notification[]              @relation("UserNotifications")
   statusChangedLogs                  OrderStatusHistory[]        @relation("StatusChangedBy")
   paymentsReviewed                   Payment[]                   @relation("PaymentReviewedBy")
+  paymentsCreated                    Payment[]                   @relation("PaymentCreatedBy")
   invoicesCreated                    Invoice[]                   @relation("InvoiceCreatedBy")
   reviewedContactRequestDocuments    ContactRequestDocument[]    @relation("ContactRequestDocumentReviewedBy")
   contactRequestOffersCreated        ContactRequestOffer[]       @relation("ContactRequestOfferCreatedBy")
@@ -843,24 +853,38 @@ model Document {
 }
 
 model Payment {
-  id               String               @id @default(cuid())
-  orderId          String
-  amount           Decimal              @db.Decimal(12, 2)
-  currency         String               @default("SAR")
-  paymentMethod    String
-  referenceNumber  String?
-  status           PaymentStatus        @default(UNPAID)
-  paidAt           DateTime?
-  reviewStatus     PaymentReviewStatus?
-  rejectionReason  String?
-  reviewedByUserId String?
-  reviewedAt       DateTime?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  id                String               @id @default(cuid())
+  orderId           String
+  amount            Decimal              @db.Decimal(12, 2)
+  currency          String               @default("SAR")
+  paymentMethod     String
+  referenceNumber   String?
+  status            PaymentStatus        @default(UNPAID)
+  paidAt            DateTime?
+  reviewStatus      PaymentReviewStatus?
+  rejectionReason   String?
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  kind              PaymentKind          @default(PAYMENT)
+  refundOfPaymentId String?
+  refundReason      String?
+  createdByUserId   String?
+  // Client-generated key for one submission; a replay with the same key
+  // returns the stored payment instead of recording it twice. requestHash
+  // detects the same key reused for a different payment.
+  idempotencyKey    String?              @unique
+  requestHash       String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
-  order      Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  reviewedBy User? @relation("PaymentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reviewedBy User?     @relation("PaymentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  createdBy  User?     @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  refundOf   Payment?  @relation("PaymentRefunds", fields: [refundOfPaymentId], references: [id], onDelete: Restrict)
+  refunds    Payment[] @relation("PaymentRefunds")
 
+  @@index([refundOfPaymentId])
+  @@index([kind])
   @@index([orderId])
   @@index([status])
   @@index([reviewStatus])
