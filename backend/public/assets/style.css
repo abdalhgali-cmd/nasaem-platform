@@ -3,7 +3,7 @@
   --color-surface: #ffffff;
   --color-border: #dfe3e8;
   --color-text: #1f2933;
-  --color-muted: #64748b;
+  --color-muted: #4b5563;
   --color-primary: #0f766e;
   --color-primary-dark: #0b5a54;
   --color-accent: #b9862f;
@@ -639,4 +639,124 @@ details > summary {
   cursor: pointer;
   color: var(--color-primary);
   margin: 8px 0;
+}
+
+/* ---- Phase 4: keyboard focus, containment, small screens ---- */
+
+/* Visible focus for keyboard users on every interactive element. */
+a:focus-visible,
+button:focus-visible,
+[role="tab"]:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Headings receive focus programmatically when a detail opens (so screen
+   readers announce it); no ring for that. */
+[tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* Wide content (tables in configuration panels) scrolls inside its card,
+   never the whole page. */
+.card {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 16px 10px 48px;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .app-header {
+    padding: 10px 12px;
+  }
+
+  .app-header nav a,
+  .app-header nav button {
+    padding: 8px 10px;
+  }
+
+  /* Tabs scroll sideways instead of wrapping into a tall block. */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabs button {
+    white-space: nowrap;
+    padding: 10px 12px;
+  }
+
+  .filters .field {
+    flex: 1 1 45%;
+    min-width: 140px;
+  }
+
+  .filters .field:first-child {
+    flex-basis: 100%;
+  }
+
+  /* List tables become one card per row; api.js copies each column
+     header into the cell's data-label. */
+  table.stack-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  table.stack-table,
+  table.stack-table tbody,
+  table.stack-table tr,
+  table.stack-table td {
+    display: block;
+    width: 100%;
+  }
+
+  table.stack-table tr {
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    margin-bottom: 10px;
+    background: var(--color-surface);
+  }
+
+  table.stack-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border: none;
+    padding: 6px 0;
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
+
+  table.stack-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--color-muted);
+    font-size: 0.8rem;
+    flex: 0 0 38%;
+  }
+
+  table.stack-table td[colspan] {
+    display: block;
+  }
+
+  .detail-header {
+    flex-direction: column;
+  }
+
+  .grid.cols-4,
+  .grid.cols-3 {
+    grid-template-columns: 1fr;
+  }
 }

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>لوحة التحكم — نسائم الحرمين</title>
+  <link rel="icon" href="data:," />
   <link rel="stylesheet" href="/assets/style.css" />
 </head>
 <body>
@@ -27,7 +28,7 @@
       <div class="card">
         <h2>أحدث الطلبات</h2>
         <div class="table-scroll">
-          <table>
+          <table class="stack-table">
             <thead>
               <tr><th>رقم الطلب</th><th>العميل</th><th>الحالة</th><th>الإجمالي</th><th>تاريخ الإنشاء</th></tr>
             </thead>
@@ -53,7 +54,7 @@
             <select id="cr-filter-category"><option value="">كل الخدمات</option></select></div>
         </div>
         <div class="table-scroll">
-          <table>
+          <table class="stack-table">
             <thead><tr><th>المرجع</th><th>العميل</th><th>الخدمة</th><th>الحالة</th><th>الدفع</th><th>المسؤول</th><th>الإجراء التالي</th><th>التاريخ</th></tr></thead>
             <tbody id="cr-body"></tbody>
           </table>
@@ -90,7 +91,7 @@
             <select id="order-assignee-filter"><option value="">الكل</option><option value="mine">طلباتي</option><option value="unassigned">غير مُسندة</option></select></div>
         </div>
         <div class="table-scroll">
-          <table>
+          <table class="stack-table">
             <thead>
               <tr><th>رقم الطلب</th><th>العميل</th><th>الحالة</th><th>الدفع</th><th>الإجمالي</th><th>المسؤول</th></tr>
             </thead>
@@ -124,7 +125,7 @@
           </div>
         </div>
         <div class="table-scroll">
-          <table>
+          <table class="stack-table">
             <thead><tr><th>رقم الحجز</th><th>العميل</th><th>المبلغ</th><th>الحالة</th><th>الإجراء التالي</th><th>التاريخ</th></tr></thead>
             <tbody id="flight-bookings-body"></tbody>
           </table>
@@ -139,7 +140,7 @@
           <h2 style="margin: 0">العملاء</h2>
           <label for="customer-search" class="sr-only">بحث العملاء</label><input type="search" id="customer-search" placeholder="بحث بالاسم أو رقم الجواز..." style="max-width: 260px" />
         </div>
-        <table>
+        <table class="stack-table">
           <thead>
             <tr><th>رقم العميل</th><th>الاسم</th><th>رقم الجواز</th><th>الجنسية</th><th>الهاتف</th></tr>
           </thead>
@@ -152,7 +153,7 @@
     <section id="tab-payments" role="tabpanel" aria-labelledby="tabbtn-payments" class="hidden">
       <div class="card">
         <h2>الدفعات</h2>
-        <table>
+        <table class="stack-table">
           <thead>
             <tr><th>رقم الطلب</th><th>العميل</th><th>المبلغ</th><th>طريقة الدفع</th><th>الحالة</th><th>التاريخ</th></tr>
           </thead>

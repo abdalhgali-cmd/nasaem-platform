@@ -313,3 +313,27 @@ function newIdempotencyKey() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `k-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
+
+// Small screens show each row of a `table.stack-table` as a card (see
+// style.css). Each cell gets its column header as `data-label`, kept in
+// sync whenever a list re-renders, so no template has to repeat headers.
+function labelStackTable(table) {
+  const headers = Array.from(table.querySelectorAll("thead th")).map((th) => th.textContent.trim());
+  table.querySelectorAll("tbody tr").forEach((row) => {
+    Array.from(row.children).forEach((cell, index) => {
+      if (!cell.hasAttribute("colspan") && headers[index]) cell.setAttribute("data-label", headers[index]);
+    });
+  });
+}
+
+(function watchStackTables() {
+  if (typeof MutationObserver === "undefined" || typeof document === "undefined") return;
+  const start = () => {
+    document.querySelectorAll("table.stack-table").forEach((table) => {
+      labelStackTable(table);
+      new MutationObserver(() => labelStackTable(table)).observe(table.querySelector("tbody") || table, { childList: true });
+    });
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();
