@@ -28,7 +28,8 @@ describe("dashboard summary and operations", () => {
     const orderRes = await agent.post("/api/orders").send({ customerId: customerRes.body.data.id, items: [{ serviceId: serviceRes.body.data.id, quantity: 1, unitPrice: 100 }] });
 
     // Amounts are reported per currency (never summed across currencies).
-    const paidSar = (summary) => Number(summary.periods.today.paidByCurrency.find((row) => row.currency === "SAR")?.amount || 0);
+    // In cents: the totals are decimals, and float addition would not compare equal.
+    const paidSar = (summary) => Math.round(Number(summary.periods.today.paidByCurrency.find((row) => row.currency === "SAR")?.amount || 0) * 100);
     const before = paidSar(await getDashboardSummary());
 
     await agent.post("/api/payments").send({ orderId: orderRes.body.data.id, amount: 100, paymentMethod: "bank_transfer", pendingReview: true });
@@ -38,7 +39,7 @@ describe("dashboard summary and operations", () => {
     const paymentsRes = await agent.get(`/api/payments?orderId=${orderRes.body.data.id}`);
     await agent.post(`/api/payments/${paymentsRes.body.data[0].id}/confirm`);
     const afterConfirm = paidSar(await getDashboardSummary());
-    assert.equal(afterConfirm, before + 100, "a confirmed payment must count as paid");
+    assert.equal(afterConfirm, before + 100 * 100, "a confirmed payment must count as paid");
   });
 
   test("operations exposes ageHours and stalled queue", async () => {
