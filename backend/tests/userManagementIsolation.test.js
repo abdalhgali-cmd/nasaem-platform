@@ -126,7 +126,8 @@ describe("user management: role hierarchy and administrative recovery", () => {
     assert.equal((await staffClient(superAdmin).patch(`/api/users/${employee.id}/status`).send({ status: "SUSPENDED" })).status, 200);
 
     let log = null;
-    for (let i = 0; i < 20 && !log; i += 1) {
+    // logActivity is fire-and-forget: allow a slow CI database up to 5 s.
+    for (let i = 0; i < 100 && !log; i += 1) {
       log = await prisma.activityLog.findFirst({ where: { entityId: employee.id, action: "USER_STATUS_CHANGED" } });
       if (!log) await new Promise((r) => setTimeout(r, 50));
     }

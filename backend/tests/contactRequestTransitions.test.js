@@ -84,7 +84,8 @@ describe("contact request state transitions", () => {
     assert.equal(reopen.body.data.outcome, null);
 
     let log = null;
-    for (let i = 0; i < 20 && !log; i += 1) {
+    // logActivity is fire-and-forget: allow a slow CI database up to 5 s.
+    for (let i = 0; i < 100 && !log; i += 1) {
       log = await prisma.activityLog.findFirst({ where: { entityId: request.id, action: "CONTACT_REQUEST_REOPENED" } });
       if (!log) await new Promise((r) => setTimeout(r, 50));
     }
