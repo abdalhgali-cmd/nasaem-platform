@@ -1,9 +1,10 @@
+/* GENERATED from backend/public by scripts/sync-static-admin.mjs. Do not edit here: edit backend/public and run `node scripts/sync-static-admin.mjs`. */
 :root {
   --color-bg: #f4f6f8;
   --color-surface: #ffffff;
   --color-border: #dfe3e8;
   --color-text: #1f2933;
-  --color-muted: #64748b;
+  --color-muted: #4b5563;
   --color-primary: #0f766e;
   --color-primary-dark: #0b5a54;
   --color-accent: #b9862f;
@@ -163,6 +164,10 @@ main {
 
 .grid.cols-3 {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.grid.cols-4 {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 label {
@@ -352,6 +357,26 @@ tbody tr:hover {
   font-weight: 600;
 }
 
+/* Platform 3.0 Phase 14 — a non-clickable label marking the start of a
+   group of tabs in #mgmt-tabs, so the configuration center reads as
+   organized sections instead of one long flat list. */
+.mgmt-tab-group {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mgmt-tab-group:not(:first-child) {
+  margin-inline-start: 10px;
+  padding-inline-start: 10px;
+  border-inline-start: 1px solid var(--color-border);
+}
+
 .stat-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -458,4 +483,281 @@ tbody tr:hover {
 
 .hidden {
   display: none !important;
+}
+
+/* Shown by api.js when the session could not be checked (server/network). */
+.connection-problem {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.connection-problem[hidden] {
+  display: none;
+}
+
+.connection-problem .card {
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.plain-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+
+.plain-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.stack.wrap {
+  flex-wrap: wrap;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.filters .field {
+  min-width: 180px;
+  flex: 1 1 180px;
+  margin: 0;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.detail-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.detail-header h2 {
+  margin: 0;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.detail-grid dt {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.detail-grid dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+
+.card.inset {
+  background: var(--color-bg);
+  box-shadow: none;
+  margin-top: 12px;
+}
+
+.card h4 {
+  margin: 0 0 10px;
+}
+
+label.checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--color-text);
+  margin: 6px 0 10px;
+}
+
+label.checkbox input {
+  width: auto;
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+.money-grid dd {
+  font-variant-numeric: tabular-nums;
+}
+
+.pre-wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+details > summary {
+  cursor: pointer;
+  color: var(--color-primary);
+  margin: 8px 0;
+}
+
+/* ---- Phase 4: keyboard focus, containment, small screens ---- */
+
+/* Visible focus for keyboard users on every interactive element. */
+a:focus-visible,
+button:focus-visible,
+[role="tab"]:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Headings receive focus programmatically when a detail opens (so screen
+   readers announce it); no ring for that. */
+[tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* Wide content (tables in configuration panels) scrolls inside its card,
+   never the whole page. */
+.card {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 16px 10px 48px;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .app-header {
+    padding: 10px 12px;
+  }
+
+  .app-header nav a,
+  .app-header nav button {
+    padding: 8px 10px;
+  }
+
+  /* Tabs scroll sideways instead of wrapping into a tall block. */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabs button {
+    white-space: nowrap;
+    padding: 10px 12px;
+  }
+
+  .filters .field {
+    flex: 1 1 45%;
+    min-width: 140px;
+  }
+
+  .filters .field:first-child {
+    flex-basis: 100%;
+  }
+
+  /* List tables become one card per row; api.js copies each column
+     header into the cell's data-label. */
+  table.stack-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  table.stack-table,
+  table.stack-table tbody,
+  table.stack-table tr,
+  table.stack-table td {
+    display: block;
+    width: 100%;
+  }
+
+  table.stack-table tr {
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    margin-bottom: 10px;
+    background: var(--color-surface);
+  }
+
+  table.stack-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border: none;
+    padding: 6px 0;
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
+
+  table.stack-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--color-muted);
+    font-size: 0.8rem;
+    flex: 0 0 38%;
+  }
+
+  table.stack-table td[colspan] {
+    display: block;
+  }
+
+  .detail-header {
+    flex-direction: column;
+  }
+
+  .grid.cols-4,
+  .grid.cols-3 {
+    grid-template-columns: 1fr;
+  }
 }

@@ -1,4 +1,5 @@
 import prisma from "../../config/database.js";
+import { computeSettlement } from "../payments/settlement.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { safeCustomerSelect } from "../../utils/safeSelects.js";
@@ -51,16 +52,31 @@ export async function getCustomerById(id, organizationId) {
   if (!customer) return null;
 
   const orderCount = customer.orders.length;
-  const paidAmount = customer.orders.reduce((sum, order) => sum + order.payments.filter((payment) => ["PAID", "CONFIRMED"].includes(payment.status)).reduce((s, payment) => s + Number(payment.amount), 0), 0);
-  const outstandingAmount = customer.orders.reduce((sum, order) => sum + Math.max(Number(order.totalAmount) - order.payments.filter((payment) => ["PAID", "CONFIRMED"].includes(payment.status)).reduce((s, payment) => s + Number(payment.amount), 0), 0), 0);
+  // Per-currency balances from the same settlement the payment write path
+  // uses (confirmed money only, refunds subtracted). Amounts in different
+  // currencies are never added: paidAmount/outstandingAmount stay numbers
+  // only when every order is in one currency, otherwise they are null and
+  // balancesByCurrency carries the figures.
+  const byCurrency = new Map();
+  for (const order of customer.orders) {
+    const settlement = computeSettlement(order, order.payments);
+    const row = byCurrency.get(order.currency) || { currency: order.currency, paid: 0, outstanding: 0 };
+    row.paid += Number(settlement.netPaid);
+    row.outstanding += Number(settlement.outstanding);
+    byCurrency.set(order.currency, row);
+  }
+  const balancesByCurrency = [...byCurrency.values()].map((row) => ({ ...row, paid: Number(row.paid.toFixed(2)), outstanding: Number(row.outstanding.toFixed(2)) }));
+  const single = balancesByCurrency.length <= 1 ? balancesByCurrency[0] || { paid: 0, outstanding: 0, currency: null } : null;
   const lastOrder = customer.orders[0] || null;
 
   return {
     ...customer,
     summary: {
       orderCount,
-      paidAmount: Number(paidAmount.toFixed(2)),
-      outstandingAmount: Number(outstandingAmount.toFixed(2)),
+      paidAmount: single ? single.paid : null,
+      outstandingAmount: single ? single.outstanding : null,
+      currency: single ? single.currency : null,
+      balancesByCurrency,
       lastOrderId: lastOrder?.id || null,
       lastOrderNumber: lastOrder?.orderNumber || null,
       activeOrders: customer.orders.filter((order) => !["COMPLETED", "CANCELLED", "REJECTED"].includes(order.status)).length,

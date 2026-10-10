@@ -13,7 +13,8 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
-    "finance:diagnose": "node src/scripts/financial-diagnostics.js"
+    "finance:diagnose": "node src/scripts/financial-diagnostics.js",
+    "sync:static-admin": "node ../scripts/sync-static-admin.mjs"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
