@@ -1,9 +1,17 @@
+// Only same-site paths are honoured as a post-login destination, never a
+// full URL, so a crafted ?next= cannot send staff to another site.
+function nextDestination() {
+  const next = new URLSearchParams(window.location.search).get("next") || "";
+  if (next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") && !next.startsWith("/login.html")) return next;
+  return "/admin-dashboard.html";
+}
+
 (async function redirectIfAlreadyLoggedIn() {
   try {
     await api.get("/auth/me");
-    window.location.href = "/admin-dashboard.html";
+    window.location.href = nextDestination();
   } catch (error) {
-    // Not logged in — stay on the login page.
+    // Not logged in (or the server is unreachable) — stay on the login page.
   }
 })();
 
@@ -22,9 +30,10 @@ form.addEventListener("submit", async (event) => {
       email: document.getElementById("email").value.trim(),
       password: document.getElementById("password").value,
     });
-    window.location.href = "/admin-dashboard.html";
+    window.location.href = nextDestination();
   } catch (error) {
-    showAlert(alertBox, error.message || "فشل تسجيل الدخول");
+    const message = error.status === 401 ? "البريد الإلكتروني أو كلمة المرور غير صحيحة" : error.message || "فشل تسجيل الدخول";
+    showAlert(alertBox, message);
     submitBtn.disabled = false;
     submitBtn.textContent = "دخول";
   }
