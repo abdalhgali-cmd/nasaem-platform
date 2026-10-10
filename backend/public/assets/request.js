@@ -42,7 +42,7 @@ function renderServiceGrid() {
     const card = document.createElement("div");
     card.className = "service-card";
     card.dataset.key = key;
-    card.innerHTML = `<span class="icon">${service.icon}</span>${service.label}`;
+    card.innerHTML = `<span class="icon">${escapeHtml(service.icon)}</span>${escapeHtml(service.label)}`;
     card.addEventListener("click", () => selectCategory(key));
     grid.appendChild(card);
   });
@@ -89,7 +89,7 @@ function renderChecklist() {
   const note = (service.notes && service.notes[subKey]) || service.note || "";
 
   const checklist = el("doc-checklist");
-  checklist.innerHTML = docs.map((doc) => `<li>${doc}</li>`).join("");
+  checklist.innerHTML = docs.map((doc) => `<li>${escapeHtml(doc)}</li>`).join("");
 
   el("checklist-note").textContent = note;
   el("doc-checklist-wrap").classList.toggle("hidden", docs.length === 0);

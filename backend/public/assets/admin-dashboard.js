@@ -149,8 +149,8 @@ async function loadOverview() {
     ]
       .map(([key, label]) => `
         <div class="stat-tile">
-          <div class="value">${data[key]}</div>
-          <div class="label">${label}</div>
+          <div class="value">${escapeHtml(data[key])}</div>
+          <div class="label">${escapeHtml(label)}</div>
         </div>
       `)
       .join("");
@@ -160,7 +160,7 @@ async function loadOverview() {
         (order) => `
         <tr data-order-id="${escapeHtml(order.id)}" style="cursor: pointer">
           <td><button type="button" class="btn secondary" data-order-id="${escapeHtml(order.id)}" aria-label="فتح الطلب ${escapeHtml(order.orderNumber)}">${escapeHtml(order.orderNumber)}</button></td>
-          <td>${order.customer?.fullName || "-"}</td>
+          <td>${escapeHtml(order.customer?.fullName || "-")}</td>
           <td>${statusBadge(order.status)}</td>
           <td>${formatMoney(order.totalAmount, order.currency)}</td>
           <td>${formatDate(order.createdAt)}</td>
@@ -187,7 +187,7 @@ async function loadOrders() {
         (order) => `
         <tr data-order-id="${escapeHtml(order.id)}" style="cursor: pointer">
           <td><button type="button" class="btn secondary" data-order-id="${escapeHtml(order.id)}" aria-label="فتح الطلب ${escapeHtml(order.orderNumber)}">${escapeHtml(order.orderNumber)}</button></td>
-          <td>${order.customer?.fullName || "-"}</td>
+          <td>${escapeHtml(order.customer?.fullName || "-")}</td>
           <td>${statusBadge(order.status)}</td>
           <td>${statusBadge(order.paymentStatus)}</td>
           <td>${formatMoney(order.totalAmount, order.currency)}</td>
@@ -215,7 +215,7 @@ async function openOrderDetail(orderId) {
     const { data: order } = await api.get(`/orders/${orderId}`);
     renderOrderDetail(order);
   } catch (error) {
-    card.innerHTML = `<div class="alert error">${error.message}</div>`;
+    card.innerHTML = `<div class="alert error">${escapeHtml(error.message)}</div>`;
   }
 }
 
@@ -226,8 +226,8 @@ function renderOrderDetail(order) {
     .map(
       (item) => `
       <tr>
-        <td>${item.service?.name || item.serviceId}</td>
-        <td>${item.quantity}</td>
+        <td>${escapeHtml(item.service?.name || item.serviceId)}</td>
+        <td>${escapeHtml(item.quantity)}</td>
         <td>${formatMoney(item.unitPrice, order.currency)}</td>
         <td>${formatMoney(item.total, order.currency)}</td>
       </tr>`
@@ -236,21 +236,21 @@ function renderOrderDetail(order) {
 
   const paymentsRows = order.payments
     .map(
-      (p) => `<tr><td>${formatMoney(p.amount, p.currency)}</td><td>${p.paymentMethod}</td><td>${statusBadge(p.status)}</td><td>${formatDate(p.createdAt)}</td></tr>`
+      (p) => `<tr><td>${formatMoney(p.amount, p.currency)}</td><td>${escapeHtml(p.paymentMethod)}</td><td>${statusBadge(p.status)}</td><td>${formatDate(p.createdAt)}</td></tr>`
     )
     .join("");
 
   const historyItems = order.history
-    .map((h) => `<li>${formatDate(h.changedAt)} — ${statusBadge(h.oldStatus)} → ${statusBadge(h.newStatus)} ${h.notes ? "(" + h.notes + ")" : ""}</li>`)
+    .map((h) => `<li>${formatDate(h.changedAt)} — ${statusBadge(h.oldStatus)} → ${statusBadge(h.newStatus)} ${h.notes ? "(" + escapeHtml(h.notes) + ")" : ""}</li>`)
     .join("");
 
   const statusOptions = ORDER_STATUSES.map(
-    (status) => `<option value="${status}" ${status === order.status ? "selected" : ""}>${STATUS_LABELS_AR[status]}</option>`
+    (status) => `<option value="${escapeHtml(status)}" ${status === order.status ? "selected" : ""}>${escapeHtml(STATUS_LABELS_AR[status])}</option>`
   ).join("");
 
   card.innerHTML = `
-    <h2>الطلب ${order.orderNumber} <button type="button" class="btn secondary" id="close-detail-btn" style="float: left">إغلاق</button></h2>
-    <p>العميل: <strong>${order.customer?.fullName || "-"}</strong> (${order.customer?.customerNo || "-"})</p>
+    <h2>الطلب ${escapeHtml(order.orderNumber)} <button type="button" class="btn secondary" id="close-detail-btn" style="float: left">إغلاق</button></h2>
+    <p>العميل: <strong>${escapeHtml(order.customer?.fullName || "-")}</strong> (${escapeHtml(order.customer?.customerNo || "-")})</p>
     <p>الحالة الحالية: ${statusBadge(order.status)} — حالة الدفع: ${statusBadge(order.paymentStatus)} — الإجمالي: ${formatMoney(order.totalAmount, order.currency)}</p>
 
     <h3>عناصر الطلب</h3>
@@ -359,11 +359,11 @@ async function loadCustomers() {
       .map(
         (c) => `
         <tr>
-          <td>${c.customerNo}</td>
-          <td>${c.fullName}</td>
-          <td>${c.passportNo}</td>
-          <td>${c.nationality}</td>
-          <td>${c.phone || "-"}</td>
+          <td>${escapeHtml(c.customerNo)}</td>
+          <td>${escapeHtml(c.fullName)}</td>
+          <td>${escapeHtml(c.passportNo)}</td>
+          <td>${escapeHtml(c.nationality)}</td>
+          <td>${escapeHtml(c.phone || "-")}</td>
         </tr>`
       )
       .join("");
@@ -390,10 +390,10 @@ async function loadPayments() {
       .map(
         (p) => `
         <tr>
-          <td>${p.order?.orderNumber || "-"}</td>
-          <td>${p.order?.customer?.fullName || "-"}</td>
+          <td>${escapeHtml(p.order?.orderNumber || "-")}</td>
+          <td>${escapeHtml(p.order?.customer?.fullName || "-")}</td>
           <td>${formatMoney(p.amount, p.currency)}</td>
-          <td>${p.paymentMethod}</td>
+          <td>${escapeHtml(p.paymentMethod)}</td>
           <td>${statusBadge(p.status)}</td>
           <td>${formatDate(p.createdAt)}</td>
         </tr>`
