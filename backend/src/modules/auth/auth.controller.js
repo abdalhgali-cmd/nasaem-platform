@@ -1,5 +1,5 @@
-import { loginSchema } from "./auth.validators.js";
-import { getCurrentUser, loginUser } from "./auth.service.js";
+import { changePasswordSchema, loginSchema } from "./auth.validators.js";
+import { changeStaffPassword, getCurrentUser, loginUser, revokeStaffToken } from "./auth.service.js";
 import { getAccessTokenMaxAgeMs } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 
@@ -48,6 +48,14 @@ export async function login(req, res, next) {
       });
     }
 
+    if (result.inactive) {
+      return res.status(403).json({
+        success: false,
+        message: "هذا الحساب غير نشط. تواصل مع مدير النظام.",
+        code: "ACCOUNT_INACTIVE",
+      });
+    }
+
     sendAuthCookie(res, result.token);
 
     logActivity({
@@ -73,6 +81,11 @@ export async function login(req, res, next) {
 
 export async function logout(req, res, next) {
   try {
+    // Revoke first: if this fails the client is told so (5xx) instead of
+    // believing a still-valid token was invalidated.
+    if (req.staffSession?.tokenId && req.user?.id) {
+      await revokeStaffToken({ tokenId: req.staffSession.tokenId, userId: req.user.id, exp: req.staffSession.exp });
+    }
     res.clearCookie("accessToken", AUTH_COOKIE_OPTIONS);
 
     if (req.user?.id) {
@@ -118,6 +131,30 @@ export async function me(req, res, next) {
       success: true,
       data: user,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function changePassword(req, res, next) {
+  try {
+    const parsed = changePasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+
+    const result = await changeStaffPassword(req.user.id, parsed.data);
+    if (result.error === "WRONG_PASSWORD") {
+      return res.status(400).json({ success: false, message: "كلمة المرور الحالية غير صحيحة", code: "WRONG_PASSWORD" });
+    }
+    if (result.error) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    sendAuthCookie(res, result.token);
+    logActivity({ userId: req.user.id, action: "PASSWORD_CHANGED", entity: "User", entityId: req.user.id, req });
+
+    return res.status(200).json({ success: true, message: "تم تغيير كلمة المرور وإنهاء الجلسات الأخرى", data: { token: result.token } });
   } catch (error) {
     next(error);
   }
