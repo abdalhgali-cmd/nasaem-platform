@@ -1,3 +1,4 @@
+/* GENERATED from backend/public by scripts/sync-static-admin.mjs. Do not edit here: edit backend/public and run `node scripts/sync-static-admin.mjs`. */
 function renderHeader(user, activePage) {
   const header = document.getElementById("app-header");
   if (!header) return;
@@ -10,7 +11,7 @@ function renderHeader(user, activePage) {
   const navHtml = links
     .map(
       (link) =>
-        `<a href="${link.href}" class="${link.key === activePage ? "active" : ""}">${link.label}</a>`
+        `<a href="${escapeHtml(link.href)}" class="${link.key === activePage ? "active" : ""}">${escapeHtml(link.label)}</a>`
     )
     .join("");
 
@@ -22,7 +23,7 @@ function renderHeader(user, activePage) {
         <button type="button" id="notif-btn">🔔<span class="notif-badge hidden" id="notif-badge">0</span></button>
         <div class="notif-dropdown hidden" id="notif-dropdown"></div>
       </div>
-      <span class="user-chip">${user.fullName} · ${user.employeeNo}</span>
+      <span class="user-chip">${escapeHtml(user.fullName)} · ${escapeHtml(user.employeeNo)}</span>
       <button type="button" id="logout-btn">تسجيل الخروج</button>
     </nav>
   `;
@@ -70,7 +71,7 @@ async function wireNotificationBell() {
       dropdown.innerHTML = data
         .map(
           (n) => `
-          <div class="notif-item ${n.readAt ? "" : "unread"}" data-notif-id="${n.id}">
+          <div class="notif-item ${n.readAt ? "" : "unread"}" data-notif-id="${escapeHtml(n.id)}">
             <strong>${escapeHtml(n.title)}</strong>
             <p>${escapeHtml(n.message)}</p>
             <span class="muted">${formatDate(n.createdAt)}</span>
@@ -78,7 +79,7 @@ async function wireNotificationBell() {
         )
         .join("");
     } catch (error) {
-      dropdown.innerHTML = `<p class="muted" style="padding: 10px">${error.message}</p>`;
+      dropdown.innerHTML = `<p class="muted" style="padding: 10px">${escapeHtml(error.message)}</p>`;
     }
   }
 
