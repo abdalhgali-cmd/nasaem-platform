@@ -7,12 +7,12 @@ import helmet from "helmet";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
-import rateLimit from "express-rate-limit";
 
 import apiRouter from "./routes/index.js";
 import notFoundMiddleware from "./middleware/notFound.middleware.js";
 import errorMiddleware from "./middleware/error.middleware.js";
 import { createCsrfProtection } from "./middleware/csrf.middleware.js";
+import { createApiRateLimiter } from "./middleware/rateLimits.js";
 import { trustProxyHops } from "./utils/trustProxy.js";
 
 // Must run before the cors() call below reads process.env.CORS_ORIGIN.
@@ -77,27 +77,15 @@ app.get("/", (req, res) => {
   });
 });
 
-const configuredApiRateLimit = Number.parseInt(process.env.API_RATE_LIMIT || "200", 10);
-const apiRateLimit = Number.isFinite(configuredApiRateLimit) && configuredApiRateLimit > 0 ? configuredApiRateLimit : 200;
-
 // Cookie-authenticated writes must come from a trusted page; see
 // middleware/csrf.middleware.js for the exact policy.
 app.use("/api", createCsrfProtection());
 
-app.use(
-  "/api",
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    // Production remains at the safe default of 200 requests per IP. CI's
-    // browser suite may override this with API_RATE_LIMIT because one test
-    // run intentionally exercises many pages and public catalog fetches from
-    // a single runner IP; the override is not part of production config.
-    limit: apiRateLimit,
-    standardHeaders: true,
-    legacyHeaders: false,
-  }),
-  apiRouter
-);
+// Per-session limit for signed-in callers, per-IP for everyone else; see
+// middleware/rateLimits.js. API_RATE_LIMIT (anonymous, default 200 per 15
+// minutes) and API_SESSION_RATE_LIMIT (per signed-in user, default 1500)
+// can be raised for CI's browser suite without changing production.
+app.use("/api", createApiRateLimiter(), apiRouter);
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);
 

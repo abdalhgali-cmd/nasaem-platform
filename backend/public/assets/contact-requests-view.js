@@ -370,7 +370,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       await Promise.all([openDetail(id, { focus: false }), load()]);
       showAlert(document.getElementById("cr-action-alert"), successMessage, "success");
     } catch (error) {
-      showAlert(document.getElementById("cr-action-alert"), error.message + (error.errors ? " — " + formatErrors(error.errors) : ""));
+      showAlert(document.getElementById("cr-action-alert"), error.message);
       control.disabled = false;
     }
   }

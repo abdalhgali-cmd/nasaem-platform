@@ -87,15 +87,53 @@ async function fetchOnce(path, { body, headers, timeoutMs, ...rest }) {
   }
 
   if (!response.ok) {
+    const serverMessage = arabicMessage(payload?.message, response.status, payload?.errors);
     const fallback =
       response.status === 503 ? "الخدمة غير متاحة مؤقتًا. أعد المحاولة بعد قليل."
       : response.status === 429 ? "عدد كبير من الطلبات. انتظر قليلًا ثم أعد المحاولة."
       : response.status === 403 ? "ليست لديك صلاحية لهذا الإجراء."
       : `الطلب فشل (${response.status})`;
-    throw new ApiError(payload?.message || fallback, response.status, payload?.errors, payload?.code);
+    throw new ApiError(serverMessage || fallback, response.status, payload?.errors, payload?.code);
   }
 
   return payload;
+}
+
+// Server messages are shown to staff as-is when they are already Arabic.
+// English ones (older modules) get an Arabic equivalent: a known phrase, or
+// a plain explanation of the status. Validation details are appended.
+const KNOWN_MESSAGES_AR = {
+  "Validation failed": "البيانات المدخلة غير مكتملة أو غير صحيحة",
+  "Forbidden": "ليست لديك صلاحية لهذا الإجراء.",
+  "Authentication required": "انتهت الجلسة. سجّل الدخول من جديد.",
+  "Invalid or expired token": "انتهت الجلسة. سجّل الدخول من جديد.",
+  "Order not found": "الطلب غير موجود.",
+  "Payment not found": "الدفعة غير موجودة.",
+  "User not found": "المستخدم غير موجود.",
+  "Contact request not found": "طلب العميل غير موجود.",
+  "Booking not found": "الحجز غير موجود.",
+  "Record not found": "العنصر غير موجود.",
+  "File not available": "الملف غير متاح.",
+};
+const STATUS_MESSAGES_AR = {
+  400: "البيانات المدخلة غير صحيحة.",
+  403: "ليست لديك صلاحية لهذا الإجراء.",
+  404: "العنصر غير موجود أو لا يتبع لمؤسستك.",
+  409: "تغيّرت البيانات أو لا يسمح الوضع الحالي بهذا الإجراء. أعد تحميل الصفحة ثم حاول مجددًا.",
+  413: "الملف أكبر من الحد المسموح.",
+  429: "عدد كبير من الطلبات. انتظر قليلًا ثم أعد المحاولة.",
+  500: "حدث خطأ في الخادم. حاول مرة أخرى لاحقًا.",
+  503: "الخدمة غير متاحة مؤقتًا. أعد المحاولة بعد قليل.",
+};
+
+function arabicMessage(message, status, errors) {
+  const hasArabic = (text) => /[\u0600-\u06FF]/.test(text || "");
+  let text = message;
+  if (!text || !hasArabic(text)) {
+    text = KNOWN_MESSAGES_AR[text] || STATUS_MESSAGES_AR[status] || (status >= 500 ? STATUS_MESSAGES_AR[500] : null);
+  }
+  const details = formatErrors(errors);
+  return details ? `${text || ""} — ${details}` : text;
 }
 
 async function apiRequest(path, options = {}) {
@@ -313,3 +351,27 @@ function newIdempotencyKey() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `k-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
+
+// Small screens show each row of a `table.stack-table` as a card (see
+// style.css). Each cell gets its column header as `data-label`, kept in
+// sync whenever a list re-renders, so no template has to repeat headers.
+function labelStackTable(table) {
+  const headers = Array.from(table.querySelectorAll("thead th")).map((th) => th.textContent.trim());
+  table.querySelectorAll("tbody tr").forEach((row) => {
+    Array.from(row.children).forEach((cell, index) => {
+      if (!cell.hasAttribute("colspan") && headers[index]) cell.setAttribute("data-label", headers[index]);
+    });
+  });
+}
+
+(function watchStackTables() {
+  if (typeof MutationObserver === "undefined" || typeof document === "undefined") return;
+  const start = () => {
+    document.querySelectorAll("table.stack-table").forEach((table) => {
+      labelStackTable(table);
+      new MutationObserver(() => labelStackTable(table)).observe(table.querySelector("tbody") || table, { childList: true });
+    });
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();

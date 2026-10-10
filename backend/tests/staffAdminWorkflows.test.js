@@ -166,3 +166,47 @@ describe("flight bookings and orders", () => {
     assert.equal(document.querySelector("#tabs [aria-selected=true]").dataset.tab, "requests");
   });
 });
+
+describe("keyboard and small screens", () => {
+  test("arrow keys move between visible tabs (RTL: left = next) and set aria-selected", async () => {
+    const { window, document } = loadBackOffice("admin-dashboard.html", { routes: baseRoutes("EMPLOYEE") });
+    await settle(80);
+    const first = document.querySelector('#tabs [data-tab="requests"]');
+    first.focus();
+    first.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    await settle(30);
+    const selected = document.querySelector("#tabs [aria-selected=true]");
+    assert.equal(selected.dataset.tab, "orders");
+    assert.equal(document.activeElement, selected);
+    assert.equal(document.getElementById("tab-orders").classList.contains("hidden"), false);
+    selected.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    await settle(30);
+    assert.equal(document.querySelector("#tabs [aria-selected=true]").dataset.tab, "customers", "End skips hidden tabs");
+  });
+
+  test("list cells carry their column label for the stacked phone layout", async () => {
+    const { document } = loadBackOffice("admin-dashboard.html", { routes: baseRoutes("EMPLOYEE") });
+    await settle(120);
+    const cells = [...document.querySelectorAll("#cr-body tr:first-child td")];
+    assert.deepEqual(cells.map((td) => td.dataset.label).slice(0, 3), ["المرجع", "العميل", "الخدمة"]);
+  });
+});
+
+describe("errors shown to staff are Arabic", () => {
+  test("an English server message becomes an Arabic explanation with field details", async () => {
+    const { window, document } = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("EMPLOYEE", {
+        "PATCH /api/contact-requests/cr1/status": async () => ({ status: 400, body: { success: false, message: "Validation failed", errors: { fieldErrors: { outcome: ["يرجى تحديد نتيجة الإغلاق"] } } } }),
+      }),
+      url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+    });
+    await settle(120);
+    const form = document.querySelector('[data-cr-form="close"]');
+    form.dispatchEvent(new window.Event("submit", { cancelable: true, bubbles: true }));
+    await settle(80);
+    const text = document.getElementById("cr-action-alert").textContent;
+    assert.match(text, /البيانات المدخلة غير مكتملة أو غير صحيحة/);
+    assert.match(text, /يرجى تحديد نتيجة الإغلاق/);
+    assert.doesNotMatch(text, /Validation failed/);
+  });
+});

@@ -637,7 +637,7 @@ async function recordPayment(order) {
     showAlert(el("payment-alert"), result.replayed ? "هذه الدفعة مسجلة مسبقًا؛ لم تُسجّل مرة ثانية." : "تم تسجيل الدفعة.", "success");
     loadOrders();
   } catch (error) {
-    showAlert(paymentAlert, error.message + (error.errors ? " — " + formatErrors(error.errors) : ""));
+    showAlert(paymentAlert, error.message);
     button.disabled = false;
     button.textContent = "تسجيل الدفعة";
   }
