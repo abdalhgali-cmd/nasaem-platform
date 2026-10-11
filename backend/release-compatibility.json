@@ -4,6 +4,7 @@
     "migration-compatibility-guard-v1",
     "staff-session-revocation-v1",
     "admin-security-remediation-v1",
-    "payment-refund-settlement-v1"
+    "payment-refund-settlement-v1",
+    "fixed-pricing-v1"
   ]
 }

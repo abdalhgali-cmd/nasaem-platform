@@ -160,6 +160,16 @@ describe("rollback check", () => {
     assert.match(result.reasons.join("\n"), /3 refund row\(s\) exist/);
   });
 
+  test("refuses a target without fixed-pricing handling once FIXED requests exist", () => {
+    const state = { appliedMigrations: readLocalMigrations(), refundCount: 0, activeRevokedTokens: 0, usersWithSessionVersion: 0, fixedPriceRequests: 2 };
+    const capabilities = readLocalCapabilities().filter((c) => c !== "fixed-pricing-v1");
+    const result = evaluateRollbackTarget({ state, targetMigrations: readLocalMigrations(), targetCapabilities: capabilities });
+    assert.equal(result.safe, false);
+    const text = result.reasons.join("\n");
+    assert.match(text, /fixed-pricing-v1/);
+    assert.match(text, /2 fixed-price request\(s\) exist/);
+  });
+
   test("accepts this release candidate (a checkout read from disk)", async () => {
     const result = await runRollbackCheck(describeTargetDir(path.resolve(import.meta.dirname, "..")));
     assert.deepEqual(result.reasons, []);

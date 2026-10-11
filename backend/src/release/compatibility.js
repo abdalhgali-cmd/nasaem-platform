@@ -23,6 +23,7 @@ export const CAPABILITIES_FILE = path.join(backendRoot, "release-compatibility.j
 
 export const STAFF_SESSION_MIGRATION = "20261010120000_staff_session_revocation";
 export const PAYMENT_REFUNDS_MIGRATION = "20261010130000_payment_refunds_idempotency";
+export const EXPLICIT_PRICING_MIGRATION = "20261014100000_explicit_pricing_mode";
 
 // Once a migration has been applied, any build serving that database must
 // declare these capabilities. The guard capability is required too, so a
@@ -30,6 +31,9 @@ export const PAYMENT_REFUNDS_MIGRATION = "20261010130000_payment_refunds_idempot
 const REQUIRED_CAPABILITIES = {
   [STAFF_SESSION_MIGRATION]: ["migration-compatibility-guard-v1", "staff-session-revocation-v1", "admin-security-remediation-v1"],
   [PAYMENT_REFUNDS_MIGRATION]: ["migration-compatibility-guard-v1", "payment-refund-settlement-v1"],
+  // A build without it would let staff re-quote a fixed price the customer
+  // already accepted, and open payment before the document review.
+  [EXPLICIT_PRICING_MIGRATION]: ["migration-compatibility-guard-v1", "fixed-pricing-v1"],
 };
 
 export function readLocalMigrations(dir = MIGRATIONS_DIR) {
@@ -79,7 +83,10 @@ export async function readDatabaseState(db) {
     const usersWithSessionVersion = (await tableHasColumn(tx, "User", "sessionVersion"))
       ? await count(`SELECT count(*) AS n FROM "User" WHERE "sessionVersion" > 0`)
       : 0;
-    return { hasMigrationTable, appliedMigrations: applied, refundCount, activeRevokedTokens, usersWithSessionVersion };
+    const fixedPriceRequests = (await tableHasColumn(tx, "ContactRequest", "pricingMode"))
+      ? await count(`SELECT count(*) AS n FROM "ContactRequest" WHERE "pricingMode" = 'FIXED'`)
+      : 0;
+    return { hasMigrationTable, appliedMigrations: applied, refundCount, activeRevokedTokens, usersWithSessionVersion, fixedPriceRequests };
   });
 }
 
@@ -114,6 +121,10 @@ export function evaluateRollbackTarget({ state, targetMigrations, targetCapabili
     reasons.push(
       `${state.activeRevokedTokens} revoked staff token(s) and ${state.usersWithSessionVersion} account(s) with ended sessions would be accepted again by this target.`
     );
+  }
+
+  if (state.fixedPriceRequests > 0 && !capabilities.has("fixed-pricing-v1")) {
+    reasons.push(`${state.fixedPriceRequests} fixed-price request(s) exist; this target would let staff re-quote an accepted price and open payment before the document review.`);
   }
 
   return { safe: reasons.length === 0, reasons };
