@@ -8,6 +8,7 @@ import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createNotification, notifyRequestCustomer } from "../../utils/notifications.js";
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
+import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { normalizePhone } from "../../utils/phone.js";
 import {
@@ -441,7 +442,7 @@ const CONTACT_REQUEST_CASE_INCLUDE = {
   // Selected fields only — staff need the human-readable name/category
   // for a Service Intake submission, not the full catalog row.
   serviceRef: { select: { id: true, name: true, category: true } },
-  visaType: { select: { id: true, name: true, country: true } },
+  visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
   // Smart Case Operations — Release C groundwork.
   assignedUser: { select: safeUserSelect },
   // Release F/E: needed by computeReadiness's WAITING_PROVIDER bucket
@@ -522,7 +523,7 @@ export async function listContactRequests({ page, limit, skip, status, organizat
   ]);
 
   return {
-    data: data.map((contactRequest) => ({ ...contactRequest, readiness: computeReadiness(contactRequest) })),
+    data: data.map((contactRequest) => ({ ...contactRequest, readiness: computeReadiness(contactRequest), progress: deriveRequestProgress(contactRequest) })),
     meta: buildPaginationMeta(page, limit, total),
   };
 }
@@ -539,7 +540,7 @@ export async function getContactRequestById(id, organizationId) {
     },
   });
   if (!contactRequest) return null;
-  return { ...contactRequest, readiness: computeReadiness(contactRequest) };
+  return { ...contactRequest, readiness: computeReadiness(contactRequest), progress: deriveRequestProgress(contactRequest) };
 }
 
 // Smart Case Operations — Release E. Recomputes a single case's readiness
@@ -1040,14 +1041,14 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
 
   await notifyRequestCustomer(updated, {
     title: "تم قبول الدفع",
-    message: `تم قبول دفعك لطلبك (${describeRequest(updated)}). سنبدأ بتنفيذ الطلب.`,
+    message: `تم قبول دفعك لطلبك (${describeRequest(updated)}). طلبك الآن بانتظار بدء التنفيذ، وسنخبرك عند بدئه.`,
     type: "CONTACT_REQUEST_PAYMENT_CONFIRMED",
   });
 
   // Not awaited: same rationale as elsewhere in this module.
   sendWhatsAppMessage(
     updated.phoneNormalized,
-    `تم تأكيد استلام تحويلك لطلبك (${describeRequest(updated)}). سنبدأ بتنفيذ طلبك.`
+    `تم قبول الدفع لطلبك (${describeRequest(updated)}). طلبك بانتظار بدء التنفيذ.`
   );
 
   // A deliverable may already exist from before this payment confirmation
@@ -1107,4 +1108,49 @@ export async function rejectContactRequestPayment(contactRequestId, userId, reas
   );
 
   return { contactRequest: updated };
+}
+
+// Staff record that work on a paid request has actually started. Only then
+// does the customer see the service-specific stage (ticket issuance, visa
+// processing, hotel confirmation, ...): accepting the payment alone means
+// "payment accepted; awaiting execution".
+export async function startContactRequestExecution(contactRequestId, organizationId, userId, note) {
+  const contactRequest = await prisma.contactRequest.findFirst({
+    where: { id: contactRequestId, organizationId },
+    include: {
+      serviceRef: { select: { category: true } },
+      visaType: { select: { code: true, category: true } },
+      deliverables: { select: { id: true } },
+    },
+  });
+
+  if (!contactRequest) return { error: "NOT_FOUND" };
+  if (contactRequest.status === "CLOSED") return { error: "CLOSED" };
+  if (contactRequest.paymentStatus !== "CONFIRMED") return { error: "PAYMENT_NOT_CONFIRMED" };
+  if (contactRequest.executionStartedAt) return { error: "ALREADY_STARTED" };
+
+  const updated = await prisma.contactRequest.update({
+    where: { id: contactRequestId },
+    data: { executionStartedAt: new Date(), executionStartedByUserId: userId, executionNote: note || null },
+  });
+
+  const progress = deriveRequestProgress({ ...contactRequest, ...updated });
+
+  logActivity({
+    userId,
+    action: "CONTACT_REQUEST_EXECUTION_STARTED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+    newValue: { serviceKind: progress.serviceKind, note: note || null },
+  });
+
+  await notifyRequestCustomer(updated, {
+    title: "بدأ تنفيذ طلبك",
+    message: `${progress.label} (${describeRequest(updated)}).`,
+    type: "CONTACT_REQUEST_EXECUTION_STARTED",
+  });
+
+  sendWhatsAppMessage(updated.phoneNormalized, `${progress.label} لطلبك (${describeRequest(updated)}).`);
+
+  return { contactRequest: { ...updated, progress } };
 }

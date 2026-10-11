@@ -148,3 +148,7 @@ export const createOfferSchema = z.object({
 export const rejectPaymentSchema = z.object({
   reason: z.string().trim().min(3, "اكتب سبب رفض الإيصال").max(500),
 });
+
+export const startExecutionSchema = z.object({
+  note: z.string().trim().max(500).optional(),
+});

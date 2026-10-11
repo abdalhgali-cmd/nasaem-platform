@@ -14,6 +14,7 @@ import {
   retryCustomerConfirmation,
   confirmPayment,
   rejectPayment,
+  startExecution,
   downloadDeliverableFile,
   downloadDocumentFile,
   getContactRequests,
@@ -246,6 +247,15 @@ router.post(
   requireContactRequestOrganization,
   requireFeatureEnabled("PAYMENTS"),
   rejectPayment
+);
+// Recording that work on a paid request has started is an operations
+// action (the roles that work cases), not a finance one.
+router.post(
+  "/:id/start-execution",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  startExecution
 );
 router.get(
   "/:id/documents/:documentId/file",

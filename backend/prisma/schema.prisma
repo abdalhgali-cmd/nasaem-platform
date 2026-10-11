@@ -1266,6 +1266,12 @@ model ContactRequest {
   // is uploaded (which clears both fields).
   paymentRejectionReason String?
   paymentRejectedAt      DateTime?
+  // Recorded by staff when work on the paid request actually starts
+  // (ticket issuance, visa processing, hotel confirmation, ...). Customers
+  // see the service-specific execution stage only once this is set.
+  executionStartedAt       DateTime?
+  executionStartedByUserId String?
+  executionNote            String?
   createdAt            DateTime                    @default(now())
   updatedAt            DateTime                    @updatedAt
 

@@ -45,7 +45,12 @@ jobs:
           [ -z "$KEY_ALIAS" ] && missing="$missing ANDROID_KEY_ALIAS"
           [ -z "$KEY_PASS" ] && missing="$missing ANDROID_KEY_PASSWORD"
           [ -z "$API_BASE_URL" ] && missing="$missing MOBILE_API_BASE_URL(variable)"
+          [ -z "$EXPECTED_CERT_SHA256" ] && missing="$missing ANDROID_RELEASE_CERT_SHA256(variable)"
           if [ -n "$missing" ]; then echo "::error::Missing:$missing (see docs/ANDROID-RELEASE.md)"; exit 1; fi
+          # Mandatory: a release whose certificate is not pinned could not be
+          # trusted to update installed apps. Fails on a malformed value or
+          # the public QA debug certificate, before anything is built.
+          ./scripts/verify-release-cert.sh "$EXPECTED_CERT_SHA256" >/dev/null
           case "$API_BASE_URL" in
             https://*/api) ;;
             *) echo "::error::MOBILE_API_BASE_URL must be an https URL ending in /api"; exit 1;;
@@ -126,14 +131,13 @@ jobs:
           SIGNING="$("$TOOLS/apksigner" verify --print-certs "$APK")"
           echo "$SIGNING"
           ACTUAL="$(echo "$SIGNING" | grep -oE '[0-9a-f]{64}' | head -1)"
-          # The debug (QA) certificate must never be on a release.
-          if [ "$ACTUAL" = "cd7447b277c7d1dbefcac2aa4751993bca3027afdec8d9bfb7a644ad9464fc72" ]; then
-            echo "::error::Signed with the public QA debug key."; exit 1
-          fi
-          if [ -n "$EXPECTED_CERT_SHA256" ] && [ "$ACTUAL" != "$EXPECTED_CERT_SHA256" ]; then
-            echo "::error::Certificate $ACTUAL differs from ANDROID_RELEASE_CERT_SHA256 ($EXPECTED_CERT_SHA256): this build could not update installed apps."; exit 1
-          fi
-          [ -z "$EXPECTED_CERT_SHA256" ] && echo "::warning::ANDROID_RELEASE_CERT_SHA256 is not set. Record $ACTUAL as that variable so later builds are checked against it."
+          # Fails when the APK is not signed with exactly the pinned certificate
+          # (missing pin, debug key, or any other key).
+          ../scripts/verify-release-cert.sh "$EXPECTED_CERT_SHA256" "$ACTUAL"
+          # The AAB is checked the same way (jarsigner signature, read by keytool).
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          AAB_CERT="$(keytool -printcert -jarfile "$AAB" | grep -E 'SHA256:' | head -1 | sed 's/.*SHA256: *//')"
+          ../scripts/verify-release-cert.sh "$EXPECTED_CERT_SHA256" "$AAB_CERT"
           echo "CERT_SHA256=$ACTUAL" >> "$GITHUB_ENV"
 
       - name: Collect

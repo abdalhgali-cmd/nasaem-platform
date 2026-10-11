@@ -6,6 +6,7 @@ import { sendWhatsAppMessage, whatsAppReadiness } from "../../utils/whatsapp.js"
 import { signTrackingToken } from "../../utils/jwt.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { deriveTrackingStatusLabel } from "./contact-request-tracking.status.js";
+import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { deriveEgyptCircularStatus } from "./egypt-clearance-travel.service.js";
 import {
   createContactRequestDocument,
@@ -121,7 +122,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       offers: { orderBy: { createdAt: "desc" } },
       travelers: { orderBy: { sortOrder: "asc" } },
       serviceRef: { select: { id: true, name: true, category: true } },
-      visaType: { select: { id: true, code: true, name: true, country: true } },
+      visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
     },
   });
 
@@ -166,8 +167,11 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       };
     }
 
+    // Who recorded execution and their note are staff-only.
+    const { executionStartedByUserId, executionNote, ...customerRequest } = request;
+
     return {
-      ...request,
+      ...customerRequest,
       // Internal file locations are never sent to the customer; files are
       // downloaded through the ownership-checked /file routes instead.
       documents: request.documents.map(({ storagePath, ...document }) => document),
@@ -178,6 +182,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       checklist,
       nextActions: buildCustomerNextActions(request, checklist),
       statusLabel: deriveTrackingStatusLabel(request),
+      progress: deriveRequestProgress(request),
       paymentCurrency,
       paymentAccounts: paymentCurrency && isPaymentOpen(request)
         ? paymentAccounts.filter((account) => account.currency === paymentCurrency)

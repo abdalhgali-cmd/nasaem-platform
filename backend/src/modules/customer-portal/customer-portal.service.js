@@ -1,3 +1,4 @@
+import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "../contact-request-tracking/customer-checklist.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
@@ -190,7 +191,7 @@ export { COUPON_ERROR_MESSAGES };
 
 const CUSTOMER_REQUEST_INCLUDE = {
   serviceRef: { select: { id: true, name: true, category: true } },
-  visaType: { select: { id: true, name: true, country: true } },
+  visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
   invoice: { select: { id: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, description: true, status: true, createdAt: true, decidedAt: true } },
   offers: { select: { id: true, carrier: true, description: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, createdAt: true }, orderBy: { createdAt: "desc" } },
   documents: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, status: true, reviewNote: true, travelerId: true, requirementId: true, supersededAt: true, createdAt: true }, orderBy: { createdAt: "desc" } },
@@ -212,7 +213,10 @@ function getRequestNextAction(request) {
 
 function toCustomerRequest(request) {
   const checklist = buildCustomerChecklist(request);
+  const progress = deriveRequestProgress(request);
   return {
+    progress,
+    statusLabel: progress.label,
     checklist,
     nextActions: buildCustomerNextActions(request, checklist),
     id: request.id,

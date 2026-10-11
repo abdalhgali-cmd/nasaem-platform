@@ -9,7 +9,9 @@
 2. **نفس مفتاح التوقيع** تمامًا.
 3. `versionCode` أكبر من المثبّت.
 
-المفتاح الثابت يأتي من أسرار المستودع (لا يُحفظ في Git). `versionCode = ANDROID_VERSION_CODE_BASE + رقم تشغيل الـworkflow` فيزداد مع كل إصدار. يتحقق الـworkflow من اسم الحزمة والـversionCode ومن أن بصمة الشهادة تطابق `ANDROID_RELEASE_CERT_SHA256`، ويرفض أي بناء موقّع بمفتاح الاختبار العلني.
+المفتاح الثابت يأتي من أسرار المستودع (لا يُحفظ في Git). `versionCode = ANDROID_VERSION_CODE_BASE + رقم تشغيل الـworkflow` فيزداد مع كل إصدار. يتحقق الـworkflow من اسم الحزمة والـversionCode ومن أن بصمة شهادة الـAPK **والـAAB** تطابق `ANDROID_RELEASE_CERT_SHA256`، ويرفض أي بناء موقّع بمفتاح الاختبار العلني.
+
+**`ANDROID_RELEASE_CERT_SHA256` إلزامي:** إن لم يُضبط، أو لم يكن بصمة SHA-256 صحيحة (64 خانة سداسية؛ النقطتان وحالة الأحرف لا تهم)، أو كان بصمة مفتاح الاختبار، يتوقف الـworkflow **قبل البناء**. وإن اختلفت بصمة الـAPK أو الـAAB عنه يفشل الـworkflow ولا تُرفع أي ملفات. الفحص في `mobile/scripts/verify-release-cert.sh` ومختبر في `mobile/tests/release-signing.test.mjs`.
 
 ## ⚠️ قرار مطلوب منك قبل أول إصدار
 
@@ -27,7 +29,7 @@
    - **احتفظ بنسختين من الملف وكلمتي المرور في مكانين آمنين.** فقدانه يعني عدم القدرة على تحديث التطبيق المثبت أبدًا.
 2. في GitHub: Settings → Secrets and variables → Actions:
    - Secrets: `ANDROID_KEYSTORE_BASE64` (`base64 -w0 nasaem-release.keystore`)، `ANDROID_KEYSTORE_PASSWORD`، `ANDROID_KEY_ALIAS`، `ANDROID_KEY_PASSWORD`.
-   - Variables: `MOBILE_API_BASE_URL` (عنوان **الإنتاج**، يبدأ بـhttps وينتهي بـ`/api`)، `ANDROID_RELEASE_CERT_SHA256` (البصمة التي طبعها السكربت)، و`ANDROID_VERSION_CODE_BASE` (اختياري، الافتراضي 100).
+   - Variables: `MOBILE_API_BASE_URL` (عنوان **الإنتاج**، يبدأ بـhttps وينتهي بـ`/api`)، `ANDROID_RELEASE_CERT_SHA256` (البصمة التي طبعها السكربت — **إلزامي**)، و`ANDROID_VERSION_CODE_BASE` (اختياري، الافتراضي 100).
 3. لا يوجد عنوان إنتاج في الكود: القيمة الحالية في `mobile/www/js/config.js` هي **staging**. الـworkflow يرفض البناء إن بقي العنوان staging/localhost.
 
 ## تنفيذ الإصدار

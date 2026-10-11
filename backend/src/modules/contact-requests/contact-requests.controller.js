@@ -7,11 +7,13 @@ import {
   createOfferSchema,
   updateContactRequestStatusSchema,
   rejectPaymentSchema,
+  startExecutionSchema,
 } from "./contact-requests.validators.js";
 import {
   assignContactRequest,
   confirmContactRequestPayment,
   rejectContactRequestPayment,
+  startContactRequestExecution,
   createContactRequest,
   createOffer,
   createOrUpdateInvoice,
@@ -437,6 +439,32 @@ export async function rejectPayment(req, res, next) {
 
     if (result.error === "INVALID_STATE") {
       return res.status(409).json({ success: false, message: "لا يوجد إيصال دفع قيد المراجعة لهذا الطلب" });
+    }
+
+    return res.status(200).json({ success: true, data: result.contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
+const START_EXECUTION_ERRORS = {
+  NOT_FOUND: [404, "الطلب غير موجود"],
+  CLOSED: [409, "الطلب مغلق"],
+  PAYMENT_NOT_CONFIRMED: [409, "لا يبدأ التنفيذ قبل قبول الدفع"],
+  ALREADY_STARTED: [409, "تم تسجيل بدء التنفيذ لهذا الطلب مسبقًا"],
+};
+
+export async function startExecution(req, res, next) {
+  try {
+    const parsed = startExecutionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "Invalid input", errors: parsed.error.flatten() });
+    }
+
+    const result = await startContactRequestExecution(req.params.id, req.user.organizationId, req.user.id, parsed.data.note);
+    if (result.error) {
+      const [statusCode, message] = START_EXECUTION_ERRORS[result.error];
+      return res.status(statusCode).json({ success: false, code: result.error, message });
     }
 
     return res.status(200).json({ success: true, data: result.contactRequest });
