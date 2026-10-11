@@ -139,10 +139,10 @@ const DEFAULT_ATTACHMENT_ACCEPT = "image/jpeg,image/png,image/webp,application/p
 
 // Matches createContactRequestSchema's `documents`/documentLabels/
 // documentRequirementIds arrays (backend/src/modules/contact-requests/
-// contact-requests.validators.js), each capped at 6 — enforced here too so
+// contact-requests.validators.js; upload.middleware.js's MAX_INTAKE_DOCUMENTS) — enforced here too so
 // the wizard never lets a customer assemble a submission the API would
 // reject outright.
-const MAX_TOTAL_DOCUMENTS = 6;
+const MAX_TOTAL_DOCUMENTS = 16;
 
 // `attachmentType` is free text set per-requirement by staff (see the
 // Requirements Engine) and is usually left empty, so passport-specific

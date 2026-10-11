@@ -4,7 +4,8 @@ import { icon, iconForService } from "../icons.js";
 import { getCustomer, isAccountUnlocked } from "../auth.js";
 import { loadCatalog, loadHomepage } from "../catalog.js";
 import { go, goToTab } from "../router.js";
-import { openServiceById, VISAS_HUB_CODE } from "./services.js";
+import { openServiceById, openServiceItem, VISAS_HUB_CODE } from "./services.js";
+import { resolveShortcuts, featuredServices, startingPrice, priceText, sdgText, durationOf } from "../service-view.js";
 import { firstName, greeting, buildBannerSlides, nextSlide } from "../experience-core.js";
 import { prefersReducedMotion, stagger, watchSnapIndex, scrollToSlide, tapFeedback } from "../motion.js";
 import { loadAgency, whatsappLink } from "../agency.js";
@@ -67,12 +68,17 @@ export async function renderHomeScreen({ bodyEl }) {
         <div class="home-hero-greeting">
           <span class="eyebrow">${signedIn ? `${esc(greeting())}${name ? `، ${esc(name)}` : ""}` : "أهلاً بك في نسائم الحرمين"}</span>
           <h1>رحلتك تبدأ معنا بثقة</h1>
-          <p>خدمات السفر والعمرة والتأشيرات في مكان واحد</p>
+          <p>اختيارك الآمن للسفر</p>
         </div>
         ${signedIn ? `<button class="home-bell" id="homeBell" aria-label="الإشعارات">
           ${icon("bell", { size: 22 })}<span class="home-bell-dot" id="homeBellDot" hidden></span>
         </button>` : ""}
       </div>
+      <button class="hero-cta" id="startNowBtn">${icon("plane", { size: 20 })}<span>ابدأ طلبك الآن</span></button>
+    </section>
+
+    <section class="shortcuts" aria-label="اختصارات سريعة">
+      <div class="shortcut-rail" id="shortcutRail">${skeletonGrid(4)}</div>
     </section>
 
     <section class="home-banner" aria-roledescription="شرائح العروض" aria-label="عروض وإعلانات نسائم الحرمين">
@@ -80,23 +86,24 @@ export async function renderHomeScreen({ bodyEl }) {
       <div class="banner-dots" id="bannerDots"></div>
     </section>
 
-    <section class="section">
+    <section class="section" id="featuredSection" hidden>
       <div class="section-head">
-        <h2>خدماتنا</h2>
+        <h2>خدمات مختارة</h2>
         <button class="link-btn" id="seeAllServices">عرض الكل</button>
       </div>
       <p class="field-hint stale-note" id="catalogStale" hidden>${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>
-      <div id="servicesGrid" class="services-grid home-services">${skeletonGrid(6)}</div>
+      <div id="featuredList" class="featured-list"></div>
     </section>
 
-    ${signedIn ? "" : `
     <section class="section">
       <button class="track-card" id="homeTrackBtn">
         <span class="track-card-icon">${icon("requests", { size: 22 })}</span>
-        <span class="track-card-body"><b>تتبع طلبك</b><small>برقم هاتفك ورمز تحقق عبر واتساب، دون حساب</small></span>
+        <span class="track-card-body"><b>تتبع الطلب</b><small>${signedIn ? "تابع حالة طلباتك وسعرها ودفعها" : "برقم هاتفك ورمز تحقق عبر واتساب، دون حساب"}</small></span>
         ${icon("chevron-start", { size: 18 })}
       </button>
-    </section>`}
+    </section>
+
+
 
     <section class="section" id="activitySection" hidden>
       <div class="section-head"><h2>نشاطك</h2></div>
@@ -112,7 +119,11 @@ export async function renderHomeScreen({ bodyEl }) {
     </section>
   `;
 
-  bodyEl.querySelector("#seeAllServices").addEventListener("click", () => go("services", {}, { title: "كل الخدمات", tab: "home" }));
+  bodyEl.querySelector("#seeAllServices").addEventListener("click", () => goToTab("services", "services", { title: "الخدمات" }));
+  bodyEl.querySelector("#startNowBtn").addEventListener("click", () => {
+    tapFeedback();
+    goToTab("services", "services", { title: "الخدمات" });
+  });
   bodyEl.querySelector("#homeBell")?.addEventListener("click", () => {
     tapFeedback();
     go("notifications", {}, { title: "الإشعارات", tab: "home" });
@@ -201,23 +212,64 @@ function mountBanner(bodyEl, { signedIn }) {
   };
 }
 
+function shortcutButton(shortcut) {
+  return `
+    <button class="shortcut" data-key="${esc(shortcut.key)}" aria-label="${esc(shortcut.label)}">
+      <span class="shortcut-icon">${icon(shortcut.icon, { size: 24 })}</span>
+      <span class="shortcut-label">${esc(shortcut.label)}</span>
+    </button>`;
+}
+
+function featuredRow(item) {
+  const price = startingPrice(item);
+  const duration = durationOf(item);
+  return `
+    <button class="featured-row" data-id="${esc(item.id)}">
+      <span class="featured-icon">${icon(iconForService(item), { size: 22 })}</span>
+      <span class="featured-body">
+        <b>${esc(item.name)}</b>
+        <small>${[price ? `من <bdi>${esc(priceText(price))}</bdi>` : "", sdgText(price) ? `<bdi>${esc(sdgText(price))}</bdi>` : "", duration ? esc(duration) : ""].filter(Boolean).join(" · ")}</small>
+      </span>
+      ${icon("chevron-start", { size: 16 })}
+    </button>`;
+}
+
 async function loadCatalogSection(bodyEl) {
-  const grid = bodyEl.querySelector("#servicesGrid");
+  const rail = bodyEl.querySelector("#shortcutRail");
   try {
     const catalog = await loadCatalog();
     bodyEl.querySelector("#catalogStale").hidden = !catalog.stale;
-    const items = pickMainServices(catalog);
-    if (!items.length) {
-      grid.innerHTML = `<p class="field-hint">لا توجد خدمات منشورة حالياً.</p>`;
-      return;
-    }
-    grid.innerHTML = items.map(serviceCard).join("");
-    stagger(grid);
-    grid.querySelectorAll(".service-card").forEach((card) => {
-      card.addEventListener("click", () => openServiceById(card.dataset.serviceId, catalog));
+
+    const shortcuts = resolveShortcuts(catalog);
+    rail.innerHTML = shortcuts.length ? shortcuts.map(shortcutButton).join("") : "";
+    stagger(rail);
+    rail.querySelectorAll(".shortcut").forEach((button) => {
+      button.addEventListener("click", () => {
+        tapFeedback();
+        const shortcut = shortcuts.find((candidate) => candidate.key === button.dataset.key);
+        if (shortcut?.hub) openServiceById(VISAS_HUB_CODE, catalog);
+        else if (shortcut?.item) openServiceItem(shortcut.item);
+      });
     });
+
+    // Services with a price the agency announced, straight from the catalog
+    // (the back-office price and rate); none are listed when none are priced.
+    const featured = featuredServices(catalog);
+    const section = bodyEl.querySelector("#featuredSection");
+    if (featured.length) {
+      bodyEl.querySelector("#featuredList").innerHTML = featured.map(featuredRow).join("");
+      bodyEl.querySelectorAll(".featured-row").forEach((row) => {
+        row.addEventListener("click", () => {
+          const item = [...catalog.services, ...catalog.visaTypes].find((candidate) => candidate.id === row.dataset.id);
+          if (item) openServiceItem(item);
+        });
+      });
+      section.hidden = false;
+    } else {
+      section.hidden = !catalog.stale;
+    }
   } catch (error) {
-    grid.innerHTML = `<p class="field-hint">تعذر تحميل الخدمات: ${esc(error.message)}</p>`;
+    rail.innerHTML = `<p class="field-hint">تعذر تحميل الخدمات: ${esc(error.message)}</p>`;
   }
 }
 

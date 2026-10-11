@@ -20,6 +20,7 @@ import { renderSecurityScreen } from "./screens/security.js";
 import { renderOnboardingScreen, isOnboardingDone, markOnboardingDone } from "./screens/onboarding.js";
 import { renderAboutScreen } from "./screens/about.js";
 import { renderLegalScreen } from "./screens/legal.js";
+import { renderServiceInfoScreen } from "./screens/service-info.js";
 import { launchRoute } from "./experience-core.js";
 import { tapFeedback } from "./motion.js";
 
@@ -39,6 +40,7 @@ function registerAllScreens() {
   registerScreen("home", renderHomeScreen, { chrome: false });
   registerScreen("services", renderServicesScreen);
   registerScreen("visasHub", renderVisasHubScreen);
+  registerScreen("serviceInfo", renderServiceInfoScreen);
   registerScreen("serviceDetail", renderServiceDetailScreen);
   registerScreen("umrah", renderUmrahScreen);
   registerScreen("flights", renderFlightsScreen);

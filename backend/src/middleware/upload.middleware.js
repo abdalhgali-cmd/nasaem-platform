@@ -119,10 +119,15 @@ export const uploadContactRequestDocument = multer({
 // attaches several required documents (passport, photo, ...) alongside the
 // rest of the intake form in one POST /api/contact-requests, before a
 // tracking session (phone verification) exists to own a separate upload.
+// One intake submission can carry each traveler's own documents (up to 6
+// travelers x passport + photo) plus the request-wide ones. Each file is still
+// limited to 10 MB and type-checked, and the endpoint is rate limited.
+export const MAX_INTAKE_DOCUMENTS = 16;
+
 export const uploadContactRequestIntakeDocuments = multer({
   storage: validatedDiskStorage(CONTACT_REQUEST_DOCUMENT_DIR, ALLOWED_MIME_TYPES, "JPEG وPNG وWEBP وPDF"),
   limits: { fileSize: 10 * 1024 * 1024 },
-}).array("documents", 6);
+}).array("documents", MAX_INTAKE_DOCUMENTS);
 
 export const CONTACT_REQUEST_DELIVERABLE_DIR = uploadDir("contact-request-deliverables");
 fs.mkdirSync(CONTACT_REQUEST_DELIVERABLE_DIR, { recursive: true });
