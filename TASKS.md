@@ -28,19 +28,22 @@ Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton
 | Web typecheck / lint / `next build` | ok / ok / ok |
 | Back-office copy sync check | ok |
 | Playwright, all projects (Chromium, local backend on this branch) | **87/87** |
+| GitHub Actions on #91 head | backup/restore drill (synthetic) ✅; Backend tests, Frontend typecheck + build, build-apk: running at time of writing |
 
 ## BLOCKED (needs owner / infrastructure)
 
-- **Staging environment**: no disposable non-production backend + PostgreSQL supplied (`docs/STAGING_READINESS_CHECKLIST.md`). Live RBAC, customer A/B, documents and payment matrices wait on it.
-- **Backup and restore**: a verified backup + restore drill (measured RPO/RTO) is required before applying the two migrations to staging or production (`docs/staging-deployment.md` step 6). Not performed — no infrastructure access.
-- **Android build**: no Android SDK in this environment; the APK workflow runs only on `main`/manual dispatch. No APK/AAB built; no real-device test.
+- **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude`, PostgreSQL 18, persisted `/data/uploads`). It is **not** disposable and Claude has no access. Deploying #91 to it needs explicit owner approval.
+- **Staging backup + restore**: before any (separately approved) staging migration, a **real** staging PostgreSQL + `/data/uploads` backup and a successful restore must be verified. CI's synthetic backup/restore drill (green on #91) is not sufficient. Also follow `docs/admin-remediation-release.md` (roll-forward recovery: earlier refund/session migrations can make rollback to old app code unsafe). NOT TESTED.
+- **Android build / devices**: no Android SDK here. CI's `build-apk` check result is recorded below once finished; no APK distributed; no real-device test. Installed-app compatibility on a device must be validated before enabling FIXED pricing.
 - **Owner decisions**: real document requirements for flights/ferries/hotels; which services become FIXED (after the new app is distributed); payment accounts and exchange rates; legal/commercial texts.
 
 ## NEXT
 
 1. Review and approve PRs #87 → #88 → #89 (or this integration PR) — merge needs owner approval.
-2. Provide a disposable staging backend + database; run the backup/restore drill, then `prisma migrate deploy` on staging.
+2. Owner: verify a real staging DB + uploads backup and restore, then approve deploying #91 to Railway staging (`prisma migrate deploy` runs the two additive migrations).
 3. Build and distribute the new Android app (signed release via `android-release.yml`, owner-triggered) **before** switching any service to FIXED — older installed apps can't approve quotes (`QUOTE_VERSION_REQUIRED`).
 4. Staging smoke per `docs/staging-deployment.md`; then the production approval gate.
+
+VERIFIED wording: app flight and hotel screens and the website flight search say results are agency-entered and that availability and final price are confirmed by staff before any payment (not live bookable inventory).
 
 Known functional gaps (documented, not release blockers for QUOTE services): website/guided-intake/hotel/ferry forms don't show a fixed total, so FIXED items ordered there fall back to QUOTE.
