@@ -1,0 +1,9 @@
+{
+  "comment": "What this backend build understands about data written by later builds. Read by src/release/compatibility.js and by `npm run release:rollback-check` on a candidate rollback target. Add a capability only when the code really handles it; never remove one.",
+  "capabilities": [
+    "migration-compatibility-guard-v1",
+    "staff-session-revocation-v1",
+    "admin-security-remediation-v1",
+    "payment-refund-settlement-v1"
+  ]
+}
