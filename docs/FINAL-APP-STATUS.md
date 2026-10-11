@@ -6,10 +6,10 @@
 
 | الفحص | الأمر | النتيجة |
 |---|---|---|
-| Backend (Postgres 16) | `npx prisma migrate deploy && npm run prisma:seed && npm test` | **769 ناجح / 0 فاشل** |
-| التطبيق | `npm run check && node --test tests/*.test.mjs` | **57 ناجح** |
-| الموقع | `npm run typecheck`، `npm run lint` | نظيفان |
-| Playwright الكامل | `npx playwright test` (خوادم يشغلها Playwright نفسه) | **73 ناجح / 0 فاشل** (64 قائمة + 9 للتطبيق واللوحة) |
+| Backend (Postgres 16، قاعدة بيانات أُنشئت فارغة لهذا التشغيل) | `npx prisma migrate deploy && npm run prisma:seed && npm test` | **785 ناجح / 0 فاشل** |
+| التطبيق | `npm run check && node --test tests/*.test.mjs` | **63 ناجح** |
+| الموقع | `npm run typecheck`، `npm run lint`، `sync-static-admin --check` | نظيفة |
+| Playwright الكامل (متصفح Chromium — **ليس جهاز أندرويد**) | `npx playwright test` | **80 ناجح / 0 فاشل** (64 قائمة + 9 للتطبيق واللوحة + 7 رحلات خدمات كاملة) |
 
 لم يُنفَّذ ولا يُدّعى: بناء APK/AAB، هاتف أندرويد، واتساب Meta، مزوّد الطيران، CI على GitHub لهذا الفرع.
 
@@ -19,7 +19,7 @@
 |---|---|---|
 | لا استيلاء على سجل عميل بالهاتف | `backend/src/modules/customer-auth/customer-auth.service.js` (`registerCustomer`, `findAccountByPhone`) | `backend/tests/customerAccountTakeover.test.js`, `customerSessionLifecycle.test.js` |
 | كل مسار غير عام يرفض المجهول | — | `backend/tests/routeAuthorization.test.js` (قائمة بيضاء صريحة، يفحص كل المسارات) |
-| صلاحيات الأدوار لكل مسار | `requireRole` يعرّض `allowedRoles` | `backend/tests/rbacMatrix.test.js` (كل دور × كل مسار)، `rbac.test.js`, `securityRoles.test.js` |
+| صلاحيات الأدوار لكل مسار مقابل خط أساس مستقل | `backend/tests/fixtures/rbac-baseline.json` (يُحرَّر يدويًا، لا يُولَّد) | `backend/tests/rbacMatrix.test.js`: يفشل عند فقد الحماية أو توسيع/تضييق الأدوار أو مسار جديد غير مصنّف (جُرّب بتعديل متعمد ثم أُعيد)، وفحص HTTP لكل دور × كل مسار من خط الأساس، `rbac.test.js`, `securityRoles.test.js` |
 | التتبع لا يكشف شيئًا بدون رمز التحقق | `contact-request-tracking.*` | `backend/tests/trackingExposure.test.js`, `trackingOrganizationIsolation.test.js`, `otpChannelAvailability.test.js` |
 | لا قراءة/إضافة على طلب هاتف آخر | — | `trackingExposure.test.js`, `contactRequestTracking.test.js` (تنزيل مستند طلب آخر) |
 | مستند كل مسافر على المسافر الصحيح | `contact-request-documents.service.js` (`TRAVELER_REQUIRED`/`TRAVELER_NOT_FOUND`) | `backend/tests/travelerDocumentOwnership.test.js`, `smartCaseDocuments.test.js`, `mobile/tests/intake-core.test.mjs`, E2E «family visit» |
@@ -38,6 +38,11 @@
 | الـseed لا ينشئ بيانات مال تجريبية في الإنتاج | `backend/prisma/seed.js` (`IS_PRODUCTION`) | شُغّل `NODE_ENV=production npm run prisma:seed` على قاعدة فارغة: 0 حسابات دفع، 0 باقات، أسعار الصرف 0 (= غير فعّال) |
 | التطبيق: الرئيسية/الخدمات/التفاصيل/النموذج/المطلوب منك | `mobile/www/js/**` | `mobile/tests/*.test.mjs` (56 اختبارًا)، `web/e2e/mobile-app.spec.ts` |
 | شارة البيئة لبناء الاختبار فقط | `mobile/www/js/environment.js` | `mobile/tests/environment.test.mjs` (لا شارة عند `production`، و workflow الإصدار يفرض `production`) |
+| قبول الدفع = «بانتظار بدء التنفيذ»؛ مرحلة الخدمة لا تظهر إلا بعد تسجيل التنفيذ | `contact-request-progress/request-progress.js`, `POST /api/contact-requests/:id/start-execution`, `contact-requests-view.js` («التنفيذ»), `mobile/www/js/progress-view.js` | `requestProgress.test.js`, `serviceJourneys.test.js`, `mobile/tests/progress-view.test.mjs`, E2E `service-journeys.spec.ts` |
+| رحلة كاملة لكل خدمة (طيران، بواخر، فنادق، عمرة، زيارة، مصر، تأشيرة تُضاف من اللوحة) | — | `docs/SERVICE-ACCEPTANCE.md` |
+| الفنادق على النموذج الموحد (نزلاء + مستندات) | `mobile/www/js/screens/hotels.js`, `hotel-selection.js` | `mobile/tests/hotel-selection.test.mjs`, E2E «hotels» |
+| قابلية استخدام اللوحة | — | `docs/ADMIN-USABILITY-AUDIT.md` |
+| `ANDROID_RELEASE_CERT_SHA256` إلزامي ويُطابق الـAPK والـAAB | `.github/workflows/android-release.yml`, `mobile/scripts/verify-release-cert.sh` | `mobile/tests/release-signing.test.mjs` — **لم يُشغَّل الـworkflow** |
 | الإصدار بمفتاح من الأسرار فقط | `.github/workflows/android-release.yml`, `mobile/android/app/build.gradle` | `mobile/tests/environment.test.mjs` (لا مفاتيح متتبَّعة ولا كلمات في الكود) — **لم يُشغَّل الـworkflow** |
 
 ## ما لم يُتحقق منه هنا (حقيقي)
