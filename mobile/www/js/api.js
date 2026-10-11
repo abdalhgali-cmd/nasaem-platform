@@ -1,4 +1,5 @@
 import { CONFIG } from "./config.js";
+import { arabicErrorMessage } from "./errors-ar.js";
 
 export class ApiError extends Error {
   constructor(message, { status, errors, code } = {}) {
@@ -98,7 +99,7 @@ export async function api(path, options = {}) {
   const { response, body } = await withTimeout(request, timeoutMs);
 
   if (!response.ok) {
-    const error = new ApiError(body.message || "تعذر إكمال العملية، حاول مرة أخرى.", {
+    const error = new ApiError(arabicErrorMessage(response.status, body.message), {
       status: response.status,
       errors: body.errors || null,
       code: body.code || null,
@@ -167,7 +168,7 @@ export function apiUpload(path, formData, onProgress, authOverride) {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve(body);
         } else {
-          reject(new ApiError(body.message || "تعذر رفع الملف.", { status: xhr.status, errors: body.errors || null, code: body.code || null }));
+          reject(new ApiError(arabicErrorMessage(xhr.status, body.message, "تعذر رفع الملف."), { status: xhr.status, errors: body.errors || null, code: body.code || null }));
         }
       };
 
