@@ -623,7 +623,11 @@ test.describe("Security approvals — full lifecycle through the real customer-f
       const docLabelInput = page.locator("input[placeholder='مثال: جواز السفر']");
       await docLabelInput.fill("جواز السفر");
       await page.setInputFiles("input[type='file']", path.join(__dirname, "fixtures", "sample-document.png"));
+      // Wait for the upload itself: the page already shows «قيد المراجعة»
+      // in the request status line before any file is sent.
+      const uploaded = page.waitForResponse((res) => res.request().method() === "POST" && /\/documents(\?|$)/.test(new URL(res.url()).pathname) && res.status() === 201);
       await page.getByRole("button", { name: "رفع" }).click();
+      await uploaded;
       await expect(page.getByText("قيد المراجعة").first()).toBeVisible({ timeout: 15_000 });
 
       // Staff reviews the document (admin API — the review UI itself was
