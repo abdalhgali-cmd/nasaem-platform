@@ -83,6 +83,24 @@ describe("currency integrity", () => {
 });
 
 describe("pending vs confirmed money, over-payment", () => {
+  test("text false is confirmed, text true is pending; invalid flags are rejected", async () => {
+    const order = await newOrder();
+    const confirmed = await pay(order.id, { amount: 100, pendingReview: "false" });
+    assert.equal(confirmed.status, 201);
+    assert.equal(confirmed.body.data.status, "PAID");
+    assert.notEqual(confirmed.body.data.reviewStatus, "PENDING");
+    const pending = await pay(order.id, { amount: 50, pendingReview: "true" });
+    assert.equal(pending.status, 201);
+    assert.equal(pending.body.data.reviewStatus, "PENDING");
+    for (const invalid of ["yes", "0", 1]) {
+      const result = await pay(order.id, { amount: 10, pendingReview: invalid });
+      assert.equal(result.status, 400, `invalid flag ${JSON.stringify(invalid)} must not change payment state`);
+    }
+    const settlement = await settlementOf(order.id);
+    assert.equal(settlement.netPaid, "100.00");
+    assert.equal(settlement.pending, "50.00");
+  });
+
   test("a pending payment does not count as received until confirmed", async () => {
     const order = await newOrder();
     await pay(order.id, { amount: 400 });
