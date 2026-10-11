@@ -123,14 +123,23 @@ describe("contact request close outcomes", () => {
     let tracked = rejectedRes.body.data.find((r) => r.id === contactRequestId);
     assert.equal(tracked.statusLabel, "تم رفض الطلب");
 
-    // Reopen, then close again with a different outcome — the old note
-    // must not survive.
-    await superAdminAgent
-      .patch(`/api/contact-requests/${contactRequestId}/status`)
-      .send({ status: "CONTACTED" });
-    await superAdminAgent
+    // A closed request is never silently re-labelled: closing it again is refused.
+    const directReclose = await superAdminAgent
       .patch(`/api/contact-requests/${contactRequestId}/status`)
       .send({ status: "CLOSED", outcome: "CANCELLED" });
+    assert.equal(directReclose.status, 409);
+    assert.equal(directReclose.body.code, "ALREADY_CLOSED");
+
+    // Reopen explicitly (admin + reason, audited), then close again with a
+    // different outcome — the old note must not survive.
+    const reopen = await superAdminAgent
+      .patch(`/api/contact-requests/${contactRequestId}/status`)
+      .send({ status: "CONTACTED", reason: "تصحيح نتيجة الإغلاق" });
+    assert.equal(reopen.status, 200, JSON.stringify(reopen.body));
+    const reclose = await superAdminAgent
+      .patch(`/api/contact-requests/${contactRequestId}/status`)
+      .send({ status: "CLOSED", outcome: "CANCELLED" });
+    assert.equal(reclose.status, 200, JSON.stringify(reclose.body));
 
     const cancelledRes = await customerAgent.get("/api/tracking/requests");
     tracked = cancelledRes.body.data.find((r) => r.id === contactRequestId);

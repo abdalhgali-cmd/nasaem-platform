@@ -1,5 +1,7 @@
 import path from "path";
 import prisma from "../../config/database.js";
+import { ACTIONS, checkAction } from "../contact-request-workflow/workflow-policy.js";
+import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
@@ -102,32 +104,42 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
   // documents are ever auto-superseded this way — a PENDING/ACCEPTED
   // document for the same requirement is left alone (multiple files can be
   // legitimately in flight up to maxFiles, e.g. a multi-page upload).
-  if (requirementId) {
-    await prisma.contactRequestDocument.updateMany({
-      where: { contactRequestId, requirementId, travelerId: travelerId || null, status: "REJECTED", supersededAt: null },
-      data: { supersededAt: new Date() },
-    });
-  }
-
-  const document = await prisma.contactRequestDocument.create({
-    data: {
-      contactRequestId,
-      label,
-      requirementId: requirementId || null,
-      travelerId: travelerId || null,
-      // Defaults to CUSTOMER_DOCUMENT at the schema level — only callers
-      // that know better (e.g. a payment receipt) pass something else.
-      ...(classification ? { classification } : {}),
-      ocrResult: ocrResult ?? undefined,
-      fileName: file.originalname,
-      // Relative to the uploads root, not the absolute server path — same
-      // convention as documents.controller.js, so API responses never leak
-      // server directory layout.
-      storagePath: path.join("contact-request-documents", file.filename),
-      mimeType: file.mimetype,
-      sizeBytes: file.size,
-    },
+  // Superseding and creating happen under the request's row lock, after
+  // checking the request still accepts documents: an upload that arrives
+  // after the request was closed is refused, not attached to it.
+  const created = await withLockedRequest(contactRequestId, null, async (tx, locked) => {
+    const refusal = checkAction(ACTIONS.UPLOAD_DOCUMENT, locked);
+    if (refusal) refuseWith(refusal);
+    if (requirementId) {
+      await tx.contactRequestDocument.updateMany({
+        where: { contactRequestId, requirementId, travelerId: travelerId || null, status: "REJECTED", supersededAt: null },
+        data: { supersededAt: new Date() },
+      });
+    }
+    return {
+      document: await tx.contactRequestDocument.create({
+        data: {
+          contactRequestId,
+          label,
+          requirementId: requirementId || null,
+          travelerId: travelerId || null,
+          // Defaults to CUSTOMER_DOCUMENT at the schema level — only callers
+          // that know better (e.g. a payment receipt) pass something else.
+          ...(classification ? { classification } : {}),
+          ocrResult: ocrResult ?? undefined,
+          fileName: file.originalname,
+          // Relative to the uploads root, not the absolute server path — same
+          // convention as documents.controller.js, so API responses never leak
+          // server directory layout.
+          storagePath: path.join("contact-request-documents", file.filename),
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+        },
+      }),
+    };
   });
+  if (created.error || created.refusal) return created;
+  const { document } = created;
 
   // Customer-initiated (no staff req.user) — logged with userId: null, same
   // as every other tracking-driven event, and fanned out to admins so
@@ -183,31 +195,34 @@ export async function updateContactRequestDocumentStatus(
   { status, reviewNote },
   reviewerUserId
 ) {
-  const document = await prisma.contactRequestDocument.findFirst({
-    where: { id: documentId, contactRequestId },
+  // Decided under the request's row lock: a closed request's documents are
+  // no longer reviewed, and a receipt is decided in the payment step.
+  const result = await withLockedRequest(contactRequestId, null, async (tx, request) => {
+    const document = request.documents.find((candidate) => candidate.id === documentId);
+    if (!document) return { error: "NOT_FOUND" };
+    const refusal = checkAction(ACTIONS.REVIEW_DOCUMENT, request, { document: { ...document, status: "PENDING" } });
+    if (refusal) refuseWith(refusal);
+    const updated = await tx.contactRequestDocument.update({
+      where: { id: documentId },
+      data: {
+        status,
+        reviewNote: reviewNote || null,
+        reviewedByUserId: reviewerUserId,
+        reviewedAt: new Date(),
+      },
+      include: { reviewedBy: { select: safeUserSelect } },
+    });
+    await auditInTransaction(tx, {
+      userId: reviewerUserId,
+      action: "CONTACT_REQUEST_DOCUMENT_REVIEWED",
+      entityId: contactRequestId,
+      organizationId: request.organizationId,
+      newValue: { documentId, status },
+    });
+    return { document, updated };
   });
-
-  if (!document) {
-    return { error: "NOT_FOUND" };
-  }
-
-  const updated = await prisma.contactRequestDocument.update({
-    where: { id: documentId },
-    data: {
-      status,
-      reviewNote: reviewNote || null,
-      reviewedByUserId: reviewerUserId,
-      reviewedAt: new Date(),
-    },
-    include: { reviewedBy: { select: safeUserSelect } },
-  });
-
-  logActivity({
-    userId: reviewerUserId,
-    action: "CONTACT_REQUEST_DOCUMENT_REVIEWED",
-    entity: "ContactRequest",
-    entityId: contactRequestId,
-  });
+  if (result.error || result.refusal) return result;
+  const { document, updated } = result;
 
   // Release E: a review decision can complete "review documents" or open
   // "check payment" — keep the case's open tasks in step with it.

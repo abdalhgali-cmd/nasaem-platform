@@ -112,20 +112,30 @@ describe("contact request activity log + notification coverage", () => {
     await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`);
     await assertLogged(superAdminAgent, "CONTACT_REQUEST_PAYMENT_CONFIRMED", contactRequestId);
 
-    // Staff delivers a file.
+    // Staff record the start of execution, then deliver (publish) the file;
+    // that completes the request automatically.
+    await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/start-execution`).send({});
+    await assertLogged(superAdminAgent, "CONTACT_REQUEST_EXECUTION_STARTED", contactRequestId);
     await superAdminAgent
       .post(`/api/contact-requests/${contactRequestId}/deliverables`)
       .field("label", "التأشيرة الصادرة")
+      .field("publish", "true")
       .attach("file", Buffer.from([0x89, 0x50, 0x4e, 0x47]), {
         filename: "visa.png",
         contentType: "image/png",
       });
     await assertLogged(superAdminAgent, "CONTACT_REQUEST_DELIVERABLE_UPLOADED", contactRequestId);
+    await assertLogged(superAdminAgent, "CONTACT_REQUEST_DELIVERABLE_PUBLISHED", contactRequestId);
+    await assertLogged(superAdminAgent, "CONTACT_REQUEST_AUTO_COMPLETED", contactRequestId);
 
-    // Staff closes the request with an outcome.
+    // A correction: an admin reopens it (with a reason), then closes it with an outcome.
     await superAdminAgent
       .patch(`/api/contact-requests/${contactRequestId}/status`)
-      .send({ status: "CLOSED", outcome: "COMPLETED" });
+      .send({ status: "CONTACTED", reason: "إعادة فتح لاختبار السجل" });
+    await assertLogged(superAdminAgent, "CONTACT_REQUEST_REOPENED", contactRequestId);
+    await superAdminAgent
+      .patch(`/api/contact-requests/${contactRequestId}/status`)
+      .send({ status: "CLOSED", outcome: "CANCELLED", outcomeNote: "اختبار: يُسترد المبلغ" });
     await assertLogged(superAdminAgent, "CONTACT_REQUEST_STATUS_CHANGED", contactRequestId);
   });
 

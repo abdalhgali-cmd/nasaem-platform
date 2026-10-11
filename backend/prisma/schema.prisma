@@ -1491,6 +1491,17 @@ model ContactRequestDeliverable {
   mimeType         String
   sizeBytes        Int
   uploadedByUserId String
+  // Null while the file is only prepared (a draft): drafts are never listed,
+  // announced or downloadable for the customer. Set once, when staff publish
+  // it (after payment and the recorded start of execution).
+  publishedAt       DateTime?
+  publishedByUserId String?
+  // Which travelers of the request this file is the final output for. A
+  // combined file lists every traveler it covers; the request is complete
+  // only when every traveler is covered by a published file. Empty means
+  // "the request as a whole" and counts only for a request with at most one
+  // traveler (legacy files keep their empty list; see the migration).
+  travelerIds       String[] @default([])
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

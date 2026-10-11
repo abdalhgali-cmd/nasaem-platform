@@ -87,11 +87,17 @@ export function paymentState(request) {
   return { key: "NONE", tone: "wait", label: "", detail: "" };
 }
 
+// What the customer may do about the price and payment. The server sends
+// allowedActions (the same policy it enforces); without it (an older
+// server) a closed request still offers nothing.
 export function paymentActions(request) {
   const state = paymentState(request);
+  const closed = request?.status === "CLOSED";
+  const allowed = Array.isArray(request?.allowedActions) ? new Set(request.allowedActions) : null;
+  const may = (action, fallback) => !closed && (allowed ? allowed.has(action) : fallback);
   return {
-    canApprove: request?.invoice?.status === "PENDING",
-    canPay: state.key === "AWAITING_TRANSFER" || state.key === "RECEIPT_REJECTED",
+    canApprove: may("APPROVE_QUOTE", request?.invoice?.status === "PENDING"),
+    canPay: may("UPLOAD_RECEIPT", state.key === "AWAITING_TRANSFER" || state.key === "RECEIPT_REJECTED"),
     state,
   };
 }

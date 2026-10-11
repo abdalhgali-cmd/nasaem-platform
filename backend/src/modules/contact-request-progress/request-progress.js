@@ -1,3 +1,5 @@
+import { evaluateDelivery, evaluateReadiness, executionBlockers, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+
 // One service-aware description of where a request stands, shared by the
 // staff back-office, the customer app (account and phone tracking) and the
 // tracking status label, so the three never disagree.
@@ -93,19 +95,35 @@ const CLOSED_LABELS = {
 };
 
 // Stage keys are stable API values; labels are customer-facing Arabic.
+//
+// Step states describe what actually happened, from the same facts the
+// workflow policy uses (workflow-policy.js):
+//   RECEIVED   always done once the request exists
+//   DOCUMENTS  done only when every required document is accepted and the
+//              required information is complete (receiving is not reviewing)
+//   QUOTE      done when the customer approved a price / chose an offer
+//   PAYMENT    done only when staff accepted the payment (a receipt is not)
+//   EXECUTION  current from the recorded start until the first final file
+//              is published; done after that (started is not finished)
+//   DELIVERY   done only when every traveler's final file is published
+// "current" is the first step not done; a closed request has no current
+// step, and a cancelled/rejected one never shows its delivery as done.
 export function deriveRequestProgress(request) {
   const kind = deriveServiceKind(request);
   const copy = SERVICE_KINDS[kind];
   const { status, outcome, paymentStatus, invoice, offers, selectedOfferId } = request;
-  const delivered = (request.deliverables?.length ?? 0) > 0;
+  const published = publishedDeliverables(request);
+  const delivery = evaluateDelivery(request);
+  const readiness = evaluateReadiness(request);
   const executionStartedAt = request.executionStartedAt || null;
+  const completed = status === "CLOSED" && outcome === "COMPLETED";
 
   let stage;
   let label;
   if (status === "CLOSED") {
     stage = "CLOSED";
     label = (outcome && CLOSED_LABELS[outcome]) || "تم إغلاق الطلب";
-  } else if (delivered) {
+  } else if (delivery.complete && published.length) {
     stage = "DELIVERED";
     label = "ملفاتك النهائية جاهزة للتحميل";
   } else if (paymentStatus === "CONFIRMED" && executionStartedAt) {
@@ -134,19 +152,19 @@ export function deriveRequestProgress(request) {
     label = status === "CONTACTED" ? "تم التواصل معك بخصوص طلبك" : "تم استلام طلبك وهو قيد المراجعة";
   }
 
-  const paymentAccepted = paymentStatus === "CONFIRMED";
-  const completed = status === "CLOSED" && outcome === "COMPLETED";
+  const quoteAccepted = invoice?.status === "APPROVED" || Boolean(selectedOfferId) || ["AWAITING_TRANSFER", "UNDER_REVIEW", "CONFIRMED"].includes(paymentStatus);
+  const fullyDelivered = (delivery.complete && published.length > 0) || completed;
   const doneFlags = {
     RECEIVED: true,
-    QUOTE: paymentStatus !== "NOT_REQUIRED" || completed,
-    PAYMENT: paymentAccepted || completed,
-    EXECUTION: Boolean(executionStartedAt) || delivered || completed,
-    DELIVERY: delivered || completed,
+    DOCUMENTS: readiness.ready || completed,
+    QUOTE: quoteAccepted || completed,
+    PAYMENT: paymentStatus === "CONFIRMED" || completed,
+    EXECUTION: (Boolean(executionStartedAt) && published.length > 0) || fullyDelivered,
+    DELIVERY: fullyDelivered,
   };
-  // The step currently being worked on is the first one not done; a
-  // closed request that wasn't completed has no current step.
   const steps = [
-    { key: "RECEIVED", label: "استلام الطلب ومراجعة المستندات" },
+    { key: "RECEIVED", label: "استلام الطلب" },
+    { key: "DOCUMENTS", label: "مراجعة المستندات والبيانات" },
     { key: "QUOTE", label: "عرض السعر والموافقة عليه" },
     { key: "PAYMENT", label: "مراجعة الدفع وقبوله" },
     { key: "EXECUTION", label: copy.executionStep },
@@ -158,13 +176,21 @@ export function deriveRequestProgress(request) {
     state: doneFlags[step.key] ? "done" : index === currentIndex ? "current" : "upcoming",
   }));
 
+  const blockers = status === "CLOSED" ? [] : executionStartedAt ? [] : executionBlockers(request);
   return {
     serviceKind: kind,
     serviceKindLabel: copy.label,
     stage,
     label,
     executionStartedAt,
-    canStartExecution: status !== "CLOSED" && paymentAccepted && !executionStartedAt && !delivered,
+    canStartExecution: !executionStartedAt && status !== "CLOSED" && blockers.length === 0,
+    // Why execution cannot start yet (Arabic, actionable); empty once started.
+    blockers,
+    delivery: {
+      complete: delivery.complete && published.length > 0,
+      coveredTravelerIds: delivery.coveredTravelerIds,
+      missingTravelerIds: delivery.missingTravelerIds,
+    },
     steps: progressSteps,
   };
 }

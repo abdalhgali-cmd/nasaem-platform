@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
+import { CaseWorkflowPanel } from "@/components/sections/case-workflow-panel";
 
 // Smart Case Operations — Release C (employee case workspace), with the
 // Release E queues/tasks/SLA, Release F provider section and Release G
@@ -31,6 +32,8 @@ type QueueKey =
   | "WAITING_PAYMENT"
   | "READY_FOR_PROCESSING"
   | "WAITING_PROVIDER"
+  | "AWAITING_EXECUTION"
+  | "IN_EXECUTION"
   | "RESULTS_READY"
   | "COMPLETED";
 
@@ -39,9 +42,11 @@ const QUEUE_LABEL: Record<QueueKey, string> = {
   NEEDS_REVIEW: "بحاجة لمراجعة",
   WAITING_CUSTOMER: "بانتظار العميل",
   WAITING_PAYMENT: "بانتظار الدفع",
-  READY_FOR_PROCESSING: "جاهزة للتنفيذ",
+  READY_FOR_PROCESSING: "جاهزة للتسعير/المعالجة",
   WAITING_PROVIDER: "لدى الجهة",
-  RESULTS_READY: "النتيجة جاهزة",
+  AWAITING_EXECUTION: "مدفوعة، بانتظار التنفيذ",
+  IN_EXECUTION: "قيد التنفيذ",
+  RESULTS_READY: "الملفات النهائية منشورة",
   COMPLETED: "مكتملة",
 };
 
@@ -52,6 +57,8 @@ const QUEUE_ORDER: QueueKey[] = [
   "WAITING_PAYMENT",
   "READY_FOR_PROCESSING",
   "WAITING_PROVIDER",
+  "AWAITING_EXECUTION",
+  "IN_EXECUTION",
   "RESULTS_READY",
 ];
 
@@ -100,6 +107,7 @@ type CaseDocument = {
   travelerId: string | null;
   requirementId: string | null;
   supersededAt: string | null;
+  classification?: string;
   createdAt: string;
 };
 
@@ -458,7 +466,7 @@ function CaseDetail({
   staff: StaffUser[];
   onChanged: () => void;
 }) {
-  const [tab, setTab] = React.useState<"overview" | "travelers" | "documents" | "tasks" | "provider" | "notes" | "activity">("overview");
+  const [tab, setTab] = React.useState<"overview" | "workflow" | "travelers" | "documents" | "tasks" | "provider" | "notes" | "activity">("overview");
   const [warnings, setWarnings] = React.useState<Warning[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [actionError, setActionError] = React.useState("");
@@ -496,6 +504,7 @@ function CaseDetail({
 
   const tabs = [
     { key: "overview" as const, label: "نظرة عامة" },
+    { key: "workflow" as const, label: "سير العمل" },
     { key: "travelers" as const, label: `المسافرون (${caseRow.travelers.length})` },
     { key: "documents" as const, label: `المستندات (${caseRow.documents.filter((d) => !d.supersededAt).length})` },
     { key: "tasks" as const, label: `المهام (${caseRow.tasks.length})` },
@@ -573,6 +582,7 @@ function CaseDetail({
 
       <div className="mt-4">
         {tab === "overview" ? <OverviewTab caseRow={caseRow} staff={staff} busy={busy} run={run} /> : null}
+        {tab === "workflow" ? <CaseWorkflowPanel caseId={caseRow.id} onChanged={onChanged} /> : null}
         {tab === "travelers" ? <TravelersTab caseRow={caseRow} /> : null}
         {tab === "documents" ? <DocumentsTab caseRow={caseRow} busy={busy} run={run} /> : null}
         {tab === "tasks" ? <TasksTab caseRow={caseRow} busy={busy} run={run} /> : null}
@@ -791,6 +801,10 @@ function DocumentsTab({
                         <FileText className="size-3.5" />
                         فتح الملف
                       </a>
+                      {/* Review only while the request is open; a payment
+                          receipt is decided in «سير العمل» (payment). */}
+                      {caseRow.status !== "CLOSED" && document.classification !== "FINANCIAL_DOCUMENT" ? (
+                        <>
                       <input
                         type="text"
                         value={noteByDocument[document.id] ?? ""}
@@ -818,6 +832,8 @@ function DocumentsTab({
                       >
                         رفض
                       </Button>
+                        </>
+                      ) : null}
                     </div>
                   ) : null}
                 </li>

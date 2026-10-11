@@ -766,3 +766,5 @@ summary:focus-visible {
 .cr-steps .cr-step-done { color: var(--success, #1f7a3a); }
 .cr-steps .cr-step-current { font-weight: 700; }
 .cr-steps .cr-step-upcoming { color: var(--muted, #6b7280); }
+label.inline { display: inline-flex; align-items: center; gap: 6px; margin-inline-end: 12px; font-weight: normal; }
+[data-cr-execution-blockers] { border-color: #f0c36d; }

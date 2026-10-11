@@ -16,6 +16,7 @@ type TrackedInvoice = {
   currency: string;
   description: string | null;
   status: InvoiceStatus;
+  updatedAt?: string;
 };
 
 type TrackedOffer = {
@@ -125,6 +126,9 @@ type TrackedRequest = {
   statusLabel: string;
   // Server-computed, service-aware progress (request-progress.js): the
   // execution step is "current" until staff record it, then "done".
+  // What the customer may do now (the server's workflow policy). A closed
+  // request is read-only whatever this says.
+  allowedActions?: string[];
   progress?: { stage: string; label: string; steps: { key: string; label: string; state: TimelineStepState }[] };
   createdAt: string;
   invoice: TrackedInvoice | null;
@@ -310,6 +314,10 @@ function RequestTimeline({ req }: { req: TrackedRequest }) {
   );
 }
 
+function mayDo(req: TrackedRequest, action: string) {
+  return req.status !== "CLOSED" && (!req.allowedActions || req.allowedActions.includes(action));
+}
+
 // Shared by every panel below that posts a tracking action (invoice
 // approve/reject, offer selection, mark-transfer-sent) and needs the
 // request list refreshed on success — same loading/error state, same
@@ -318,7 +326,7 @@ function useTrackingAction(onActionComplete: () => Promise<void>) {
   const [acting, setActing] = React.useState(false);
   const [actionError, setActionError] = React.useState("");
 
-  async function postAction(path: string) {
+  async function postAction(path: string, body?: Record<string, unknown>) {
     setActing(true);
     setActionError("");
 
@@ -326,6 +334,7 @@ function useTrackingAction(onActionComplete: () => Promise<void>) {
       const res = await fetch(`${API_URL}${path}`, {
         method: "POST",
         credentials: "include",
+        ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
       });
       const payload = await res.json().catch(() => null);
 
@@ -375,14 +384,14 @@ function RequestInvoicePanel({
         <p className="mt-2 text-xs text-red-600 dark:text-red-400">{actionError}</p>
       ) : null}
 
-      {req.invoice.status === "PENDING" ? (
+      {req.invoice.status === "PENDING" && mayDo(req, "APPROVE_QUOTE") ? (
         <div className="mt-3 flex gap-2">
           <Button
             type="button"
             size="sm"
             variant="gold"
             disabled={acting}
-            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/approve`)}
+            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/approve`, { invoiceVersion: req.invoice?.updatedAt })}
           >
             موافقة على السعر
           </Button>
@@ -391,7 +400,7 @@ function RequestInvoicePanel({
             size="sm"
             variant="outline"
             disabled={acting}
-            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/reject`)}
+            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/reject`, { invoiceVersion: req.invoice?.updatedAt })}
           >
             رفض
           </Button>
@@ -444,7 +453,7 @@ function RequestOffersPanel({
                 <span className="mt-2 inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-600 dark:text-emerald-400">
                   تم الاختيار
                 </span>
-              ) : !req.selectedOfferId ? (
+              ) : !req.selectedOfferId && mayDo(req, "SELECT_OFFER") ? (
                 <Button
                   type="button"
                   size="sm"
@@ -476,7 +485,7 @@ function RequestTransferAction({
 }) {
   const { acting, actionError, postAction } = useTrackingAction(onActionComplete);
 
-  if (req.paymentStatus !== "AWAITING_TRANSFER") {
+  if (req.paymentStatus !== "AWAITING_TRANSFER" || !mayDo(req, "DECLARE_TRANSFER")) {
     return null;
   }
 
@@ -633,6 +642,7 @@ function RequestDocumentsPanel({
   const outstanding = (req.checklist ?? []).filter(
     (item) => item.kind === "DOCUMENT" && (item.state === "MISSING" || item.state === "REJECTED")
   );
+  const canUploadHere = mayDo(req, "UPLOAD_DOCUMENT");
   const checklistKey = (item: ChecklistItem) => `${item.requirementId}::${item.travelerId ?? "case"}`;
 
   React.useEffect(() => {
@@ -694,6 +704,8 @@ function RequestDocumentsPanel({
       setUploading(false);
     }
   }
+
+  if (!canUploadHere) return null;
 
   return (
     <div className="mt-4 rounded-xl border border-border bg-background p-4">

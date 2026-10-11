@@ -152,3 +152,7 @@ export const rejectPaymentSchema = z.object({
 export const startExecutionSchema = z.object({
   note: z.string().trim().max(500).optional(),
 });
+
+export const revertExecutionSchema = z.object({
+  reason: z.string().trim().min(5, "اكتب سبب تصحيح بدء التنفيذ (5 أحرف على الأقل)").max(500),
+});

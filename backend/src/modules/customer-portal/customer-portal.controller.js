@@ -1,3 +1,4 @@
+import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
 import { createSelfOrderSchema } from "./customer-portal.validators.js";
 import { uploadContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
 import {
@@ -75,6 +76,7 @@ export async function uploadRequestDocument(req, res, next) {
     if (!parsed.success) return res.status(400).json({ success: false, message: "بيانات المستند غير صحيحة", errors: parsed.error.flatten() });
     if (!req.file) return res.status(400).json({ success: false, message: "الملف مطلوب" });
     const result = await uploadMyRequestDocument(req.customer.id, req.params.id, { label: parsed.data.label, file: req.file, requirementId: parsed.data.requirementId, travelerId: parsed.data.travelerId });
+    if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "الطلب غير موجود" });
     if (result.error) return res.status(400).json({ success: false, code: result.error, message: UPLOAD_ERROR_MESSAGES_AR[result.error] || "تعذر رفع المستند", details: result.details });
     return res.status(201).json({ success: true, data: result.document });

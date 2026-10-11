@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { OperationsDeliverablePanel } from "@/components/sections/operations-deliverable-panel";
+import { CaseWorkflowPanel } from "@/components/sections/case-workflow-panel";
 
 function DeliveryContent() {
   const params = useSearchParams();
@@ -27,7 +27,7 @@ function DeliveryContent() {
         <div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-7">
           <h1 className="text-2xl font-black">التسليم النهائي</h1>
           <p className="mt-2 text-sm text-muted-foreground">الطلب: {reference}</p>
-          <OperationsDeliverablePanel requestId={requestId} reference={reference} />
+          <div className="mt-4"><CaseWorkflowPanel caseId={requestId} onChanged={() => undefined} /></div>
         </div>
       </div>
     </main>

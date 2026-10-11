@@ -15,6 +15,8 @@ import {
   confirmPayment,
   rejectPayment,
   startExecution,
+  revertExecution,
+  publishDeliverable,
   downloadDeliverableFile,
   downloadDocumentFile,
   getContactRequests,
@@ -257,6 +259,15 @@ router.post(
   requireContactRequestOrganization,
   startExecution
 );
+// Correction of an accidental execution start: managers only, with a
+// written reason; refused once a final file was published.
+router.post(
+  "/:id/execution/revert",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN"),
+  requireContactRequestOrganization,
+  revertExecution
+);
 router.get(
   "/:id/documents/:documentId/file",
   requireAuth,
@@ -280,6 +291,15 @@ router.post(
   requireFeatureEnabled("DOCUMENTS"),
   handleDeliverableUpload,
   storeDeliverable
+);
+// Publishes a prepared (draft) final file to the customer.
+router.post(
+  "/:id/deliverables/:deliverableId/publish",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  requireFeatureEnabled("DOCUMENTS"),
+  publishDeliverable
 );
 // Smart Case Operations — Release F (provider operations). Mounted on the
 // case itself rather than a separate provider app: sending a case out is

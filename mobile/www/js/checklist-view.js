@@ -12,8 +12,11 @@ const STATE_LABELS = {
 
 export const stateLabel = (state) => STATE_LABELS[state] || state;
 
-// A document can be (re)uploaded when it is missing or was sent back.
-export function canUpload(item) {
+// A document can be (re)uploaded when it is missing or was sent back, and
+// the request still accepts documents (never once it is closed).
+export function canUpload(item, request) {
+  if (request?.status === "CLOSED") return false;
+  if (Array.isArray(request?.allowedActions) && !request.allowedActions.includes("UPLOAD_DOCUMENT")) return false;
   return item?.kind === "DOCUMENT" && (item.state === "MISSING" || item.state === "REJECTED");
 }
 

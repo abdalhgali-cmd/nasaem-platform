@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { loadBackOffice, settle } from "./helpers/backOffice.js";
+import { allowedActions } from "../src/modules/contact-request-workflow/workflow-policy.js";
 
 const now = new Date().toISOString();
 const request = (id, overrides = {}) => ({
@@ -29,7 +30,9 @@ function baseRoutes(role, extra = {}) {
     "GET /api/notifications": { success: true, data: [], meta: { unreadCount: 0 } },
     "GET /api/services": { success: true, data: [{ id: "s1", name: "عمرة", category: "umrah" }] },
     "GET /api/contact-requests": { success: true, data: [request("cr1"), request("cr2")], meta: { page: 1, totalPages: 1, total: 2 } },
-    "GET /api/contact-requests/cr1": { success: true, data: request("cr1") },
+    // The detail carries what the server would send: the actions this role
+    // may take now, from the real workflow policy.
+    "GET /api/contact-requests/cr1": { success: true, data: { ...request("cr1"), allowedActions: allowedActions(request("cr1"), { audience: "staff", role }) } },
     "GET /api/contact-requests/cr1/notes": { success: true, data: [] },
     "GET /api/contact-requests/cr1/timeline": { success: true, data: [] },
     "GET /api/orders": { success: true, data: [], meta: { page: 1, totalPages: 1, total: 0 } },
@@ -97,6 +100,22 @@ describe("customer requests", () => {
     assert.ok(ad.querySelector("[data-cr-confirm-payment]"), "accountant confirms payment");
     assert.equal(ad.querySelector('[data-cr-form="close"]'), null);
     assert.equal(ad.querySelector("[data-doc-accept]"), null);
+  });
+
+  test("a closed request is read-only: no review, payment, execution, file or close controls; only an admin reopen", async () => {
+    const closed = request("cr1", { status: "CLOSED", outcome: "CANCELLED", invoice: { amount: "500", currency: "SAR", status: "PENDING" }, paymentStatus: "NOT_REQUIRED" });
+    for (const role of ["EMPLOYEE", "ACCOUNTANT", "ADMIN"]) {
+      const view = loadBackOffice("admin-dashboard.html", {
+        routes: baseRoutes(role, { "GET /api/contact-requests/cr1": { success: true, data: { ...closed, allowedActions: allowedActions(closed, { audience: "staff", role }) } } }),
+        url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+      });
+      await settle(120);
+      const detail = view.document.getElementById("cr-detail");
+      for (const selector of ["[data-doc-accept]", "[data-cr-confirm-payment]", '[data-cr-form="invoice"]', '[data-cr-form="start-execution"]', '[data-cr-form="deliverable"]', '[data-cr-form="close"]']) {
+        assert.equal(detail.querySelector(selector), null, `${role}: ${selector} on a closed request`);
+      }
+      assert.equal(Boolean(detail.querySelector('[data-cr-form="reopen"]')), role === "ADMIN", `${role}: reopen`);
+    }
   });
 
   test("a slow detail response never overwrites the request opened after it", async () => {

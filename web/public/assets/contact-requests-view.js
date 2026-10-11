@@ -20,6 +20,14 @@ const CR_ROLE_CAN = {
   timeline: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"],
 };
 
+// The server sends, with each request, the actions this staff member may
+// take now (the same policy it enforces: workflow-policy.js). Controls are
+// shown only for those; a stale click is still refused by the server with
+// an Arabic reason.
+function crAllowed(r, action) {
+  return Array.isArray(r?.allowedActions) && r.allowedActions.includes(action);
+}
+
 // Mirrors dashboard.service.js contactNextAction so the list and the
 // operations center agree on "what happens next".
 function crNextAction(r) {
@@ -29,8 +37,8 @@ function crNextAction(r) {
   if (!r.invoice && (!r.offers || r.offers.length === 0)) return "تحديد السعر";
   if ((r.documents || []).some((d) => d.status === "PENDING")) return "مراجعة المستندات";
   if (r.invoice?.status === "PENDING" || ((r.offers || []).length > 0 && !r.selectedOfferId)) return "بانتظار موافقة العميل";
-  if (r.paymentStatus === "CONFIRMED" && !r.executionStartedAt && (r.deliverables || []).length === 0) return "بدء التنفيذ";
-  if (r.paymentStatus === "CONFIRMED" && (r.deliverables || []).length === 0) return "إصدار وتسليم الملف النهائي";
+  if (r.paymentStatus === "CONFIRMED" && !r.executionStartedAt) return (r.progress?.blockers || []).length ? "استكمال المستندات قبل التنفيذ" : "بدء التنفيذ";
+  if (r.paymentStatus === "CONFIRMED" && !r.progress?.delivery?.complete) return "نشر الملفات النهائية لكل المسافرين";
   if (r.paymentStatus === "CONFIRMED") return "إغلاق الطلب كمكتمل";
   return "معالجة الطلب";
 }
@@ -141,7 +149,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
           const isReceipt = d.classification === "FINANCIAL_DOCUMENT";
           const controls = isReceipt
             ? '<span class="muted small">إيصال دفع — يُراجع من قسم «الدفع»</span>'
-            : can("work") && d.status === "PENDING"
+            : crAllowed(r, "REVIEW_DOCUMENT") && d.status === "PENDING"
               ? `<div class="stack wrap">
                   <button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}">قبول</button>
                   <label class="sr-only" for="reject-note-${escapeHtml(d.id)}">سبب الرفض</label>
@@ -180,7 +188,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     }
     if (!parts.length) parts.push('<p class="muted">لم يُحدد سعر بعد.</p>');
 
-    const canPrice = can("work") && r.status !== "CLOSED" && r.invoice?.status !== "APPROVED" && !r.selectedOfferId;
+    const canPrice = crAllowed(r, "ISSUE_QUOTE") || crAllowed(r, "ADD_OFFER");
     if (canPrice) {
       const currencyOptions = CR_CURRENCIES.map((c) => `<option value="${c}" ${(r.invoice?.currency || "SAR") === c ? "selected" : ""}>${c}</option>`).join("");
       parts.push(`
@@ -203,7 +211,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     if (r.paymentStatus === "AWAITING_TRANSFER" && r.paymentRejectionReason) {
       lines.push(`<p class="alert error">رُفض آخر إيصال${r.paymentRejectedAt ? ` (${formatDateTime(r.paymentRejectedAt)})` : ""}: ${escapeHtml(r.paymentRejectionReason)}</p>`);
     }
-    if (r.paymentStatus === "UNDER_REVIEW" && can("confirmPayment")) {
+    if (crAllowed(r, "CONFIRM_PAYMENT")) {
       lines.push(`<p class="muted small">راجع إيصال الدفع من قائمة المستندات، ثم اقبل الدفع أو ارفضه مع بيان السبب. رفع الإيصال لا يعني أن الدفع تم.</p>`);
       lines.push(`<button type="button" class="btn" data-cr-confirm-payment="1">تأكيد استلام الدفع</button>`);
       lines.push(`<form class="card inset" data-cr-form="reject-payment">
@@ -211,7 +219,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
         <div class="field"><label for="cr-reject-payment-reason">سبب الرفض (يظهر للعميل)</label><input id="cr-reject-payment-reason" name="reason" required minlength="3" maxlength="500" /></div>
         <button type="submit" class="btn secondary">رفض الإيصال وإعادته للعميل</button>
       </form>`);
-    } else if (r.paymentStatus === "UNDER_REVIEW") {
+    } else if (r.paymentStatus === "UNDER_REVIEW" && r.status !== "CLOSED") {
       lines.push('<p class="muted small">تأكيد الدفع من صلاحيات المحاسبة أو الإدارة.</p>');
     }
     return lines.join("");
@@ -233,48 +241,84 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     if (r.executionStartedAt) {
       lines.push(`<p class="muted small">بدأ التنفيذ ${formatDateTime(r.executionStartedAt)}${r.executionNote ? ` — ${escapeHtml(r.executionNote)}` : ""}</p>`);
     }
-    if (progress.canStartExecution && can("work")) {
+    if (crAllowed(r, "START_EXECUTION")) {
       lines.push(`<form class="card inset" data-cr-form="start-execution">
         <h4>بدء التنفيذ</h4>
         <p class="muted small">سجّل هذا عندما تبدأ فعلًا (${escapeHtml(progress.steps.find((s) => s.key === "EXECUTION")?.label || "")}). يصل العميل إشعار، وتتغير حالته إلى «${escapeHtml(progress.serviceKindLabel)}: قيد التنفيذ».</p>
         <div class="field"><label for="cr-execution-note">ملاحظة داخلية (اختيارية، لا تظهر للعميل)</label><input id="cr-execution-note" name="note" maxlength="500" /></div>
         <button type="submit" class="btn">تسجيل بدء التنفيذ</button>
       </form>`);
-    } else if (progress.canStartExecution) {
-      lines.push('<p class="muted small">بدء التنفيذ من صلاحيات موظفي العمليات أو الإدارة.</p>');
+    } else if (!r.executionStartedAt && r.status !== "CLOSED" && (progress.blockers || []).length) {
+      lines.push(`<div class="card inset" data-cr-execution-blockers="1"><h4>لا يمكن بدء التنفيذ بعد</h4><ul class="plain-list">${progress.blockers
+        .map((b) => `<li>${escapeHtml(b.message)}</li>`)
+        .join("")}</ul></div>`);
+    }
+    if (crAllowed(r, "REVERT_EXECUTION")) {
+      lines.push(`<form class="card inset" data-cr-form="revert-execution">
+        <h4>تصحيح: بدء التنفيذ سُجّل بالخطأ</h4>
+        <p class="muted small">للإدارة فقط وقبل نشر أي ملف نهائي. يُحفظ التسجيل الأصلي (من ومتى) في سجل النشاط، ويعود الطلب إلى «بانتظار بدء التنفيذ».</p>
+        <div class="field"><label for="cr-revert-reason">سبب التصحيح (إلزامي)</label><input id="cr-revert-reason" name="reason" required minlength="5" maxlength="500" /></div>
+        <button type="submit" class="btn secondary">تصحيح بدء التنفيذ</button>
+      </form>`);
     }
     return lines.join("");
   }
 
+  // Final files: drafts (prepared, invisible to the customer) and published
+  // ones, each with the travelers it covers. The request completes only
+  // when every traveler is covered by a published file.
   function deliverablesHtml(r) {
+    const travelers = r.travelers || [];
+    const nameOf = (id) => travelers.find((t) => t.id === id)?.fullName || "—";
+    const coverage = (d) => (d.travelerIds?.length ? d.travelerIds.map(nameOf).join("، ") : travelers.length > 1 ? "غير مُسند لمسافر" : "الطلب كاملًا");
     const list = (r.deliverables || []).length
       ? `<ul class="plain-list">${r.deliverables
-          .map((d) => `<li><a href="/api/contact-requests/${encodeURIComponent(r.id)}/deliverables/${encodeURIComponent(d.id)}/file" target="_blank" rel="noopener">${escapeHtml(d.label)}</a> <span class="muted small">${formatDateTime(d.createdAt)}</span></li>`)
+          .map((d) => {
+            const draft = !d.publishedAt;
+            const publish = draft && crAllowed(r, "PUBLISH_DELIVERABLE")
+              ? ` <button type="button" class="btn secondary" data-cr-publish="${escapeHtml(d.id)}">نشر للعميل</button>`
+              : "";
+            return `<li data-deliverable="${escapeHtml(d.id)}"><a href="/api/contact-requests/${encodeURIComponent(r.id)}/deliverables/${encodeURIComponent(d.id)}/file" target="_blank" rel="noopener">${escapeHtml(d.label)}</a>
+              <span class="badge ${draft ? "" : "status-APPROVED"}">${draft ? "مسودة — لا يراها العميل" : "منشور للعميل"}</span>
+              <span class="muted small">يخص: ${escapeHtml(coverage(d))} · ${formatDateTime(d.publishedAt || d.createdAt)}</span>${publish}</li>`;
+          })
           .join("")}</ul>`
-      : '<p class="muted">لم يُسلّم ملف نهائي بعد.</p>';
-    const form = can("work") && r.status !== "CLOSED"
-      ? `<form class="card inset" data-cr-form="deliverable">
-          <h4>تسليم ملف نهائي للعميل</h4>
+      : '<p class="muted">لم يُجهَّز ملف نهائي بعد.</p>';
+    const missing = r.progress?.delivery?.missingTravelerIds || [];
+    const summary = travelers.length > 1 && r.executionStartedAt && r.status !== "CLOSED"
+      ? `<p class="muted small" data-cr-delivery-missing="1">${missing.length ? `بانتظار ملف منشور لـ: ${escapeHtml(missing.map(nameOf).join("، "))}` : "كل المسافرين لديهم ملف منشور."}</p>`
+      : "";
+    if (!crAllowed(r, "PREPARE_DELIVERABLE")) return list + summary;
+    const canPublishNow = crAllowed(r, "PUBLISH_DELIVERABLE") || (r.paymentStatus === "CONFIRMED" && r.executionStartedAt);
+    const travelerChoices = travelers.length > 1
+      ? `<fieldset class="field"><legend>يخص المسافرين (ملف مشترك: اختر كل من يغطيهم)</legend>
+          ${travelers.map((t) => `<label class="inline"><input type="checkbox" name="travelerIds" value="${escapeHtml(t.id)}" /> ${escapeHtml(t.fullName)}</label>`).join(" ")}
+        </fieldset>`
+      : "";
+    const form = `<form class="card inset" data-cr-form="deliverable">
+          <h4>ملف نهائي للعميل</h4>
           <div class="grid cols-3">
             <div class="field"><label for="cr-deliverable-label">اسم الملف</label><input id="cr-deliverable-label" name="label" required maxlength="120" placeholder="التأشيرة، التذكرة..." /></div>
             <div class="field"><label for="cr-deliverable-file">الملف (PDF أو صورة)</label><input id="cr-deliverable-file" name="file" type="file" accept=".pdf,image/jpeg,image/png,image/webp" required /></div>
           </div>
-          <button type="submit" class="btn">رفع وتسليم</button>
-        </form>`
-      : "";
-    return list + form;
+          ${travelerChoices}
+          <label class="inline"><input type="checkbox" name="publish" value="true" ${canPublishNow ? "checked" : "disabled"} /> نشره للعميل الآن${canPublishNow ? "" : " (يتاح بعد قبول الدفع وتسجيل بدء التنفيذ؛ يُحفظ الآن مسودة)"}</label>
+          <button type="submit" class="btn">رفع</button>
+        </form>`;
+    return list + summary + form;
   }
 
   function statusControlsHtml(r) {
     if (r.status === "CLOSED") {
-      if (!can("reopen")) return '<p class="muted small">إعادة فتح الطلب من صلاحيات الإدارة.</p>';
-      return `<form class="card inset" data-cr-form="reopen">
+      if (!crAllowed(r, "REOPEN")) return '<p class="muted small">الطلب مغلق وللقراءة فقط. إعادة فتحه من صلاحيات الإدارة.</p>';
+      return `<p class="muted small">الطلب مغلق وللقراءة فقط.</p><form class="card inset" data-cr-form="reopen">
         <h4>إعادة فتح الطلب</h4>
         <div class="field"><label for="cr-reopen-reason">سبب إعادة الفتح (إلزامي)</label><input id="cr-reopen-reason" name="reason" required minlength="5" maxlength="1000" /></div>
         <button type="submit" class="btn secondary">إعادة الفتح</button>
       </form>`;
     }
-    if (!can("work")) return "";
+    if (!crAllowed(r, "CLOSE")) return "";
+    const canComplete = crAllowed(r, "COMPLETE");
     return `<div class="stack wrap">
         ${r.status === "NEW" ? '<button type="button" class="btn secondary" data-cr-contacted="1">تم التواصل مع العميل</button>' : ""}
       </div>
@@ -283,8 +327,8 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
         <div class="grid cols-3">
           <div class="field"><label for="cr-outcome">النتيجة</label>
             <select id="cr-outcome" name="outcome">
-              <option value="COMPLETED">مكتمل (تم تقديم الخدمة)</option>
-              <option value="CANCELLED">ملغي (انسحب العميل)</option>
+              <option value="COMPLETED" ${canComplete ? "" : "disabled"}>مكتمل (تم تقديم الخدمة)${canComplete ? "" : " — غير متاح بعد"}</option>
+              <option value="CANCELLED" ${canComplete ? "" : "selected"}>ملغي (انسحب العميل)</option>
               <option value="REJECTED">مرفوض (غير مؤهل/غير ممكن)</option>
             </select></div>
           <div class="field"><label for="cr-outcome-note">ملاحظة${r.paymentStatus === "CONFIRMED" ? " (إلزامية عند الإلغاء/الرفض بعد الدفع)" : ""}</label><input id="cr-outcome-note" name="outcomeNote" maxlength="2000" /></div>
@@ -445,6 +489,8 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       if (!note) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب رفض المستند.");
       return act(reject, () => api.patch(`${base}/documents/${encodeURIComponent(reject.dataset.docReject)}/status`, { status: "REJECTED", reviewNote: note }), "تم رفض المستند وإبلاغ العميل بالسبب.");
     }
+    const publish = t.closest("[data-cr-publish]");
+    if (publish) return act(publish, () => api.post(`${base}/deliverables/${encodeURIComponent(publish.dataset.crPublish)}/publish`, {}), "تم نشر الملف للعميل.");
     const confirm = t.closest("[data-cr-confirm-payment]");
     if (confirm) return act(confirm, () => api.post(`${base}/confirm-payment`, {}), "تم تأكيد استلام الدفع.");
     const contacted = t.closest("[data-cr-contacted]");
@@ -481,11 +527,20 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       case "deliverable": {
         const file = f.file.files[0];
         if (!file || !f.label.value.trim()) return showAlert(document.getElementById("cr-action-alert"), "اكتب اسم الملف واختر الملف.");
+        const travelerIds = [...form.querySelectorAll('input[name="travelerIds"]:checked')].map((input) => input.value);
+        const publishNow = Boolean(form.querySelector('input[name="publish"]:checked'));
+        if (publishNow && form.querySelector('input[name="travelerIds"]') && travelerIds.length === 0) {
+          return showAlert(document.getElementById("cr-action-alert"), "حدّد المسافرين الذين يخصهم هذا الملف.");
+        }
         const data = new FormData();
         data.append("label", f.label.value.trim());
         data.append("file", file);
-        return act(button, () => api.upload(`${base}/deliverables`, data), "تم رفع الملف وإتاحته للعميل.");
+        if (travelerIds.length) data.append("travelerIds", JSON.stringify(travelerIds));
+        data.append("publish", publishNow ? "true" : "false");
+        return act(button, () => api.upload(`${base}/deliverables`, data), publishNow ? "تم رفع الملف ونشره للعميل." : "تم حفظ الملف مسودة؛ لا يراه العميل حتى تنشره.");
       }
+      case "revert-execution":
+        return act(button, () => api.post(`${base}/execution/revert`, { reason: f.reason.value.trim() }), "تم تصحيح بدء التنفيذ وتسجيل السبب.");
       case "close":
         return act(button, () => api.patch(`${base}/status`, { status: "CLOSED", outcome: f.outcome.value, outcomeNote: f.outcomeNote.value.trim() || undefined }), "تم إغلاق الطلب.");
       case "reopen":

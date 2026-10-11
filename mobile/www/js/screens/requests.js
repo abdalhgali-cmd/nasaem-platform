@@ -376,7 +376,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     const price = pricing ? formatAmount(pricing.amount, pricing.currency) : "";
     const sdgLine = sdgEquivalent(pricing);
     const { canApprove, canPay, state: payState } = paymentActions(request);
-    const isEgyptClearance = request.visaType?.code === "VISA-EGYPT-CLEARANCE" && request.status !== "CLOSED";
+    // The server says what is possible now (allowedActions); a closed request
+    // offers nothing, even without that list.
+    const mayDo = (action) => request.status !== "CLOSED" && (!Array.isArray(request.allowedActions) || request.allowedActions.includes(action));
+    const isEgyptClearance = request.visaType?.code === "VISA-EGYPT-CLEARANCE" && mayDo("SAVE_TRAVEL_PLAN");
 
     bodyEl.innerHTML = `
       <div class="request-summary">
@@ -441,10 +444,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     const panel = bodyEl.querySelector("#trackingActionPanel");
 
     bodyEl.querySelector("#approveBtn")?.addEventListener("click", () => {
-      ensureTrackingAndRun(panel, () => tracking.approveInvoice(request.id), { onDone: () => { toast("تمت الموافقة على السعر"); load(); } });
+      ensureTrackingAndRun(panel, () => tracking.approveInvoice(request.id, request.invoice?.updatedAt), { onDone: () => { toast("تمت الموافقة على السعر"); load(); } });
     });
     bodyEl.querySelector("#rejectBtn")?.addEventListener("click", () => {
-      ensureTrackingAndRun(panel, () => tracking.rejectInvoice(request.id), { onDone: () => { toast("تم رفض العرض"); load(); } });
+      ensureTrackingAndRun(panel, () => tracking.rejectInvoice(request.id, request.invoice?.updatedAt), { onDone: () => { toast("تم رفض العرض"); load(); } });
     });
     bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", () => showPaymentAccounts(panel, pricing.currency));
     bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", () => showReceiptUpload(panel, request.id, load));
@@ -491,7 +494,7 @@ function checklistBlock(request) {
               </div>
               <div class="check-side">
                 <b class="doc-status doc-status-${esc(String(item.state).toLowerCase())}">${esc(stateLabel(item.state))}</b>
-                ${canUpload(item) ? `<label class="chip-btn">${icon("upload", { size: 15 })}<span>${item.state === "REJECTED" ? "رفع بديل" : "رفع"}</span><input type="file" class="sr-only" accept="image/*,.pdf" data-upload-item="${esc(item.requirementId)}::${esc(item.travelerId || "")}"></label>` : ""}
+                ${canUpload(item, request) ? `<label class="chip-btn">${icon("upload", { size: 15 })}<span>${item.state === "REJECTED" ? "رفع بديل" : "رفع"}</span><input type="file" class="sr-only" accept="image/*,.pdf" data-upload-item="${esc(item.requirementId)}::${esc(item.travelerId || "")}"></label>` : ""}
               </div>
             </div>`).join("")}
         </div>`).join("")}

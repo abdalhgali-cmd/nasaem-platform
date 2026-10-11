@@ -8,12 +8,14 @@ import {
   updateContactRequestStatusSchema,
   rejectPaymentSchema,
   startExecutionSchema,
+  revertExecutionSchema,
 } from "./contact-requests.validators.js";
 import {
   assignContactRequest,
   confirmContactRequestPayment,
   rejectContactRequestPayment,
   startContactRequestExecution,
+  revertContactRequestExecution,
   createContactRequest,
   createOffer,
   createOrUpdateInvoice,
@@ -34,9 +36,11 @@ import {
   getContactRequestDocumentFile,
   updateContactRequestDocumentStatus,
 } from "../contact-request-documents/contact-request-documents.service.js";
-import { uploadContactRequestDeliverableSchema } from "../contact-request-deliverables/contact-request-deliverables.validators.js";
+import { publishContactRequestDeliverableSchema, uploadContactRequestDeliverableSchema } from "../contact-request-deliverables/contact-request-deliverables.validators.js";
+import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
 import {
   createContactRequestDeliverable,
+  publishContactRequestDeliverable,
   getContactRequestDeliverableFile,
 } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { parsePagination } from "../../utils/pagination.js";
@@ -112,7 +116,7 @@ export async function storeContactRequest(req, res, next) {
 
 export async function getContactRequest(req, res, next) {
   try {
-    const contactRequest = await getContactRequestById(req.params.id, req.user.organizationId);
+    const contactRequest = await getContactRequestById(req.params.id, req.user.organizationId, { role: req.user.role });
     if (!contactRequest) {
       return res.status(404).json({ success: false, message: "Contact request not found" });
     }
@@ -181,6 +185,7 @@ export async function patchContactRequestStatus(req, res, next) {
     }
 
     const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user, req.user.organizationId);
+    if (contactRequest?.refusal) return sendRefusal(res, contactRequest.refusal);
 
     if (!contactRequest) {
       return res.status(404).json({
@@ -260,6 +265,7 @@ export async function storeInvoice(req, res, next) {
     }
 
     const result = await createOrUpdateInvoice(id, parsed.data, req.user.id);
+    if (result.refusal) return sendRefusal(res, result.refusal);
 
     if (result.error === "NOT_FOUND") {
       return res.status(404).json({
@@ -315,6 +321,7 @@ export async function storeInvoiceFromPricing(req, res, next) {
       req.user.id
     );
 
+    if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
     if (result.error === "ALREADY_APPROVED") return res.status(409).json({ success: false, message: "Customer has already approved this invoice" });
     if (result.error === "OFFERS_EXIST") return res.status(409).json({ success: false, message: "This request already uses multi-carrier offers, not a single invoice" });
@@ -339,6 +346,7 @@ export async function storeOffer(req, res, next) {
     }
 
     const result = await createOffer(id, parsed.data, req.user.id);
+    if (result.refusal) return sendRefusal(res, result.refusal);
 
     if (result.error === "NOT_FOUND") {
       return res.status(404).json({
@@ -395,6 +403,7 @@ export async function storeOfferFromPricing(req, res, next) {
       req.user.id
     );
 
+    if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
     if (result.error === "INVOICE_EXISTS") return res.status(409).json({ success: false, message: "This request already has a single invoice, not multi-carrier offers" });
     if (result.error === "ALREADY_SELECTED") return res.status(409).json({ success: false, message: "The customer has already selected an offer" });
@@ -409,6 +418,7 @@ export async function confirmPayment(req, res, next) {
   try {
     const { id } = req.params;
     const result = await confirmContactRequestPayment(id, req.user.id);
+    if (result.refusal) return sendRefusal(res, result.refusal);
 
     if (result.error === "NOT_FOUND") {
       return res.status(404).json({ success: false, message: "Contact request not found" });
@@ -432,6 +442,7 @@ export async function rejectPayment(req, res, next) {
     }
 
     const result = await rejectContactRequestPayment(req.params.id, req.user.id, parsed.data.reason);
+    if (result.refusal) return sendRefusal(res, result.refusal);
 
     if (result.error === "NOT_FOUND") {
       return res.status(404).json({ success: false, message: "Contact request not found" });
@@ -447,13 +458,6 @@ export async function rejectPayment(req, res, next) {
   }
 }
 
-const START_EXECUTION_ERRORS = {
-  NOT_FOUND: [404, "الطلب غير موجود"],
-  CLOSED: [409, "الطلب مغلق"],
-  PAYMENT_NOT_CONFIRMED: [409, "لا يبدأ التنفيذ قبل قبول الدفع"],
-  ALREADY_STARTED: [409, "تم تسجيل بدء التنفيذ لهذا الطلب مسبقًا"],
-};
-
 export async function startExecution(req, res, next) {
   try {
     const parsed = startExecutionSchema.safeParse(req.body ?? {});
@@ -462,12 +466,37 @@ export async function startExecution(req, res, next) {
     }
 
     const result = await startContactRequestExecution(req.params.id, req.user.organizationId, req.user.id, parsed.data.note);
-    if (result.error) {
-      const [statusCode, message] = START_EXECUTION_ERRORS[result.error];
-      return res.status(statusCode).json({ success: false, code: result.error, message });
-    }
-
+    if (result.refusal) return sendRefusal(res, result.refusal);
+    if (result.error) return res.status(404).json({ success: false, message: "الطلب غير موجود" });
     return res.status(200).json({ success: true, data: result.contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function revertExecution(req, res, next) {
+  try {
+    const parsed = revertExecutionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "اكتب سبب التصحيح", errors: parsed.error.flatten() });
+    }
+    const result = await revertContactRequestExecution(req.params.id, req.user.organizationId, req.user.id, parsed.data.reason);
+    if (result.refusal) return sendRefusal(res, result.refusal);
+    if (result.error) return res.status(404).json({ success: false, message: "الطلب غير موجود" });
+    return res.status(200).json({ success: true, data: result.contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function publishDeliverable(req, res, next) {
+  try {
+    const parsed = publishContactRequestDeliverableSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    const result = await publishContactRequestDeliverable(req.params.id, req.params.deliverableId, parsed.data, req.user.id);
+    if (result.refusal) return sendRefusal(res, result.refusal);
+    if (result.error) return res.status(404).json({ success: false, message: "الملف غير موجود" });
+    return res.status(200).json({ success: true, data: result.deliverable, completed: result.completed });
   } catch (error) {
     next(error);
   }
@@ -496,6 +525,7 @@ export async function reviewDocument(req, res, next) {
     }
 
     const result = await updateContactRequestDocumentStatus(id, documentId, parsed.data, req.user.id);
+    if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Document not found" });
 
     return res.status(200).json({ success: true, data: result.document });
@@ -515,7 +545,12 @@ export async function storeDeliverable(req, res, next) {
 
     if (!req.file) return res.status(400).json({ success: false, message: "A file is required" });
 
-    const result = await createContactRequestDeliverable(id, { label: parsed.data.label, file: req.file }, req.user.id);
+    const result = await createContactRequestDeliverable(
+      id,
+      { label: parsed.data.label, file: req.file, travelerIds: parsed.data.travelerIds, publish: parsed.data.publish },
+      req.user.id
+    );
+    if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
 
     return res.status(201).json({ success: true, data: result.deliverable });

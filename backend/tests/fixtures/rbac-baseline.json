@@ -166,6 +166,8 @@
   "POST /api/contact-requests/:id/confirm-payment": ["ACCOUNTANT", "ADMIN", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/customer-messages/confirmation": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/deliverables": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "POST /api/contact-requests/:id/deliverables/:deliverableId/publish": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "POST /api/contact-requests/:id/execution/revert": ["ADMIN", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/invoice": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/notes": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/offers": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],

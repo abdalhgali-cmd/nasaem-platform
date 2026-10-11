@@ -13,12 +13,12 @@ async function newRequest(overrides = {}) {
   });
 }
 
-async function pricedRequest({ paymentStatus = "AWAITING_TRANSFER", withDeliverable = false, creator }) {
-  const request = await newRequest({ paymentStatus });
+async function pricedRequest({ paymentStatus = "AWAITING_TRANSFER", withDeliverable = false, executed = false, published = true, creator }) {
+  const request = await newRequest({ paymentStatus, ...(executed ? { executionStartedAt: new Date(), executionStartedByUserId: creator.id } : {}) });
   await prisma.invoice.create({ data: { contactRequestId: request.id, amount: "500.00", currency: "SAR", status: "APPROVED", createdByUserId: creator.id } });
   if (withDeliverable) {
     await prisma.contactRequestDeliverable.create({
-      data: { contactRequestId: request.id, label: "visa", fileName: "visa.pdf", storagePath: "contact-request-deliverables/x.pdf", mimeType: "application/pdf", sizeBytes: 10, uploadedByUserId: creator.id },
+      data: { contactRequestId: request.id, label: "visa", fileName: "visa.pdf", storagePath: "contact-request-deliverables/x.pdf", mimeType: "application/pdf", sizeBytes: 10, uploadedByUserId: creator.id, ...(published ? { publishedAt: new Date(), publishedByUserId: creator.id } : {}) },
     });
   }
   return request;
@@ -27,7 +27,7 @@ async function pricedRequest({ paymentStatus = "AWAITING_TRANSFER", withDelivera
 const setStatus = (client, id, body) => client.patch(`/api/contact-requests/${id}/status`).send(body);
 
 describe("contact request state transitions", () => {
-  test("a priced request cannot be completed before payment is confirmed and a file is delivered", async () => {
+  test("a priced request cannot be completed before payment, recorded execution and a published file", async () => {
     const employee = await createStaffUser({ role: "EMPLOYEE" });
     const client = staffClient(employee);
 
@@ -36,12 +36,24 @@ describe("contact request state transitions", () => {
     assert.equal(r1.status, 409);
     assert.equal(r1.body.code, "COMPLETION_NEEDS_PAYMENT");
 
-    const paidNoFile = await pricedRequest({ creator: employee, paymentStatus: "CONFIRMED" });
-    const r2 = await setStatus(client, paidNoFile.id, { status: "CLOSED", outcome: "COMPLETED" });
+    // paid and a file exists, but execution was never recorded
+    const notExecuted = await pricedRequest({ creator: employee, paymentStatus: "CONFIRMED", withDeliverable: true });
+    const r2 = await setStatus(client, notExecuted.id, { status: "CLOSED", outcome: "COMPLETED" });
     assert.equal(r2.status, 409);
-    assert.equal(r2.body.code, "COMPLETION_NEEDS_DELIVERABLE");
+    assert.equal(r2.body.code, "COMPLETION_NEEDS_EXECUTION");
 
-    const done = await pricedRequest({ creator: employee, paymentStatus: "CONFIRMED", withDeliverable: true });
+    const paidNoFile = await pricedRequest({ creator: employee, paymentStatus: "CONFIRMED", executed: true });
+    const r3 = await setStatus(client, paidNoFile.id, { status: "CLOSED", outcome: "COMPLETED" });
+    assert.equal(r3.status, 409);
+    assert.equal(r3.body.code, "COMPLETION_NEEDS_DELIVERABLE");
+
+    // a prepared (unpublished) file is not delivery
+    const draftOnly = await pricedRequest({ creator: employee, paymentStatus: "CONFIRMED", executed: true, withDeliverable: true, published: false });
+    const r4 = await setStatus(client, draftOnly.id, { status: "CLOSED", outcome: "COMPLETED" });
+    assert.equal(r4.status, 409);
+    assert.equal(r4.body.code, "COMPLETION_NEEDS_DELIVERABLE");
+
+    const done = await pricedRequest({ creator: employee, paymentStatus: "CONFIRMED", executed: true, withDeliverable: true });
     assert.equal((await setStatus(client, done.id, { status: "CLOSED", outcome: "COMPLETED" })).status, 200);
   });
 

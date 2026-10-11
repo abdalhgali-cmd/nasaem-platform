@@ -13,7 +13,10 @@ import {
   getContactRequestDocumentFile,
 } from "../contact-request-documents/contact-request-documents.service.js";
 import { getContactRequestDeliverableFile } from "../contact-request-deliverables/contact-request-deliverables.service.js";
-import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
+import path from "path";
+import { notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
+import { ACTIONS, allowedActions, checkAction, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-checklist.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -158,7 +161,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       const liveCircular = deriveEgyptCircularStatus({
         entryDate: storedEgyptTravel.entryDate,
         bookingStatus: storedEgyptTravel.bookingStatus,
-        approvalIssued: request.deliverables.length > 0,
+        approvalIssued: publishedDeliverables(request).length > 0,
       });
       liveEgyptTravel = {
         ...storedEgyptTravel,
@@ -175,7 +178,9 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       // Internal file locations are never sent to the customer; files are
       // downloaded through the ownership-checked /file routes instead.
       documents: request.documents.map(({ storagePath, ...document }) => document),
-      deliverables: request.deliverables.map(({ storagePath, ...deliverable }) => deliverable),
+      // Prepared (draft) files are staff-only until published.
+      deliverables: publishedDeliverables(request).map(({ storagePath, uploadedByUserId, publishedByUserId, ...deliverable }) => deliverable),
+      allowedActions: allowedActions(request, { audience: "customer" }),
       intakeData: request.intakeData
         ? { ...request.intakeData, ...(liveEgyptTravel ? { egyptTravel: liveEgyptTravel } : {}) }
         : request.intakeData,
@@ -208,36 +213,41 @@ export async function uploadMyDocument(phoneNormalized, contactRequestId, { labe
 }
 
 export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, file) {
-  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
-  if (!contactRequest) return { error: "NOT_FOUND" };
-  if (contactRequest.paymentStatus !== "AWAITING_TRANSFER") return { error: "INVALID_STATE" };
-
-  const result = await createContactRequestDocument(contactRequestId, {
-    label: "إشعار الدفع",
-    file,
-    classification: "FINANCIAL_DOCUMENT",
-    silent: true,
-  });
-  if (result.error) return result;
-
   // The receipt is what puts the payment in front of the accountant. This only
   // moves it to "under review": it is never marked paid until staff accept it.
-  await prisma.contactRequest.updateMany({
-    where: { id: contactRequestId, paymentStatus: "AWAITING_TRANSFER" },
-    data: { paymentStatus: "UNDER_REVIEW", paymentRejectionReason: null, paymentRejectedAt: null },
+  const result = await withLockedRequest(contactRequestId, trackingScope(phoneNormalized), async (tx, request) => {
+    const refusal = checkAction(ACTIONS.UPLOAD_RECEIPT, request);
+    if (refusal) refuseWith(refusal);
+    const document = await tx.contactRequestDocument.create({
+      data: {
+        contactRequestId,
+        label: "إشعار الدفع",
+        classification: "FINANCIAL_DOCUMENT",
+        fileName: file.originalname,
+        storagePath: path.join("contact-request-documents", file.filename),
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+      },
+    });
+    await tx.contactRequest.update({
+      where: { id: contactRequestId },
+      data: { paymentStatus: "UNDER_REVIEW", paymentRejectionReason: null, paymentRejectedAt: null },
+    });
+    await auditInTransaction(tx, { action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED", entityId: contactRequestId, organizationId: request.organizationId });
+    return { document, request };
   });
+  if (result.error || result.refusal) return result;
 
-  logActivity({ action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED", entity: "ContactRequest", entityId: contactRequestId });
   await notifyAdmins({
-    organizationId: contactRequest.organizationId,
+    organizationId: result.request.organizationId,
     title: "رفع إشعار دفع جديد",
-    message: `رفع ${contactRequest.name} إشعار الدفع لطلبه، بانتظار المراجعة`,
+    message: `رفع ${result.request.name} إشعار الدفع لطلبه، بانتظار المراجعة`,
     type: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED",
     contactRequestId,
     alsoRoles: ["ACCOUNTANT"],
   });
-
-  return result;
+  await refreshCaseTasks(contactRequestId);
+  return { document: result.document };
 }
 
 export async function getMyDocumentFile(phoneNormalized, contactRequestId, documentId) {
@@ -249,53 +259,69 @@ export async function getMyDocumentFile(phoneNormalized, contactRequestId, docum
 export async function getMyDeliverableFile(phoneNormalized, contactRequestId, deliverableId) {
   const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
   if (!contactRequest) return null;
-  return getContactRequestDeliverableFile(contactRequestId, deliverableId);
+  return getContactRequestDeliverableFile(contactRequestId, deliverableId, { publishedOnly: true });
 }
 
-export async function approveInvoice(phoneNormalized, contactRequestId) {
-  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
-  if (!contactRequest?.invoice) return { error: "NOT_FOUND" };
-  if (contactRequest.invoice.status !== "PENDING") return { error: "INVALID_STATE" };
-  await prisma.$transaction([
-    prisma.invoice.update({ where: { id: contactRequest.invoice.id }, data: { status: "APPROVED", decidedAt: new Date() } }),
-    prisma.contactRequest.update({ where: { id: contactRequestId }, data: { paymentStatus: "AWAITING_TRANSFER" } }),
-  ]);
-  logActivity({ action: "CONTACT_REQUEST_INVOICE_APPROVED", entity: "ContactRequest", entityId: contactRequestId });
-  await notifyAdmins({ title: "موافقة العميل على السعر", message: `وافق ${contactRequest.name} على السعر المحدد لطلبه`, type: "CONTACT_REQUEST_INVOICE_APPROVED", contactRequestId, organizationId: contactRequest.organizationId });
+// Customer decisions on a price. Each runs under the request's row lock, so
+// a price revised or a request closed by staff in the meantime is seen and
+// refused (QUOTE_CHANGED / REQUEST_CLOSED) instead of being approved blind.
+export async function approveInvoice(phoneNormalized, contactRequestId, { invoiceVersion } = {}) {
+  const result = await withLockedRequest(contactRequestId, trackingScope(phoneNormalized), async (tx, request) => {
+    if (!request.invoice) return { error: "NOT_FOUND" };
+    const refusal = checkAction(ACTIONS.APPROVE_QUOTE, request, { invoiceVersion });
+    if (refusal) refuseWith(refusal);
+    await tx.invoice.update({ where: { id: request.invoice.id }, data: { status: "APPROVED", decidedAt: new Date() } });
+    await tx.contactRequest.update({ where: { id: contactRequestId }, data: { paymentStatus: "AWAITING_TRANSFER" } });
+    await auditInTransaction(tx, { action: "CONTACT_REQUEST_INVOICE_APPROVED", entityId: contactRequestId, organizationId: request.organizationId, newValue: { amount: request.invoice.amount, currency: request.invoice.currency } });
+    return { request };
+  });
+  if (result.error || result.refusal) return result;
+  await notifyAdmins({ title: "موافقة العميل على السعر", message: `وافق ${result.request.name} على السعر المحدد لطلبه`, type: "CONTACT_REQUEST_INVOICE_APPROVED", contactRequestId, organizationId: result.request.organizationId });
   return { success: true };
 }
 
-export async function rejectInvoice(phoneNormalized, contactRequestId) {
-  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
-  if (!contactRequest?.invoice) return { error: "NOT_FOUND" };
-  if (contactRequest.invoice.status !== "PENDING") return { error: "INVALID_STATE" };
-  await prisma.invoice.update({ where: { id: contactRequest.invoice.id }, data: { status: "REJECTED", decidedAt: new Date() } });
-  logActivity({ action: "CONTACT_REQUEST_INVOICE_REJECTED", entity: "ContactRequest", entityId: contactRequestId });
-  await notifyAdmins({ title: "رفض العميل للسعر", message: `رفض ${contactRequest.name} عرض السعر المحدد لطلبه`, type: "CONTACT_REQUEST_INVOICE_REJECTED", contactRequestId, organizationId: contactRequest.organizationId });
+export async function rejectInvoice(phoneNormalized, contactRequestId, { invoiceVersion } = {}) {
+  const result = await withLockedRequest(contactRequestId, trackingScope(phoneNormalized), async (tx, request) => {
+    if (!request.invoice) return { error: "NOT_FOUND" };
+    const refusal = checkAction(ACTIONS.REJECT_QUOTE, request, { invoiceVersion });
+    if (refusal) refuseWith(refusal);
+    await tx.invoice.update({ where: { id: request.invoice.id }, data: { status: "REJECTED", decidedAt: new Date() } });
+    await auditInTransaction(tx, { action: "CONTACT_REQUEST_INVOICE_REJECTED", entityId: contactRequestId, organizationId: request.organizationId });
+    return { request };
+  });
+  if (result.error || result.refusal) return result;
+  await notifyAdmins({ title: "رفض العميل للسعر", message: `رفض ${result.request.name} عرض السعر المحدد لطلبه`, type: "CONTACT_REQUEST_INVOICE_REJECTED", contactRequestId, organizationId: result.request.organizationId });
   return { success: true };
 }
 
 export async function selectOffer(phoneNormalized, contactRequestId, offerId) {
-  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
-  if (!contactRequest) return { error: "NOT_FOUND" };
-  if (contactRequest.selectedOfferId) return { error: "INVALID_STATE" };
-  const offer = contactRequest.offers.find((candidate) => candidate.id === offerId);
-  if (!offer) return { error: "NOT_FOUND" };
-  await prisma.contactRequest.update({ where: { id: contactRequestId }, data: { selectedOfferId: offerId, paymentStatus: "AWAITING_TRANSFER" } });
-  logActivity({ action: "CONTACT_REQUEST_OFFER_SELECTED", entity: "ContactRequest", entityId: contactRequestId });
-  await notifyAdmins({ title: "اختيار العميل لعرض", message: `اختار ${contactRequest.name} عرض ${offer.carrier}`, type: "CONTACT_REQUEST_OFFER_SELECTED", contactRequestId, organizationId: contactRequest.organizationId });
+  const result = await withLockedRequest(contactRequestId, trackingScope(phoneNormalized), async (tx, request) => {
+    const offer = request.offers.find((candidate) => candidate.id === offerId);
+    if (!offer) return { error: "NOT_FOUND" };
+    const refusal = checkAction(ACTIONS.SELECT_OFFER, request);
+    if (refusal) refuseWith(refusal);
+    await tx.contactRequest.update({ where: { id: contactRequestId }, data: { selectedOfferId: offerId, paymentStatus: "AWAITING_TRANSFER" } });
+    await auditInTransaction(tx, { action: "CONTACT_REQUEST_OFFER_SELECTED", entityId: contactRequestId, organizationId: request.organizationId, newValue: { offerId } });
+    return { request, offer };
+  });
+  if (result.error || result.refusal) return result;
+  await notifyAdmins({ title: "اختيار العميل لعرض", message: `اختار ${result.request.name} عرض ${result.offer.carrier}`, type: "CONTACT_REQUEST_OFFER_SELECTED", contactRequestId, organizationId: result.request.organizationId });
   return { success: true };
 }
 
 export async function markTransferSent(phoneNormalized, contactRequestId) {
-  const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
-  if (!contactRequest) return { error: "NOT_FOUND" };
-  // A receipt upload already moved the request to review: declaring the
-  // transfer afterwards is accepted as a no-op instead of failing the customer.
-  if (contactRequest.paymentStatus === "UNDER_REVIEW") return { success: true };
-  if (contactRequest.paymentStatus !== "AWAITING_TRANSFER") return { error: "INVALID_STATE" };
-  await prisma.contactRequest.update({ where: { id: contactRequestId }, data: { paymentStatus: "UNDER_REVIEW", paymentRejectionReason: null, paymentRejectedAt: null } });
-  logActivity({ action: "CONTACT_REQUEST_TRANSFER_MARKED_SENT", entity: "ContactRequest", entityId: contactRequestId });
-  await notifyAdmins({ organizationId: contactRequest.organizationId, title: "إعلان العميل عن تحويل المبلغ", message: `أعلن ${contactRequest.name} عن تحويل المبلغ لطلبه، بانتظار التأكيد`, type: "CONTACT_REQUEST_TRANSFER_MARKED_SENT", contactRequestId, alsoRoles: ["ACCOUNTANT"] });
+  const result = await withLockedRequest(contactRequestId, trackingScope(phoneNormalized), async (tx, request) => {
+    // A receipt upload already moved the request to review: declaring the
+    // transfer afterwards is an idempotent repeat, not a failure.
+    if (request.status !== "CLOSED" && request.paymentStatus === "UNDER_REVIEW") return { repeat: true };
+    const refusal = checkAction(ACTIONS.DECLARE_TRANSFER, request);
+    if (refusal) refuseWith(refusal);
+    await tx.contactRequest.update({ where: { id: contactRequestId }, data: { paymentStatus: "UNDER_REVIEW", paymentRejectionReason: null, paymentRejectedAt: null } });
+    await auditInTransaction(tx, { action: "CONTACT_REQUEST_TRANSFER_MARKED_SENT", entityId: contactRequestId, organizationId: request.organizationId });
+    return { request };
+  });
+  if (result.error || result.refusal) return result;
+  if (result.repeat) return { success: true };
+  await notifyAdmins({ organizationId: result.request.organizationId, title: "إعلان العميل عن تحويل المبلغ", message: `أعلن ${result.request.name} عن تحويل المبلغ لطلبه، بانتظار التأكيد`, type: "CONTACT_REQUEST_TRANSFER_MARKED_SENT", contactRequestId, alsoRoles: ["ACCOUNTANT"] });
   return { success: true };
 }

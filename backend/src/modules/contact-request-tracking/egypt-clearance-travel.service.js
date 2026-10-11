@@ -3,6 +3,8 @@ import { trackingScope } from "../../utils/publicOrganization.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createContactRequestDocument } from "../contact-request-documents/contact-request-documents.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
+import { ACTIONS, checkAction, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 
 const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
 const KHARTOUM_TIME_ZONE = "Africa/Khartoum";
@@ -176,12 +178,14 @@ export async function saveMyEgyptTravelPlan(
     where: { id: contactRequestId, ...trackingScope(phoneNormalized) },
     include: {
       visaType: { select: { code: true } },
-      deliverables: { select: { id: true } },
+      deliverables: { select: { id: true, publishedAt: true } },
     },
   });
 
   if (!request) return { error: "NOT_FOUND" };
   if (request.visaType?.code !== EGYPT_CLEARANCE_CODE) return { error: "WRONG_SERVICE" };
+  const closedRefusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, request);
+  if (closedRefusal) return { refusal: closedRefusal };
 
   const daysUntilEntry = calendarDaysUntilEntry(entryDate);
   if (daysUntilEntry === null) return { error: "INVALID_DATE" };
@@ -208,7 +212,7 @@ export async function saveMyEgyptTravelPlan(
   const circular = deriveEgyptCircularStatus({
     entryDate,
     bookingStatus,
-    approvalIssued: request.deliverables.length > 0,
+    approvalIssued: publishedDeliverables(request).length > 0,
   });
 
   const plan = {
@@ -221,15 +225,18 @@ export async function saveMyEgyptTravelPlan(
     updatedAt: new Date().toISOString(),
   };
 
-  await prisma.contactRequest.update({
-    where: { id: contactRequestId },
-    data: {
-      intakeData: {
-        ...(request.intakeData || {}),
-        egyptTravel: plan,
-      },
-    },
+  // Written under the request's row lock, re-checking that it is still
+  // open and merging into the intakeData stored at that moment.
+  const saved = await withLockedRequest(contactRequestId, null, async (tx, locked) => {
+    const refusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, locked);
+    if (refusal) refuseWith(refusal);
+    await tx.contactRequest.update({
+      where: { id: contactRequestId },
+      data: { intakeData: { ...(locked.intakeData || {}), egyptTravel: plan } },
+    });
+    return { ok: true };
   });
+  if (saved.error || saved.refusal) return saved;
 
   await syncEgyptTravelTasks(contactRequestId, plan);
 

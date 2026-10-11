@@ -35,6 +35,7 @@ describe("service-specific request progress", () => {
       assert.equal(progress.stage, "PAYMENT_ACCEPTED");
       assert.equal(progress.label, "تم قبول الدفع، بانتظار بدء التنفيذ");
       assert.equal(progress.canStartExecution, true);
+      assert.deepEqual(progress.blockers, []);
       assert.equal(progress.steps.find((s) => s.key === "EXECUTION").state, "current");
       assert.doesNotMatch(progress.label, /التأشيرة|تذكرة|الفندق/);
     }
@@ -46,9 +47,31 @@ describe("service-specific request progress", () => {
       assert.equal(progress.stage, "IN_EXECUTION");
       assert.equal(progress.label, label);
       assert.equal(progress.canStartExecution, false);
-      assert.equal(progress.steps.find((s) => s.key === "EXECUTION").state, "done");
-      assert.equal(progress.steps.find((s) => s.key === "DELIVERY").state, "current");
+      // started is not finished: execution stays the current step
+      assert.equal(progress.steps.find((s) => s.key === "EXECUTION").state, "current");
+      assert.equal(progress.steps.find((s) => s.key === "DELIVERY").state, "upcoming");
     }
+  });
+
+  test("received is not reviewed; a receipt is not an accepted payment", () => {
+    const snapshot = [{ id: "r1", name: "الجواز", required: true, type: "DOCUMENT", scope: "TRAVELER" }];
+    const travelers = [{ id: "t1", fullName: "أ" }, { id: "t2", fullName: "ب" }];
+    const fresh = deriveRequestProgress(req({ requirementsSnapshot: snapshot, travelers, documents: [{ id: "x", requirementId: "r1", travelerId: "t1", status: "PENDING" }] }));
+    assert.equal(fresh.steps.find((s) => s.key === "RECEIVED").state, "done");
+    assert.equal(fresh.steps.find((s) => s.key === "DOCUMENTS").state, "current");
+    const receipt = deriveRequestProgress(req({ paymentStatus: "UNDER_REVIEW", invoice: { status: "APPROVED" } }));
+    assert.equal(receipt.steps.find((s) => s.key === "PAYMENT").state, "current");
+    const paidButMissing = deriveRequestProgress(req({ requirementsSnapshot: snapshot, travelers, paymentStatus: "CONFIRMED", invoice: { status: "APPROVED" }, documents: [{ id: "x", requirementId: "r1", travelerId: "t1", status: "ACCEPTED" }] }));
+    assert.equal(paidButMissing.canStartExecution, false);
+    assert.ok(paidButMissing.blockers.some((b) => b.code === "DOCUMENTS_MISSING" && b.message.includes("ب")));
+  });
+
+  test("partial delivery to a group: execution done, delivery current, not delivered", () => {
+    const travelers = [{ id: "t1", fullName: "أ" }, { id: "t2", fullName: "ب" }];
+    const partial = deriveRequestProgress(req({ travelers, paymentStatus: "CONFIRMED", invoice: { status: "APPROVED" }, executionStartedAt: new Date(), deliverables: [{ id: "d", publishedAt: new Date(), travelerIds: ["t1"] }] }));
+    assert.equal(partial.stage, "IN_EXECUTION");
+    assert.equal(partial.steps.find((s) => s.key === "DELIVERY").state, "current");
+    assert.deepEqual(partial.delivery.missingTravelerIds, ["t2"]);
   });
 
   test("a recorded execution without an accepted payment is never shown", () => {
@@ -63,14 +86,19 @@ describe("service-specific request progress", () => {
   });
 
   test("delivery and closure", () => {
-    const delivered = deriveRequestProgress(req({ serviceRef: { category: "ferry" }, paymentStatus: "CONFIRMED", deliverables: [{ id: "d" }] }));
+    const draftOnly = deriveRequestProgress(req({ serviceRef: { category: "ferry" }, paymentStatus: "CONFIRMED", executionStartedAt: new Date(), deliverables: [{ id: "d", publishedAt: null }] }));
+    assert.equal(draftOnly.stage, "IN_EXECUTION", "a prepared file is not delivery");
+    const delivered = deriveRequestProgress(req({ visaType: { code: "VISA-EGYPT-CLEARANCE" }, paymentStatus: "CONFIRMED", executionStartedAt: new Date(), deliverables: [{ id: "d", publishedAt: new Date() }] }));
     assert.equal(delivered.stage, "DELIVERED");
     assert.equal(delivered.canStartExecution, false);
-    const completed = deriveRequestProgress(req({ status: "CLOSED", outcome: "COMPLETED", paymentStatus: "CONFIRMED", deliverables: [{ id: "d" }] }));
+    assert.ok(delivered.steps.every((s) => s.state === "done"));
+    const completed = deriveRequestProgress(req({ status: "CLOSED", outcome: "COMPLETED", paymentStatus: "CONFIRMED", deliverables: [{ id: "d", publishedAt: new Date() }] }));
     assert.ok(completed.steps.every((s) => s.state === "done"));
     const cancelled = deriveRequestProgress(req({ status: "CLOSED", outcome: "CANCELLED", paymentStatus: "CONFIRMED" }));
     assert.equal(cancelled.label, "تم إلغاء الطلب");
     assert.equal(cancelled.canStartExecution, false);
     assert.ok(cancelled.steps.every((s) => s.state !== "current"));
+    assert.notEqual(cancelled.steps.find((s) => s.key === "DELIVERY").state, "done", "a cancelled request never shows as delivered");
+    assert.notEqual(cancelled.steps.find((s) => s.key === "EXECUTION").state, "done");
   });
 });

@@ -1,4 +1,5 @@
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
+import { allowedActions, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "../contact-request-tracking/customer-checklist.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
@@ -192,11 +193,12 @@ export { COUPON_ERROR_MESSAGES };
 const CUSTOMER_REQUEST_INCLUDE = {
   serviceRef: { select: { id: true, name: true, category: true } },
   visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
-  invoice: { select: { id: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, description: true, status: true, createdAt: true, decidedAt: true } },
+  invoice: { select: { id: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, description: true, status: true, createdAt: true, updatedAt: true, decidedAt: true } },
   offers: { select: { id: true, carrier: true, description: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, createdAt: true }, orderBy: { createdAt: "desc" } },
-  documents: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, status: true, reviewNote: true, travelerId: true, requirementId: true, supersededAt: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  documents: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, status: true, reviewNote: true, travelerId: true, requirementId: true, supersededAt: true, classification: true, createdAt: true }, orderBy: { createdAt: "desc" } },
   travelers: { select: { id: true, fullName: true, isPrimary: true, sortOrder: true }, orderBy: { sortOrder: "asc" } },
-  deliverables: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  // Drafts are filtered out in toCustomerRequest (publishedAt null).
+  deliverables: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, publishedAt: true, travelerIds: true, createdAt: true }, orderBy: { createdAt: "desc" } },
 };
 
 function getRequestNextAction(request) {
@@ -217,6 +219,7 @@ function toCustomerRequest(request) {
   return {
     progress,
     statusLabel: progress.label,
+    allowedActions: allowedActions(request, { audience: "customer" }),
     checklist,
     nextActions: buildCustomerNextActions(request, checklist),
     id: request.id,
@@ -237,7 +240,7 @@ function toCustomerRequest(request) {
     offers: request.offers,
     selectedOfferId: request.selectedOfferId,
     documents: request.documents,
-    deliverables: request.deliverables,
+    deliverables: publishedDeliverables(request),
   };
 }
 
@@ -270,7 +273,7 @@ export async function uploadMyRequestDocument(customerId, requestId, { label, fi
 export async function getMyRequestDeliverableFile(customerId, requestId, deliverableId) {
   const request = await prisma.contactRequest.findFirst({ where: { id: requestId, customerId }, select: { id: true } });
   if (!request) return null;
-  return getContactRequestDeliverableFile(requestId, deliverableId);
+  return getContactRequestDeliverableFile(requestId, deliverableId, { publishedOnly: true });
 }
 
 export { getRequestNextAction };

@@ -58,12 +58,14 @@ async function trackingHeaders() {
   return { Authorization: token ? `Bearer ${token}` : "" };
 }
 
-export async function approveInvoice(requestId) {
-  return api(`/tracking/requests/${requestId}/invoice/approve`, { method: "POST", headers: await trackingHeaders() });
+// invoiceVersion: the price version the customer saw; the server refuses
+// the decision (in Arabic) if the agency revised the price meanwhile.
+export async function approveInvoice(requestId, invoiceVersion) {
+  return api(`/tracking/requests/${requestId}/invoice/approve`, { method: "POST", headers: { ...(await trackingHeaders()), "Content-Type": "application/json" }, body: JSON.stringify({ invoiceVersion }) });
 }
 
-export async function rejectInvoice(requestId) {
-  return api(`/tracking/requests/${requestId}/invoice/reject`, { method: "POST", headers: await trackingHeaders() });
+export async function rejectInvoice(requestId, invoiceVersion) {
+  return api(`/tracking/requests/${requestId}/invoice/reject`, { method: "POST", headers: { ...(await trackingHeaders()), "Content-Type": "application/json" }, body: JSON.stringify({ invoiceVersion }) });
 }
 
 export async function getPaymentAccounts(currency) {
