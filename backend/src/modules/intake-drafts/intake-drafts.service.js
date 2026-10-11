@@ -296,6 +296,8 @@ export async function submitDraft(token, { message }) {
         serviceId: draft.serviceId || null,
         visaTypeId: draft.visaTypeId || null,
         travelerCount: draft.travelerCount ?? null,
+        // The guided intake is always an application for a service.
+        requestKind: "SERVICE_APPLICATION",
         intakeData: {
           ...(travelers.length ? { travelers } : {}),
           ...(draft.notes ? { notes: draft.notes } : {}),

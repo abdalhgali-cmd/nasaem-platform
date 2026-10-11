@@ -1,4 +1,4 @@
-# Per-service acceptance — 2026-10-12 (after the workflow repair)
+# Per-service acceptance — 2026-10-13 (after the second review fixes)
 
 Branch `claude/busy-hamilton-1ccxm1`. Local PostgreSQL 16, Node 22, Chromium via Playwright. No Android device.
 
@@ -13,12 +13,14 @@ Journey checked for each service: selection → travelers (2) → each required 
 | Hotels | **Verified** with TEST-WF document | **Verified** (stay details → guests → documents) | Not tested |
 | Umrah | **Verified** (seeded: passport + photo per pilgrim) | **Verified** (package first) | Not tested |
 | Family visit | **Verified** (seeded: per-visitor + request documents) | **Verified** | Not tested |
-| Egypt clearance | **Verified** incl. post-approval travel plan, ticket review, staff completion; travel plan refused once closed | **Verified** incl. the app's travel-plan form and the staff close | Not tested |
+| Egypt clearance | **Verified** incl. refusal before the travel plan (`TRAVEL_PLAN_MISSING`), ticket under review, agency booking task open, circular task open (`TRAVEL_TASKS_OPEN`), then completion; travel plan refused once closed | **Verified** incl. the refusal path (completed option disabled, blockers listed, API 409), the app's travel-plan form and progress step, finishing the circular task, then the staff close | Not tested |
 | Visa configured at run time | **Verified** | **Verified** (+ a document rejected and re-uploaded for that traveler) | Not tested |
 
 Negative and concurrency coverage (PostgreSQL integration, `backend/tests/workflowIntegrity.test.js`): closed requests refuse every workflow mutation; execution refused with missing / rejected / under-review documents and before payment; one traveler's file does not complete a group; coverage validated; drafts invisible and not downloadable; progress steps; five simultaneous execution starts; accept vs reject of one receipt; publish vs cancel; approving a revised price; execution correction; other phone / organization / role.
 
-Next.js admin pages (`web/e2e/admin-workflow.spec.ts`, browser): `/admin/cases` «سير العمل», `/admin/payment-review` (reject with reason, accept), `/admin/delivery`, `/track` on a cancelled request and a stale approval.
+Completion and quote decisions (`backend/tests/workflowCompletionAndQuoteVersion.test.js`, PostgreSQL): unpriced service applications (visa, flight) cannot be completed; removing a quote does not bypass it; a genuine inquiry closes; legacy records follow the documented rule; missing / malformed / stale quote versions refused with no state change or notification; concurrent repricing and approval (5 rounds) never approve an unseen amount.
+
+Next.js admin pages (`web/e2e/admin-workflow.spec.ts`, browser; also a missing-version refusal and a reprice while `/track` is open): `/admin/cases` «سير العمل», `/admin/payment-review` (reject with reason, accept), `/admin/delivery`, `/track` on a cancelled request and a stale approval.
 
 ## What "browser" means
 

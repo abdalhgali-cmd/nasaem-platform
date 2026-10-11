@@ -386,8 +386,15 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await staffAct(detail.locator("[data-cr-publish]").first(), "تم نشر الملف");
 
       if (journey.travelPlan) {
+        // refusal path: the approval is published, but the travel plan is owed
+        await expect(office.locator("#cr-outcome option[value=COMPLETED]")).toBeDisabled();
+        await expect(detail.locator("[data-cr-completion-blockers]")).toContainText("بيانات السفر والتعميم");
+        const premature = await office.request.patch(`${BACKEND}/api/contact-requests/${id}/status`, { data: { status: "CLOSED", outcome: "COMPLETED" } });
+        expect(premature.status()).toBe(409);
+        expect(((await premature.json()).reasons as { code: string }[]).map((r) => r.code)).toContain("TRAVEL_PLAN_MISSING");
         await openCustomerRequest(id);
         await bothSay("ملفاتك النهائية جاهزة للتحميل");
+        await expect(app.locator('#requestProgress [aria-current="step"]')).toContainText("بيانات السفر والتعميم");
         await app.locator("#egyptTravelBtn").click();
         const entry = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
         await app.locator('#egyptPlanForm [name="entryMode"]').selectOption("AIR");
@@ -403,6 +410,11 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
           await detail.locator("[data-doc-accept]").first().click();
           await expect(detail.locator("[data-doc-accept]")).toHaveCount(before - 1, { timeout: 15_000 });
         }
+        // the plan opened the circular task: still not completable until it is done
+        await expect(office.locator("#cr-outcome option[value=COMPLETED]")).toBeDisabled();
+        await expect(detail.locator("[data-cr-completion-blockers]")).toContainText("تجهيز تعميم الموافقة الأمنية لمصر");
+        await staffAct(detail.locator("[data-cr-task-done]").first(), "تم إنجاز المهمة");
+        await expect(detail.locator("[data-cr-completion-blockers]")).toHaveCount(0);
         await office.locator("#cr-outcome").selectOption("COMPLETED");
         await staffAct(detail.locator('[data-cr-form="close"] button[type="submit"]'), "تم إغلاق الطلب");
       }

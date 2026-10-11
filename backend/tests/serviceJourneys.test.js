@@ -3,7 +3,7 @@ import "./helpers/journeyLimits.js";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
-import { app, request, uniqueSuffix } from "./helpers/api.js";
+import { app, request, uniqueSuffix, quoteVersion } from "./helpers/api.js";
 import { createStaffUser, staffClient } from "./helpers/staff.js";
 
 // Every service journey, end to end through the real API:
@@ -179,7 +179,7 @@ describe("service journeys: request -> documents -> quote -> payment -> executio
       assert.equal(invoice.status, 200, JSON.stringify(invoice.body));
       assert.equal((await tracked(id)).progress.stage, "QUOTE_PENDING");
       const tracker = await trackingAgent();
-      assert.equal((await tracker.post(`/api/tracking/requests/${id}/invoice/approve`)).status, 200);
+      assert.equal((await tracker.post(`/api/tracking/requests/${id}/invoice/approve`).send({ invoiceVersion: await quoteVersion(tracker, id) })).status, 200);
       assert.equal((await tracked(id)).progress.stage, "AWAITING_PAYMENT");
 
       // execution cannot be recorded before the payment is accepted
@@ -260,6 +260,13 @@ describe("service journeys: request -> documents -> quote -> payment -> executio
         // the ticket is a document to review before completion
         for (const document of (await employee.get(`/api/contact-requests/${id}`)).body.data.documents.filter((d) => d.status === "PENDING" && d.classification !== "FINANCIAL_DOCUMENT")) {
           assert.equal((await employee.patch(`/api/contact-requests/${id}/documents/${document.id}/status`).send({ status: "ACCEPTED" })).status, 200);
+        }
+        // the plan opened the circular task: not complete until it is done
+        const early = await employee.patch(`/api/contact-requests/${id}/status`).send({ status: "CLOSED", outcome: "COMPLETED" });
+        assert.equal(early.status, 409, JSON.stringify(early.body));
+        assert.ok(early.body.reasons.some((r) => r.code === "TRAVEL_TASKS_OPEN"), JSON.stringify(early.body));
+        for (const task of await prisma.caseTask.findMany({ where: { contactRequestId: id, status: "OPEN", source: "SYSTEM" } })) {
+          assert.equal((await employee.patch(`/api/contact-requests/${id}/tasks/${task.id}/complete`).send({})).status, 200);
         }
         const closed = await employee.patch(`/api/contact-requests/${id}/status`).send({ status: "CLOSED", outcome: "COMPLETED" });
         assert.equal(closed.status, 200, JSON.stringify(closed.body));

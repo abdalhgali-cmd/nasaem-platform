@@ -1,4 +1,4 @@
-import { evaluateDelivery, evaluateReadiness, executionBlockers, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { EGYPT_CLEARANCE_CODE, completionBlockers, egyptTravelBlockers, evaluateDelivery, evaluateReadiness, executionBlockers, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 
 // One service-aware description of where a request stands, shared by the
 // staff back-office, the customer app (account and phone tracking) and the
@@ -161,6 +161,7 @@ export function deriveRequestProgress(request) {
     PAYMENT: paymentStatus === "CONFIRMED" || completed,
     EXECUTION: (Boolean(executionStartedAt) && published.length > 0) || fullyDelivered,
     DELIVERY: fullyDelivered,
+    TRAVEL_PLAN: completed || egyptTravelBlockers(request).length === 0,
   };
   const steps = [
     { key: "RECEIVED", label: "استلام الطلب" },
@@ -169,6 +170,9 @@ export function deriveRequestProgress(request) {
     { key: "PAYMENT", label: "مراجعة الدفع وقبوله" },
     { key: "EXECUTION", label: copy.executionStep },
     { key: "DELIVERY", label: copy.deliveryStep },
+    // Egypt clearance only: the customer's travel plan and the agency's
+    // booking/circular tasks it opens, required before completion.
+    ...(request.visaType?.code === EGYPT_CLEARANCE_CODE ? [{ key: "TRAVEL_PLAN", label: "بيانات السفر والتعميم" }] : []),
   ];
   const currentIndex = status === "CLOSED" ? -1 : steps.findIndex((step) => !doneFlags[step.key]);
   const progressSteps = steps.map((step, index) => ({
@@ -186,6 +190,9 @@ export function deriveRequestProgress(request) {
     canStartExecution: !executionStartedAt && status !== "CLOSED" && blockers.length === 0,
     // Why execution cannot start yet (Arabic, actionable); empty once started.
     blockers,
+    // Why it cannot be closed as completed yet (same list the server
+    // answers with); empty when it can, or once closed.
+    completionBlockers: status === "CLOSED" ? [] : completionBlockers(request),
     delivery: {
       complete: delivery.complete && published.length > 0,
       coveredTravelerIds: delivery.coveredTravelerIds,

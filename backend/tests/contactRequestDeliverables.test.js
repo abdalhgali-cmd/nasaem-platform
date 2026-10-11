@@ -1,7 +1,7 @@
 import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { app, request, loginAsSuperAdmin, uniqueSuffix, quoteVersion } from "./helpers/api.js";
 
 // Only one fresh ContactRequest is created in this whole file — the public
 // POST /api/contact-requests endpoint enforces a hard 5-per-window rate
@@ -156,7 +156,7 @@ describe("contact request deliverables (staff delivery + customer download)", ()
 
     // Price -> approval -> transfer -> payment accepted -> execution -> publish.
     assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/invoice`).send({ amount: 100, currency: "SAR" })).status, 200);
-    assert.equal((await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`)).status, 200);
+    assert.equal((await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) })).status, 200);
     assert.equal((await customerAgent.post(`/api/tracking/requests/${contactRequestId}/mark-transfer-sent`)).status, 200);
     assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`)).status, 200);
     assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/start-execution`).send({})).status, 200);

@@ -193,10 +193,12 @@ export { COUPON_ERROR_MESSAGES };
 const CUSTOMER_REQUEST_INCLUDE = {
   serviceRef: { select: { id: true, name: true, category: true } },
   visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
-  invoice: { select: { id: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, description: true, status: true, createdAt: true, updatedAt: true, decidedAt: true } },
+  invoice: { select: { id: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, description: true, status: true, version: true, createdAt: true, updatedAt: true, decidedAt: true } },
   offers: { select: { id: true, carrier: true, description: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, createdAt: true }, orderBy: { createdAt: "desc" } },
   documents: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, status: true, reviewNote: true, travelerId: true, requirementId: true, supersededAt: true, classification: true, createdAt: true }, orderBy: { createdAt: "desc" } },
   travelers: { select: { id: true, fullName: true, isPrimary: true, sortOrder: true }, orderBy: { sortOrder: "asc" } },
+  // For the completion policy only (Egypt travel tasks); not returned.
+  tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true } },
   // Drafts are filtered out in toCustomerRequest (publishedAt null).
   deliverables: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, publishedAt: true, travelerIds: true, createdAt: true }, orderBy: { createdAt: "desc" } },
 };

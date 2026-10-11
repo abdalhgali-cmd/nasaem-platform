@@ -354,11 +354,11 @@ describe("concurrent transitions (real PostgreSQL, row locks)", () => {
     await employee.post(`/api/contact-requests/${id}/invoice`).send({ amount: 100, currency: "USD" });
     const seen = (await tracking.request(id)).invoice;
     await employee.post(`/api/contact-requests/${id}/invoice`).send({ amount: 150, currency: "USD" });
-    const stale = await tracking.post(`/api/tracking/requests/${id}/invoice/approve`).send({ invoiceVersion: seen.updatedAt });
+    const stale = await tracking.post(`/api/tracking/requests/${id}/invoice/approve`).send({ invoiceVersion: seen.version });
     assertConflict(stale, "stale approval");
     assert.equal(stale.body.code, "QUOTE_CHANGED");
     const fresh = (await tracking.request(id)).invoice;
-    assert.equal((await tracking.post(`/api/tracking/requests/${id}/invoice/approve`).send({ invoiceVersion: fresh.updatedAt })).status, 200);
+    assert.equal((await tracking.post(`/api/tracking/requests/${id}/invoice/approve`).send({ invoiceVersion: fresh.version })).status, 200);
   });
 });
 

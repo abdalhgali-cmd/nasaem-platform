@@ -1,7 +1,7 @@
 import "./env.js";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { app, request, loginAsSuperAdmin, uniqueSuffix, quoteVersion } from "./helpers/api.js";
 import prisma from "../src/config/database.js";
 
 // Phase 1.5 — "close the loop": auto-completion (now: payment CONFIRMED +
@@ -98,9 +98,7 @@ async function advanceToAwaitingConfirmation(superAdminAgent, customerAgent, con
     .send({ amount: 500, currency: "SAR" });
   assert.equal(invoiceRes.status, 200, JSON.stringify(invoiceRes.body));
 
-  const approveRes = await customerAgent.post(
-    `/api/tracking/requests/${contactRequestId}/invoice/approve`
-  );
+  const approveRes = await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) });
   assert.equal(approveRes.status, 200, JSON.stringify(approveRes.body));
 
   const markSentRes = await customerAgent.post(

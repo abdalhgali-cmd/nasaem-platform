@@ -1,5 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
+import { resolveTrackingCodeLimit } from "./tracking-code-limit.js";
 
 import { requireTrackingAuth } from "./tracking-auth.middleware.js";
 import { getMyReusableDocuments } from "../case-intelligence/case-intelligence.controller.js";
@@ -31,10 +32,9 @@ function handleUpload(req, res, next) {
   });
 }
 
-// Codes per client per 15 minutes. Stays 5 unless the environment raises it
-// (only the browser E2E environment does, as for PUBLIC_CONTACT_RATE_LIMIT).
-const trackingCodeLimit = Number.parseInt(process.env.TRACKING_CODE_RATE_LIMIT ?? "", 10);
-const requestCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: Number.isInteger(trackingCodeLimit) && trackingCodeLimit > 0 ? trackingCodeLimit : 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "Too many requests. Please try again later." } });
+// Codes per client per 15 minutes: 5, except in a test/development process
+// (see tracking-code-limit.js — production ignores TRACKING_CODE_RATE_LIMIT).
+const requestCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: resolveTrackingCodeLimit(), standardHeaders: true, legacyHeaders: false, message: { success: false, message: "Too many requests. Please try again later." } });
 const verifyCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "Too many requests. Please try again later." } });
 
 router.post("/request-code", requestCodeLimiter, requestCode);

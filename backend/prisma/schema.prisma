@@ -1269,6 +1269,13 @@ model ContactRequest {
   // Recorded by staff when work on the paid request actually starts
   // (ticket issuance, visa processing, hotel confirmation, ...). Customers
   // see the service-specific execution stage only once this is set.
+  // What the customer submitted, recorded at submission and never
+  // re-derived: "SERVICE_APPLICATION" (a service or visa was chosen, or
+  // travelers, documents or a requirement checklist came with it) or
+  // "INQUIRY" (a plain question). Null for every request created before
+  // this field existed; see docs/WORKFLOW-POLICY.md for how those are
+  // treated. Plain string + validation in code, like `category` on Service.
+  requestKind              String?
   executionStartedAt       DateTime?
   executionStartedByUserId String?
   executionNote            String?
@@ -1558,6 +1565,10 @@ model Invoice {
   rateFixedAt       DateTime?
   description      String?
   status           InvoiceStatus @default(PENDING)
+  // Incremented on every revision of the price. A customer approves or
+  // rejects one exact version (the one displayed to them); a decision on
+  // any other version is refused.
+  version          Int           @default(1)
   createdByUserId  String
   decidedAt        DateTime?
   createdAt        DateTime      @default(now())

@@ -3,6 +3,7 @@ import { trackingScope } from "../../utils/publicOrganization.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createContactRequestDocument } from "../contact-request-documents/contact-request-documents.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
+import { EGYPT_BOOKING_TASK_TITLES, EGYPT_CIRCULAR_TASK_TITLE } from "./egypt-travel-tasks.js";
 import { ACTIONS, checkAction, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 import { refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 
@@ -71,16 +72,11 @@ function ticketLabel(entryMode) {
 }
 
 function bookingTaskTitle(entryMode) {
-  return entryMode === "AIR"
-    ? "ترتيب حجز طيران للموافقة الأمنية لمصر"
-    : "ترتيب رحلة برية للموافقة الأمنية لمصر";
+  return entryMode === "AIR" ? EGYPT_BOOKING_TASK_TITLES.AIR : EGYPT_BOOKING_TASK_TITLES.BORDER;
 }
 
 async function syncEgyptTravelTasks(contactRequestId, plan) {
-  const bookingTitles = [
-    "ترتيب حجز طيران للموافقة الأمنية لمصر",
-    "ترتيب رحلة برية للموافقة الأمنية لمصر",
-  ];
+  const bookingTitles = [EGYPT_BOOKING_TASK_TITLES.AIR, EGYPT_BOOKING_TASK_TITLES.BORDER];
 
   if (plan.bookingStatus === "NEEDS_NASAEM") {
     await prisma.caseTask.updateMany({
@@ -127,7 +123,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
     });
   }
 
-  const circularTitle = "تجهيز تعميم الموافقة الأمنية لمصر";
+  const circularTitle = EGYPT_CIRCULAR_TASK_TITLE;
   if (plan.circularStatus === "READY_FOR_CIRCULAR") {
     const parsed = parseDateOnly(plan.entryDate);
     const dueAt = parsed ? new Date(parsed.utc.getTime() - 3 * MS_PER_DAY) : null;

@@ -213,6 +213,13 @@ async function createContactRequestOnce(data, req, files) {
     serviceId: data.serviceId || null,
     visaTypeId: data.visaTypeId || null,
     travelerCount: data.travelerCount ?? null,
+    // Recorded once, from what was submitted (see schema.prisma): choosing a
+    // service or visa, or sending travelers, documents or a requirement
+    // checklist, is a service application; anything else is an inquiry.
+    requestKind:
+      data.serviceId || data.visaTypeId || travelers.length > 0 || files.length > 0 || Number(data.travelerCount) > 0 || (requirementsSnapshot?.length ?? 0) > 0
+        ? "SERVICE_APPLICATION"
+        : "INQUIRY",
     // Non-DOCUMENT requirement answers (TEXT/NUMBER/DATE/SELECT/YES_NO) ride
     // alongside the existing free-text intakeData shape as their own key,
     // rather than a new column — intakeData was always meant to hold
@@ -434,7 +441,7 @@ const CONTACT_REQUEST_CASE_INCLUDE = {
   tasks: {
     where: { status: "OPEN" },
     orderBy: { createdAt: "asc" },
-    select: { id: true, type: true, title: true, status: true, dueAt: true, assignedUserId: true },
+    select: { id: true, type: true, title: true, status: true, source: true, dueAt: true, assignedUserId: true },
   },
 };
 
@@ -833,7 +840,9 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
     const invoice = await tx.invoice.upsert({
       where: { contactRequestId },
       create: { contactRequestId, amount: data.amount, currency: data.currency, ...fx, description: data.description || null, createdByUserId: userId },
-      update: { amount: data.amount, currency: data.currency, ...fx, description: data.description || null, status: "PENDING", decidedAt: null, createdByUserId: userId },
+      // Every revision is a new version: a customer decision on the old one
+      // is refused (workflow-policy.js APPROVE_QUOTE/REJECT_QUOTE).
+      update: { amount: data.amount, currency: data.currency, ...fx, description: data.description || null, status: "PENDING", decidedAt: null, createdByUserId: userId, version: { increment: 1 } },
     });
     // Publishing the price confirms that the agency has reviewed the request.
     await tx.contactRequest.updateMany({ where: { id: contactRequestId, status: "NEW" }, data: { status: "CONTACTED" } });

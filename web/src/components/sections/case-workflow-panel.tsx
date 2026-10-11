@@ -36,6 +36,7 @@ type Detail = {
     serviceKindLabel: string;
     steps: Step[];
     blockers: Reason[];
+    completionBlockers?: Reason[];
     delivery: { complete: boolean; missingTravelerIds: string[] };
   };
 };
@@ -286,6 +287,13 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
 
       <section className="rounded-2xl border border-border p-4">
         <h4 className="font-black">إغلاق الطلب</h4>
+        {!can("COMPLETE") && detail.status !== "CLOSED" && (detail.progress.completionBlockers ?? []).length ? (
+          <div className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3" data-testid="workflow-completion-blockers">
+            <p className="text-sm font-black text-amber-800">لا يمكن الإغلاق كمكتمل بعد:</p>
+            <ul className="mt-1 list-disc ps-5 text-xs text-amber-900">{(detail.progress.completionBlockers ?? []).map((b) => <li key={b.code + b.message}>{b.message}</li>)}</ul>
+            <p className="mt-1 text-[11px] text-amber-800/80">المهام تُنجز من تبويب «المهام».</p>
+          </div>
+        ) : null}
         {can("COMPLETE") ? <Button type="button" size="sm" disabled={busy} className="mt-2" data-testid="workflow-complete" onClick={() => void run(() => call(`${base}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "CLOSED", outcome: "COMPLETED" }) }), "تم إغلاق الطلب كمكتمل.")}>إغلاق كمكتمل</Button> : null}
         {can("CLOSE") ? (
           <form

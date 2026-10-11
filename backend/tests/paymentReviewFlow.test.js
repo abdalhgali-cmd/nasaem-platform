@@ -2,7 +2,7 @@ import "./env.js";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
-import { app, request, registerCustomer, uniqueSuffix } from "./helpers/api.js";
+import { app, request, registerCustomer, uniqueSuffix, quoteVersion } from "./helpers/api.js";
 import { createStaffUser, staffClient } from "./helpers/staff.js";
 import { computeSdgSnapshot } from "../src/modules/finance/fx-snapshot.js";
 
@@ -78,7 +78,7 @@ describe("price -> payment accounts -> receipt -> review (contact request)", () 
     assert.equal(priceNote.contactRequestId, id);
 
     // 2) customer approves -> accounts for THAT currency only
-    assert.equal((await tracking.post(`/api/tracking/requests/${id}/invoice/approve`)).status, 200);
+    assert.equal((await tracking.post(`/api/tracking/requests/${id}/invoice/approve`).send({ invoiceVersion: await quoteVersion(tracking, id) })).status, 200);
     tracked = (await tracking.get("/api/tracking/requests")).body.data.find((r) => r.id === id);
     assert.ok(tracked.paymentAccounts.some((a) => a.id === account.id));
     assert.ok(tracked.paymentAccounts.every((a) => a.currency === "SAR"));

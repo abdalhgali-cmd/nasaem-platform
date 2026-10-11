@@ -10,7 +10,7 @@ A refused action answers **409** (400 for invalid input such as coverage) with `
 |---|---|---|
 | Issue / revise single price (`ISSUE_QUOTE`) | EMPLOYEE, ADMIN, SUPER_ADMIN | not already approved by the customer; no multi-carrier offers |
 | Add offer (`ADD_OFFER`) | same | no single price; no offer selected yet |
-| Approve / reject price (`APPROVE_QUOTE`, `REJECT_QUOTE`) | customer (phone tracking) | price `PENDING`; if the client sends `invoiceVersion`, it must equal the stored price version (else `QUOTE_CHANGED`) |
+| Approve / reject price (`APPROVE_QUOTE`, `REJECT_QUOTE`) | customer (phone tracking) | price `PENDING` **and** `invoiceVersion` equal to the stored `Invoice.version` (the version displayed). Missing → `QUOTE_VERSION_REQUIRED`; not a positive integer → `QUOTE_VERSION_INVALID`; older → `QUOTE_CHANGED`. All 409, Arabic, telling the customer to refresh/update; nothing changes and nothing is announced |
 | Select offer (`SELECT_OFFER`) | customer | offers exist, none selected |
 | Declare transfer / upload receipt (`DECLARE_TRANSFER`, `UPLOAD_RECEIPT`) | customer | payment `AWAITING_TRANSFER` (declaring again while `UNDER_REVIEW` is an idempotent repeat) |
 | Accept / reject receipt (`CONFIRM_PAYMENT`, `REJECT_PAYMENT`) | ACCOUNTANT, ADMIN, SUPER_ADMIN | payment `UNDER_REVIEW` |
@@ -48,7 +48,24 @@ A request closes as **COMPLETED** only when all hold (`completionBlockers`):
 
 Publishing the last missing file completes the request automatically **inside the same locked transaction**, except for Egypt clearance (its travel-plan and circular stage follows the approval): staff complete it from the close form once the policy holds.
 
-An unpriced inquiry (no price, no payment, no execution, no file) may still be closed as completed once answered (unchanged behavior).
+### Inquiries versus service applications
+
+`ContactRequest.requestKind` is recorded **at submission** and never re-derived later:
+- `SERVICE_APPLICATION` — a service or visa was chosen (`serviceId`/`visaTypeId`), or travelers, a traveler count, documents or a requirement checklist were submitted (app, website service forms, guided intake);
+- `INQUIRY` — anything else (the website contact form).
+
+A service application must satisfy the full completion policy above **whether or not a quote exists**: with no quote it is refused (`QUOTE_MISSING`), and deleting or rejecting a quote changes nothing. A genuine inquiry that was never priced, executed or delivered is resolved by closing it as completed (roles that may close requests); once priced it follows the full policy.
+
+**Legacy records** (created before `requestKind`, so `NULL`) are not reclassified or rewritten. They are evaluated conservatively: any `serviceId`, `visaTypeId`, requirement checklist, traveler, traveler count or customer document makes them a service application; only a record with none of those is treated as a legacy inquiry.
+
+### Egypt clearance
+
+After the approval file, completion also needs (`egyptTravelBlockers`, reusing the existing travel-plan rules):
+- the customer's travel plan saved with entry mode, booking status and entry date (`TRAVEL_PLAN_MISSING`);
+- for an existing booking, its ticket document uploaded (`TRAVEL_TICKET_MISSING`) and not rejected (`TRAVEL_TICKET_REJECTED`); a ticket under review is already blocked by readiness;
+- none of the system tasks the plan opened still open: the agency booking task (`NEEDS_NASAEM`) and the circular task (`READY_FOR_CIRCULAR`) (`TRAVEL_TASKS_OPEN`).
+
+This applies only to the Egypt clearance **visa type** (the only form with a travel plan). The same list is returned by the API, used for `allowedActions`, shown on the back-office close form (with done-buttons for the open travel tasks), in `/admin/cases`, and as the customer's «بيانات السفر والتعميم» progress step. No administrative bypass exists; a request that will not travel is closed as cancelled with a note.
 
 ## Draft and published files
 
@@ -64,3 +81,11 @@ Each transition runs in a transaction that first locks the request row (`SELECT 
 - Requests already CLOSED are not touched: their outcome, closing time and files stay as they are.
 - An **open** request with more than one traveler whose only files are legacy (no coverage) is not complete under the new policy: staff publish the missing outputs with explicit traveler coverage.
 - Legacy open requests that are paid but have no recorded execution show «تم قبول الدفع، بانتظار بدء التنفيذ» until staff record it.
+
+## Migration `20261013090000_request_kind_and_quote_version`
+
+Adds `ContactRequest.requestKind` (nullable; existing rows stay NULL, see "Legacy records" above) and `Invoice.version` (existing prices start at 1; every revision increments it inside the locked transaction, so two revisions can never share a version).
+
+## Tracking-code (OTP) request limit
+
+5 per client per 15 minutes. `TRACKING_CODE_RATE_LIMIT` may raise it only when `NODE_ENV` is `test` or `development` (backend tests; local runs and the browser E2E backend, which Playwright and CI start with `NODE_ENV=development`). With `NODE_ENV=production`, any other value, or none, the variable is ignored; non-integer or out-of-range values (outside 1–1000) are ignored everywhere (`tracking-code-limit.js`, `tests/trackingCodeLimit.test.js`).

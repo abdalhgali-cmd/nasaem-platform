@@ -445,10 +445,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     const panel = bodyEl.querySelector("#trackingActionPanel");
 
     bodyEl.querySelector("#approveBtn")?.addEventListener("click", () => {
-      ensureTrackingAndRun(panel, () => tracking.approveInvoice(request.id, request.invoice?.updatedAt), { onDone: () => { toast("تمت الموافقة على السعر"); load(); } });
+      ensureTrackingAndRun(panel, () => tracking.approveInvoice(request.id, request.invoice?.version), { onDone: () => { toast("تمت الموافقة على السعر"); load(); } });
     });
     bodyEl.querySelector("#rejectBtn")?.addEventListener("click", () => {
-      ensureTrackingAndRun(panel, () => tracking.rejectInvoice(request.id, request.invoice?.updatedAt), { onDone: () => { toast("تم رفض العرض"); load(); } });
+      ensureTrackingAndRun(panel, () => tracking.rejectInvoice(request.id, request.invoice?.version), { onDone: () => { toast("تم رفض العرض"); load(); } });
     });
     bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", () => showPaymentAccounts(panel, pricing.currency));
     bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", () => showReceiptUpload(panel, request.id, load));

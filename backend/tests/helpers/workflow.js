@@ -91,7 +91,8 @@ export async function acceptAllDocuments(staff, id) {
 export async function priceAndApprove({ staff, tracking, id, amount = 100 }) {
   const invoice = await staff.post(`/api/contact-requests/${id}/invoice`).send({ amount, currency: "USD", description: "TEST-WF" });
   assert.equal(invoice.status, 200, JSON.stringify(invoice.body));
-  const approved = await tracking.post(`/api/tracking/requests/${id}/invoice/approve`).send({});
+  const version = (await tracking.request(id)).invoice.version;
+  const approved = await tracking.post(`/api/tracking/requests/${id}/invoice/approve`).send({ invoiceVersion: version });
   assert.equal(approved.status, 200, JSON.stringify(approved.body));
 }
 

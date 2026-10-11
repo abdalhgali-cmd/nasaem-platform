@@ -126,6 +126,8 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       travelers: { orderBy: { sortOrder: "asc" } },
       serviceRef: { select: { id: true, name: true, category: true } },
       visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
+      // For the completion policy only (Egypt travel tasks); not sent to the customer.
+      tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true } },
     },
   });
 
@@ -171,7 +173,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
     }
 
     // Who recorded execution and their note are staff-only.
-    const { executionStartedByUserId, executionNote, ...customerRequest } = request;
+    const { executionStartedByUserId, executionNote, tasks, ...customerRequest } = request;
 
     return {
       ...customerRequest,

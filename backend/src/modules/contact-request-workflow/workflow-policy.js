@@ -10,6 +10,7 @@
 // transaction holding the request's row lock (workflow-lock.js) and pass
 // it here, so the decision is made on the state that will be written.
 import { requirementApplies } from "../requirements/requirement-conditions.js";
+import { EGYPT_TRAVEL_TASK_TITLES } from "../contact-request-tracking/egypt-travel-tasks.js";
 
 export const ACTIONS = Object.freeze({
   ISSUE_QUOTE: "ISSUE_QUOTE",
@@ -203,23 +204,71 @@ export function executionBlockers(request) {
   return [...evaluatePayment(request).reasons, ...evaluateReadiness(request).reasons];
 }
 
+// What a request is. Recorded at submission (requestKind); never inferred
+// from the absence of a price, an execution or a file. Requests created
+// before requestKind existed (null) are classified conservatively from what
+// they carry, without writing anything: any service, visa, traveler,
+// requirement checklist or customer document makes it a service
+// application; only a request with none of those is a legacy inquiry.
+export function requestKindOf(request) {
+  if (request.requestKind === "INQUIRY" || request.requestKind === "SERVICE_APPLICATION") return request.requestKind;
+  const referencesService =
+    Boolean(request.serviceId || request.visaTypeId) ||
+    (request.requirementsSnapshot?.length ?? 0) > 0 ||
+    (request.travelers?.length ?? 0) > 0 ||
+    Number(request.travelerCount) > 0 ||
+    (request.documents || []).some((d) => d.classification !== "FINANCIAL_DOCUMENT");
+  return referencesService ? "SERVICE_APPLICATION" : "LEGACY_INQUIRY";
+}
+
+export const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
+
+// The Egypt clearance continues after the approval file: the customer's
+// travel plan (egypt-clearance-travel.service.js) and the agency's tasks it
+// opens. Completion needs: the plan saved with its required fields; for an
+// existing booking, its ticket document present and not rejected (a ticket
+// still under review is already blocked by readiness); and none of the
+// plan's system tasks (booking by the agency, circular) still open.
+export function egyptTravelBlockers(request) {
+  if (request.visaType?.code !== EGYPT_CLEARANCE_CODE) return [];
+  const plan = request.intakeData?.egyptTravel;
+  if (!plan || !plan.entryMode || !plan.bookingStatus || !plan.entryDate) {
+    return [{ code: "TRAVEL_PLAN_MISSING", message: "لم تُستكمل بيانات السفر والتعميم (طريقة الدخول، حالة الحجز، تاريخ الدخول) من العميل." }];
+  }
+  const reasons = [];
+  if (plan.bookingStatus === "EXISTING") {
+    const ticket = (request.documents || []).find((d) => d.id === plan.ticketDocumentId && !d.supersededAt);
+    if (!ticket) reasons.push({ code: "TRAVEL_TICKET_MISSING", message: "تذكرة/إثبات حجز الرحلة غير مرفوع." });
+    else if (ticket.status === "REJECTED") reasons.push({ code: "TRAVEL_TICKET_REJECTED", message: "تذكرة/إثبات حجز الرحلة مرفوض وبانتظار بديل." });
+  }
+  const openTasks = (request.tasks || []).filter((t) => t.status === "OPEN" && (!t.source || t.source === "SYSTEM") && EGYPT_TRAVEL_TASK_TITLES.includes(t.title));
+  if (openTasks.length) {
+    reasons.push({ code: "TRAVEL_TASKS_OPEN", message: `مهام السفر لم تُنجز بعد: ${openTasks.map((t) => t.title).join("، ")}.` });
+  }
+  return reasons;
+}
+
 // Why the request cannot be closed as completed now (empty when it can).
-// An unpriced inquiry (no price, no payment, no execution, no file) can be
-// completed once answered, as before; anything priced must be ready, paid,
-// executed and fully delivered.
+// A genuine inquiry (requestKind INQUIRY, or a legacy request with no
+// service reference) that was never priced, executed or delivered can be
+// closed as completed once answered. Everything else — every service
+// application, priced or not — must be ready, paid, executed and fully
+// delivered, plus any service-specific step (Egypt travel plan).
 export function completionBlockers(request) {
   if (isClosed(request)) return [{ code: "REQUEST_CLOSED", message: CLOSED_MESSAGE }];
-  const inquiryOnly = !isPriced(request) && !request.executionStartedAt && (request.deliverables || []).length === 0;
-  if (inquiryOnly) return [];
+  const kind = requestKindOf(request);
+  const untouched = !isPriced(request) && !request.executionStartedAt && (request.deliverables || []).length === 0;
+  if ((kind === "INQUIRY" || kind === "LEGACY_INQUIRY") && untouched) return [];
   const reasons = [...evaluateReadiness(request).reasons, ...evaluatePayment(request).reasons];
   if (!request.executionStartedAt) reasons.push({ code: "EXECUTION_NOT_STARTED", message: "لم يُسجَّل بدء التنفيذ." });
   reasons.push(...evaluateDelivery(request).reasons);
+  reasons.push(...egyptTravelBlockers(request));
   return reasons;
 }
 
 // Services whose request continues after the final file (the Egypt
 // clearance travel plan and circular) are never closed automatically.
-const POST_DELIVERY_STAGE = new Set(["VISA-EGYPT-CLEARANCE"]);
+const POST_DELIVERY_STAGE = new Set([EGYPT_CLEARANCE_CODE]);
 export function autoCompletes(request) {
   return !POST_DELIVERY_STAGE.has(request.visaType?.code);
 }
@@ -255,12 +304,22 @@ export function checkAction(action, request, context = {}) {
       if (request.selectedOfferId) return refuse("ALREADY_SELECTED", "اختار العميل عرضًا بالفعل.");
       return null;
     case ACTIONS.APPROVE_QUOTE:
-    case ACTIONS.REJECT_QUOTE:
+    case ACTIONS.REJECT_QUOTE: {
       if (request.invoice?.status !== "PENDING") return refuse("QUOTE_NOT_PENDING", "لا يوجد سعر بانتظار قرارك؛ حدّث الصفحة.");
-      if (context.invoiceVersion && new Date(context.invoiceVersion).getTime() !== new Date(request.invoice.updatedAt).getTime()) {
+      // The customer decides on the exact price version displayed to them.
+      // No version, a malformed one, or an older one: nothing is decided.
+      const version = context.invoiceVersion;
+      if (version === undefined || version === null || version === "") {
+        return refuse("QUOTE_VERSION_REQUIRED", "تعذّر التأكد من السعر الذي تراه. حدّث الصفحة أو حدّث التطبيق إلى آخر إصدار، ثم راجع السعر وقرر.");
+      }
+      if (!/^[1-9]\d{0,8}$/.test(String(version))) {
+        return refuse("QUOTE_VERSION_INVALID", "تعذّر التأكد من السعر الذي تراه. حدّث الصفحة أو حدّث التطبيق إلى آخر إصدار، ثم راجع السعر وقرر.");
+      }
+      if (Number(version) !== request.invoice.version) {
         return refuse("QUOTE_CHANGED", "عدّلت الوكالة السعر بعد أن فتحته؛ راجع السعر الجديد ثم قرر.");
       }
       return null;
+    }
     case ACTIONS.SELECT_OFFER:
       if (request.selectedOfferId) return refuse("ALREADY_SELECTED", "تم اختيار عرض لهذا الطلب بالفعل.");
       if (!(request.offers?.length > 0)) return refuse("NO_OFFERS", "لا توجد عروض لهذا الطلب.");
@@ -324,9 +383,11 @@ export function allowedActions(request, { audience, role } = {}) {
       ? CUSTOMER_ACTIONS
       : Object.keys(STAFF_ACTION_ROLES).filter((action) => !role || STAFF_ACTION_ROLES[action].includes(role));
   return candidates.filter((action) => {
-    if (action === ACTIONS.SAVE_TRAVEL_PLAN && request.visaType?.code !== "VISA-EGYPT-CLEARANCE") return false;
+    if (action === ACTIONS.SAVE_TRAVEL_PLAN && request.visaType?.code !== EGYPT_CLEARANCE_CODE) return false;
     if (action === ACTIONS.PUBLISH_DELIVERABLE && !(request.deliverables || []).some((d) => !isPublished(d))) return false;
     if (action === ACTIONS.REVIEW_DOCUMENT && !(request.documents || []).some((d) => !d.supersededAt && d.status === "PENDING" && d.classification !== "FINANCIAL_DOCUMENT")) return false;
-    return checkAction(action, request) === null;
+    // Offered when allowed for the version currently stored (what the
+    // screen will display and send back).
+    return checkAction(action, request, { invoiceVersion: request.invoice?.version }) === null;
   });
 }

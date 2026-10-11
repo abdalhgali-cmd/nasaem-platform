@@ -319,6 +319,19 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     }
     if (!crAllowed(r, "CLOSE")) return "";
     const canComplete = crAllowed(r, "COMPLETE");
+    // Why «مكتمل» is not available yet (the server's own list), and the
+    // system tasks staff can finish here (Egypt travel booking/circular).
+    const blockers = canComplete ? [] : r.progress?.completionBlockers || [];
+    const travelTasks = (r.tasks || []).filter((t) => t.status === "OPEN" && t.source === "SYSTEM" && /مصر/.test(t.title));
+    const blockersHtml = blockers.length
+      ? `<div class="card inset" data-cr-completion-blockers="1"><h4>لا يمكن الإغلاق كمكتمل بعد</h4><ul class="plain-list">${blockers
+          .map((b) => `<li>${escapeHtml(b.message)}</li>`)
+          .join("")}</ul>${travelTasks.length && can("work")
+          ? `<ul class="plain-list">${travelTasks
+              .map((t) => `<li>${escapeHtml(t.title)} <button type="button" class="btn secondary" data-cr-task-done="${escapeHtml(t.id)}">تم إنجازها</button></li>`)
+              .join("")}</ul>`
+          : ""}</div>`
+      : "";
     return `<div class="stack wrap">
         ${r.status === "NEW" ? '<button type="button" class="btn secondary" data-cr-contacted="1">تم التواصل مع العميل</button>' : ""}
       </div>
@@ -334,7 +347,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
           <div class="field"><label for="cr-outcome-note">ملاحظة${r.paymentStatus === "CONFIRMED" ? " (إلزامية عند الإلغاء/الرفض بعد الدفع)" : ""}</label><input id="cr-outcome-note" name="outcomeNote" maxlength="2000" /></div>
         </div>
         <button type="submit" class="btn">إغلاق</button>
-      </form>`;
+      </form>${blockersHtml}`;
   }
 
   async function assignmentHtml(r) {
@@ -489,6 +502,8 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       if (!note) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب رفض المستند.");
       return act(reject, () => api.patch(`${base}/documents/${encodeURIComponent(reject.dataset.docReject)}/status`, { status: "REJECTED", reviewNote: note }), "تم رفض المستند وإبلاغ العميل بالسبب.");
     }
+    const taskDone = t.closest("[data-cr-task-done]");
+    if (taskDone) return act(taskDone, () => api.patch(`${base}/tasks/${encodeURIComponent(taskDone.dataset.crTaskDone)}/complete`, {}), "تم إنجاز المهمة.");
     const publish = t.closest("[data-cr-publish]");
     if (publish) return act(publish, () => api.post(`${base}/deliverables/${encodeURIComponent(publish.dataset.crPublish)}/publish`, {}), "تم نشر الملف للعميل.");
     const confirm = t.closest("[data-cr-confirm-payment]");

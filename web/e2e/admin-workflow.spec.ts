@@ -51,7 +51,13 @@ async function asCustomer(api: APIRequestContext, token: string, method: "post",
 
 async function priceApproveReceipt(api: APIRequestContext, token: string, id: string) {
   expect((await api.post(`${BACKEND}/api/contact-requests/${id}/invoice`, { data: { amount: 300, currency: "USD" } })).ok()).toBeTruthy();
-  expect((await asCustomer(api, token, "post", `/requests/${id}/invoice/approve`, { data: {} })).ok()).toBeTruthy();
+  // the customer decides on the exact version displayed to them
+  const listed = await api.get(`${BACKEND}/api/tracking/requests`, { headers: { Authorization: `Bearer ${token}` } });
+  const version = (await listed.json()).data.find((row: { id: string }) => row.id === id).invoice.version;
+  const missing = await asCustomer(api, token, "post", `/requests/${id}/invoice/approve`, { data: {} });
+  expect(missing.status()).toBe(409);
+  expect((await missing.json()).code).toBe("QUOTE_VERSION_REQUIRED");
+  expect((await asCustomer(api, token, "post", `/requests/${id}/invoice/approve`, { data: { invoiceVersion: version } })).ok()).toBeTruthy();
   const receipt = await asCustomer(api, token, "post", `/requests/${id}/payment-receipt`, {
     multipart: { label: "إثبات الدفع", file: { name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF } },
   });
@@ -190,12 +196,13 @@ test.describe.serial("Next.js admin: request workflow in /admin/cases, /admin/pa
     await expect(workflow.getByTestId("workflow-label")).toHaveText("تم إنجاز طلبك بنجاح", { timeout: 15_000 });
   });
 
-  test("website /track: a cancelled request offers no approval; a stale approval is refused in Arabic", async ({ page }) => {
+  test("website /track: a cancelled request offers no approval; a stale or repriced approval is refused in Arabic", async ({ page }) => {
     const api = await staffApi(page);
     const phone = localPhone();
     const first = await createRequest(api, phone, [`TEST-WF ملغى ${unique()}`], [0]);
     const second = await createRequest(api, phone, [`TEST-WF قديم ${unique()}`], [0]);
-    for (const id of [first, second]) {
+    const third = await createRequest(api, phone, [`TEST-WF سعر معدل ${unique()}`], [0]);
+    for (const id of [first, second, third]) {
       expect((await api.post(`${BACKEND}/api/contact-requests/${id}/invoice`, { data: { amount: 120, currency: "USD" } })).ok()).toBeTruthy();
     }
     expect((await api.patch(`${BACKEND}/api/contact-requests/${first}/status`, { data: { status: "CLOSED", outcome: "CANCELLED", outcomeNote: "TEST-WF" } })).ok()).toBeTruthy();
@@ -206,15 +213,33 @@ test.describe.serial("Next.js admin: request workflow in /admin/cases, /admin/pa
     await page.locator("#code").fill(readTrackingLoginCode(normalized(phone)));
     await page.getByRole("button", { name: "تأكيد" }).click();
     await expect(page.getByText("تم إلغاء الطلب").first()).toBeVisible({ timeout: 15_000 });
-    // only the open request offers approval
-    await expect(page.getByRole("button", { name: "موافقة على السعر" })).toHaveCount(1);
+    // only the open requests offer approval
+    await expect(page.getByRole("button", { name: "موافقة على السعر" })).toHaveCount(2);
+    const card = (id: string) => page.locator("li.rounded-2xl", { hasText: id });
 
     // staff cancel the second one while the page is open; the click is refused with the server's Arabic reason
     expect((await api.patch(`${BACKEND}/api/contact-requests/${second}/status`, { data: { status: "CLOSED", outcome: "CANCELLED", outcomeNote: "TEST-WF" } })).ok()).toBeTruthy();
-    await page.getByRole("button", { name: "موافقة على السعر" }).click();
-    await expect(page.getByText("هذا الطلب مغلق ولا يقبل إجراءات جديدة", { exact: false })).toBeVisible({ timeout: 15_000 });
+    await card(second).getByRole("button", { name: "موافقة على السعر" }).click();
+    await expect(card(second).getByText("هذا الطلب مغلق ولا يقبل إجراءات جديدة", { exact: false })).toBeVisible({ timeout: 15_000 });
     const detail = (await (await api.get(`${BACKEND}/api/contact-requests/${second}`)).json()).data;
     expect(detail.paymentStatus).toBe("NOT_REQUIRED");
     expect(detail.invoice.status).toBe("PENDING");
+
+    // the website sends the version it displays: staff reprice while the page
+    // is open, the click on the old price is refused, the new one is approved
+    await expect(card(third)).toContainText("120");
+    expect((await api.post(`${BACKEND}/api/contact-requests/${third}/invoice`, { data: { amount: 135, currency: "USD" } })).ok()).toBeTruthy();
+    await card(third).getByRole("button", { name: "موافقة على السعر" }).click();
+    await expect(card(third).getByText("عدّلت الوكالة السعر", { exact: false })).toBeVisible({ timeout: 15_000 });
+    let thirdDetail = (await (await api.get(`${BACKEND}/api/contact-requests/${third}`)).json()).data;
+    expect(thirdDetail.invoice.status).toBe("PENDING");
+    expect(thirdDetail.paymentStatus).toBe("NOT_REQUIRED");
+    await page.reload();
+    await expect(card(third)).toContainText("135", { timeout: 15_000 });
+    await card(third).getByRole("button", { name: "موافقة على السعر" }).click();
+    await expect(card(third).getByRole("button", { name: "تم تحويل المبلغ" })).toBeVisible({ timeout: 15_000 });
+    thirdDetail = (await (await api.get(`${BACKEND}/api/contact-requests/${third}`)).json()).data;
+    expect(thirdDetail.invoice.status).toBe("APPROVED");
+    expect(Number(thirdDetail.invoice.amount)).toBe(135);
   });
 });

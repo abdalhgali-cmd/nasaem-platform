@@ -16,7 +16,8 @@ type TrackedInvoice = {
   currency: string;
   description: string | null;
   status: InvoiceStatus;
-  updatedAt?: string;
+  // The quote version displayed; sent back with the customer's decision.
+  version?: number;
 };
 
 type TrackedOffer = {
@@ -391,7 +392,7 @@ function RequestInvoicePanel({
             size="sm"
             variant="gold"
             disabled={acting}
-            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/approve`, { invoiceVersion: req.invoice?.updatedAt })}
+            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/approve`, { invoiceVersion: req.invoice?.version })}
           >
             موافقة على السعر
           </Button>
@@ -400,7 +401,7 @@ function RequestInvoicePanel({
             size="sm"
             variant="outline"
             disabled={acting}
-            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/reject`, { invoiceVersion: req.invoice?.updatedAt })}
+            onClick={() => postAction(`/tracking/requests/${req.id}/invoice/reject`, { invoiceVersion: req.invoice?.version })}
           >
             رفض
           </Button>

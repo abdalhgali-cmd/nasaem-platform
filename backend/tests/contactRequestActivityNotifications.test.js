@@ -1,7 +1,7 @@
 import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { app, request, loginAsSuperAdmin, uniqueSuffix, quoteVersion } from "./helpers/api.js";
 
 // logActivity/createNotification are fire-and-forget (not awaited) by the
 // same convention used everywhere else in this codebase, so a write can
@@ -90,7 +90,7 @@ describe("contact request activity log + notification coverage", () => {
     await assertLogged(superAdminAgent, "CONTACT_REQUEST_INVOICE_SET", contactRequestId);
 
     // Customer approves it — staff should be logged AND notified.
-    await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`);
+    await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) });
     await assertLogged(superAdminAgent, "CONTACT_REQUEST_INVOICE_APPROVED", contactRequestId);
     await assertNotified(
       superAdminAgent,

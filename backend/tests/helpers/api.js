@@ -53,3 +53,11 @@ export async function registerCustomer(overrides = {}) {
 
   return { agent, customer: res.body.data.customer };
 }
+
+// The quote version the customer currently sees (what every real client
+// sends back with an approve/reject decision), read through the same
+// tracking session.
+export async function quoteVersion(trackingAgent, contactRequestId) {
+  const res = await trackingAgent.get("/api/tracking/requests");
+  return res.body?.data?.find((row) => row.id === contactRequestId)?.invoice?.version;
+}
