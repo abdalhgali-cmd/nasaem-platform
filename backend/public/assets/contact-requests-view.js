@@ -7,7 +7,7 @@
 // a role would be refused anyway.
 const CR_STATUS_AR = { NEW: "جديد", CONTACTED: "تم التواصل", CLOSED: "مغلق" };
 const CR_OUTCOME_AR = { COMPLETED: "مكتمل", REJECTED: "مرفوض", CANCELLED: "ملغي" };
-const CR_PAYMENT_AR = { NOT_REQUIRED: "لا يوجد سعر بعد", AWAITING_TRANSFER: "بانتظار التحويل", UNDER_REVIEW: "إشعار دفع للمراجعة", CONFIRMED: "الدفع مؤكد" };
+const CR_PAYMENT_AR = { NOT_REQUIRED: "لا يوجد سعر بعد", AWAITING_TRANSFER: "بانتظار التحويل / إيصال جديد", UNDER_REVIEW: "إشعار دفع للمراجعة", CONFIRMED: "الدفع مؤكد" };
 const CR_DOC_STATUS_AR = { PENDING: "بانتظار المراجعة", ACCEPTED: "مقبول", REJECTED: "مرفوض" };
 const CR_CURRENCIES = ["SAR", "USD", "SDG", "EGP", "AED", "EUR", "GBP", "QAR"];
 
@@ -75,6 +75,8 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     if (filters.payment.value) params.set("paymentStatus", filters.payment.value);
     if (filters.assignee.value) params.set("assignedUserId", filters.assignee.value);
     if (filters.category.value) params.set("category", filters.category.value);
+    if (filters.from?.value) params.set("createdFrom", filters.from.value);
+    if (filters.to?.value) params.set("createdTo", filters.to.value);
     return params.toString();
   }
 
@@ -152,14 +154,21 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
         .join("")}</tbody></table></div>`;
   }
 
+  // The Sudanese-pound equivalent frozen when the price was issued; the
+  // original amount and currency above it stay the price of record.
+  function sdgLine(price) {
+    if (!price?.amountSdg || price.currency === "SDG") return "";
+    return `<p class="muted small">المقابل بالجنيه السوداني وقت إصدار السعر: <strong>${formatMoney(price.amountSdg, "SDG")}</strong> (سعر الصرف ${escapeHtml(Number(price.exchangeRateToSdg))})</p>`;
+  }
+
   function pricingHtml(r) {
     const parts = [];
     if (r.invoice) {
-      parts.push(`<p>السعر: <strong>${formatMoney(r.invoice.amount, r.invoice.currency)}</strong> — ${statusBadge(r.invoice.status)}${r.invoice.description ? ` · ${escapeHtml(r.invoice.description)}` : ""}</p>`);
+      parts.push(`<p>السعر: <strong>${formatMoney(r.invoice.amount, r.invoice.currency)}</strong> — ${statusBadge(r.invoice.status)}${r.invoice.description ? ` · ${escapeHtml(r.invoice.description)}` : ""}</p>${sdgLine(r.invoice)}`);
     }
     if ((r.offers || []).length) {
       parts.push(`<ul class="plain-list">${r.offers
-        .map((o) => `<li>${escapeHtml(o.carrier)}: ${formatMoney(o.amount, o.currency)} ${o.id === r.selectedOfferId ? '<span class="badge status-APPROVED">اختاره العميل</span>' : ""}</li>`)
+        .map((o) => `<li>${escapeHtml(o.carrier)}: ${formatMoney(o.amount, o.currency)}${o.amountSdg ? ` <span class="muted small">(≈ ${formatMoney(o.amountSdg, "SDG")})</span>` : ""} ${o.id === r.selectedOfferId ? '<span class="badge status-APPROVED">اختاره العميل</span>' : ""}</li>`)
         .join("")}</ul>`);
     }
     if (!parts.length) parts.push('<p class="muted">لم يُحدد سعر بعد.</p>');
@@ -184,8 +193,17 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
 
   function paymentHtml(r) {
     const lines = [`<p>حالة الدفع: ${crPaymentBadge(r.paymentStatus)}${r.paymentConfirmedAt ? ` · ${formatDateTime(r.paymentConfirmedAt)}` : ""}</p>`];
+    if (r.paymentStatus === "AWAITING_TRANSFER" && r.paymentRejectionReason) {
+      lines.push(`<p class="alert error">رُفض آخر إيصال${r.paymentRejectedAt ? ` (${formatDateTime(r.paymentRejectedAt)})` : ""}: ${escapeHtml(r.paymentRejectionReason)}</p>`);
+    }
     if (r.paymentStatus === "UNDER_REVIEW" && can("confirmPayment")) {
+      lines.push(`<p class="muted small">راجع إيصال الدفع من قائمة المستندات، ثم اقبل الدفع أو ارفضه مع بيان السبب. رفع الإيصال لا يعني أن الدفع تم.</p>`);
       lines.push(`<button type="button" class="btn" data-cr-confirm-payment="1">تأكيد استلام الدفع</button>`);
+      lines.push(`<form class="card inset" data-cr-form="reject-payment">
+        <h4>رفض الإيصال</h4>
+        <div class="field"><label for="cr-reject-payment-reason">سبب الرفض (يظهر للعميل)</label><input id="cr-reject-payment-reason" name="reason" required minlength="3" maxlength="500" /></div>
+        <button type="submit" class="btn secondary">رفض الإيصال وإعادته للعميل</button>
+      </form>`);
     } else if (r.paymentStatus === "UNDER_REVIEW") {
       lines.push('<p class="muted small">تأكيد الدفع من صلاحيات المحاسبة أو الإدارة.</p>');
     }
@@ -415,6 +433,11 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
         }
         return act(button, () => api.post(`${base}/invoice`, { amount, currency: f.currency.value }), "تم حفظ السعر وإرساله للعميل.");
       }
+      case "reject-payment": {
+        const reason = f.reason.value.trim();
+        if (reason.length < 3) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب رفض الإيصال.");
+        return act(button, () => api.post(`${base}/reject-payment`, { reason }), "تم رفض الإيصال وإبلاغ العميل بالسبب.");
+      }
       case "deliverable": {
         const file = f.file.files[0];
         if (!file || !f.label.value.trim()) return showAlert(document.getElementById("cr-action-alert"), "اكتب اسم الملف واختر الملف.");
@@ -450,7 +473,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       load();
     }, 350);
   });
-  for (const select of [filters.status, filters.payment, filters.assignee, filters.category]) {
+  for (const select of [filters.status, filters.payment, filters.assignee, filters.category, filters.from, filters.to].filter(Boolean)) {
     select.addEventListener("change", () => {
       state.page = 1;
       load();

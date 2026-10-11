@@ -81,6 +81,34 @@ export async function verifyLoginCode(rawPhone, code) {
   return { success: true, token: signTrackingToken(phone) };
 }
 
+const PAYMENT_OPEN_STATES = new Set(["AWAITING_TRANSFER", "UNDER_REVIEW"]);
+
+export function isPaymentOpen(request) {
+  return PAYMENT_OPEN_STATES.has(request.paymentStatus);
+}
+
+// Accounts for one currency, only to a phone that owns a request whose price it
+// has approved in that currency (never a general "list the bank accounts").
+export async function listPaymentAccountsForPhone(phoneNormalized, currency) {
+  const requests = await prisma.contactRequest.findMany({
+    where: { ...trackingScope(phoneNormalized), paymentStatus: { in: [...PAYMENT_OPEN_STATES] } },
+    include: { invoice: { select: { currency: true } }, offers: { select: { id: true, currency: true } } },
+  });
+  const allowed = new Set(
+    requests
+      .map((request) => request.invoice?.currency || request.offers.find((offer) => offer.id === request.selectedOfferId)?.currency)
+      .filter(Boolean)
+  );
+  const wanted = currency ? String(currency).toUpperCase() : null;
+  const currencies = wanted ? [...allowed].filter((code) => code === wanted) : [...allowed];
+  if (!currencies.length) return [];
+  return prisma.paymentAccount.findMany({
+    where: { active: true, currency: { in: currencies } },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: { id: true, name: true, bankName: true, accountName: true, accountNumber: true, iban: true, currency: true },
+  });
+}
+
 export async function listContactRequestsForPhone(phoneNormalized) {
   const requests = await prisma.contactRequest.findMany({
     // Scoped server-side to the public organization (utils/publicOrganization.js).
@@ -97,8 +125,11 @@ export async function listContactRequestsForPhone(phoneNormalized) {
     },
   });
 
+  // Payment accounts are shown only once the customer has approved the
+  // agency's price (a request waiting for, or under review of, a transfer).
   const currencies = [...new Set(
     requests
+      .filter(isPaymentOpen)
       .map((request) => request.invoice?.currency || request.offers.find((offer) => offer.id === request.selectedOfferId)?.currency)
       .filter(Boolean)
   )];
@@ -148,9 +179,12 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       nextActions: buildCustomerNextActions(request, checklist),
       statusLabel: deriveTrackingStatusLabel(request),
       paymentCurrency,
-      paymentAccounts: paymentCurrency
+      paymentAccounts: paymentCurrency && isPaymentOpen(request)
         ? paymentAccounts.filter((account) => account.currency === paymentCurrency)
         : [],
+      paymentRejection: request.paymentStatus === "AWAITING_TRANSFER" && request.paymentRejectionReason
+        ? { reason: request.paymentRejectionReason, at: request.paymentRejectedAt }
+        : null,
     };
   });
 }
@@ -177,13 +211,25 @@ export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, fi
     label: "إشعار الدفع",
     file,
     classification: "FINANCIAL_DOCUMENT",
+    silent: true,
+  });
+  if (result.error) return result;
+
+  // The receipt is what puts the payment in front of the accountant. This only
+  // moves it to "under review": it is never marked paid until staff accept it.
+  await prisma.contactRequest.updateMany({
+    where: { id: contactRequestId, paymentStatus: "AWAITING_TRANSFER" },
+    data: { paymentStatus: "UNDER_REVIEW", paymentRejectionReason: null, paymentRejectedAt: null },
   });
 
   logActivity({ action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED", entity: "ContactRequest", entityId: contactRequestId });
   await notifyAdmins({
+    organizationId: contactRequest.organizationId,
     title: "رفع إشعار دفع جديد",
     message: `رفع ${contactRequest.name} إشعار الدفع لطلبه، بانتظار المراجعة`,
     type: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED",
+    contactRequestId,
+    alsoRoles: ["ACCOUNTANT"],
   });
 
   return result;
@@ -210,7 +256,7 @@ export async function approveInvoice(phoneNormalized, contactRequestId) {
     prisma.contactRequest.update({ where: { id: contactRequestId }, data: { paymentStatus: "AWAITING_TRANSFER" } }),
   ]);
   logActivity({ action: "CONTACT_REQUEST_INVOICE_APPROVED", entity: "ContactRequest", entityId: contactRequestId });
-  await notifyAdmins({ title: "موافقة العميل على السعر", message: `وافق ${contactRequest.name} على السعر المحدد لطلبه`, type: "CONTACT_REQUEST_INVOICE_APPROVED" });
+  await notifyAdmins({ title: "موافقة العميل على السعر", message: `وافق ${contactRequest.name} على السعر المحدد لطلبه`, type: "CONTACT_REQUEST_INVOICE_APPROVED", contactRequestId, organizationId: contactRequest.organizationId });
   return { success: true };
 }
 
@@ -220,7 +266,7 @@ export async function rejectInvoice(phoneNormalized, contactRequestId) {
   if (contactRequest.invoice.status !== "PENDING") return { error: "INVALID_STATE" };
   await prisma.invoice.update({ where: { id: contactRequest.invoice.id }, data: { status: "REJECTED", decidedAt: new Date() } });
   logActivity({ action: "CONTACT_REQUEST_INVOICE_REJECTED", entity: "ContactRequest", entityId: contactRequestId });
-  await notifyAdmins({ title: "رفض العميل للسعر", message: `رفض ${contactRequest.name} عرض السعر المحدد لطلبه`, type: "CONTACT_REQUEST_INVOICE_REJECTED" });
+  await notifyAdmins({ title: "رفض العميل للسعر", message: `رفض ${contactRequest.name} عرض السعر المحدد لطلبه`, type: "CONTACT_REQUEST_INVOICE_REJECTED", contactRequestId, organizationId: contactRequest.organizationId });
   return { success: true };
 }
 
@@ -232,16 +278,19 @@ export async function selectOffer(phoneNormalized, contactRequestId, offerId) {
   if (!offer) return { error: "NOT_FOUND" };
   await prisma.contactRequest.update({ where: { id: contactRequestId }, data: { selectedOfferId: offerId, paymentStatus: "AWAITING_TRANSFER" } });
   logActivity({ action: "CONTACT_REQUEST_OFFER_SELECTED", entity: "ContactRequest", entityId: contactRequestId });
-  await notifyAdmins({ title: "اختيار العميل لعرض", message: `اختار ${contactRequest.name} عرض ${offer.carrier}`, type: "CONTACT_REQUEST_OFFER_SELECTED" });
+  await notifyAdmins({ title: "اختيار العميل لعرض", message: `اختار ${contactRequest.name} عرض ${offer.carrier}`, type: "CONTACT_REQUEST_OFFER_SELECTED", contactRequestId, organizationId: contactRequest.organizationId });
   return { success: true };
 }
 
 export async function markTransferSent(phoneNormalized, contactRequestId) {
   const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
   if (!contactRequest) return { error: "NOT_FOUND" };
+  // A receipt upload already moved the request to review: declaring the
+  // transfer afterwards is accepted as a no-op instead of failing the customer.
+  if (contactRequest.paymentStatus === "UNDER_REVIEW") return { success: true };
   if (contactRequest.paymentStatus !== "AWAITING_TRANSFER") return { error: "INVALID_STATE" };
-  await prisma.contactRequest.update({ where: { id: contactRequestId }, data: { paymentStatus: "UNDER_REVIEW" } });
+  await prisma.contactRequest.update({ where: { id: contactRequestId }, data: { paymentStatus: "UNDER_REVIEW", paymentRejectionReason: null, paymentRejectedAt: null } });
   logActivity({ action: "CONTACT_REQUEST_TRANSFER_MARKED_SENT", entity: "ContactRequest", entityId: contactRequestId });
-  await notifyAdmins({ title: "إعلان العميل عن تحويل المبلغ", message: `أعلن ${contactRequest.name} عن تحويل المبلغ لطلبه، بانتظار التأكيد`, type: "CONTACT_REQUEST_TRANSFER_MARKED_SENT" });
+  await notifyAdmins({ organizationId: contactRequest.organizationId, title: "إعلان العميل عن تحويل المبلغ", message: `أعلن ${contactRequest.name} عن تحويل المبلغ لطلبه، بانتظار التأكيد`, type: "CONTACT_REQUEST_TRANSFER_MARKED_SENT", contactRequestId, alsoRoles: ["ACCOUNTANT"] });
   return { success: true };
 }

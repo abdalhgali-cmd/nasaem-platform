@@ -60,14 +60,23 @@ export async function getRequest(req, res, next) {
   } catch (error) { next(error); }
 }
 
+const UPLOAD_ERROR_MESSAGES_AR = {
+  REQUIREMENT_NOT_FOUND: "هذا المطلوب لا يتبع الخدمة المقدَّم لها الطلب",
+  INVALID_MIME: "نوع الملف غير مسموح لهذا المستند",
+  FILE_TOO_LARGE: "حجم الملف أكبر من الحد المسموح لهذا المستند",
+  MAX_FILES_REACHED: "تم رفع الحد الأقصى من الملفات لهذا المستند",
+  TRAVELER_NOT_FOUND: "هذا المسافر لا يتبع هذا الطلب",
+  TRAVELER_REQUIRED: "حدّد المسافر صاحب هذا المستند قبل الرفع",
+};
+
 export async function uploadRequestDocument(req, res, next) {
   try {
     const parsed = uploadContactRequestDocumentSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "بيانات المستند غير صحيحة", errors: parsed.error.flatten() });
     if (!req.file) return res.status(400).json({ success: false, message: "الملف مطلوب" });
-    const result = await uploadMyRequestDocument(req.customer.id, req.params.id, { label: parsed.data.label, file: req.file, requirementId: parsed.data.requirementId });
+    const result = await uploadMyRequestDocument(req.customer.id, req.params.id, { label: parsed.data.label, file: req.file, requirementId: parsed.data.requirementId, travelerId: parsed.data.travelerId });
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "الطلب غير موجود" });
-    if (result.error) return res.status(400).json({ success: false, message: "تعذر رفع المستند", details: result.details });
+    if (result.error) return res.status(400).json({ success: false, code: result.error, message: UPLOAD_ERROR_MESSAGES_AR[result.error] || "تعذر رفع المستند", details: result.details });
     return res.status(201).json({ success: true, data: result.document });
   } catch (error) { next(error); }
 }

@@ -6,10 +6,12 @@ import {
   createInvoiceSchema,
   createOfferSchema,
   updateContactRequestStatusSchema,
+  rejectPaymentSchema,
 } from "./contact-requests.validators.js";
 import {
   assignContactRequest,
   confirmContactRequestPayment,
+  rejectContactRequestPayment,
   createContactRequest,
   createOffer,
   createOrUpdateInvoice,
@@ -138,6 +140,8 @@ export async function getContactRequests(req, res, next) {
       paymentStatus: req.query.paymentStatus,
       serviceId: req.query.serviceId,
       category: req.query.category,
+      createdFrom: req.query.createdFrom,
+      createdTo: req.query.createdTo,
     });
 
     return res.status(200).json({
@@ -410,6 +414,29 @@ export async function confirmPayment(req, res, next) {
 
     if (result.error === "INVALID_STATE") {
       return res.status(409).json({ success: false, message: "Payment is not awaiting review" });
+    }
+
+    return res.status(200).json({ success: true, data: result.contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function rejectPayment(req, res, next) {
+  try {
+    const parsed = rejectPaymentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "سبب الرفض مطلوب", errors: parsed.error.flatten() });
+    }
+
+    const result = await rejectContactRequestPayment(req.params.id, req.user.id, parsed.data.reason);
+
+    if (result.error === "NOT_FOUND") {
+      return res.status(404).json({ success: false, message: "Contact request not found" });
+    }
+
+    if (result.error === "INVALID_STATE") {
+      return res.status(409).json({ success: false, message: "لا يوجد إيصال دفع قيد المراجعة لهذا الطلب" });
     }
 
     return res.status(200).json({ success: true, data: result.contactRequest });

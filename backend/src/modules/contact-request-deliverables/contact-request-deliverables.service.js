@@ -2,6 +2,7 @@ import path from "path";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { notifyRequestCustomer } from "../../utils/notifications.js";
 import {
   describeRequest,
   maybeAutoCompleteContactRequest,
@@ -51,6 +52,12 @@ export async function createContactRequestDeliverable(contactRequestId, { label,
     action: "CONTACT_REQUEST_DELIVERABLE_UPLOADED",
     entity: "ContactRequest",
     entityId: contactRequestId,
+  });
+
+  await notifyRequestCustomer(contactRequest, {
+    title: "ملف جاهز للتحميل",
+    message: `أصبح الملف "${label}" جاهزًا لطلبك (${describeRequest(contactRequest)}).`,
+    type: "CONTACT_REQUEST_DELIVERABLE_READY",
   });
 
   // Not awaited: same rationale as every other WhatsApp send in this

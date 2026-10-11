@@ -3,6 +3,7 @@ import prisma from "../../config/database.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { notifyRequestCustomer } from "../../utils/notifications.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { describeRequest, notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
 
@@ -58,7 +59,7 @@ async function validateRequirementUpload(contactRequest, requirementId, file, tr
   return { requirement };
 }
 
-export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, classification }) {
+export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, classification, silent = false }) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
   });
@@ -78,6 +79,13 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
 
   let requirement = null;
   if (requirementId) {
+    // A per-traveler requirement (passport, photo...) on a request that has
+    // travelers must say WHOSE document it is. Without this, a passport could
+    // be filed against the case and later be shown as another traveler's.
+    const needsTraveler = await prisma.visaRequirement.findUnique({ where: { id: requirementId }, select: { scope: true } });
+    if (needsTraveler?.scope === "TRAVELER" && !travelerId && (await prisma.traveler.count({ where: { contactRequestId } })) > 0) {
+      return { error: "TRAVELER_REQUIRED" };
+    }
     const validation = await validateRequirementUpload(contactRequest, requirementId, file, travelerId);
     if (validation.error) return { error: validation.error.code, details: validation.error };
     requirement = validation.requirement;
@@ -130,11 +138,18 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
     entityId: contactRequestId,
   });
 
-  await notifyAdmins({
-    title: "رفع مستند جديد",
-    message: `رفع ${contactRequest.name} مستندًا جديدًا: ${label.slice(0, 60)}`,
-    type: "CONTACT_REQUEST_DOCUMENT_UPLOADED",
-  });
+  // `silent`: the caller sends its own, more specific notification (e.g. a
+  // payment receipt goes to the accountants, not as "a new document").
+  if (!silent) {
+    await notifyAdmins({
+      organizationId: contactRequest.organizationId,
+      title: "رفع مستند جديد",
+      message: `رفع ${contactRequest.name} مستندًا جديدًا: ${label.slice(0, 60)}`,
+      type: "CONTACT_REQUEST_DOCUMENT_UPLOADED",
+      contactRequestId,
+      alsoRoles: ["EMPLOYEE"],
+    });
+  }
 
   // Release E: a new upload is new review work.
   await refreshCaseTasks(contactRequestId);
@@ -215,6 +230,11 @@ export async function updateContactRequestDocumentStatus(
     // Not awaited: same rationale as every other WhatsApp send in this
     // codebase — never let a slow/unreachable WhatsApp API delay the staff
     // response.
+    await notifyRequestCustomer(contactRequest, {
+      title: updated.status === "ACCEPTED" ? "تم قبول مستند" : "مستند مرفوض أو ناقص",
+      message,
+      type: updated.status === "ACCEPTED" ? "CONTACT_REQUEST_DOCUMENT_ACCEPTED" : "CONTACT_REQUEST_DOCUMENT_REJECTED",
+    });
     sendWhatsAppMessage(contactRequest.phoneNormalized, message);
   }
 

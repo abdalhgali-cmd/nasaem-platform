@@ -190,9 +190,10 @@ export { COUPON_ERROR_MESSAGES };
 const CUSTOMER_REQUEST_INCLUDE = {
   serviceRef: { select: { id: true, name: true, category: true } },
   visaType: { select: { id: true, name: true, country: true } },
-  invoice: { select: { id: true, amount: true, currency: true, description: true, status: true, createdAt: true, decidedAt: true } },
-  offers: { select: { id: true, carrier: true, description: true, amount: true, currency: true, createdAt: true }, orderBy: { createdAt: "desc" } },
-  documents: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, status: true, reviewNote: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  invoice: { select: { id: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, description: true, status: true, createdAt: true, decidedAt: true } },
+  offers: { select: { id: true, carrier: true, description: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  documents: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, status: true, reviewNote: true, travelerId: true, requirementId: true, supersededAt: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  travelers: { select: { id: true, fullName: true, isPrimary: true, sortOrder: true }, orderBy: { sortOrder: "asc" } },
   deliverables: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, createdAt: true }, orderBy: { createdAt: "desc" } },
 };
 
@@ -217,6 +218,8 @@ function toCustomerRequest(request) {
     status: request.status,
     outcome: request.outcome,
     paymentStatus: request.paymentStatus,
+    paymentRejection: request.paymentStatus === "AWAITING_TRANSFER" && request.paymentRejectionReason ? { reason: request.paymentRejectionReason, at: request.paymentRejectedAt } : null,
+    travelers: request.travelers,
     createdAt: request.createdAt,
     updatedAt: request.updatedAt,
     latestUpdateAt: request.updatedAt,
@@ -250,10 +253,10 @@ export async function getMyRequestById(customerId, requestId) {
   return { ...toCustomerRequest(request), timeline };
 }
 
-export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId }) {
+export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId, travelerId }) {
   const request = await prisma.contactRequest.findFirst({ where: { id: requestId, customerId }, select: { id: true } });
   if (!request) return { error: "NOT_FOUND" };
-  return createContactRequestDocument(requestId, { label, file, requirementId });
+  return createContactRequestDocument(requestId, { label, file, requirementId, travelerId });
 }
 
 export async function getMyRequestDeliverableFile(customerId, requestId, deliverableId) {

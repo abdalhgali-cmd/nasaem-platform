@@ -6,6 +6,7 @@ import { go } from "../router.js";
 import * as tracking from "../tracking.js";
 import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
+import { pricingOf, paymentActions, formatAmount, sdgEquivalent } from "../payment-view.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
 // these three values — everything a customer actually cares about day to
@@ -26,7 +27,7 @@ const ORDER_STATUS_AR = {
   REJECTED: "مرفوض",
   CANCELLED: "ملغي",
 };
-const DOCUMENT_STATUS_AR = { PENDING: "قيد المراجعة", APPROVED: "مقبول", REJECTED: "مرفوض" };
+const DOCUMENT_STATUS_AR = { PENDING: "قيد المراجعة", ACCEPTED: "مقبول", APPROVED: "مقبول", REJECTED: "مرفوض" };
 const PAYMENT_STATUS_AR = { UNPAID: "غير مدفوع", PARTIAL: "مدفوع جزئياً", PAID: "مدفوع", REFUNDED: "مسترد" };
 // Every logActivity({action: "..."}) the backend can write for a
 // ContactRequest (see contact-requests/contact-request-tracking modules) —
@@ -44,6 +45,7 @@ const TIMELINE_ACTION_AR = {
   CONTACT_REQUEST_OFFER_SELECTED: "تم اختيار عرض",
   CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED: "تم رفع إثبات الدفع",
   CONTACT_REQUEST_PAYMENT_CONFIRMED: "تم تأكيد الدفع",
+  CONTACT_REQUEST_PAYMENT_REJECTED: "تم رفض إيصال الدفع",
   CONTACT_REQUEST_TRANSFER_MARKED_SENT: "تم إعلام الوكالة بالتحويل",
   CONTACT_REQUEST_DELIVERABLE_UPLOADED: "تم رفع ملف نهائي",
   CONTACT_REQUEST_AUTO_COMPLETED: "تم إكمال الطلب",
@@ -365,10 +367,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   }
 
   function renderDetail(request) {
-    const price = request.invoice ? money(request.invoice.amount, request.invoice.currency) : "";
-    const canApprove = Boolean(request.invoice && request.invoice.status === "PENDING");
-    const canPay = Boolean(request.invoice && request.invoice.status === "APPROVED" && request.paymentStatus === "AWAITING_TRANSFER");
-    const underReview = request.paymentStatus === "UNDER_REVIEW";
+    const pricing = pricingOf(request);
+    const price = pricing ? formatAmount(pricing.amount, pricing.currency) : "";
+    const sdgLine = sdgEquivalent(pricing);
+    const { canApprove, canPay, state: payState } = paymentActions(request);
     const isEgyptClearance = request.visaType?.code === "VISA-EGYPT-CLEARANCE" && request.status !== "CLOSED";
 
     bodyEl.innerHTML = `
@@ -378,13 +380,13 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         <p>${esc(request.nextAction || "")}</p>
       </div>
 
-      ${request.invoice ? `
+      ${pricing || payState.label ? `
         <div class="detail-block quote-block">
-          <h4>السعر المرسل من الوكالة</h4>
-          <strong class="quote-amount">${price}</strong>
+          <h4>${pricing ? "السعر والدفع" : "الدفع"}</h4>
+          ${pricing ? `<strong class="quote-amount">${esc(price)}</strong>${pricing.label ? `<small>${esc(pricing.label)}</small>` : ""}${sdgLine ? `<small class="quote-sdg">${esc(sdgLine)}</small>` : ""}${request.invoice?.description ? `<p>${esc(request.invoice.description)}</p>` : ""}` : ""}
+          ${payState.label ? `<div class="pay-state pay-state-${esc(payState.tone)}" role="status"><b>${esc(payState.label)}</b><span>${esc(payState.detail)}</span></div>` : ""}
           ${canApprove ? `<button class="primary" id="approveBtn">موافق على السعر</button><button class="secondary" id="rejectBtn">رفض العرض</button>` : ""}
           ${canPay ? `<button class="primary" id="paymentInfoBtn">عرض بيانات الدفع</button><button class="secondary" id="uploadReceiptBtn">رفع إثبات الدفع</button>` : ""}
-          ${underReview ? `<span class="review-state">${icon("clock", { size: 14 })} تم استلام إثبات الدفع، قيد مراجعة الوكالة</span>` : ""}
         </div>` : ""}
 
       ${request.offers?.length ? `
@@ -437,7 +439,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     bodyEl.querySelector("#rejectBtn")?.addEventListener("click", () => {
       ensureTrackingAndRun(panel, () => tracking.rejectInvoice(request.id), { onDone: () => { toast("تم رفض العرض"); load(); } });
     });
-    bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", () => showPaymentAccounts(panel, request.invoice.currency));
+    bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", () => showPaymentAccounts(panel, pricing.currency));
     bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", () => showReceiptUpload(panel, request.id, load));
     bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load));
     bodyEl.querySelectorAll(".select-offer-btn").forEach((btn) => {

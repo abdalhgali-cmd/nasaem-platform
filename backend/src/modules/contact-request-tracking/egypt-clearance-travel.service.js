@@ -247,6 +247,8 @@ export async function saveMyEgyptTravelPlan(
         ? `طلب العميل حجز ${entryMode === "AIR" ? "طيران" : "رحلة برية"} للطلب ${contactRequestId} بتاريخ دخول ${entryDate}.`
         : `رفع العميل بيانات الحجز للطلب ${contactRequestId} بتاريخ دخول ${entryDate}.`,
     type: "EGYPT_CLEARANCE_TRAVEL_PLAN_UPDATED",
+    contactRequestId,
+    alsoRoles: ["EMPLOYEE"],
   });
 
   return { plan };

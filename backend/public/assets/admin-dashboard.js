@@ -96,6 +96,8 @@ function mountViews() {
         payment: el("cr-filter-payment"),
         assignee: el("cr-filter-assignee"),
         category: el("cr-filter-category"),
+        from: el("cr-filter-from"),
+        to: el("cr-filter-to"),
       },
       detailCard: el("cr-detail"),
       onOpen: (id) => setRoute("requests", id),

@@ -44,7 +44,7 @@
         <h2>طلبات العملاء</h2>
         <p class="muted small">طلبات الخدمات المرسلة من الموقع والتطبيق (عمرة، تأشيرات، موافقات أمنية...). منفصلة عن "الطلبات" المسجلة داخليًا وعن حجوزات الطيران.</p>
         <div class="filters">
-          <div class="field"><label for="cr-search">بحث</label><input id="cr-search" type="search" placeholder="المرجع أو الاسم أو الهاتف أو البريد" /></div>
+          <div class="field"><label for="cr-search">بحث</label><input id="cr-search" type="search" placeholder="المرجع أو الاسم أو الهاتف أو رقم الجواز" /></div>
           <div class="field"><label for="cr-filter-status">الحالة</label>
             <select id="cr-filter-status"><option value="">كل الحالات</option><option value="NEW">جديد</option><option value="CONTACTED">تم التواصل</option><option value="CLOSED">مغلق</option></select></div>
           <div class="field"><label for="cr-filter-payment">الدفع</label>
@@ -53,6 +53,8 @@
             <select id="cr-filter-assignee"><option value="">الكل</option><option value="mine">طلباتي</option><option value="unassigned">غير مُسندة</option></select></div>
           <div class="field"><label for="cr-filter-category">نوع الخدمة</label>
             <select id="cr-filter-category"><option value="">كل الخدمات</option></select></div>
+          <div class="field"><label for="cr-filter-from">من تاريخ</label><input id="cr-filter-from" type="date" /></div>
+          <div class="field"><label for="cr-filter-to">إلى تاريخ</label><input id="cr-filter-to" type="date" /></div>
         </div>
         <div class="table-scroll">
           <table class="stack-table">

@@ -143,3 +143,8 @@ export const createOfferSchema = z.object({
   currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
   description: z.string().trim().max(2000).optional().or(z.literal("")),
 });
+
+// Rejecting a transfer receipt always carries a reason the customer will read.
+export const rejectPaymentSchema = z.object({
+  reason: z.string().trim().min(3, "اكتب سبب رفض الإيصال").max(500),
+});

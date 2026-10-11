@@ -708,3 +708,12 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 .legal-links { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; margin: 12px 0 4px; font-size: 13px; }
 .legal-links a, .legal-links button { background: none; border: 0; padding: 4px 0; color: var(--navy); text-decoration: underline; font: inherit; }
 .legal-consent { margin: 4px 0; font-size: 13px; line-height: 1.8; color: #475467; }
+
+/* Price and payment state in a request */
+.quote-block small { display: block; margin-top: 4px; color: #475467; font-size: 13px; }
+.quote-block .quote-sdg { color: var(--navy); font-weight: 600; }
+.pay-state { display: grid; gap: 4px; margin: 10px 0; padding: 10px 12px; border-radius: var(--radius-md, 12px); border: 1px solid var(--border); background: var(--surface); font-size: 13.5px; line-height: 1.7; }
+.pay-state b { font-size: 14.5px; }
+.pay-state-ok { border-color: #12b76a; background: #ecfdf3; }
+.pay-state-bad { border-color: #f04438; background: #fef3f2; }
+.pay-state-action { border-color: var(--gold-dark, #b7791f); background: #fffaeb; }

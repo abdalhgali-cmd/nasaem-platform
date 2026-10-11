@@ -6,7 +6,8 @@ import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
-import { createNotification } from "../../utils/notifications.js";
+import { createNotification, notifyRequestCustomer } from "../../utils/notifications.js";
+import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { normalizePhone } from "../../utils/phone.js";
 import {
@@ -51,14 +52,18 @@ function prepareFileForStorage(file) {
 // contact-request event staff should know about (customer approved a price,
 // selected an offer, uploaded a document, ...) can reuse the same fan-out
 // instead of staff having to poll the Contact Requests tab to notice.
-export async function notifyAdmins({ title, message, type, organizationId = "org_nasaem_default" }) {
+// `contactRequestId` links the notification to the request it is about, so
+// opening it in the back-office goes straight to that request. `alsoRoles`
+// adds the staff roles that do the work the event asks for (e.g. ACCOUNTANT
+// for a payment receipt) on top of the administrators.
+export async function notifyAdmins({ title, message, type, organizationId = "org_nasaem_default", contactRequestId, alsoRoles = [] }) {
   const admins = await prisma.user.findMany({
-    where: { organizationId, role: { in: ["SUPER_ADMIN", "ADMIN"] }, status: "ACTIVE" },
+    where: { organizationId, role: { in: ["SUPER_ADMIN", "ADMIN", ...alsoRoles] }, status: "ACTIVE" },
     select: { id: true },
   });
 
   await Promise.all(
-    admins.map((admin) => createNotification({ title, message, type, userId: admin.id }))
+    admins.map((admin) => createNotification({ title, message, type, userId: admin.id, contactRequestId }))
   );
 }
 
@@ -324,6 +329,8 @@ export async function announceNewContactRequest(contactRequest, { documentCount 
       `${contactRequest.name} (${contactRequest.phone}) — ${contactRequest.message.slice(0, 120)}` +
       (documentCount ? ` — مع ${documentCount} مستند(ات) مرفق(ة)` : ""),
     type: "CONTACT_REQUEST",
+    contactRequestId: contactRequest.id,
+    alsoRoles: ["EMPLOYEE"],
   });
 
   // Not awaited: a slow/unreachable WhatsApp API must not delay the
@@ -452,7 +459,8 @@ const CONTACT_REQUEST_CASE_INCLUDE = {
 };
 
 // Staff search: the reference (request id), the customer's name, phone
-// (any formatting) or e-mail. Case-insensitive.
+// (any formatting), e-mail, or a traveler's name / passport number.
+// Case-insensitive.
 function contactRequestSearchWhere(search) {
   const term = String(search || "").trim();
   if (!term) return {};
@@ -465,15 +473,33 @@ function contactRequestSearchWhere(search) {
       { email: { contains: term, mode: "insensitive" } },
       { phone: { contains: term } },
       ...(digits.length >= 4 ? [{ phoneNormalized: { contains: digits } }] : []),
+      ...(term.length >= 3
+        ? [
+            { travelers: { some: { passportNo: { contains: term, mode: "insensitive" } } } },
+            { travelers: { some: { fullName: { contains: term, mode: "insensitive" } } } },
+          ]
+        : []),
     ],
   };
 }
 
-export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId, search, paymentStatus, serviceId, category }) {
+const REQUEST_STATUSES = new Set(["NEW", "CONTACTED", "CLOSED"]);
+const PAYMENT_STATUSES = new Set(["NOT_REQUIRED", "AWAITING_TRANSFER", "UNDER_REVIEW", "CONFIRMED"]);
+
+function parseDay(value, endOfDay) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  const date = new Date(value.length === 10 ? `${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z` : value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId, search, paymentStatus, serviceId, category, createdFrom, createdTo }) {
+  const from = parseDay(createdFrom, false);
+  const to = parseDay(createdTo, true);
   const where = {
     organizationId,
-    ...(status ? { status } : {}),
-    ...(paymentStatus ? { paymentStatus } : {}),
+    ...(REQUEST_STATUSES.has(status) ? { status } : {}),
+    ...(PAYMENT_STATUSES.has(paymentStatus) ? { paymentStatus } : {}),
+    ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     ...(serviceId ? { serviceId } : {}),
     ...(category ? { serviceRef: { category } } : {}),
     ...(assignedUserId === "unassigned"
@@ -760,6 +786,8 @@ export async function updateContactRequestStatus(id, { status, outcome, outcomeN
         ? (updated.outcome && OUTCOME_LABELS[updated.outcome]) || STATUS_LABELS.CLOSED
         : STATUS_LABELS[updated.status];
 
+    await notifyRequestCustomer(updated, { title: "تحديث على طلبك", message: label, type: "CONTACT_REQUEST_STATUS_CHANGED" });
+
     // Not awaited: same rationale as every other WhatsApp send in this
     // module — never let a slow/unreachable WhatsApp API delay the staff
     // response, and this silently no-ops when WHATSAPP_* env vars aren't
@@ -856,18 +884,22 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
     return { error: "OFFERS_EXIST" };
   }
 
+  // The SDG equivalent is frozen with the price (see finance/fx-snapshot.js).
+  const fx = await sdgSnapshot(data.currency, data.amount);
   const invoice = await prisma.invoice.upsert({
     where: { contactRequestId },
     create: {
       contactRequestId,
       amount: data.amount,
       currency: data.currency,
+      ...fx,
       description: data.description || null,
       createdByUserId: userId,
     },
     update: {
       amount: data.amount,
       currency: data.currency,
+      ...fx,
       description: data.description || null,
       status: "PENDING",
       decidedAt: null,
@@ -886,6 +918,12 @@ export async function createOrUpdateInvoice(contactRequestId, data, userId) {
     action: "CONTACT_REQUEST_INVOICE_SET",
     entity: "ContactRequest",
     entityId: contactRequestId,
+  });
+
+  await notifyRequestCustomer(contactRequest, {
+    title: "وصل عرض السعر لطلبك",
+    message: `حدّدت الوكالة السعر: ${data.amount} ${data.currency}. راجعه ووافق عليه من صفحة الطلب.`,
+    type: "CONTACT_REQUEST_INVOICE_SET",
   });
 
   // Not awaited: same rationale as createContactRequest — a slow/unreachable
@@ -929,8 +967,14 @@ export async function createOffer(contactRequestId, data, userId) {
       description: data.description || null,
       amount: data.amount,
       currency: data.currency,
+      ...(await sdgSnapshot(data.currency, data.amount)),
       createdByUserId: userId,
     },
+  });
+  await notifyRequestCustomer(contactRequest, {
+    title: "عرض سعر جديد لطلبك",
+    message: `أضافت الوكالة عرضًا (${data.carrier}): ${data.amount} ${data.currency}.`,
+    type: "CONTACT_REQUEST_OFFER_ADDED",
   });
 
   await prisma.contactRequest.updateMany({
@@ -956,8 +1000,9 @@ export async function createOffer(contactRequestId, data, userId) {
 
 // Only moves AWAITING payment confirmation forward from UNDER_REVIEW — a
 // customer must have first approved the quote (Invoice.status APPROVED,
-// which sets paymentStatus AWAITING_TRANSFER) and then declared the
-// transfer sent (paymentStatus UNDER_REVIEW) before staff can confirm it.
+// which sets paymentStatus AWAITING_TRANSFER) and then sent a receipt (or
+// declared the transfer, paymentStatus UNDER_REVIEW) before staff can
+// confirm it. Accepting the payment also accepts its pending receipts.
 export async function confirmContactRequestPayment(contactRequestId, userId) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
@@ -971,10 +1016,16 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
     return { error: "INVALID_STATE" };
   }
 
-  const updated = await prisma.contactRequest.update({
-    where: { id: contactRequestId },
-    data: { paymentStatus: "CONFIRMED", paymentConfirmedAt: new Date() },
-  });
+  const [updated] = await prisma.$transaction([
+    prisma.contactRequest.update({
+      where: { id: contactRequestId },
+      data: { paymentStatus: "CONFIRMED", paymentConfirmedAt: new Date(), paymentRejectionReason: null, paymentRejectedAt: null },
+    }),
+    prisma.contactRequestDocument.updateMany({
+      where: { contactRequestId, classification: "FINANCIAL_DOCUMENT", status: "PENDING", supersededAt: null },
+      data: { status: "ACCEPTED", reviewedByUserId: userId, reviewedAt: new Date() },
+    }),
+  ]);
 
   logActivity({
     userId,
@@ -986,6 +1037,12 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
   // Release E: payment confirmation closes "check payment" and can open
   // "process application".
   await refreshCaseTasks(contactRequestId);
+
+  await notifyRequestCustomer(updated, {
+    title: "تم قبول الدفع",
+    message: `تم قبول دفعك لطلبك (${describeRequest(updated)}). سنبدأ بتنفيذ الطلب.`,
+    type: "CONTACT_REQUEST_PAYMENT_CONFIRMED",
+  });
 
   // Not awaited: same rationale as elsewhere in this module.
   sendWhatsAppMessage(
@@ -1000,4 +1057,54 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
   const completed = await maybeAutoCompleteContactRequest(contactRequestId);
 
   return { contactRequest: completed ?? updated };
+}
+
+// Staff reject the transfer receipt. Nothing is marked paid: the request goes
+// back to AWAITING_TRANSFER so the customer can send a correct receipt, and the
+// reason stays visible to them (paymentRejectionReason) until they do.
+export async function rejectContactRequestPayment(contactRequestId, userId, reason) {
+  const contactRequest = await prisma.contactRequest.findUnique({ where: { id: contactRequestId } });
+
+  if (!contactRequest) {
+    return { error: "NOT_FOUND" };
+  }
+
+  if (contactRequest.paymentStatus !== "UNDER_REVIEW") {
+    return { error: "INVALID_STATE" };
+  }
+
+  const now = new Date();
+  const [updated] = await prisma.$transaction([
+    prisma.contactRequest.update({
+      where: { id: contactRequestId },
+      data: { paymentStatus: "AWAITING_TRANSFER", paymentRejectionReason: reason, paymentRejectedAt: now },
+    }),
+    prisma.contactRequestDocument.updateMany({
+      where: { contactRequestId, classification: "FINANCIAL_DOCUMENT", status: "PENDING", supersededAt: null },
+      data: { status: "REJECTED", reviewNote: reason, reviewedByUserId: userId, reviewedAt: now },
+    }),
+  ]);
+
+  logActivity({
+    userId,
+    action: "CONTACT_REQUEST_PAYMENT_REJECTED",
+    entity: "ContactRequest",
+    entityId: contactRequestId,
+    newValue: { reason },
+  });
+
+  await refreshCaseTasks(contactRequestId);
+
+  await notifyRequestCustomer(updated, {
+    title: "تم رفض إيصال الدفع",
+    message: `لم تقبل الوكالة إيصال الدفع لطلبك (${describeRequest(updated)}). السبب: ${reason}. ارفع إيصالًا صحيحًا من صفحة الطلب.`,
+    type: "CONTACT_REQUEST_PAYMENT_REJECTED",
+  });
+
+  sendWhatsAppMessage(
+    updated.phoneNormalized,
+    `لم يتم قبول إيصال الدفع لطلبك (${describeRequest(updated)}).\nالسبب: ${reason}\nيرجى رفع إيصال صحيح عبر صفحة تتبع الطلب.`
+  );
+
+  return { contactRequest: updated };
 }

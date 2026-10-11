@@ -13,6 +13,7 @@ import {
   getCustomerMessages,
   retryCustomerConfirmation,
   confirmPayment,
+  rejectPayment,
   downloadDeliverableFile,
   downloadDocumentFile,
   getContactRequests,
@@ -233,6 +234,14 @@ router.post(
   requireContactRequestOrganization,
   requireFeatureEnabled("PAYMENTS"),
   confirmPayment
+);
+router.post(
+  "/:id/reject-payment",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"),
+  requireContactRequestOrganization,
+  requireFeatureEnabled("PAYMENTS"),
+  rejectPayment
 );
 router.get(
   "/:id/documents/:documentId/file",

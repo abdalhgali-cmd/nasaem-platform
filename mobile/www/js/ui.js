@@ -25,7 +25,7 @@ export function esc(value) {
 export function money(amount, currency = "SAR") {
   const n = Number(amount);
   if (!(n > 0)) return "";
-  return `${new Intl.NumberFormat("ar", { maximumFractionDigits: 0 }).format(n)} ${currency}`;
+  return `${new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(n)} ${currency}`;
 }
 
 export function skeletonGrid(count = 4) {
