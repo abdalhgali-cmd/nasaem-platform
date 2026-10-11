@@ -26,7 +26,9 @@ Every row is also scoped to the user's organization. A record from another organ
 | Customer request: review documents, set price/offers, deliver files, notes | SUPER_ADMIN, ADMIN, EMPLOYEE | the respective routes |
 | Customer request: confirm payment | SUPER_ADMIN, ADMIN, ACCOUNTANT | POST `/:id/confirm-payment` |
 | Customer request: reject the payment receipt (reason required) | SUPER_ADMIN, ADMIN, ACCOUNTANT | POST `/:id/reject-payment` |
-| Customer request: record the start of execution (after the payment is accepted) | SUPER_ADMIN, ADMIN, EMPLOYEE | POST `/:id/start-execution` |
+| Customer request: record the start of execution (payment accepted, required documents accepted, nothing under review) | SUPER_ADMIN, ADMIN, EMPLOYEE | POST `/:id/start-execution` |
+| Customer request: correct an accidental execution start (reason, before any published file; audited) | SUPER_ADMIN, ADMIN | POST `/:id/execution/revert` |
+| Customer request: prepare (draft) / publish a final file with traveler coverage | SUPER_ADMIN, ADMIN, EMPLOYEE | POST `/:id/deliverables` (`publish`, `travelerIds`), POST `/:id/deliverables/:deliverableId/publish` |
 | Order: change status (state machine), assign | SUPER_ADMIN, ADMIN, EMPLOYEE | `orders.routes.js` |
 | Order: record payment, confirm/reject pending payment, refund | SUPER_ADMIN, ADMIN, ACCOUNTANT | `payments.routes.js` |
 | Flight booking: provisional ticket, final ticket | SUPER_ADMIN, ADMIN, EMPLOYEE | `flight-bookings.routes.js` |
@@ -34,6 +36,8 @@ Every row is also scoped to the user's organization. A record from another organ
 | Flights catalogue, FX rates, flight payment accounts | SUPER_ADMIN, ADMIN | `flights.routes.js`, `flight-bookings.routes.js` |
 | Users: list, read, change status | SUPER_ADMIN, ADMIN (only a SUPER_ADMIN may change a SUPER_ADMIN) | `users.routes.js`, `users.service.js` |
 | Users: create, change role | SUPER_ADMIN | `users.routes.js` |
+
+Every action above is also subject to the request's state (closed requests are read-only; see `docs/WORKFLOW-POLICY.md`).
 
 ## Design rules
 - **Separation of duties.** Operational access (EMPLOYEE) never includes confirming that money was received. Finance access (ACCOUNTANT) never includes changing a request's status, documents or pricing.

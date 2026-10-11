@@ -6,10 +6,11 @@
 
 | الفحص | الأمر | النتيجة |
 |---|---|---|
-| Backend (Postgres 16، قاعدة بيانات أُنشئت فارغة لهذا التشغيل) | `npx prisma migrate deploy && npm run prisma:seed && npm test` | **785 ناجح / 0 فاشل** |
-| التطبيق | `npm run check && node --test tests/*.test.mjs` | **63 ناجح** |
+| Backend (Postgres 16، قاعدة بيانات أُنشئت فارغة لهذا التشغيل) | `npx prisma migrate deploy && npm run prisma:seed && npm test` | **806 ناجح / 0 فاشل** |
+| التطبيق | `npm run check && node --test tests/*.test.mjs` | **66 ناجح** |
 | الموقع | `npm run typecheck`، `npm run lint`، `sync-static-admin --check` | نظيفة |
-| Playwright الكامل (متصفح Chromium — **ليس جهاز أندرويد**) | `npx playwright test` | **80 ناجح / 0 فاشل** (64 قائمة + 9 للتطبيق واللوحة + 7 رحلات خدمات كاملة) |
+| Playwright الكامل (متصفح Chromium — **ليس جهاز أندرويد**) | `npx playwright test` | **83 ناجح / 0 فاشل** (64 قائمة + 9 للتطبيق + 7 رحلات خدمات + 3 للوحة Next.js) |
+| توافق الترحيل | قاعدة بمستوى الترحيل السابق + بيانات قديمة ← `migrate deploy` | الملفات القديمة بقيت منشورة (`publishedAt = createdAt`)، الطلبات المغلقة لم تتغير |
 
 لم يُنفَّذ ولا يُدّعى: بناء APK/AAB، هاتف أندرويد، واتساب Meta، مزوّد الطيران، CI على GitHub لهذا الفرع.
 
@@ -38,6 +39,7 @@
 | الـseed لا ينشئ بيانات مال تجريبية في الإنتاج | `backend/prisma/seed.js` (`IS_PRODUCTION`) | شُغّل `NODE_ENV=production npm run prisma:seed` على قاعدة فارغة: 0 حسابات دفع، 0 باقات، أسعار الصرف 0 (= غير فعّال) |
 | التطبيق: الرئيسية/الخدمات/التفاصيل/النموذج/المطلوب منك | `mobile/www/js/**` | `mobile/tests/*.test.mjs` (56 اختبارًا)، `web/e2e/mobile-app.spec.ts` |
 | شارة البيئة لبناء الاختبار فقط | `mobile/www/js/environment.js` | `mobile/tests/environment.test.mjs` (لا شارة عند `production`، و workflow الإصدار يفرض `production`) |
+| سياسة سير العمل الموحدة: الطلب المغلق للقراءة فقط، التنفيذ بعد الجاهزية الفعلية، الاكتمال بتغطية كل مسافر بملف منشور، المسودات، الأقفال ضد التزامن | `contact-request-workflow/workflow-policy.js`, `workflow-lock.js`، توثيق `docs/WORKFLOW-POLICY.md` | `backend/tests/workflowIntegrity.test.js` (تكامل PostgreSQL حقيقي، أُثبت فشلها قبل الإصلاح)، `mobile/tests/closed-request-actions.test.mjs`، E2E `admin-workflow.spec.ts` و`service-journeys.spec.ts` |
 | قبول الدفع = «بانتظار بدء التنفيذ»؛ مرحلة الخدمة لا تظهر إلا بعد تسجيل التنفيذ | `contact-request-progress/request-progress.js`, `POST /api/contact-requests/:id/start-execution`, `contact-requests-view.js` («التنفيذ»), `mobile/www/js/progress-view.js` | `requestProgress.test.js`, `serviceJourneys.test.js`, `mobile/tests/progress-view.test.mjs`, E2E `service-journeys.spec.ts` |
 | رحلة كاملة لكل خدمة (طيران، بواخر، فنادق، عمرة، زيارة، مصر، تأشيرة تُضاف من اللوحة) | — | `docs/SERVICE-ACCEPTANCE.md` |
 | الفنادق على النموذج الموحد (نزلاء + مستندات) | `mobile/www/js/screens/hotels.js`, `hotel-selection.js` | `mobile/tests/hotel-selection.test.mjs`, E2E «hotels» |

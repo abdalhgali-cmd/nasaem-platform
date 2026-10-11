@@ -76,6 +76,7 @@ describe("closed requests are read-only for workflow actions", () => {
     assertConflict(await employee.post(`/api/contact-requests/${id}/invoice`).send({ amount: 120, currency: "USD" }), "revise price");
     assertConflict(await employee.post(`/api/contact-requests/${id}/start-execution`).send({}), "start execution");
     assertConflict(await deliverable(employee, id), "final file");
+    assertConflict(await employee.post(`/api/contact-requests/${id}/provider-submissions`).send({ supplierId: "any-supplier" }), "provider hand-off");
 
     const detail = await staffDetail(admin, id);
     assert.equal(detail.status, "CLOSED");

@@ -195,7 +195,7 @@ jobs:
       CORS_ORIGIN: http://localhost:3000,http://localhost:8081
       SEED_ADMIN_PASSWORD: CiTest@12345
       API_RATE_LIMIT: 2000
-      PUBLIC_CONTACT_RATE_LIMIT: 50
+      PUBLIC_CONTACT_RATE_LIMIT: 80
       TRACKING_CODE_RATE_LIMIT: 30
 
     steps:

@@ -1,43 +1,48 @@
 # Admin usability audit — can staff actually do the job?
 
-Date: 2026-10-11 · Branch `claude/busy-hamilton-1ccxm1` · Browser tests only (Chromium via Playwright). Nothing here was run on an Android device.
+Updated: 2026-10-12 (workflow repair) · Branch `claude/busy-hamilton-1ccxm1` · Browser tests in Chromium via Playwright. Nothing here was run on an Android device.
 
-There are two staff surfaces:
+Staff surfaces:
 
-- **Back-office** (`backend/public`, served by the API: `/admin-dashboard.html`) — the complete request workflow.
-- **Next.js admin** (`web/src/app/admin`) — dashboards, case workspace, payment review, delivery page.
+- **Back-office** (`backend/public`, `/admin-dashboard.html`) — complete request workflow.
+- **Next.js admin** (`web/src/app/admin`) — `/admin/cases` now carries the complete request workflow in its «سير العمل» tab; `/admin/payment-review` and `/admin/delivery?requestId=` reuse the same endpoints and panel.
 
-## Verified by a browser test, for every service
+Both show only the actions the server lists in `allowedActions` for the viewer's role and the request's stored state (`docs/WORKFLOW-POLICY.md`). A stale click is refused by the server with an Arabic reason.
 
-Evidence: `web/e2e/service-journeys.spec.ts` (7 journeys: flights, ferries, hotels, Umrah, family visit, Egypt clearance, a visa type created in the back-office during the test). Each journey drives the back-office UI, not the API.
+## Verified by browser tests
 
-| Staff action | Where | Evidence in the journey |
+| Staff action | Back-office (`service-journeys.spec.ts`, 7 services) | Next.js admin (`admin-workflow.spec.ts`) |
 |---|---|---|
-| Find the request | Back-office → «طلبات العملاء» → search by the traveler's name (one exact row) | `openStaffRequest` |
-| See every traveler and each traveler's documents | Request detail → «المسافرون», «مستندات العميل» (traveler column) | count of document rows = uploaded documents |
-| Accept a document | «قبول» per document | loop until none pending |
-| Reject a document with a reason; customer re-uploads for the same traveler | reason field + «رفض» | dynamic-visa journey |
-| Set the price | «السعر» form | every journey |
-| Reject a receipt with a reason; customer sees it and re-uploads | «الدفع» → «رفض الإيصال» | flights journey |
-| Accept the payment | «الدفع» → «تأكيد استلام الدفع» | every journey |
-| Start execution (only after payment) | «التنفيذ» → «تسجيل بدء التنفيذ» (form absent before payment) | every journey |
-| Upload the final file | «الملفات النهائية» → «رفع وتسليم» | every journey; request closes «مكتمل» |
-| Open the right request from a notification | 🔔 → receipt notification → `#/requests/<id>` | flights journey; also `mobile-app.spec.ts` («staff: opening the notification…») |
-| Staff and customer see the same status | «ما يراه العميل» in «التنفيذ» = the app's progress label | `bothSay(...)` at payment accepted, in execution, completed |
+| Find the request | search by traveler name → one row | `/admin/cases?requestId=` (also linked from payment review) |
+| See travelers and each traveler's documents | detail tables | «المسافرون», «المستندات» tabs |
+| Accept / reject a document with a reason | «قبول» / reason + «رفض»; customer re-uploads (dynamic-visa journey) | «المستندات» → «قبول» |
+| Why execution cannot start yet | «لا يمكن بدء التنفيذ بعد» list (unit/API-tested) | «سير العمل» blockers name the missing traveler and pending review (browser) |
+| Set the price | «السعر» form | «سير العمل» price form (rendered when allowed; exercised through the API in this spec) |
+| Reject a receipt with a reason, accept the new one | flights journey | `/admin/payment-review` (browser) |
+| Start execution | every journey | «سير العمل» and `/admin/delivery` |
+| Per-traveler final files: publish now, or save a draft and publish later | every journey (traveler 1 published, traveler 2 draft → publish) | «سير العمل» (both travelers), `/admin/delivery` (single traveler) |
+| Completion only when every traveler is covered | request stays open after the first file; closes after the second | same |
+| Egypt: customer travel plan, then staff complete | Egypt journey (app form + back-office close) | — |
+| Closed request is read-only | no review/payment/execution/file/close controls; reopen for admins only | «الطلب مغلق وللقراءة فقط», only «إعادة فتح» |
+| Open the right request from a notification | flights journey (receipt notification) | — |
+| Staff and customer see the same status | `bothSay(...)` at each stage | workflow label = customer label |
 
-## Found and fixed in this batch
+## Found and fixed in this repair
 
-1. **Next.js `/admin/payment-review` could not reject a customer-request receipt** — the «رفض» button appeared only for order payments. Fixed: it now calls `POST /api/contact-requests/:id/reject-payment` with the reason. Verified by `npm run typecheck` / `lint` only (no browser test for this page).
-2. **No way to record the start of execution** anywhere. Added to the back-office request detail (browser-tested) and to the Next.js delivery panel `components/sections/operations-deliverable-panel.tsx` (typecheck/lint only).
-3. **The receipt appeared as an ordinary document with «قبول/رفض» buttons** in the back-office. Accepting it there did not confirm the payment, which invited a wrong click. The receipt row now says «إيصال دفع — يُراجع من قسم «الدفع»» and has no document buttons (browser-tested).
-4. **Operations center counted a confirmed request with a selected offer as «بانتظار العميل»** (`dashboard.service.js contactNextAction`). Fixed; paid requests now show «بدء التنفيذ», then «إصدار وتسليم».
+1. Closed requests accepted workflow actions (approve a pending price, upload, review, execution, files). Now refused server-side and hidden everywhere.
+2. Execution could start with missing/rejected/pending documents. Now gated; the reasons are shown to staff.
+3. One file completed a group request; files were announced the moment they were uploaded. Now per-traveler coverage, drafts, explicit publishing.
+4. `/admin/cases` lacked price, payment, execution, delivery and closing actions → «سير العمل» tab.
+5. Queues had no execution states → «مدفوعة، بانتظار التنفيذ» (AWAITING_EXECUTION), «قيد التنفيذ» (IN_EXECUTION), «الملفات النهائية منشورة» (RESULTS_READY).
+6. `/admin/payment-review` listed only the 50 least-recently-updated open requests, so a fresh receipt could be missing on a busy day. Every payment under review is now listed (`operationsCenter.test.js` reproduces the old miss).
+7. An accidental execution start needed a database edit → audited correction (admins, reason; before any published file).
+8. «نشر للعميل الآن» in `/admin/cases` stayed unchecked after execution started (React default value) — found by the browser test, fixed.
+9. A closed request could still be handed to an external provider (provider submission). Now refused with the same Arabic reason.
 
-## Still missing (not fixed here)
+## Still missing / limits
 
-| Gap | Impact | Where to do it today |
-|---|---|---|
-| The Next.js case workspace (`/admin/cases`) has no price, payment accept/reject, start-execution or final-file actions | Staff who use only the Next.js admin must switch screens | Back-office request detail (all actions), or `/admin/payment-review` and `/admin/delivery?requestId=` |
-| Readiness queues (`computeReadiness`) have no «قيد التنفيذ» bucket; a paid request shows «جاهز للمعالجة» before and after execution starts | Queue view does not separate started from not-started work | Request detail «التنفيذ»; operations center «بدء التنفيذ» |
-| Egypt clearance: the post-approval travel-plan step is not part of the journey test | Covered only by its own backend tests | `backend/tests/egyptClearanceTravelRules.test.js`, `egyptClearanceIntake.test.js` |
-| No browser test for the Next.js admin pages touched above | Regressions there are caught only by typecheck/lint | — |
-| Execution start cannot be undone from the UI | A mistaken click needs a manual DB fix | — |
+| Gap | Impact |
+|---|---|
+| The Next.js price form in «سير العمل» and its close/reopen forms are not clicked by a browser test (the back-office equivalents are) | caught by typecheck/lint and by the back-office browser tests of the same endpoints |
+| No undo for a published file | a wrong file needs a new published file; the old one stays visible to the customer |
+| No real-device test of any of this | see `docs/SERVICE-ACCEPTANCE.md` |
