@@ -1,5 +1,7 @@
 # Nasaem Platform — Release Tasks
 
+All critical automated suites pass on `claude/release-integration`; release is stopped at the approval gate (merge, staging, deployment).
+
 Single source of truth for release progress. Only results of runs actually executed are recorded here; anything not run is listed as not run.
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
@@ -20,12 +22,12 @@ Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton
 |---|---|
 | Targeted (pricing, payments): `pricingModes.test.js`, `pricingModes.unit.test.js`, `paymentSettlement.test.js` | 44/44 |
 | Backend full (`node --test`, fresh isolated PostgreSQL), before the airline fix | 850/851 — the one failure is the audit race fixed above |
-| Backend full, after the airline fix | _pending_ |
+| Backend full, after the airline fix (fresh DB) | **851/851** |
 | Mobile unit (`mobile/tests`) | 74/74 |
 | Mobile JS syntax check (`npm run check`) | ok |
 | Web typecheck / lint / `next build` | ok / ok / ok |
 | Back-office copy sync check | ok |
-| Playwright, all projects (Chromium) | _pending_ |
+| Playwright, all projects (Chromium, local backend on this branch) | **87/87** |
 
 ## BLOCKED (needs owner / infrastructure)
 
