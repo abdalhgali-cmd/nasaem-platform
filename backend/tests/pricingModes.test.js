@@ -168,6 +168,10 @@ describe("fixed-price service", () => {
     assert.match(low.body.message, /[؀-ۿ]/);
     const currency = await submit({ phone, ...fixture, travelers: 2, acceptedTotal: 300, acceptedCurrency: "SAR" });
     assert.equal(currency.status, 409);
+    const missingCurrency = await submit({ phone, ...fixture, travelers: 2, acceptedTotal: 300 });
+    assert.equal(missingCurrency.status, 409, "missing currency must not silently approve a fixed-price invoice");
+    assert.equal(missingCurrency.body.code, "PRICE_CHANGED");
+    assert.equal(missingCurrency.body.details.currency, "USD");
 
     // The agency changes the price after the customer saw it.
     await admin.patch(`/api/visa-types/${fixture.visaType.id}`).send({ basePrice: 200 });

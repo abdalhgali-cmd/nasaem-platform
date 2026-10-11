@@ -43,6 +43,7 @@ describe("submission pricing decision", () => {
     assert.equal(changed.error, "PRICE_CHANGED");
     assert.equal(changed.details.total, 300);
     assert.equal(decideSubmissionPricing(item(), "SERVICE", { acceptedTotal: 300, acceptedCurrency: "USD", travelers: 2 }).error, "PRICE_CHANGED");
+    assert.equal(decideSubmissionPricing(item(), "SERVICE", { acceptedTotal: 300, travelers: 2 }).error, "PRICE_CHANGED", "matching total without an accepted currency is not informed consent");
   });
 
   test("a FIXED item without a confirmed total becomes a quote request (older clients)", () => {

@@ -48,5 +48,5 @@ export function fixedTotalSummary(pricing, travelerCount) {
 // price, so the review shows the new total for a fresh confirmation.
 export function withServerPrice(item, details) {
   if (!details || !(Number(details.unitPrice) > 0)) return item;
-  return { ...item, basePrice: details.unitPrice, priceUnit: details.priceUnit || item.priceUnit };
+  return { ...item, basePrice: details.unitPrice, priceUnit: details.priceUnit || item.priceUnit, currency: details.currency || item.currency };
 }

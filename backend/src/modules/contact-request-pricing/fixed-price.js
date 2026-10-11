@@ -89,7 +89,9 @@ export function decideSubmissionPricing(item, source, { acceptedTotal, acceptedC
     };
   }
   const currency = pricing.currency;
-  if (!sameAmount(acceptedTotal, total) || (acceptedCurrency && acceptedCurrency !== currency)) {
+  // A confirmed fixed total must also confirm its currency. An omitted
+  // currency cannot mean acceptance of whichever one the agency now uses.
+  if (!sameAmount(acceptedTotal, total) || acceptedCurrency !== currency) {
     return { error: "PRICE_CHANGED", details: { pricingMode: "FIXED", total, currency, unitPrice: pricing.unitPrice, priceUnit: pricing.priceUnit, units } };
   }
   const snapshot = {
