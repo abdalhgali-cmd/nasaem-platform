@@ -20,6 +20,8 @@ const ACTIVITY_ACTION_LABELS_AR = {
   CONTACT_REQUEST_INVOICE_SET: "تحديد سعر لطلب تواصل",
   CONTACT_REQUEST_OFFER_ADDED: "إضافة عرض لطلب تواصل",
   CONTACT_REQUEST_PAYMENT_CONFIRMED: "تأكيد دفع طلب تواصل",
+  CONTACT_REQUEST_PAYMENT_REJECTED: "رفض إيصال دفع طلب تواصل",
+  CONTACT_REQUEST_EXECUTION_STARTED: "بدء تنفيذ طلب تواصل",
   CONTACT_REQUEST_STATUS_CHANGED: "تغيير حالة طلب تواصل",
   CONTACT_REQUEST_DOCUMENT_REVIEWED: "مراجعة مستند طلب تواصل",
   CONTACT_REQUEST_DELIVERABLE_UPLOADED: "رفع ملف نهائي لطلب تواصل",

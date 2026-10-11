@@ -842,3 +842,13 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 
 /* Test builds only (never rendered when config.environment is "production") */
 .env-badge { position: fixed; top: calc(var(--safe-top) + 2px); inset-inline-start: 8px; z-index: 9999; padding: 1px 8px; border-radius: 999px; background: #b42318; color: #fff; font-size: 10px; font-weight: 800; pointer-events: none; opacity: .9; }
+
+/* Request progress (server-computed, service-specific stages) */
+.progress-label { margin: 0 0 10px; font-weight: 700; color: var(--navy); }
+.progress-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.progress-step { display: flex; align-items: center; gap: 10px; color: var(--muted, #6b7280); font-size: 14px; }
+.progress-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); flex: none; }
+.progress-step-done { color: var(--text, #1f2937); }
+.progress-step-done .progress-dot { background: var(--gold, #c9a227); border-color: var(--gold, #c9a227); }
+.progress-step-current { color: var(--navy); font-weight: 700; }
+.progress-step-current .progress-dot { border-color: var(--navy); background: var(--surface); box-shadow: 0 0 0 3px rgba(11, 37, 69, 0.15); }

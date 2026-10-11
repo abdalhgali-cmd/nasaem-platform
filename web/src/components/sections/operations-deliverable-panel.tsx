@@ -18,6 +18,33 @@ export function OperationsDeliverablePanel({ requestId, reference, onUpdated }: 
   const [message, setMessage] = React.useState("");
   const [error, setError] = React.useState("");
 
+  // Records that work on the paid request has started (ticket issuance,
+  // visa processing, hotel confirmation...). The server refuses it before
+  // the payment is accepted or a second time, and says why.
+  async function startExecution() {
+    setBusy(true);
+    setMessage("");
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(requestId)}/start-execution`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.message || "تعذر تسجيل بدء التنفيذ");
+      }
+      setMessage(`تم تسجيل بدء التنفيذ للطلب ${reference}: ${payload.data?.progress?.label ?? ""}`.trim());
+      onUpdated?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر تسجيل بدء التنفيذ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function upload() {
     if (!file || !label.trim()) return;
     setBusy(true);
@@ -73,6 +100,9 @@ export function OperationsDeliverablePanel({ requestId, reference, onUpdated }: 
         />
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant="outline" onClick={() => void startExecution()} disabled={busy}>
+          تسجيل بدء التنفيذ
+        </Button>
         <Button type="button" size="sm" variant="gold" onClick={() => void upload()} disabled={busy || !label.trim() || !file}>
           {busy ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
           {busy ? "جارٍ الرفع..." : "رفع وتسليم"}

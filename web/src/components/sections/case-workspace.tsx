@@ -193,6 +193,8 @@ const ACTION_LABEL: Record<string, string> = {
   CONTACT_REQUEST_TRANSFER_MARKED_SENT: "إعلان العميل عن التحويل",
   CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED: "رفع إشعار الدفع",
   CONTACT_REQUEST_PAYMENT_CONFIRMED: "تأكيد الدفع",
+  CONTACT_REQUEST_PAYMENT_REJECTED: "رفض إيصال الدفع",
+  CONTACT_REQUEST_EXECUTION_STARTED: "بدء التنفيذ",
   CONTACT_REQUEST_AUTO_COMPLETED: "إغلاق تلقائي بعد التسليم",
   TASK_CREATED: "إنشاء مهمة",
   TASK_COMPLETED: "إنهاء مهمة",

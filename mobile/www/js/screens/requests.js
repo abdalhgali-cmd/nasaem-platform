@@ -7,6 +7,7 @@ import * as tracking from "../tracking.js";
 import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
 import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "../payment-view.js";
+import { progressBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
 
@@ -48,6 +49,7 @@ const TIMELINE_ACTION_AR = {
   CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED: "تم رفع إثبات الدفع",
   CONTACT_REQUEST_PAYMENT_CONFIRMED: "تم تأكيد الدفع",
   CONTACT_REQUEST_PAYMENT_REJECTED: "تم رفض إيصال الدفع",
+  CONTACT_REQUEST_EXECUTION_STARTED: "بدأ تنفيذ طلبك",
   CONTACT_REQUEST_TRANSFER_MARKED_SENT: "تم إعلام الوكالة بالتحويل",
   CONTACT_REQUEST_DELIVERABLE_UPLOADED: "تم رفع ملف نهائي",
   CONTACT_REQUEST_AUTO_COMPLETED: "تم إكمال الطلب",
@@ -115,7 +117,7 @@ export async function renderMyRequestsScreen({ bodyEl }) {
         <div class="list-item-icon">${icon("requests", { size: 20 })}</div>
         <div class="list-item-body">
           <strong>${esc(request.service?.name || request.visaType?.name || "طلب خدمة")}</strong>
-          <p>${esc(request.nextAction || "")}</p>
+          <p>${esc(request.progress?.label || request.nextAction || "")}</p>
         </div>
         <span class="status-pill">${esc(requestStatusLabel(request))}</span>
       </button>`).join("");
@@ -264,7 +266,8 @@ function fromTracking(request) {
   return {
     ...request,
     service: request.serviceRef || (request.service ? { name: request.service } : null),
-    nextAction: request.statusLabel || "",
+    // The progress block shows the status label; repeat it only without one.
+    nextAction: request.progress ? "" : request.statusLabel || "",
     timeline: [],
   };
 }
@@ -381,6 +384,8 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         <h2>${esc(request.service?.name || request.visaType?.name || "طلب خدمة")}</h2>
         <p>${esc(request.nextAction || "")}</p>
       </div>
+
+      ${progressBlockHtml(request.progress, esc)}
 
       ${pricing || payState.label ? `
         <div class="detail-block quote-block">

@@ -1048,7 +1048,7 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
   // Not awaited: same rationale as elsewhere in this module.
   sendWhatsAppMessage(
     updated.phoneNormalized,
-    `تم قبول الدفع لطلبك (${describeRequest(updated)}). طلبك بانتظار بدء التنفيذ.`
+    `تم تأكيد استلام تحويلك لطلبك (${describeRequest(updated)}). طلبك بانتظار بدء التنفيذ.`
   );
 
   // A deliverable may already exist from before this payment confirmation

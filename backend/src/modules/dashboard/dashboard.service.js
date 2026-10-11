@@ -39,7 +39,8 @@ function contactNextAction(request) {
   if (request.paymentStatus === "AWAITING_TRANSFER") return { key: "FOLLOW_PAYMENT", label: "متابعة الدفع" };
   if (!request.invoice && request.offers.length === 0) return { key: "QUOTE", label: "إضافة سعر" };
   if (request.invoice?.status === "PENDING" && request.documents.some((doc) => doc.status === "PENDING")) return { key: "DOCUMENTS_OR_QUOTE", label: "مراجعة المستندات" };
-  if (request.invoice?.status === "PENDING" || request.offers.length > 0) return { key: "CUSTOMER_DECISION", label: "بانتظار العميل" };
+  if (request.invoice?.status === "PENDING" || (request.offers.length > 0 && !request.selectedOfferId)) return { key: "CUSTOMER_DECISION", label: "بانتظار العميل" };
+  if (request.paymentStatus === "CONFIRMED" && !request.executionStartedAt && request.deliverables.length === 0) return { key: "START_EXECUTION", label: "بدء التنفيذ" };
   if (request.paymentStatus === "CONFIRMED" && request.deliverables.length === 0) return { key: "DELIVER", label: "إصدار وتسليم" };
   return { key: "PROCESS", label: "معالجة الطلب" };
 }
@@ -73,7 +74,7 @@ export async function getOperationsCenter(organizationId) {
   const orderItems = orders.map((order) => ({ source: "order", id: order.id, reference: order.orderNumber, customerName: order.customer?.fullName || "بدون اسم", phone: order.customer?.phone || "", passportNo: order.customer?.passportNo || "", service: order.items?.[0]?.service?.name || "طلب", serviceId: order.items?.[0]?.service?.id || null, status: order.status, paymentStatus: order.paymentStatus, amount: order.totalAmount, currency: order.currency, updatedAt: order.updatedAt, assignedUser: order.assignedUser?.fullName || null, assignedUserId: order.assignedUserId || null, ageHours: Math.floor((now - new Date(order.updatedAt).getTime()) / 3600000), nextAction: orderNextAction(order), hasPaymentUnderReview: order.payments.length > 0, pendingPayment: order.payments[0] ? { id: order.payments[0].id, amount: order.payments[0].amount, currency: order.payments[0].currency } : null }));
   const items = [...contactItems, ...orderItems].sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
   const stalled = items.filter((item) => item.ageHours >= stalledHours).length;
-  return { queues: { newRequests: contactRequests.filter((r) => r.status === "NEW").length, waitingPaymentReview: pendingContactPayments + pendingOrderPayments, unassignedOrders, waitingDocuments: waitingDocs, waitingCustomer: contactRequests.filter((r) => contactNextAction(r).key === "CUSTOMER_DECISION").length, readyToDeliver: contactRequests.filter((r) => contactNextAction(r).key === "DELIVER").length, stalled }, items: items.slice(0, 80) };
+  return { queues: { newRequests: contactRequests.filter((r) => r.status === "NEW").length, waitingPaymentReview: pendingContactPayments + pendingOrderPayments, unassignedOrders, waitingDocuments: waitingDocs, waitingCustomer: contactRequests.filter((r) => contactNextAction(r).key === "CUSTOMER_DECISION").length, readyToDeliver: contactRequests.filter((r) => ["START_EXECUTION", "DELIVER"].includes(contactNextAction(r).key)).length, stalled }, items: items.slice(0, 80) };
 }
 
 export async function getDashboardSummary(organizationId) {

@@ -1,73 +1,51 @@
-import { api } from "../api.js";
-import { esc, toast, setLoading } from "../ui.js";
+import { esc, toast } from "../ui.js";
 import { icon } from "../icons.js";
-import { getCustomer, isAccountUnlocked } from "../auth.js";
-import { newSubmissionKey, submitRequestJson, submitFailureMessage, showSubmitted } from "../submission.js";
-import { go } from "../router.js";
+import { renderIntakeScreen } from "./intake.js";
+import { hotelSelection } from "../hotel-selection.js";
 
+// Hotels: the customer describes the stay (city, dates, rooms); every guest
+// and the documents the back-office requires for this service follow in the
+// shared request form, like every other service. Nothing is booked
+// automatically: staff check availability and send a price.
 export async function renderHotelsScreen({ bodyEl, params }) {
   const { item } = params;
-  // Account details prefill the form only when the account is unlocked.
-  const customer = isAccountUnlocked() ? getCustomer() : null;
-  // One key per form on screen: retries never create a second request.
-  const submissionKey = newSubmissionKey();
   const today = new Date().toISOString().slice(0, 10);
 
   bodyEl.innerHTML = `
     <div class="service-hero">
       <div class="service-hero-icon">${icon("hotel", { size: 36 })}</div>
       <h2>حجز الفنادق</h2>
-      <p>أرسل تفاصيل الإقامة، وسيتحقق فريق نسائم الحرمين من التوفر ويعود إليك بالعرض المناسب.</p>
+      <p>أرسل تفاصيل الإقامة، وسيتحقق فريق نسائم الحرمين من التوفر ويرسل لك السعر قبل أي دفع.</p>
     </div>
-    <form id="hotelForm" class="form">
-      <label class="field"><span>المدينة *</span><input name="city" required value="مكة المكرمة"></label>
+    <form id="hotelForm" class="form" novalidate>
+      <label class="field"><span>المدينة *</span><input name="city" value="مكة المكرمة" autocomplete="off"></label>
       <div class="field-row">
-        <label class="field"><span>تاريخ الدخول *</span><input name="checkin" type="date" min="${today}" required></label>
-        <label class="field"><span>تاريخ الخروج *</span><input name="checkout" type="date" min="${today}" required></label>
+        <label class="field"><span>تاريخ الدخول *</span><input name="checkin" type="date" min="${today}"></label>
+        <label class="field"><span>تاريخ الخروج *</span><input name="checkout" type="date" min="${today}"></label>
       </div>
-      <div class="field-row">
-        <label class="field"><span>عدد النزلاء *</span><input name="guests" type="number" min="1" max="20" value="1" required></label>
-        <label class="field"><span>عدد الغرف *</span><input name="rooms" type="number" min="1" max="10" value="1" required></label>
-      </div>
-      <label class="field"><span>الاسم الكامل *</span><input name="name" required value="${esc(customer?.fullName || "")}"></label>
-      <div class="field-row">
-        <label class="field"><span>رقم الهاتف *</span><input name="phone" required inputmode="tel" value="${esc(customer?.phone || "")}"></label>
-        <label class="field"><span>البريد الإلكتروني</span><input name="email" type="email" value="${esc(customer?.email || "")}"></label>
-      </div>
-      <label class="field"><span>ملاحظات</span><textarea name="notes" rows="3" placeholder="نوع الغرفة، قرب الفندق من الحرم، أو أي طلب خاص"></textarea></label>
-      <button type="submit" class="primary" id="hotelSubmitBtn">إرسال طلب الفندق</button>
+      <label class="field"><span>عدد الغرف *</span><input name="rooms" type="number" min="1" max="10" value="1"></label>
+      <label class="field"><span>تفضيلات (اختياري)</span><textarea name="preferences" rows="2" placeholder="نوع الغرفة، القرب من الحرم، أو أي طلب خاص"></textarea></label>
+      <p class="field-hint">النزلاء ومستنداتهم في الخطوة التالية.</p>
+      <p class="step-errors" id="hotelErrors" role="alert" hidden></p>
+      <button type="submit" class="primary" id="hotelSubmitBtn">متابعة بيانات النزلاء</button>
     </form>
+    <div id="hotelIntakeMount"></div>
   `;
 
   const form = bodyEl.querySelector("#hotelForm");
+  const errorsEl = bodyEl.querySelector("#hotelErrors");
   const checkinInput = form.querySelector('[name="checkin"]');
   const checkoutInput = form.querySelector('[name="checkout"]');
   checkinInput.addEventListener("change", () => { checkoutInput.min = checkinInput.value || today; });
 
-  form.addEventListener("submit", async (event) => {
+  form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const data = Object.fromEntries(new FormData(form));
-    if (data.checkout <= data.checkin) {
-      toast("تاريخ المغادرة يجب أن يكون بعد تاريخ الدخول", { tone: "error" });
-      return;
-    }
-    const submitBtn = bodyEl.querySelector("#hotelSubmitBtn");
-    setLoading(submitBtn, true, "جارٍ الإرسال…");
-    try {
-      const outcome = await submitRequestJson({
-          name: data.name,
-          phone: data.phone,
-          email: data.email || undefined,
-          service: "حجز الفنادق",
-          serviceId: item?.id || undefined,
-          travelerCount: Number(data.guests) || 1,
-          intakeData: { city: data.city, checkin: data.checkin, checkout: data.checkout, guests: Number(data.guests) || 1, rooms: Number(data.rooms) || 1, notes: data.notes },
-          message: `طلب فندق في ${data.city} من ${data.checkin} إلى ${data.checkout}، عدد النزلاء ${data.guests}، الغرف ${data.rooms}. ${data.notes || ""}`,
-        }, submissionKey);
-      showSubmitted(outcome, { serviceName: "حجز الفنادق", phone: data.phone, travelerCount: data.guests });
-    } catch (error) {
-      setLoading(submitBtn, false);
-      toast(submitFailureMessage(error), { tone: "error" });
-    }
+    const { problems, selection } = hotelSelection(Object.fromEntries(new FormData(form)), { today });
+    errorsEl.hidden = !problems.length;
+    errorsEl.innerHTML = problems.map((message) => `<span>${esc(message)}</span>`).join("");
+    if (problems.length) return;
+    const mount = bodyEl.querySelector("#hotelIntakeMount");
+    mount.scrollIntoView({ behavior: "smooth" });
+    renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection }).catch((error) => toast(error.message, { tone: "error" }));
   });
 }

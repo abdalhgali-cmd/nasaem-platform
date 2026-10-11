@@ -761,3 +761,8 @@ summary:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+/* Request progress steps (staff request detail) */
+.cr-steps .cr-step-done { color: var(--success, #1f7a3a); }
+.cr-steps .cr-step-current { font-weight: 700; }
+.cr-steps .cr-step-upcoming { color: var(--muted, #6b7280); }

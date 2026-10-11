@@ -123,6 +123,9 @@ type TrackedRequest = {
   message: string;
   status: TrackedRequestStatus;
   statusLabel: string;
+  // Server-computed, service-aware progress (request-progress.js): the
+  // execution step is "current" until staff record it, then "done".
+  progress?: { stage: string; label: string; steps: { key: string; label: string; state: TimelineStepState }[] };
   createdAt: string;
   invoice: TrackedInvoice | null;
   offers: TrackedOffer[];
@@ -188,7 +191,9 @@ function getRequestNextAction(req: TrackedRequest) {
   }
   if (req.paymentStatus === "UNDER_REVIEW") return "انتظر مراجعة إثبات التحويل من فريقنا.";
   if (req.paymentStatus === "CONFIRMED" && req.deliverables.length === 0) {
-    return "تم قبول الدفع. لا يلزمك أي إجراء الآن؛ سنشعرك فور صدور التأشيرة ورفعها.";
+    return req.progress?.stage === "IN_EXECUTION"
+      ? `${req.progress.label}. لا يلزمك أي إجراء الآن؛ سنشعرك عند رفع الملف النهائي.`
+      : "تم قبول الدفع، وطلبك بانتظار بدء التنفيذ. لا يلزمك أي إجراء الآن.";
   }
   if (req.paymentStatus === "AWAITING_TRANSFER") return "حوّل المبلغ ثم اضغط «تم تحويل المبلغ».";
   if (req.invoice?.status === "PENDING") return "راجع السعر المقترح ثم اختر الموافقة أو الرفض.";
@@ -239,14 +244,16 @@ function getRequestTimeline(req: TrackedRequest): TimelineStep[] {
     });
   }
 
+  const execution = req.progress?.steps.find((step) => step.key === "EXECUTION");
+  const delivery = req.progress?.steps.find((step) => step.key === "DELIVERY");
   if (req.paymentStatus === "CONFIRMED") {
     steps.push({
-      label: "انتظار صدور التأشيرة",
-      state: req.deliverables.length > 0 ? "done" : "current",
+      label: execution?.label ?? "تنفيذ الطلب",
+      state: req.deliverables.length > 0 || execution?.state === "done" ? "done" : "current",
     });
   }
 
-  steps.push({ label: "استلام التأشيرة", state: req.deliverables.length > 0 ? "done" : "upcoming" });
+  steps.push({ label: delivery?.label ?? "تسليم الملفات النهائية", state: req.deliverables.length > 0 ? "done" : "upcoming" });
 
   if (req.status === "CLOSED") {
     const closedLabel =

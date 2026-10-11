@@ -29,6 +29,7 @@ function crNextAction(r) {
   if (!r.invoice && (!r.offers || r.offers.length === 0)) return "تحديد السعر";
   if ((r.documents || []).some((d) => d.status === "PENDING")) return "مراجعة المستندات";
   if (r.invoice?.status === "PENDING" || ((r.offers || []).length > 0 && !r.selectedOfferId)) return "بانتظار موافقة العميل";
+  if (r.paymentStatus === "CONFIRMED" && !r.executionStartedAt && (r.deliverables || []).length === 0) return "بدء التنفيذ";
   if (r.paymentStatus === "CONFIRMED" && (r.deliverables || []).length === 0) return "إصدار وتسليم الملف النهائي";
   if (r.paymentStatus === "CONFIRMED") return "إغلاق الطلب كمكتمل";
   return "معالجة الطلب";
@@ -134,8 +135,13 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       <tbody>${docs
         .map((d) => {
           const t = traveler(d.travelerId);
-          const controls =
-            can("work") && d.status === "PENDING"
+          // A payment receipt is decided in the payment section (accept or
+          // reject with a reason); accepting it here as a "document" would
+          // not confirm the payment, so no document buttons are shown.
+          const isReceipt = d.classification === "FINANCIAL_DOCUMENT";
+          const controls = isReceipt
+            ? '<span class="muted small">إيصال دفع — يُراجع من قسم «الدفع»</span>'
+            : can("work") && d.status === "PENDING"
               ? `<div class="stack wrap">
                   <button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}">قبول</button>
                   <label class="sr-only" for="reject-note-${escapeHtml(d.id)}">سبب الرفض</label>
@@ -207,6 +213,35 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       </form>`);
     } else if (r.paymentStatus === "UNDER_REVIEW") {
       lines.push('<p class="muted small">تأكيد الدفع من صلاحيات المحاسبة أو الإدارة.</p>');
+    }
+    return lines.join("");
+  }
+
+  // Service-specific progress, computed by the server exactly as the
+  // customer sees it. "Start execution" is recorded here, after the payment
+  // is accepted; until then the customer only sees "awaiting execution".
+  function executionHtml(r) {
+    const progress = r.progress;
+    if (!progress) return "";
+    const steps = progress.steps
+      .map((step) => `<li class="cr-step cr-step-${escapeHtml(step.state)}">${step.state === "done" ? "✔ " : step.state === "current" ? "◀ " : ""}${escapeHtml(step.label)}</li>`)
+      .join("");
+    const lines = [
+      `<p>نوع الخدمة: <strong>${escapeHtml(progress.serviceKindLabel)}</strong> · ما يراه العميل: <strong data-cr-progress-label="1">${escapeHtml(progress.label)}</strong></p>`,
+      `<ol class="plain-list cr-steps">${steps}</ol>`,
+    ];
+    if (r.executionStartedAt) {
+      lines.push(`<p class="muted small">بدأ التنفيذ ${formatDateTime(r.executionStartedAt)}${r.executionNote ? ` — ${escapeHtml(r.executionNote)}` : ""}</p>`);
+    }
+    if (progress.canStartExecution && can("work")) {
+      lines.push(`<form class="card inset" data-cr-form="start-execution">
+        <h4>بدء التنفيذ</h4>
+        <p class="muted small">سجّل هذا عندما تبدأ فعلًا (${escapeHtml(progress.steps.find((s) => s.key === "EXECUTION")?.label || "")}). يصل العميل إشعار، وتتغير حالته إلى «${escapeHtml(progress.serviceKindLabel)}: قيد التنفيذ».</p>
+        <div class="field"><label for="cr-execution-note">ملاحظة داخلية (اختيارية، لا تظهر للعميل)</label><input id="cr-execution-note" name="note" maxlength="500" /></div>
+        <button type="submit" class="btn">تسجيل بدء التنفيذ</button>
+      </form>`);
+    } else if (progress.canStartExecution) {
+      lines.push('<p class="muted small">بدء التنفيذ من صلاحيات موظفي العمليات أو الإدارة.</p>');
     }
     return lines.join("");
   }
@@ -338,6 +373,8 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       ${pricingHtml(r)}
       <h3>الدفع</h3>
       ${paymentHtml(r)}
+      <h3>التنفيذ</h3>
+      ${executionHtml(r)}
       <h3>الملفات النهائية</h3>
       ${deliverablesHtml(r)}
       <h3>الحالة</h3>
@@ -439,6 +476,8 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
         if (reason.length < 3) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب رفض الإيصال.");
         return act(button, () => api.post(`${base}/reject-payment`, { reason }), "تم رفض الإيصال وإبلاغ العميل بالسبب.");
       }
+      case "start-execution":
+        return act(button, () => api.post(`${base}/start-execution`, { note: f.note.value.trim() || undefined }), "تم تسجيل بدء التنفيذ وإبلاغ العميل.");
       case "deliverable": {
         const file = f.file.files[0];
         if (!file || !f.label.value.trim()) return showAlert(document.getElementById("cr-action-alert"), "اكتب اسم الملف واختر الملف.");

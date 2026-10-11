@@ -1,6 +1,6 @@
 # Staff role matrix (back-office)
 
-The backend's `requireRole(...)` checks are authoritative. The back-office (`backend/public/assets/admin-dashboard.js`, `ROLE_TABS` and the per-view `*_ROLE_CAN` maps) only hides controls that a role would be refused anyway.
+The backend's `requireRole(...)` checks are authoritative. The complete expected permission of every API route is pinned in `backend/tests/fixtures/rbac-baseline.json`; `backend/tests/rbacMatrix.test.js` fails when a route loses its guard, gains or loses a role, or appears without being added there. The back-office (`backend/public/assets/admin-dashboard.js`, `ROLE_TABS` and the per-view `*_ROLE_CAN` maps) only hides controls that a role would be refused anyway.
 
 Every row is also scoped to the user's organization. A record from another organization reads as "not found".
 
@@ -25,6 +25,8 @@ Every row is also scoped to the user's organization. A record from another organ
 | Customer request: assign responsible staff | SUPER_ADMIN, ADMIN | PATCH `/:id/assign` |
 | Customer request: review documents, set price/offers, deliver files, notes | SUPER_ADMIN, ADMIN, EMPLOYEE | the respective routes |
 | Customer request: confirm payment | SUPER_ADMIN, ADMIN, ACCOUNTANT | POST `/:id/confirm-payment` |
+| Customer request: reject the payment receipt (reason required) | SUPER_ADMIN, ADMIN, ACCOUNTANT | POST `/:id/reject-payment` |
+| Customer request: record the start of execution (after the payment is accepted) | SUPER_ADMIN, ADMIN, EMPLOYEE | POST `/:id/start-execution` |
 | Order: change status (state machine), assign | SUPER_ADMIN, ADMIN, EMPLOYEE | `orders.routes.js` |
 | Order: record payment, confirm/reject pending payment, refund | SUPER_ADMIN, ADMIN, ACCOUNTANT | `payments.routes.js` |
 | Flight booking: provisional ticket, final ticket | SUPER_ADMIN, ADMIN, EMPLOYEE | `flight-bookings.routes.js` |

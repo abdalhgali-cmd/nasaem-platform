@@ -53,7 +53,15 @@ export function paymentState(request) {
   const pending = (request?.offers || []).length > 0 && !request.selectedOfferId && !request.invoice;
 
   if (request?.paymentStatus === "CONFIRMED") {
-    return { key: "CONFIRMED", tone: "ok", label: "تم قبول الدفع", detail: "استلمت الوكالة دفعتك وتتابع تنفيذ طلبك." };
+    // Accepting the payment means "awaiting execution" — the service stage
+    // is shown only once the agency has recorded it (request.progress).
+    const executing = ["IN_EXECUTION", "DELIVERED"].includes(request.progress?.stage) || request.status === "CLOSED";
+    return {
+      key: "CONFIRMED",
+      tone: "ok",
+      label: "تم قبول الدفع",
+      detail: executing ? "استلمت الوكالة دفعتك." : "استلمت الوكالة دفعتك، وطلبك بانتظار بدء التنفيذ.",
+    };
   }
   if (request?.paymentStatus === "UNDER_REVIEW") {
     return { key: "UNDER_REVIEW", tone: "wait", label: "إيصال الدفع قيد المراجعة", detail: "رفعت الإيصال، ولم يُعتمد الدفع بعد. ستصلك نتيجة المراجعة." };
