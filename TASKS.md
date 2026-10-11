@@ -14,6 +14,9 @@ Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton
 | PR #88 — a confirmed fixed total must also confirm its currency; app review refreshes the currency after `PRICE_CHANGED` | reviewed diff; `pricingModes*.test.js`, `mobile/tests/pricing-view.test.mjs` |
 | PR #89 — `pendingReview: "false"` no longer becomes `true` (string truthiness); invalid flags rejected | reviewed diff; only caller (back-office) sends a real boolean; `paymentSettlement.test.js` |
 | Audit-log race: airline create/update/delete now write the audit entry before responding | `activityLog.test.js` failed once in the full run (`AIRLINE_DELETED` missing), 5/5 green after the fix |
+| Rollback check: `fixed-pricing-v1` capability required once the pricing migration is applied; existing FIXED requests named | `backend/src/release/compatibility.js`, `release-compatibility.json`, `rollbackSafety.test.js` |
+| Railway staging plan (no live action) | `docs/RELEASE-91-RAILWAY-RUNBOOK.md` + `scripts/release-restore-drill.sh` |
+| Website flight search says results are not instant bookings | `web/src/components/sections/flight-search-client.tsx` |
 | Migrations `20261014090000_case_task_system_key`, `20261014100000_explicit_pricing_mode` are additive | upgraded a DB at the previous schema with data in place: Egypt tasks keyed, manual tasks untouched, existing items stay `QUOTE`, invoices unchanged |
 
 ## Test results on `claude/release-integration`
@@ -28,7 +31,11 @@ Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton
 | Web typecheck / lint / `next build` | ok / ok / ok |
 | Back-office copy sync check | ok |
 | Playwright, all projects (Chromium, local backend on this branch) | **87/87** |
-| GitHub Actions on #91 head | backup/restore drill (synthetic) ✅; Backend tests, Frontend typecheck + build, build-apk: running at time of writing |
+| GitHub Actions run 507 on `5098dba` | Playwright E2E ❌ 86/87: `platform3` "Security approvals" raced its own upload (test waited for text already on the page). Test fixed in `5c9ca08` (waits for the 201 upload response); passes locally |
+| GitHub Actions on `5c9ca08` | Backend tests ✅, Frontend typecheck + build ✅, PostgreSQL backup + restore drill (synthetic) ✅, build-apk ✅; Playwright E2E: running at time of writing |
+| Vercel status on #91 | ❌ "Account is blocked" — Vercel account issue, not code; owner must resolve in Vercel |
+| Rollback guard (`rollbackSafety.test.js`, `startupGuard.test.js`) incl. new fixed-pricing case | 24/24 (local, disposable DB) |
+| `scripts/release-restore-drill.sh` on a synthetic `main`-schema dump | applies 11 migrations; counts and payment total unchanged; all items `QUOTE`; rollback-check exit 2 (roll-forward only, expected); uploads check 0 missing; refuses non-local hosts |
 
 ## BLOCKED (needs owner / infrastructure)
 
@@ -39,11 +46,11 @@ Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton
 
 ## NEXT
 
-1. Review and approve PRs #87 → #88 → #89 (or this integration PR) — merge needs owner approval.
-2. Owner: verify a real staging DB + uploads backup and restore, then approve deploying #91 to Railway staging (`prisma migrate deploy` runs the two additive migrations).
+1. Confirm GitHub Actions green on #91's final SHA (Playwright pending at time of writing); then owner review of #91 — merge needs owner approval.
+2. Owner: follow `docs/RELEASE-91-RAILWAY-RUNBOOK.md` — real staging DB + `/data/uploads` backup, run `scripts/release-restore-drill.sh` on it, then approve deploying #91 to Railway staging. Note: the container runs `prisma migrate deploy` on start, so the deploy applies **11** migrations vs `main` (incl. admin-remediation); afterwards the environment is roll-forward only.
 3. Build and distribute the new Android app (signed release via `android-release.yml`, owner-triggered) **before** switching any service to FIXED — older installed apps can't approve quotes (`QUOTE_VERSION_REQUIRED`).
 4. Staging smoke per `docs/staging-deployment.md`; then the production approval gate.
 
 VERIFIED wording: app flight and hotel screens and the website flight search say results are agency-entered and that availability and final price are confirmed by staff before any payment (not live bookable inventory).
 
-Known functional gaps (documented, not release blockers for QUOTE services): website/guided-intake/hotel/ferry forms don't show a fixed total, so FIXED items ordered there fall back to QUOTE.
+Known functional gaps (documented, not release blockers for QUOTE services): website/guided-intake/hotel/ferry forms don't show a fixed total, so FIXED items ordered there fall back to QUOTE. Next implementation task (after the release gates): the website service wizard submits via `/intake-drafts/:token/submit`, so it needs `acceptedTotal`/`acceptedCurrency` on that endpoint (same `resolveSubmissionPricing`) plus a total review step; deferred because FIXED cannot be enabled before the new Android app is distributed.
