@@ -5,28 +5,30 @@
 import app from "./app.js";
 import { startConfirmationReconciler } from "./modules/customer-messages/customer-messages.service.js";
 import prisma from "./config/database.js";
-import { assertDatabaseCompatible } from "./release/compatibility.js";
+import { startServer } from "./startup.js";
 
 const port = Number(process.env.PORT) || 5000;
+const positive = (value, fallback) => (Number.isInteger(Number(value)) && Number(value) > 0 ? Number(value) : fallback);
 
-// Refuse to serve a database written by a later build (see
-// release/compatibility.js). If the database cannot be reached the check is
-// skipped: requests then fail with 503 on their own, and the next restart
-// checks again.
+// Nothing is served until the database is verified compatible with this
+// build (see startup.js and release/compatibility.js). Any failure exits
+// non-zero; the platform restarts the process, which checks again.
 try {
-  await assertDatabaseCompatible(prisma);
-} catch (error) {
-  if (error.code === "INCOMPATIBLE_DATABASE") {
-    console.error(`[startup] ${error.message}`);
-    process.exit(1);
-  }
-  console.warn(`[startup] Database compatibility check skipped: ${error.message}`);
-}
-
-app.listen(port, "0.0.0.0", () => {
+  await startServer({
+    app,
+    db: prisma,
+    port,
+    attempts: positive(process.env.STARTUP_DB_ATTEMPTS, 5),
+    retryDelayMs: positive(process.env.STARTUP_DB_RETRY_DELAY_MS, 3000),
+    // Sends customer confirmations that were stored but not sent (crash,
+    // provider outage); see customer-messages.service.js.
+    startWorkers: () => {
+      if (process.env.NODE_ENV !== "test") startConfirmationReconciler();
+    },
+  });
   console.log(`Nasaem Platform API running on port ${port}`);
-});
-
-// Sends customer confirmations that were stored but not sent (crash, provider
-// outage); see customer-messages.service.js.
-if (process.env.NODE_ENV !== "test") startConfirmationReconciler();
+} catch (error) {
+  console.error(`[startup] ${error.message}`);
+  await prisma.$disconnect().catch(() => {});
+  process.exit(1);
+}

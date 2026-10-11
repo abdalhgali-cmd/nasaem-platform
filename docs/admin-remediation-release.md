@@ -34,6 +34,8 @@ Names only, no values. All of these are optional unless marked.
 | `API_SESSION_RATE_LIMIT` | Requests per signed-in user per 15 minutes. | 1500 |
 | `LOGIN_IP_FAILURE_LIMIT` | Failed staff logins per IP per 15 minutes. | 50 |
 | `DB_COMPAT_ACKNOWLEDGED_MIGRATIONS` | Comma-separated names of later migrations an operator has reviewed and accepts for this build (startup guard, §8). Leave unset. | empty |
+| `STARTUP_DB_ATTEMPTS` | How many times startup tries to reach the database for the compatibility check before exiting non-zero. | 5 |
+| `STARTUP_DB_RETRY_DELAY_MS` | Delay between those attempts. | 3000 |
 | `PUBLIC_ORGANIZATION_ID` (existing) | Organization that owns public flight bookings and guest requests. | `org_nasaem_default` |
 | `JWT_SECRET`, `JWT_EXPIRES_IN`, `DATABASE_URL`, `UPLOAD_ROOT` (existing) | Unchanged. | — |
 
@@ -80,14 +82,16 @@ After migrating, the server checks that the database contains no migration this 
 - Scripts, Postman and test harnesses that write with a session **cookie** must send `X-Requested-With`. Bearer-token clients, including the mobile app, are unaffected.
 
 **Startup**
-- The backend refuses to start against a database that has migrations it does not know. It logs `[startup] Database has N migration(s) this build does not know` and exits.
+- The backend opens its port only after it has verified the database (§8.3).
+- If it cannot verify the database it exits non-zero, logging `[startup] Startup refused: …`. This covers an unknown migration, a missing migration history, an unexpected error, and a database still unreachable after the bounded retries.
 
 **Static back-office on Vercel**
 - `web/public/*` is regenerated from `backend/public` (§7).
 
 ## 5. Release order (when separately authorized)
 
-1. Back up the target database and confirm the backup restores (§8).
+1. Back up the target database and confirm **that** backup restores (§8.5).
+   - The CI `backup_restore` job proves only that the procedure works on CI's synthetic data. It is not a backup of staging.
    - Deploy **only the integration SHA** (the whole stack #82–#86).
    - A partial stack, for example #82–#85, lacks the startup guard and the rollback check.
 2. Run `npm run finance:diagnose` (read-only) against a **copy** of the target data. Review the result with the accountant before the release, because balances for mismatched-currency payments change (see `docs/financial-remediation-proposal.md`).
@@ -109,7 +113,9 @@ After migrating, the server checks that the database contains no migration this 
 - 503 responses with code `SESSION_CHECK_UNAVAILABLE`. This means database trouble; staff stay on the page with a retry panel.
 - 403 with `CSRF_REJECTED`. A spike means a legitimate origin is missing from `CORS_ORIGIN`/`CSRF_TRUSTED_ORIGINS`.
 - 429 with `RATE_LIMITED` / `LOGIN_RATE_LIMITED`.
-- A startup log line `[startup] Database has … migration(s) this build does not know`. Someone deployed an older build. Do not override it; roll forward.
+- A startup log line `[startup] Startup refused: …` together with Railway restarting the service:
+  - **"does not know"**: someone deployed an older build. Do not override it; roll forward.
+  - **"unreachable after N attempt(s)"**: the database is down. The service comes back on its own once the database is reachable.
 - 409 with `OVERPAYMENT` / `CURRENCY_MISMATCH` / `PRICE_CHANGED`. These are expected occasionally; a sudden rise points to bad data entry or a pricing change.
 
 These codes appear in the JSON bodies and in morgan's access log (status codes). Any 5xx is logged by `error.middleware.js` with its stack.
@@ -174,35 +180,77 @@ Do **not** roll back to the pre-remediation backend (`4bb8a73`, or the `5e9bf2e`
 
 **3. Rollback build.** None is provided, because none is needed. Any acceptable rollback target must contain the refund-aware settlement, session revocation and the #82 security fixes, which means it must contain this release. A future build that wants to be a rollback target declares the same capabilities and passes the check.
 
-### 8.3 Startup guard
+### 8.3 Startup guard (fails closed)
 
-- At boot the backend compares the database's applied migrations with its own.
-- An unknown migration, meaning a later build wrote the schema, makes it exit with code 1 instead of serving possibly wrong numbers.
-- `DB_COMPAT_ACKNOWLEDGED_MIGRATIONS` can name specific later migrations after review. There is no blanket switch.
-- If the database cannot be reached, the check is skipped; requests then fail with 503 by themselves.
+At boot (`backend/src/startup.js`, called from `server.js`) the backend compares the database's applied migrations with its own.
+
+**Nothing is served before the check passes.** Neither the HTTP port nor the background worker (customer-confirmation reconciler) starts until the check has **succeeded**.
+
+**Outcomes**
+
+| What the check finds | What the backend does |
+|---|---|
+| Every applied migration is known | Opens the port, then starts the worker. |
+| An unknown migration (a later build wrote the schema) | Exits with code 1 at once. |
+| No `_prisma_migrations` table | Exits with code 1 at once. |
+| Any other unexpected error | Exits with code 1 at once. |
+| Database unreachable | Retries `STARTUP_DB_ATTEMPTS` times (default 5), `STARTUP_DB_RETRY_DELAY_MS` apart (default 3 s), then exits with code 1. |
+
+**What is never treated as compatible:** an unreachable database or an unexpected error.
+
+**Recovery is by restart.**
+- Railway restarts the exited process, and every restart runs the full check again.
+- A database that comes back becomes reachable to the next attempt or restart, and traffic starts only after the check passes on it.
+- A database that comes back **incompatible** keeps the service down.
+
+**Acknowledging a later migration.** `DB_COMPAT_ACKNOWLEDGED_MIGRATIONS` can name specific later migrations after review. There is no blanket switch.
+
+**After a successful start nothing changes.**
+- A later database outage is handled per request: staff get 503 `SESSION_CHECK_UNAVAILABLE` and stay signed in.
+- Refund accounting, session revocation and CSRF protection are unchanged.
+
+**Tests:** `backend/tests/startupGuard.test.js` drives the real start sequence and the `server.js` process. It injects failures through a TCP proxy and uses synthetic databases.
 
 ### 8.4 Limitations
 
 - **The old backend has no guard.** `4bb8a73` itself has no startup guard: it **will start** if someone redeploys it. The only protections are this document, the pre-flight check, and Railway access control. Treat "Redeploy" on the `5e9bf2e` deployment in Railway as a prohibited action for this environment.
 - **Deploy overlap.** During a Railway deploy, the old revision may keep serving for a short time after migrations ran. This is safe only while the new code has not yet written refunds or revocations. Release when staff are not recording payments, and do not record refunds until the old revision has stopped.
+- **A long outage means a down service.** If the database stays unreachable for longer than the retries, the service exits and Railway's restart policy decides how often it tries again. Check that policy in Railway (it is not visible from here). With a "never restart" policy the service would stay down until someone redeploys **the same candidate** (never `5e9bf2e`).
 - **The check is not enforced by Railway.** `release:rollback-check` is a procedure, not a platform gate.
 - **Derived values written by the old code.** If the old code ever ran after refunds existed, it may have written a wrong `Order.paymentStatus`. `npm run finance:diagnose` (read-only) lists orders whose stored status differs from the computed settlement. Correct them only through the application, or through a reviewed script under a fresh backup. Never by editing payment rows.
 
-### 8.5 Before any live data change
+### 8.5 Backups: a CI exercise is not a staging backup
 
-1. Take a fresh logical backup (`pg_dump -Fc`).
-2. Restore it into a disposable database and compare row counts. This is the CI drill (`backup_restore` job).
-3. Run the change in a transaction, logging old and new values to `ActivityLog`.
+**What CI proves.** The CI `backup_restore` job dumps and restores a database that CI seeds itself. It proves the **procedure and tooling** (`pg_dump -Fc` → `pg_restore` → row counts). It says nothing about staging or production data.
+
+**A verified backup of staging** exists only when all of these are true:
+1. Someone with access took a fresh `pg_dump -Fc` of the **staging** database (`Postgres-_h_s`) in the same hour as the change.
+2. They restored it into a disposable database.
+3. They compared row counts per table, at least `Payment`, `Order`, `User` and `RevokedStaffToken`, against the source.
+4. They recorded who did it, when, and where the dump is kept.
+
+**Current state.** None of this has been done for staging. The network policy here blocks the Railway host, so it could not be done from here.
+
+### 8.6 Before any live data change
+
+1. Take a verified backup as in §8.5.
+2. Run the change in a transaction, logging old and new values to `ActivityLog`.
 
 ## 9. Checklist for pending Railway changes not made by this work
 
-The audit found a pending Railway source change for #81. Before applying anything in Railway, record and review each of these:
+> **Do not apply the pending Railway source change.**
+> - Staging (`adaptable-quietude`) currently runs **`5e9bf2e`**.
+> - Its pending source change points at **`4bb8a73`**, the pre-remediation code. That is **not** the release candidate.
+> - Applying it would deploy a backend that is prohibited by §8.1 once this release has run, and that misses every fix in #82–#86.
+> - Discard or replace it. The staging service must build the integration candidate's **explicit SHA** (see the handoff report), and only under a separate deployment authorization.
+
+The audit found this pending source change for #81. Before applying anything in Railway, record and review each of these:
 
 - [ ] Which branch or commit the staging service will build. It must be an explicit SHA, not a moving branch.
 - [ ] Every pending variable change, with the reason for it.
 - [ ] That `UPLOAD_ROOT` still points at the mounted volume (`/data/uploads`) and the volume is attached.
 - [ ] That `CORS_ORIGIN` lists every legitimate page origin (§2) before the CSRF release.
-- [ ] That a database backup was taken in the same hour.
+- [ ] That a **verified staging backup** (§8.5, not the CI exercise) was taken in the same hour.
 - [ ] Who approved the change.
 - [ ] The recovery plan is **roll forward**.
 - [ ] The previous deployment id (`5e9bf2e`) is recorded as **do not redeploy**.

@@ -79,7 +79,7 @@ export async function readDatabaseState(db) {
     const usersWithSessionVersion = (await tableHasColumn(tx, "User", "sessionVersion"))
       ? await count(`SELECT count(*) AS n FROM "User" WHERE "sessionVersion" > 0`)
       : 0;
-    return { appliedMigrations: applied, refundCount, activeRevokedTokens, usersWithSessionVersion };
+    return { hasMigrationTable, appliedMigrations: applied, refundCount, activeRevokedTokens, usersWithSessionVersion };
   });
 }
 
@@ -138,7 +138,14 @@ export async function assertDatabaseCompatible(db, {
   knownMigrations = readLocalMigrations(),
   acknowledged = (process.env.DB_COMPAT_ACKNOWLEDGED_MIGRATIONS || "").split(",").map((s) => s.trim()).filter(Boolean),
 } = {}) {
-  const { appliedMigrations } = await readDatabaseState(db);
+  const { hasMigrationTable, appliedMigrations } = await readDatabaseState(db);
+  // No migration history means the schema was never deployed by Prisma (or
+  // the wrong database is configured): that proves nothing, so fail.
+  if (!hasMigrationTable) {
+    const error = new Error("Database has no _prisma_migrations table; cannot verify its schema.");
+    error.code = "MIGRATION_HISTORY_MISSING";
+    throw error;
+  }
   const unknown = findUnknownMigrations(appliedMigrations, [...knownMigrations, ...acknowledged]);
   if (unknown.length) throw new IncompatibleDatabaseError(unknown);
   return { appliedMigrations };
