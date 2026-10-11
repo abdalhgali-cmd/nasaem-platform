@@ -187,6 +187,9 @@
         <button type="button" data-mgmt="airports">المطارات</button>
         <button type="button" data-mgmt="ferries">العبارات</button>
 
+        <span class="mgmt-tab-group">المال</span>
+        <button type="button" data-mgmt="payment-accounts">حسابات الدفع</button>
+
         <span class="mgmt-tab-group">النظام</span>
         <button type="button" data-mgmt="feature-flags">الميزات</button>
         <button type="button" data-mgmt="settings">الإعدادات</button>
@@ -219,6 +222,36 @@
       </div>
 
       <div id="mgmt-alert"></div>
+
+      <!-- Payment accounts: what a customer is shown to pay into, after they
+           approve a price. Only the account for the price's own currency is shown. -->
+      <div id="mgmt-payment-accounts" class="hidden">
+        <div class="card hidden" id="payment-account-create-card">
+          <h2 id="pa-form-title">حساب دفع جديد</h2>
+          <div class="grid cols-3">
+            <div class="field"><label for="pa-name">اسم الحساب (للعرض) *</label><input id="pa-name" maxlength="120" /></div>
+            <div class="field"><label for="pa-bank">البنك أو الخدمة *</label><input id="pa-bank" maxlength="120" /></div>
+            <div class="field"><label for="pa-holder">اسم صاحب الحساب *</label><input id="pa-holder" maxlength="160" /></div>
+            <div class="field"><label for="pa-number">رقم الحساب</label><input id="pa-number" maxlength="80" dir="ltr" /></div>
+            <div class="field"><label for="pa-iban">IBAN</label><input id="pa-iban" maxlength="80" dir="ltr" /></div>
+            <div class="field"><label for="pa-currency">العملة *</label>
+              <select id="pa-currency"><option value="SDG">SDG</option><option value="SAR">SAR</option><option value="USD">USD</option><option value="AED">AED</option><option value="EGP">EGP</option><option value="QAR">QAR</option></select></div>
+            <div class="field"><label for="pa-order">الترتيب</label><input id="pa-order" type="number" min="0" value="0" /></div>
+          </div>
+          <p class="muted small">تغيير رقم الحساب يغيّر المكان الذي يحوّل إليه العملاء، ويُسجَّل في سجل النشاط باسمك.</p>
+          <div class="stack">
+            <button type="button" class="btn" id="payment-account-save-btn">حفظ</button>
+            <button type="button" class="btn secondary hidden" id="payment-account-cancel-btn">إلغاء التعديل</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>حسابات الدفع</h2>
+          <div class="table-scroll"><table>
+            <thead><tr><th>الاسم</th><th>البنك</th><th>صاحب الحساب</th><th>الرقم</th><th>العملة</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="payment-accounts-body"></tbody>
+          </table></div>
+        </div>
+      </div>
 
       <!-- Branches -->
       <div id="mgmt-branches">

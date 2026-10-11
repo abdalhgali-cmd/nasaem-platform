@@ -497,19 +497,30 @@ async function seedDefaultPaymentAccount() {
   console.log("Seeded default local-dev payment accounts (placeholder — replace from Admin before real use).");
 }
 
+// Demonstration data (sample package prices, placeholder exchange rates, a fake
+// bank account) exists only so a local/CI database is usable. In production the
+// agency enters its own prices, rates and bank accounts from the back-office: a
+// seeded sample must never become a price or a payment destination a customer
+// sees, and a placeholder exchange rate would be frozen onto real quotes.
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
 async function main() {
   await seedDefaultOrganization();
   await seedSuperAdmin();
   await seedServiceCategories();
-  await seedPackageServices();
+  if (!IS_PRODUCTION) await seedPackageServices();
   await seedVisaTypes();
   await seedVisaRequirements();
   await seedHomepageSections();
   await seedFeatureFlags();
   await seedEgyptClearanceFaq();
   await seedSaudiFamilyVisitFaq();
-  await seedDefaultExchangeRates();
-  await seedDefaultPaymentAccount();
+  if (!IS_PRODUCTION) {
+    await seedDefaultExchangeRates();
+    await seedDefaultPaymentAccount();
+  } else {
+    console.log("Production: skipped sample packages, placeholder exchange rates and sample payment accounts.");
+  }
   // Must run last: seedVisaRequirements() writes the historical Egypt checklist
   // (a plain case-scoped passport document plus the legacy ticket), and this
   // reconciles it into the structured approval-first shape the journey needs.

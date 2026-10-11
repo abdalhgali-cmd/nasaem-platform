@@ -167,6 +167,49 @@ function itemGroupKey(groupBy, item) {
   return { key: item.supplierId || "UNKNOWN", label: item.supplier?.name || "بدون مورّد محدد" };
 }
 
+// Customer requests (the main app flow) are paid against the price the agency
+// issued: the approved invoice, or the offer the customer chose. Money is
+// reported per ORIGINAL currency; the Sudanese-pound figure is the sum of the
+// equivalents frozen when each price was issued, and requests priced without a
+// configured rate are counted separately instead of being converted now.
+export async function getContactRequestPaymentReport({ from, to, organizationId }) {
+  const priceOf = (request) => (request.invoice?.status === "APPROVED" ? request.invoice : request.selectedOffer);
+  const base = { ...(organizationId ? { organizationId } : {}) };
+  const include = { invoice: { select: { status: true, amount: true, currency: true, amountSdg: true } }, selectedOffer: { select: { amount: true, currency: true, amountSdg: true } } };
+  const [confirmed, underReview] = await Promise.all([
+    prisma.contactRequest.findMany({
+      where: { ...base, paymentStatus: "CONFIRMED", paymentConfirmedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } },
+      include,
+    }),
+    prisma.contactRequest.findMany({ where: { ...base, paymentStatus: "UNDER_REVIEW" }, include }),
+  ]);
+
+  const rows = new Map();
+  const row = (currency) => {
+    if (!rows.has(currency)) rows.set(currency, { currency, confirmedCount: 0, confirmed: 0, confirmedSdg: 0, confirmedWithoutSdgCount: 0, underReviewCount: 0, underReview: 0 });
+    return rows.get(currency);
+  };
+  for (const request of confirmed) {
+    const price = priceOf(request);
+    if (!price) continue;
+    const entry = row(price.currency);
+    entry.confirmedCount += 1;
+    entry.confirmed += num(price.amount);
+    if (price.amountSdg != null) entry.confirmedSdg += num(price.amountSdg);
+    else entry.confirmedWithoutSdgCount += 1;
+  }
+  for (const request of underReview) {
+    const price = priceOf(request);
+    if (!price) continue;
+    const entry = row(price.currency);
+    entry.underReviewCount += 1;
+    entry.underReview += num(price.amount);
+  }
+  return [...rows.values()]
+    .map((entry) => ({ ...entry, confirmed: round2(entry.confirmed), confirmedSdg: round2(entry.confirmedSdg), underReview: round2(entry.underReview) }))
+    .sort((a, b) => a.currency.localeCompare(b.currency));
+}
+
 export async function getFinancialReport({ period, from, to, groupBy, organizationId }) {
   const range = resolveRange({ period, from, to });
   const orders = await fetchOrdersInRange({ ...range, organizationId });
@@ -183,6 +226,7 @@ export async function getFinancialReport({ period, from, to, groupBy, organizati
     period: { from: range.from, to: range.to, label: range.label },
     totals: finalizeOrderMetrics(totals),
     totalsByCurrency: [...byCurrency.entries()].map(([currency, metrics]) => ({ currency, ...finalizeOrderMetrics(metrics) })),
+    contactRequestPayments: await getContactRequestPaymentReport({ from: range.from, to: range.to, organizationId }),
     breakdown: null,
   };
 

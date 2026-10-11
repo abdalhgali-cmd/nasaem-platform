@@ -1,4 +1,5 @@
 import XLSX from "xlsx";
+import { logActivity } from "../../utils/activityLog.js";
 import {
   createManualFlight,
   deleteManualFlight,
@@ -99,7 +100,10 @@ export async function getRates(req, res, next) {
 
 export async function patchRates(req, res, next) {
   try {
-    res.json({ success: true, data: await updateCurrencyRates(req.body) });
+    const before = await getCurrencyRates();
+    const data = await updateCurrencyRates(req.body);
+    logActivity({ userId: req.user?.id, action: "FX_RATES_UPDATED", entity: "Setting", entityId: "FX_RATES", req, oldValue: before, newValue: data });
+    res.json({ success: true, data });
   } catch (error) {
     next(error);
   }

@@ -53,6 +53,7 @@ function mgmtCanWrite(entity) {
     airports: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
     ferries: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"],
     "feature-flags": ["SUPER_ADMIN", "ADMIN"],
+    "payment-accounts": ["SUPER_ADMIN", "ADMIN"],
   };
   return (rules[entity] || []).includes(currentUser.role);
 }
@@ -84,6 +85,7 @@ function initManagementTab() {
     airline: "airlines",
     airport: "airports",
     "ferry-operator": "ferries",
+    "payment-account": "payment-accounts",
   };
   Object.entries(createCardEntities).forEach(([prefix, entity]) => {
     const card = el(`${prefix}-create-card`);
@@ -122,6 +124,9 @@ function wireManagementTabs() {
   });
 
   el("branch-create-btn").addEventListener("click", createBranch);
+  el("payment-account-save-btn").addEventListener("click", savePaymentAccount);
+  el("payment-account-cancel-btn").addEventListener("click", resetPaymentAccountForm);
+  el("payment-accounts-body").addEventListener("click", handlePaymentAccountRowClick);
   el("supplier-create-btn").addEventListener("click", createSupplier);
   el("service-create-btn").addEventListener("click", createService);
   el("offer-create-btn").addEventListener("click", createOffer);
@@ -185,6 +190,7 @@ function activateMgmtSubTab(key) {
     "airports",
     "ferries",
     "feature-flags",
+    "payment-accounts",
   ].forEach((k) => {
     el(`mgmt-${k}`).classList.toggle("hidden", k !== key);
   });
@@ -221,9 +227,103 @@ function loadActiveMgmtSubTab() {
     loadFerryOperators().then(loadFerrySchedules);
   }
   if (tab === "feature-flags") loadFeatureFlags();
+  if (tab === "payment-accounts") loadPaymentAccounts();
 }
 
 const mgmtAlert = () => el("mgmt-alert");
+
+// --- Payment accounts ---
+
+let paymentAccountsCache = [];
+let editingPaymentAccountId = null;
+
+async function loadPaymentAccounts() {
+  try {
+    const { data } = await api.get("/payment-accounts");
+    paymentAccountsCache = data;
+    el("payment-accounts-body").innerHTML = data.length
+      ? data
+          .map(
+            (a) => `
+        <tr>
+          <td>${escapeHtml(a.name)}</td>
+          <td>${escapeHtml(a.bankName)}</td>
+          <td>${escapeHtml(a.accountName)}</td>
+          <td dir="ltr">${escapeHtml(a.accountNumber || a.iban || "-")}</td>
+          <td dir="ltr"><strong>${escapeHtml(a.currency)}</strong></td>
+          <td>${a.active ? '<span class="badge status-ACTIVE">ظاهر للعملاء</span>' : '<span class="badge status-INACTIVE">مخفي</span>'}</td>
+          <td>${
+            mgmtCanWrite("payment-accounts")
+              ? `<div class="stack wrap"><button type="button" class="btn secondary" data-edit-pa="${escapeHtml(a.id)}">تعديل</button><button type="button" class="btn secondary" data-toggle-pa="${escapeHtml(a.id)}" data-active="${escapeHtml(a.active)}">${a.active ? "إخفاء" : "إظهار"}</button></div>`
+              : ""
+          }</td>
+        </tr>`
+          )
+          .join("")
+      : '<tr><td colspan="7" class="muted">لا توجد حسابات دفع. لن يرى العميل بيانات تحويل حتى تضيف حسابًا لعملة السعر.</td></tr>';
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function resetPaymentAccountForm() {
+  editingPaymentAccountId = null;
+  for (const id of ["pa-name", "pa-bank", "pa-holder", "pa-number", "pa-iban"]) el(id).value = "";
+  el("pa-currency").value = "SDG";
+  el("pa-order").value = "0";
+  el("pa-form-title").textContent = "حساب دفع جديد";
+  el("payment-account-cancel-btn").classList.add("hidden");
+}
+
+async function savePaymentAccount() {
+  showAlert(mgmtAlert(), "");
+  const body = {
+    name: el("pa-name").value.trim(),
+    bankName: el("pa-bank").value.trim(),
+    accountName: el("pa-holder").value.trim(),
+    accountNumber: el("pa-number").value.trim(),
+    iban: el("pa-iban").value.trim(),
+    currency: el("pa-currency").value,
+    sortOrder: Number(el("pa-order").value) || 0,
+  };
+  if (body.name.length < 2 || body.bankName.length < 2 || body.accountName.length < 2) return showAlert(mgmtAlert(), "الاسم والبنك وصاحب الحساب مطلوبة.");
+  if (!body.accountNumber && !body.iban) return showAlert(mgmtAlert(), "اكتب رقم الحساب أو IBAN.");
+  try {
+    if (editingPaymentAccountId) await api.patch(`/payment-accounts/${encodeURIComponent(editingPaymentAccountId)}`, body);
+    else await api.post("/payment-accounts", { ...body, active: true });
+    resetPaymentAccountForm();
+    loadPaymentAccounts();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
+}
+
+function handlePaymentAccountRowClick(e) {
+  const edit = e.target.closest("[data-edit-pa]");
+  if (edit) {
+    const account = paymentAccountsCache.find((a) => a.id === edit.dataset.editPa);
+    if (!account) return;
+    editingPaymentAccountId = account.id;
+    el("pa-name").value = account.name || "";
+    el("pa-bank").value = account.bankName || "";
+    el("pa-holder").value = account.accountName || "";
+    el("pa-number").value = account.accountNumber || "";
+    el("pa-iban").value = account.iban || "";
+    el("pa-currency").value = account.currency;
+    el("pa-order").value = account.sortOrder ?? 0;
+    el("pa-form-title").textContent = "تعديل حساب الدفع";
+    el("payment-account-cancel-btn").classList.remove("hidden");
+    el("payment-account-create-card").scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+  const toggle = e.target.closest("[data-toggle-pa]");
+  if (!toggle) return;
+  const active = toggle.dataset.active === "true";
+  api
+    .patch(`/payment-accounts/${encodeURIComponent(toggle.dataset.togglePa)}`, { active: !active })
+    .then(loadPaymentAccounts)
+    .catch((error) => showAlert(mgmtAlert(), error.message));
+}
 
 // --- Branches ---
 
