@@ -700,3 +700,11 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 .otp-support p { margin: 0 0 10px; }
 .otp-support-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .otp-support-actions a { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; min-height: 44px; padding: 0 14px; }
+
+/* Legal documents (privacy, terms, payment, refund, cancellation) */
+.legal-doc { display: grid; gap: 12px; }
+.legal-intro { margin: 0; font-size: 14px; line-height: 1.9; color: #344054; }
+.legal-doc .about-card > p + p { margin-top: 8px; }
+.legal-links { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; margin: 12px 0 4px; font-size: 13px; }
+.legal-links a, .legal-links button { background: none; border: 0; padding: 4px 0; color: var(--navy); text-decoration: underline; font: inherit; }
+.legal-consent { margin: 4px 0; font-size: 13px; line-height: 1.8; color: #475467; }

@@ -13,6 +13,8 @@ import {
 } from "../auth.js";
 import { go, goToTab } from "../router.js";
 import { biometricFailure } from "../session-core.js";
+import { LEGAL_MENU } from "./legal.js";
+import { LEGAL_DOCS } from "../legal-content.js";
 
 function applyFieldErrors(form, errors) {
   const fieldErrors = errors?.fieldErrors || {};
@@ -41,6 +43,7 @@ function publicMenu() {
       <button class="account-menu-item" id="trackGuestBtn">${icon("requests", { size: 18 })}<span>تتبع طلب برقم الهاتف</span>${icon("chevron-start", { size: 16 })}</button>
       <button class="account-menu-item" id="aboutBtn">${icon("info", { size: 18 })}<span>من نحن وتواصل معنا</span>${icon("chevron-start", { size: 16 })}</button>
       <button class="account-menu-item" id="replayOnboardingBtn">${icon("plane", { size: 18 })}<span>عرض الجولة التعريفية</span>${icon("chevron-start", { size: 16 })}</button>
+      ${LEGAL_MENU.slice(0, 2).map((item) => `<button class="account-menu-item" data-legal="${item.id}">${icon(item.icon, { size: 18 })}<span>${LEGAL_DOCS[item.id].title}</span>${icon("chevron-start", { size: 16 })}</button>`).join("")}
     </div>`;
 }
 
@@ -48,6 +51,9 @@ function wirePublicMenu(bodyEl) {
   bodyEl.querySelector("#trackGuestBtn")?.addEventListener("click", () => goToTab("requests", "requests", { title: "طلباتي" }));
   bodyEl.querySelector("#aboutBtn")?.addEventListener("click", () => go("about", {}, { title: "من نحن", tab: "account" }));
   bodyEl.querySelector("#replayOnboardingBtn")?.addEventListener("click", () => onReplayOnboarding());
+  bodyEl.querySelectorAll("[data-legal]").forEach((btn) =>
+    btn.addEventListener("click", () => go("legal", { doc: btn.dataset.legal }, { title: LEGAL_DOCS[btn.dataset.legal].title, tab: "account" }))
+  );
 }
 
 // The Account tab. Account content is drawn only once the server confirmed

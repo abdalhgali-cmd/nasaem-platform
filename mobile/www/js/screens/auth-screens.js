@@ -118,12 +118,16 @@ export function renderRegisterScreen({ bodyEl }) {
           <button type="button" class="icon-btn toggle-password" data-target="registerPassword">${icon("eye", { size: 18 })}</button>
         </div>
       </label>
+      <p class="legal-consent">بإنشاء الحساب فإنك توافق على <button type="button" class="link-btn" data-legal="terms">الشروط والأحكام</button> و<button type="button" class="link-btn" data-legal="privacy">سياسة الخصوصية</button>.</p>
       <button type="submit" class="primary" id="registerSubmit">إنشاء الحساب</button>
       <p class="auth-switch">لديك حساب بالفعل؟ <button type="button" class="link-btn" id="toLogin">تسجيل الدخول</button></p>
     </form>
   `;
 
   wirePasswordToggle(bodyEl);
+  bodyEl.querySelectorAll("[data-legal]").forEach((btn) =>
+    btn.addEventListener("click", () => go("legal", { doc: btn.dataset.legal }, { title: btn.textContent }))
+  );
   bodyEl.querySelector("#toLogin").addEventListener("click", () => go("login", {}, { title: "تسجيل الدخول" }));
 
   const form = bodyEl.querySelector("#registerForm");

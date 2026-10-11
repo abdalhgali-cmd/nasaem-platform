@@ -16,7 +16,7 @@ export const AGENCY = Object.freeze({
   phone: "+249 91 103 4372",
   whatsapp: "249911034372",
   email: "Nasaem.alHaramain2024@gmail.com",
-  address: "كسلا، شرق الموقف العام، مقابل مخابز باتسري، بجوار استديو جميل",
+  address: "كسلا، شرق الموقف العام، مقابل حلويات باتيسري، بجوار استديو جميل",
   city: "كسلا",
   website: "https://nasaem-alharamain.com",
 });

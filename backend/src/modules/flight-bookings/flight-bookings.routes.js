@@ -15,7 +15,9 @@ const publicLookupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, sta
 const publicWriteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "محاولات كثيرة. حاول لاحقًا." } });
 
 router.post("/", publicWriteLimiter, async (req, res, next) => { try { res.status(201).json({ success: true, booking: await createFlightBooking(req.body) }); } catch (e) { next(e); } });
-router.get("/bank-accounts", async (req, res, next) => { try { res.json({ success: true, accounts: await getBankAccounts() }); } catch (e) { next(e); } });
+// Payment accounts are shown to a customer only inside their own booking, once
+// the agency has approved it (see getPublicFlightBooking). There is deliberately
+// no anonymous "list every bank account" endpoint.
 router.get("/public/:id", publicLookupLimiter, async (req, res, next) => { try { const booking = await getPublicFlightBooking(req.params.id, req.query.phone); if (!booking) return res.status(404).json({ success: false, message: "رقم الحجز أو رقم الهاتف غير صحيح" }); res.json({ success: true, booking }); } catch (e) { next(e); } });
 router.post("/:id/payment-receipt", publicWriteLimiter, upload.single("file"), async (req, res, next) => { try { res.json({ success: true, booking: await submitPaymentReceipt(req.params.id, req.file, req.body.phone) }); } catch (e) { next(e); } });
 // Customer-facing file download: a booking's documents (provisional ticket,

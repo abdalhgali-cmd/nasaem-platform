@@ -33,19 +33,16 @@ function sanitizeCustomer(customer) {
   return safe;
 }
 
-// Finds an existing CRM-created Customer row by phone without a full-table
-// scan: staff-entered phone numbers are compared both as typed and in
-// normalized (country-code-prefixed digits-only) form, which covers the
-// overwhelming majority of real records. A customer whose staff-entered
-// phone was typed in some other, unmatched format simply registers as a
-// brand-new account instead of being merged into their existing CRM
-// history — an acceptable, disclosed trade-off rather than an unbounded
-// scan-and-normalize over the whole customer table.
-async function findCustomerByPhone(rawPhone) {
+// Finds the ONLINE ACCOUNT that owns a phone number (a Customer row with a
+// password). Staff-created CRM rows without an account are deliberately never
+// returned: they carry other people's orders, passports and payments, and a
+// phone number alone is not proof of ownership. Phone numbers are compared as
+// typed and in normalized (country-code-prefixed digits-only) form.
+async function findAccountByPhone(rawPhone) {
   const trimmed = rawPhone.trim();
   const normalized = normalizePhone(rawPhone);
   return prisma.customer.findFirst({
-    where: { OR: [{ phone: trimmed }, { phone: normalized }] },
+    where: { passwordHash: { not: null }, OR: [{ phone: trimmed }, { phone: normalized }] },
   });
 }
 
@@ -62,46 +59,37 @@ async function isEmailTakenByAnotherAccount(email, excludeCustomerId) {
   return Boolean(existing);
 }
 
+// Registration only ever creates a NEW customer row. It never adopts an
+// existing staff-created CRM record that happens to share the phone number:
+// doing so handed the CRM history (orders, passport, documents, payments) to
+// whoever registered first with a known phone number. Linking an old record
+// to an account is a staff action, or must be proven with a code sent to the
+// phone (the password-reset channel), never inferred from the number alone.
 export async function registerCustomer({ fullName, phone, email, password }) {
   const normalizedPhone = normalizePhone(phone);
-  const existing = await findCustomerByPhone(phone);
 
-  if (existing?.passwordHash) {
+  if (await findAccountByPhone(phone)) {
     return { error: "PHONE_TAKEN" };
   }
 
   const cleanEmail = email?.trim() || null;
-  if (await isEmailTakenByAnotherAccount(cleanEmail, existing?.id)) {
+  if (await isEmailTakenByAnotherAccount(cleanEmail)) {
     return { error: "EMAIL_TAKEN" };
   }
 
   const passwordHash = await hashPassword(password);
 
-  const customer = existing
-    ? await prisma.customer.update({
-        where: { id: existing.id },
-        data: {
-          fullName: fullName || existing.fullName,
-          email: cleanEmail || existing.email,
-          passwordHash,
-          lastLoginAt: new Date(),
-          // A CRM record whose earlier account was removed may still have
-          // tokens out there; the new owner of this account must not inherit them.
-          sessionVersion: { increment: 1 },
-        },
-        select: { ...CUSTOMER_PROFILE_SELECT, sessionVersion: true },
-      })
-    : await prisma.customer.create({
-        data: {
-          customerNo: await generateCustomerNo(),
-          fullName,
-          phone: normalizedPhone,
-          email: cleanEmail,
-          passwordHash,
-          lastLoginAt: new Date(),
-        },
-        select: { ...CUSTOMER_PROFILE_SELECT, sessionVersion: true },
-      });
+  const customer = await prisma.customer.create({
+    data: {
+      customerNo: await generateCustomerNo(),
+      fullName,
+      phone: normalizedPhone,
+      email: cleanEmail,
+      passwordHash,
+      lastLoginAt: new Date(),
+    },
+    select: { ...CUSTOMER_PROFILE_SELECT, sessionVersion: true },
+  });
 
   const { sessionVersion, ...profile } = customer;
   return { token: signCustomerToken(customer.id, sessionVersion), customer: profile };
@@ -181,7 +169,7 @@ export async function requestPasswordReset(rawPhone) {
   const channel = await whatsAppReadiness();
   if (channel !== "AVAILABLE" && !isDebugOtpAllowed) return { error: "OTP_CHANNEL_UNAVAILABLE" };
 
-  const customer = await findCustomerByPhone(rawPhone);
+  const customer = await findAccountByPhone(rawPhone);
   // Never reveal whether a phone number has an account — always return a
   // generic success shape; only actually send a code when one does.
   if (!customer?.passwordHash) return { debugCode: undefined };
@@ -214,7 +202,7 @@ export async function requestPasswordReset(rawPhone) {
 }
 
 export async function resetCustomerPassword(rawPhone, code, newPassword) {
-  const customer = await findCustomerByPhone(rawPhone);
+  const customer = await findAccountByPhone(rawPhone);
   if (!customer?.passwordResetCode || !customer.passwordResetExpiresAt) {
     return { error: "INVALID_CODE" };
   }

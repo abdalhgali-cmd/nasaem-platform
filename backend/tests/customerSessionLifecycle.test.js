@@ -148,7 +148,7 @@ describe("customer session lifecycle (mobile persistent auth)", () => {
     assert.equal((await me(await loginToken(phone, "Reset@12345"))).status, 200);
   });
 
-  test("a removed account ends the session, and re-registering does not revive old tokens", async () => {
+  test("a removed account ends the session, and re-registering creates a new account that old tokens cannot reach", async () => {
     const { phone, token, customer } = await registerWithToken();
     await prisma.customer.update({ where: { id: customer.id }, data: { passwordHash: null } });
     const res = await me(token);
@@ -161,7 +161,8 @@ describe("customer session lifecycle (mobile persistent auth)", () => {
       password: "Other@12345",
     });
     assert.equal(again.status, 201, JSON.stringify(again.body));
-    assert.equal(again.body.data.customer.id, customer.id);
+    // A phone number alone never re-claims the old row (see customerAccountTakeover.test.js).
+    assert.notEqual(again.body.data.customer.id, customer.id);
     assert.equal((await me(token)).body.code, "SESSION_REVOKED");
     assert.equal((await me(again.body.data.token)).status, 200);
   });

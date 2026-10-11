@@ -5,6 +5,8 @@ import { esc } from "../ui.js";
 import { icon } from "../icons.js";
 import { AGENCY, AGENCY_SERVICES, AGENCY_WORKFLOW, AGENCY_VALUES, loadAgency, whatsappLink, telLink } from "../agency.js";
 import { stagger } from "../motion.js";
+import { go } from "../router.js";
+import { LEGAL_DOCS } from "../legal-content.js";
 
 function contactRows(agency) {
   return `
@@ -73,8 +75,14 @@ export async function renderAboutScreen({ bodyEl }) {
         <h3 id="aboutContactTitle">${icon("phone", { size: 18 })} تواصل معنا</h3>
         <div class="about-contacts" id="aboutContacts">${contactRows(AGENCY)}</div>
       </section>
+      <nav class="legal-links" aria-label="معلومات قانونية">
+        ${Object.entries(LEGAL_DOCS).map(([id, doc]) => `<button type="button" data-legal="${id}">${esc(doc.title)}</button>`).join("")}
+      </nav>
     </div>`;
 
+  bodyEl.querySelectorAll("[data-legal]").forEach((btn) =>
+    btn.addEventListener("click", () => go("legal", { doc: btn.dataset.legal }, { title: LEGAL_DOCS[btn.dataset.legal].title, tab: "account" }))
+  );
   stagger(bodyEl.querySelector(".about-sections"));
 
   // Apply back-office contact overrides (if any) once they arrive.

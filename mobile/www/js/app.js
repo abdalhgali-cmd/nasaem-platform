@@ -19,6 +19,7 @@ import { renderAccountScreen, renderEditProfileScreen, renderChangePasswordScree
 import { renderSecurityScreen } from "./screens/security.js";
 import { renderOnboardingScreen, isOnboardingDone, markOnboardingDone } from "./screens/onboarding.js";
 import { renderAboutScreen } from "./screens/about.js";
+import { renderLegalScreen } from "./screens/legal.js";
 import { launchRoute } from "./experience-core.js";
 import { tapFeedback } from "./motion.js";
 
@@ -29,6 +30,7 @@ function registerAllScreens() {
   registerScreen("onboarding", renderOnboardingScreen, { chrome: false });
   registerScreen("welcome", renderWelcomeScreen, { chrome: false });
   registerScreen("about", renderAboutScreen);
+  registerScreen("legal", renderLegalScreen);
   registerScreen("login", renderLoginScreen);
   registerScreen("register", renderRegisterScreen);
   registerScreen("forgotPassword", renderForgotPasswordScreen);
