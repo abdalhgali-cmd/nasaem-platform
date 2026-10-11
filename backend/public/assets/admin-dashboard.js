@@ -70,6 +70,7 @@ async function bootstrap() {
   setupTabVisibility();
   setupTabSwitching();
   mountViews();
+  migrateLegacyQueryLink();
   applyRoute();
   window.addEventListener("hashchange", applyRoute);
 }
@@ -144,6 +145,20 @@ const SERVICE_CATEGORY_AR = {
 
 // --- Routing: #/<tab> or #/<tab>/<record id> (orders, requests, flights).
 // A link copied from the address bar opens the same record for a colleague.
+// Links from the Next.js admin (operations center, payment review, quick
+// lookup) use ?order=, ?customerRequest= and ?customer=. They are turned
+// into the hash routes below once, at load.
+function migrateLegacyQueryLink() {
+  const params = new URLSearchParams(window.location.search);
+  const legacy = [["order", "orders"], ["customerRequest", "requests"], ["customer", "customers"], ["flightBooking", "flights"]].find(([key]) => params.get(key));
+  if (!legacy) return;
+  const [key, tab] = legacy;
+  const id = params.get(key);
+  params.delete(key);
+  const search = params.toString();
+  window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}#/${tab}/${encodeURIComponent(id)}`);
+}
+
 function parseRoute() {
   const match = window.location.hash.match(/^#\/([a-z]+)(?:\/([^/?#]+))?/);
   if (!match) return { tab: null, id: null };
@@ -175,6 +190,7 @@ function applyRoute() {
   if (id && target === "orders") openOrderDetail(id);
   if (id && target === "requests" && crView) crView.openDetail(id);
   if (id && target === "flights" && flightView) flightView.openDetail(id);
+  if (id && target === "customers") openCustomerDetail(id);
 }
 
 function setupTabSwitching() {
@@ -217,6 +233,11 @@ function setupTabSwitching() {
       state.orders.page = 1;
       loadOrders();
     }, 350);
+  });
+
+  el("customers-body").addEventListener("click", (event) => {
+    const target = event.target.closest("[data-customer-id]");
+    if (target) openCustomerDetail(target.dataset.customerId);
   });
 
   let searchTimer = null;
@@ -716,7 +737,7 @@ async function loadCustomers() {
       .map(
         (c) => `
         <tr>
-          <td>${escapeHtml(c.customerNo)}</td>
+          <td><button type="button" class="link-button" data-customer-id="${escapeHtml(c.id)}" dir="ltr">${escapeHtml(c.customerNo)}</button></td>
           <td>${escapeHtml(c.fullName)}</td>
           <td>${escapeHtml(c.passportNo)}</td>
           <td>${escapeHtml(c.nationality)}</td>
@@ -731,6 +752,54 @@ async function loadCustomers() {
     });
   } catch (error) {
     showAlert(pageAlert, error.message);
+  }
+}
+
+let customerDetailSeq = 0;
+
+async function openCustomerDetail(customerId) {
+  const seq = ++customerDetailSeq;
+  const card = el("customer-detail-card");
+  card.classList.remove("hidden");
+  card.innerHTML = '<p class="muted">جارٍ تحميل ملف العميل...</p>';
+  setRoute("customers", customerId);
+  try {
+    const { data: c } = await api.get(`/customers/${encodeURIComponent(customerId)}`);
+    if (seq !== customerDetailSeq) return;
+    const balances = (c.summary?.balancesByCurrency || [])
+      .map((b) => `<li>${escapeHtml(b.currency)}: مدفوع ${formatMoney(b.paid, b.currency)} — متبقٍ ${formatMoney(b.outstanding, b.currency)}</li>`)
+      .join("");
+    const orders = (c.orders || [])
+      .map((o) => `<tr><td><a href="#/orders/${encodeURIComponent(o.id)}" dir="ltr">${escapeHtml(o.orderNumber)}</a></td><td>${statusBadge(o.status)}</td><td>${statusBadge(o.paymentStatus)}</td><td>${formatMoney(o.totalAmount, o.currency)}</td><td>${formatDate(o.createdAt)}</td></tr>`)
+      .join("");
+    card.innerHTML = `
+      <div class="detail-header">
+        <div>
+          <h2 tabindex="-1" id="customer-detail-title">${escapeHtml(c.fullName)}</h2>
+          <p class="muted"><span dir="ltr">${escapeHtml(c.customerNo)}</span>${c.phone ? ` · <span dir="ltr">${escapeHtml(c.phone)}</span>` : ""}${c.email ? ` · <span dir="ltr">${escapeHtml(c.email)}</span>` : ""}</p>
+        </div>
+        <button type="button" class="btn secondary" id="close-customer-btn">إغلاق</button>
+      </div>
+      <dl class="detail-grid">
+        <div><dt>الجواز</dt><dd dir="ltr">${escapeHtml(c.passportNo || "-")}</dd></div>
+        <div><dt>الجنسية</dt><dd>${escapeHtml(c.nationality || "-")}</dd></div>
+        <div><dt>عدد الطلبات</dt><dd>${escapeHtml(c.summary?.orderCount ?? 0)}</dd></div>
+        <div><dt>طلبات نشطة</dt><dd>${escapeHtml(c.summary?.activeOrders ?? 0)}</dd></div>
+      </dl>
+      <h3>الرصيد حسب العملة</h3>
+      ${balances ? `<ul class="plain-list">${balances}</ul>` : '<p class="muted">لا توجد طلبات.</p>'}
+      <h3>الطلبات</h3>
+      <div class="table-scroll"><table><thead><tr><th>رقم الطلب</th><th>الحالة</th><th>الدفع</th><th>الإجمالي</th><th>التاريخ</th></tr></thead><tbody>${orders || '<tr><td colspan="5" class="muted">لا توجد طلبات.</td></tr>'}</tbody></table></div>`;
+    el("close-customer-btn").addEventListener("click", () => {
+      customerDetailSeq += 1;
+      card.classList.add("hidden");
+      card.innerHTML = "";
+      setRoute("customers", null);
+    });
+    el("customer-detail-title").focus();
+  } catch (error) {
+    if (seq !== customerDetailSeq) return;
+    card.innerHTML = `<div class="alert error" role="alert">${escapeHtml(error.message)}</div>`;
   }
 }
 

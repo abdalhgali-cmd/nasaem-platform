@@ -210,3 +210,30 @@ describe("errors shown to staff are Arabic", () => {
     assert.doesNotMatch(text, /Validation failed/);
   });
 });
+
+describe("links from the Next.js admin", () => {
+  test("?customerRequest= and ?order= open the record; ?customer= opens the customer card with per-currency balances", async () => {
+    const cr = loadBackOffice("admin-dashboard.html", { routes: baseRoutes("EMPLOYEE"), url: "http://backoffice.test/admin-dashboard.html?customerRequest=cr1" });
+    await settle(150);
+    assert.equal(cr.window.location.hash, "#/requests/cr1");
+    assert.equal(cr.window.location.search, "");
+    assert.match(cr.document.getElementById("cr-detail").textContent, /Customer cr1/);
+
+    const customer = {
+      id: "c1", customerNo: "C-1", fullName: "<b>Customer One</b>", phone: "+249", orders: [{ id: "o1", orderNumber: "ORD-1", status: "NEW", paymentStatus: "PARTIAL", totalAmount: "100", currency: "USD", createdAt: now }],
+      summary: { orderCount: 1, activeOrders: 1, balancesByCurrency: [{ currency: "USD", paid: 40, outstanding: 60 }, { currency: "SAR", paid: 0, outstanding: 50 }] },
+    };
+    const cu = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("EMPLOYEE", { "GET /api/customers": { success: true, data: [], meta: { page: 1, totalPages: 1, total: 0 } }, "GET /api/customers/c1": { success: true, data: customer } }),
+      url: "http://backoffice.test/admin-dashboard.html?customer=c1",
+    });
+    await settle(150);
+    const card = cu.document.getElementById("customer-detail-card");
+    assert.equal(cu.document.querySelector("#tabs [aria-selected=true]").dataset.tab, "customers");
+    assert.match(card.textContent, /<b>Customer One<\/b>/, "name rendered as text");
+    assert.equal(card.querySelectorAll("b").length, 0);
+    assert.match(card.textContent, /USD/);
+    assert.match(card.textContent, /SAR/);
+    assert.ok(card.querySelector('a[href="#/orders/o1"]'));
+  });
+});
