@@ -31,3 +31,17 @@ The customer side runs `mobile/www` — the files packaged in the APK — in Chr
 - Tasheel and services without a dedicated screen: general labels only, no journey test.
 - External integrations (ticketing, visa portals, hotel suppliers, payment gateways): none exist; execution and delivery are staff-recorded steps.
 - Real agency configuration still needed: document requirements for flights, ferries and hotels (if any); payment accounts; exchange rates; production API address and WhatsApp credentials.
+
+## Pricing modes and progress circles (2026-10-14)
+
+| Check | API (`backend/tests/pricingModes*.test.js`) | Browser (`web/e2e/pricing-progress.spec.ts`) |
+|---|---|---|
+| Admin sets FIXED / unit / payment-after-documents (back-office visa card) | Verified (incl. FIXED with price 0 refused) | Verified |
+| FIXED: total review + explicit confirmation, server-recomputed total, snapshot, approved invoice, no quote circle | Verified | Verified (2 travelers × 120 USD = 240) |
+| FIXED: price changed after review → refused, new total shown, re-confirmed | Verified | Verified |
+| FIXED: payment locked until documents approved, then same price | Verified | Verified |
+| Receipt uploaded ≠ payment accepted (PAYMENT done, PAYMENT_REVIEW current) | Verified | Verified |
+| Execution started ≠ completed (service-specific label) | Verified | Verified |
+| QUOTE: quote circle and version-checked approval kept | Verified | Verified |
+| Circles: tappable, details + allowed action, keyboard (RTL arrows, Home/End), single tab stop, no horizontal page scroll at Pixel 5 width, reduced motion | — | Verified (Chromium; not an Android device) |
+| Older installed app (main) payloads | Verified | — |

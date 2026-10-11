@@ -20,7 +20,7 @@
 | `TRIP_API_URL`, `TRIP_API_TOKEN` | اختيارية | مزوّد الطيران؛ بدونهما لا يُدّعى وجود رحلات خارجية |
 | `PROVIDER_EMAIL_TRANSPORT`, `PROVIDER_EMAIL_API_URL`, `PROVIDER_EMAIL_API_KEY` | اختيارية | إرسال حزم المزوّدين |
 | `API_RATE_LIMIT`, `API_SESSION_RATE_LIMIT`, `LOGIN_IP_FAILURE_LIMIT` | اختيارية | حدود المعدّل (الافتراضات آمنة) |
-| `PUBLIC_CONTACT_RATE_LIMIT` | **لا تُضبط في الإنتاج** | يرفع حد إرسال الطلبات العامة؛ لبيئة E2E فقط (الافتراضي 5 كل 15 دقيقة) |
+| `PUBLIC_CONTACT_RATE_LIMIT` | **لا تُضبط في الإنتاج** (تُتجاهل فيه) | يرفع حد إرسال الطلبات العامة؛ يُقرأ فقط عند `NODE_ENV=test` أو `development` (الافتراضي 5 كل 15 دقيقة) |
 | `TRACKING_CODE_RATE_LIMIT` | **لا أثر لها في الإنتاج** | يرفع حد طلب رمز التتبع فقط عندما `NODE_ENV` = `test` أو `development` (الاختبارات وبيئة E2E). في الإنتاج يبقى الحد 5 كل 15 دقيقة حتى لو ضُبطت بالخطأ؛ والقيم غير الصحيحة (ليست عددًا صحيحًا 1–1000) تُتجاهل |
 | `STARTUP_DB_ATTEMPTS`, `STARTUP_DB_RETRY_DELAY_MS`, `DB_COMPAT_ACKNOWLEDGED_MIGRATIONS` | اختيارية | سلوك الإقلاع والتوافق (انظر `docs/admin-remediation-release.md` على فرع #86) |
 

@@ -283,3 +283,34 @@ describe("Egypt travel tasks by stable key", () => {
     assert.ok(detail.tasks.some((t) => t.systemKey === "EGYPT_TRAVEL_CIRCULAR"), "the key reaches the back-office");
   });
 });
+
+// The app currently installed from main (mobile/www on origin/main): it never
+// sends acceptedTotal, approves a price with an empty body, and ignores
+// progress. Its exact payloads against this backend:
+describe("older installed app (main) against this backend", () => {
+  test("FIXED item → quote request; empty-body approval refused with an update message; nothing approved unseen", async () => {
+    const fixture = await visa({ pricingMode: "FIXED", priceUnit: "PER_REQUEST" });
+    const phone = testPhone();
+    const created = await submit({ phone, ...fixture, travelers: 1 });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const id = created.body.data.id;
+    assert.equal((await prisma.contactRequest.findUnique({ where: { id } })).pricingMode, "QUOTE");
+    assert.equal((await employee.post(`/api/contact-requests/${id}/invoice`).send({ amount: 150, currency: "USD" })).status, 200);
+    const tracking = trackingClient(phone);
+    const approve = await tracking.post(`/api/tracking/requests/${id}/invoice/approve`);
+    assert.equal(approve.status, 409);
+    assert.equal(approve.body.code, "QUOTE_VERSION_REQUIRED");
+    assert.match(approve.body.message, /حدّث التطبيق/);
+    assert.equal((await prisma.invoice.findUnique({ where: { contactRequestId: id } })).status, "PENDING");
+  });
+
+  test("a receipt from the old app on a fixed price awaiting document review is refused in Arabic", async () => {
+    const fixture = await visa({ pricingMode: "FIXED", priceUnit: "PER_REQUEST", paymentAfterDocumentReview: true });
+    const phone = testPhone();
+    const created = await submit({ phone, ...fixture, travelers: 1, acceptedTotal: 150, acceptedCurrency: "USD" });
+    const res = await trackingClient(phone).post(`/api/tracking/requests/${created.body.data.id}/payment-receipt`).field("label", "إثبات الدفع").attach("file", PDF(), { filename: "r.pdf", contentType: "application/pdf" });
+    assert.equal(res.status, 409);
+    assert.match(res.body.message, /بعد اعتماد المستندات/);
+    assert.equal(await prisma.contactRequestDocument.count({ where: { contactRequestId: created.body.data.id, classification: "FINANCIAL_DOCUMENT" } }), 0);
+  });
+});
