@@ -1,4 +1,4 @@
-import { EGYPT_CLEARANCE_CODE, completionBlockers, egyptTravelBlockers, evaluateDelivery, evaluateReadiness, executionBlockers, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { EGYPT_CLEARANCE_CODE, completionBlockers, egyptTravelBlockers, evaluateDelivery, evaluateReadiness, executionBlockers, isFixedPrice, paymentLockReasons, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 
 // One service-aware description of where a request stands, shared by the
 // staff back-office, the customer app (account and phone tracking) and the
@@ -101,8 +101,12 @@ const CLOSED_LABELS = {
 //   RECEIVED   always done once the request exists
 //   DOCUMENTS  done only when every required document is accepted and the
 //              required information is complete (receiving is not reviewing)
-//   QUOTE      done when the customer approved a price / chose an offer
-//   PAYMENT    done only when staff accepted the payment (a receipt is not)
+//   QUOTE      done when the customer approved a price / chose an offer.
+//              QUOTE-mode requests only: a fixed price was accepted with the
+//              order itself (RECEIVED), so there is no quote step at all
+//   PAYMENT    done once the customer sent the transfer receipt
+//   PAYMENT_REVIEW done only when staff accepted the payment (a receipt
+//              uploaded is not an accepted payment)
 //   EXECUTION  current from the recorded start until the first final file
 //              is published; done after that (started is not finished)
 //   DELIVERY   done only when every traveler's final file is published
@@ -117,6 +121,9 @@ export function deriveRequestProgress(request) {
   const readiness = evaluateReadiness(request);
   const executionStartedAt = request.executionStartedAt || null;
   const completed = status === "CLOSED" && outcome === "COMPLETED";
+  const fixed = isFixedPrice(request);
+  const lockReasons = status === "CLOSED" ? [] : paymentLockReasons(request);
+  const paymentLocked = lockReasons.length > 0;
 
   let stage;
   let label;
@@ -135,9 +142,12 @@ export function deriveRequestProgress(request) {
   } else if (paymentStatus === "UNDER_REVIEW") {
     stage = "PAYMENT_REVIEW";
     label = "بانتظار مراجعة إثبات التحويل";
+  } else if (paymentStatus === "AWAITING_TRANSFER" && paymentLocked) {
+    stage = "AWAITING_DOCUMENT_REVIEW";
+    label = "طلبك مؤكد بالسعر الثابت؛ يُفتح الدفع بعد اعتماد المستندات";
   } else if (paymentStatus === "AWAITING_TRANSFER") {
     stage = "AWAITING_PAYMENT";
-    label = "تمت الموافقة على السعر، بانتظار تحويل المبلغ";
+    label = fixed ? "طلبك مؤكد بالسعر الثابت، بانتظار تحويل المبلغ" : "تمت الموافقة على السعر، بانتظار تحويل المبلغ";
   } else if (invoice?.status === "PENDING") {
     stage = "QUOTE_PENDING";
     label = "يوجد عرض سعر بانتظار موافقتك";
@@ -158,16 +168,18 @@ export function deriveRequestProgress(request) {
     RECEIVED: true,
     DOCUMENTS: readiness.ready || completed,
     QUOTE: quoteAccepted || completed,
-    PAYMENT: paymentStatus === "CONFIRMED" || completed,
+    PAYMENT: paymentStatus === "UNDER_REVIEW" || paymentStatus === "CONFIRMED" || completed,
+    PAYMENT_REVIEW: paymentStatus === "CONFIRMED" || completed,
     EXECUTION: (Boolean(executionStartedAt) && published.length > 0) || fullyDelivered,
     DELIVERY: fullyDelivered,
     TRAVEL_PLAN: completed || egyptTravelBlockers(request).length === 0,
   };
   const steps = [
-    { key: "RECEIVED", label: "استلام الطلب" },
+    { key: "RECEIVED", label: fixed ? "تأكيد الطلب بالسعر الثابت" : "استلام الطلب" },
     { key: "DOCUMENTS", label: "مراجعة المستندات والبيانات" },
-    { key: "QUOTE", label: "عرض السعر والموافقة عليه" },
-    { key: "PAYMENT", label: "مراجعة الدفع وقبوله" },
+    ...(fixed ? [] : [{ key: "QUOTE", label: "عرض السعر والموافقة عليه" }]),
+    { key: "PAYMENT", label: "تحويل المبلغ ورفع الإيصال" },
+    { key: "PAYMENT_REVIEW", label: "مراجعة الإيصال وقبول الدفع" },
     { key: "EXECUTION", label: copy.executionStep },
     { key: "DELIVERY", label: copy.deliveryStep },
     // Egypt clearance only: the customer's travel plan and the agency's
@@ -175,14 +187,73 @@ export function deriveRequestProgress(request) {
     ...(request.visaType?.code === EGYPT_CLEARANCE_CODE ? [{ key: "TRAVEL_PLAN", label: "بيانات السفر والتعميم" }] : []),
   ];
   const currentIndex = status === "CLOSED" ? -1 : steps.findIndex((step) => !doneFlags[step.key]);
+  const money = (amount, currency) => `${Number(amount).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;
+  const snapshotForStatus = request.pricingSnapshot || null;
+  // One factual status line per step (what happened / what is awaited),
+  // shown when the customer opens that step.
+  const travelPlanBlockers = egyptTravelBlockers(request);
+  const stepStatus = {
+    RECEIVED: fixed && snapshotForStatus?.total !== undefined
+      ? `أكّدت الطلب بإجمالي ${money(snapshotForStatus.total, snapshotForStatus.currency)} (سعر ثابت).`
+      : "تم استلام طلبك.",
+    DOCUMENTS: readiness.ready ? "تم اعتماد المستندات والبيانات المطلوبة." : readiness.reasons.map((r) => r.message).join(" "),
+    QUOTE: invoice?.status === "PENDING"
+      ? "عرض السعر بانتظار موافقتك."
+      : invoice?.status === "REJECTED"
+        ? "رفضت عرض السعر؛ بانتظار عرض جديد من الوكالة."
+        : offers?.length > 0 && !selectedOfferId
+          ? "توجد عروض بانتظار اختيارك."
+          : quoteAccepted
+            ? "تمت الموافقة على السعر."
+            : "لم تُصدر الوكالة عرض السعر بعد.",
+    PAYMENT: paymentLocked
+      ? lockReasons[0].message
+      : paymentStatus === "AWAITING_TRANSFER"
+        ? "بانتظار تحويل المبلغ ورفع إيصال الدفع."
+        : paymentStatus === "UNDER_REVIEW" || paymentStatus === "CONFIRMED"
+          ? "تم رفع إيصال الدفع."
+          : "يُفتح الدفع بعد تحديد السعر.",
+    PAYMENT_REVIEW: paymentStatus === "CONFIRMED"
+      ? "قبلت الوكالة الدفع."
+      : paymentStatus === "UNDER_REVIEW"
+        ? "الإيصال قيد مراجعة الوكالة؛ لم يُقبل الدفع بعد."
+        : "لم يُرفع إيصال للمراجعة بعد.",
+    EXECUTION: doneFlags.EXECUTION
+      ? "اكتمل التنفيذ."
+      : executionStartedAt
+        ? `${copy.execution} — بدأ التنفيذ ولم يكتمل بعد.`
+        : paymentStatus === "CONFIRMED"
+          ? "تم قبول الدفع، بانتظار بدء التنفيذ."
+          : "يبدأ التنفيذ بعد قبول الدفع واعتماد المستندات.",
+    DELIVERY: fullyDelivered
+      ? "الملفات النهائية منشورة وجاهزة للتحميل."
+      : published.length
+        ? `نُشر جزء من الملفات النهائية؛ ${delivery.reasons.map((r) => r.message).join(" ")}`
+        : "لم تُنشر الملفات النهائية بعد.",
+    TRAVEL_PLAN: travelPlanBlockers.length ? travelPlanBlockers.map((r) => r.message).join(" ") : "اكتملت بيانات السفر والتعميم.",
+  };
   const progressSteps = steps.map((step, index) => ({
     ...step,
     state: doneFlags[step.key] ? "done" : index === currentIndex ? "current" : "upcoming",
+    status: stepStatus[step.key],
+    // EXECUTION only: recorded start (in progress) versus finished.
+    ...(step.key === "EXECUTION" ? { started: Boolean(executionStartedAt) } : {}),
   }));
 
   const blockers = status === "CLOSED" ? [] : executionStartedAt ? [] : executionBlockers(request);
+  const snapshot = request.pricingSnapshot || null;
   return {
     serviceKind: kind,
+    // "FIXED" (catalog price accepted at submission, no quote step) or
+    // "QUOTE"; with the accepted snapshot for FIXED.
+    pricingMode: fixed ? "FIXED" : "QUOTE",
+    pricing: fixed && snapshot
+      ? { total: snapshot.total, currency: snapshot.currency, unitPrice: snapshot.unitPrice, priceUnit: snapshot.priceUnit, units: snapshot.units, paymentAfterDocumentReview: Boolean(snapshot.paymentAfterDocumentReview), acceptedAt: snapshot.acceptedAt }
+      : null,
+    // Fixed price with payment after the document review: why payment is
+    // not open yet (empty once it is).
+    paymentLocked,
+    paymentLockReasons: lockReasons,
     serviceKindLabel: copy.label,
     stage,
     label,

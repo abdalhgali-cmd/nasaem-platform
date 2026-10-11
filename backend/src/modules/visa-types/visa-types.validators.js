@@ -9,6 +9,11 @@ export const createVisaTypeSchema = z.object({
   description: z.string().optional().nullable(),
   basePrice: z.coerce.number().nonnegative(),
   currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
+  // Explicit pricing configuration (contact-request-pricing/fixed-price.js):
+  // never inferred from basePrice.
+  pricingMode: z.enum(["QUOTE", "FIXED"]).optional(),
+  priceUnit: z.enum(["PER_REQUEST", "PER_TRAVELER"]).optional(),
+  paymentAfterDocumentReview: z.coerce.boolean().optional(),
   active: z.coerce.boolean().optional(),
   serviceId: z.string().optional().nullable(),
   type: z.string().trim().max(100).optional().nullable(),

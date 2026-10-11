@@ -85,6 +85,17 @@ export async function storeContactRequest(req, res, next) {
     // fails that requirement's own MIME/size/max-files rules — the whole
     // submission is rejected (nothing was created), same posture as any
     // other validation failure on this route.
+    if (contactRequest?.error === "PRICE_CHANGED" || contactRequest?.error === "PRICING_MODE_CHANGED") {
+      return res.status(409).json({
+        success: false,
+        code: contactRequest.error,
+        message:
+          contactRequest.error === "PRICE_CHANGED"
+            ? "تغيّر سعر الخدمة منذ أن راجعته. راجع الإجمالي الجديد ثم أكّد الطلب."
+            : "أصبح سعر هذه الخدمة يُحدَّد بعرض سعر من الوكالة. حدّث الصفحة ثم أرسل الطلب.",
+        details: contactRequest.details,
+      });
+    }
     if (contactRequest?.error) {
       const status = contactRequest.error === "FEATURE_DISABLED" ? 403 : contactRequest.error === "SUBMISSION_KEY_CONFLICT" ? 409 : 400;
       return res.status(status).json({

@@ -1,6 +1,6 @@
 import path from "path";
 import prisma from "../../config/database.js";
-import { ACTIONS, checkAction } from "../contact-request-workflow/workflow-policy.js";
+import { ACTIONS, checkAction, paymentLockReasons } from "../contact-request-workflow/workflow-policy.js";
 import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
@@ -219,10 +219,21 @@ export async function updateContactRequestDocumentStatus(
       organizationId: request.organizationId,
       newValue: { documentId, status },
     });
-    return { document, updated };
+    // Fixed price paid after the document review: did this decision open
+    // the payment (same accepted price)?
+    const reviewed = { ...request, documents: request.documents.map((d) => (d.id === documentId ? { ...d, status } : d)) };
+    const paymentUnlocked = paymentLockReasons(request).length > 0 && paymentLockReasons(reviewed).length === 0;
+    return { document, updated, paymentUnlocked, request };
   });
   if (result.error || result.refusal) return result;
   const { document, updated } = result;
+
+  if (result.paymentUnlocked) {
+    const invoice = result.request.invoice;
+    const message = `تم اعتماد مستندات طلبك (${describeRequest(result.request)}). يمكنك الآن تحويل المبلغ المؤكد ${invoice ? `${Number(invoice.amount)} ${invoice.currency}` : ""} ورفع الإيصال.`;
+    await notifyRequestCustomer(result.request, { title: "فُتح الدفع لطلبك", message, type: "CONTACT_REQUEST_PAYMENT_OPEN" });
+    sendWhatsAppMessage(result.request.phoneNormalized, message);
+  }
 
   // Release E: a review decision can complete "review documents" or open
   // "check payment" — keep the case's open tasks in step with it.

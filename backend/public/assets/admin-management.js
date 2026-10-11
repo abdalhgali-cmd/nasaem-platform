@@ -155,6 +155,7 @@ function wireManagementTabs() {
   el("visa-requirements-close-btn").addEventListener("click", closeVisaRequirements);
   el("service-details-close-btn").addEventListener("click", closeServiceDetails);
   el("service-details-save-btn").addEventListener("click", saveServiceDetails);
+  el("visa-pricing-save-btn").addEventListener("click", saveVisaPricing);
   el("sv-image").addEventListener("change", handleServiceImageChange);
   el("sv-move-up-btn").addEventListener("click", () => moveService("up"));
   el("sv-move-down-btn").addEventListener("click", () => moveService("down"));
@@ -439,7 +440,7 @@ async function loadServices() {
           <td>${escapeHtml(sv.code)}</td>
           <td>${escapeHtml(sv.name)}</td>
           <td>${escapeHtml(sv.category)}</td>
-          <td>${formatMoney(sv.basePrice, sv.currency)}</td>
+          <td>${formatMoney(sv.basePrice, sv.currency)}<div class="muted" style="font-size: 11px" data-pricing-mode="${escapeHtml(sv.pricingMode || "QUOTE")}">${sv.pricingMode === "FIXED" ? "سعر ثابت" : "بعرض سعر"}</div></td>
           <td>${sv.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
           <td>
             <button type="button" class="btn secondary" data-manage-service="${escapeHtml(sv.id)}" data-name="${escapeHtml(sv.name)}">تعديل / تفاصيل</button>
@@ -497,6 +498,24 @@ function handleServiceRowClick(e) {
     .catch((error) => showAlert(mgmtAlert(), error.message));
 }
 
+// --- Explicit pricing configuration (services and visa types): "QUOTE"
+// (agency quote, customer approves that version) or "FIXED" (basePrice is
+// final; the customer confirms the total at submission, no second
+// approval). Never inferred from the price; the server validates it.
+function fillPricingFields(prefix, data) {
+  el(`${prefix}-pricingMode`).value = data.pricingMode === "FIXED" ? "FIXED" : "QUOTE";
+  el(`${prefix}-priceUnit`).value = data.priceUnit === "PER_TRAVELER" ? "PER_TRAVELER" : "PER_REQUEST";
+  el(`${prefix}-paymentAfterDocumentReview`).checked = Boolean(data.paymentAfterDocumentReview);
+}
+
+function readPricingFields(prefix) {
+  return {
+    pricingMode: el(`${prefix}-pricingMode`).value,
+    priceUnit: el(`${prefix}-priceUnit`).value,
+    paymentAfterDocumentReview: el(`${prefix}-paymentAfterDocumentReview`).checked,
+  };
+}
+
 // --- Service details: icon/features/image/reorder (Platform 3.0 Phase 3
 // API; previously only create + activate/deactivate had a UI) ---
 
@@ -528,7 +547,7 @@ function openServiceDetails(serviceId, serviceName) {
   el("sv-icon").innerHTML =
     '<option value="">بدون أيقونة</option>' + SERVICE_ICON_KEYS.map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`).join("");
   const canWrite = mgmtCanWrite("services");
-  ["sv-edit-name", "sv-edit-category", "sv-edit-basePrice", "sv-edit-currency", "sv-icon", "sv-image", "sv-features", "service-details-save-btn", "sv-move-up-btn", "sv-move-down-btn"].forEach((id) => {
+  ["sv-edit-name", "sv-edit-category", "sv-edit-basePrice", "sv-edit-currency", "sv-edit-pricingMode", "sv-edit-priceUnit", "sv-edit-paymentAfterDocumentReview", "sv-icon", "sv-image", "sv-features", "service-details-save-btn", "sv-move-up-btn", "sv-move-down-btn"].forEach((id) => {
     el(id).disabled = !canWrite;
   });
   el("service-details-card").classList.remove("hidden");
@@ -549,6 +568,7 @@ async function loadServiceDetails() {
     el("sv-edit-category").value = data.category || "";
     el("sv-edit-basePrice").value = Number(data.basePrice) || 0;
     el("sv-edit-currency").value = data.currency || "SAR";
+    fillPricingFields("sv-edit", data);
     el("sv-icon").value = data.iconKey || "";
     el("sv-features").value = (data.features || []).join("\n");
     el("service-details-image-preview").innerHTML = data.imageKey
@@ -580,6 +600,7 @@ async function saveServiceDetails() {
       category,
       basePrice,
       currency,
+      ...readPricingFields("sv-edit"),
       iconKey: el("sv-icon").value || null,
       features,
     });
@@ -1385,7 +1406,7 @@ async function loadVisaTypes() {
           <td>${escapeHtml(vt.name)}</td>
           <td>${escapeHtml(vt.country)}</td>
           <td>${escapeHtml(VISA_TYPE_CATEGORY_LABELS[vt.category] || vt.category || "—")}</td>
-          <td>${formatMoney(vt.basePrice, vt.currency)}</td>
+          <td>${formatMoney(vt.basePrice, vt.currency)}<div class="muted" style="font-size: 11px" data-pricing-mode="${escapeHtml(vt.pricingMode || "QUOTE")}">${vt.pricingMode === "FIXED" ? "سعر ثابت" : "بعرض سعر"}</div></td>
           <td>${vt.active ? '<span class="badge status-ACTIVE">مفعّل</span>' : '<span class="badge status-INACTIVE">معطّل</span>'}</td>
           <td>
             <button type="button" class="btn secondary" data-manage-requirements="${escapeHtml(vt.id)}" data-name="${escapeHtml(vt.name)}">المتطلبات</button>
@@ -1450,10 +1471,29 @@ function openVisaRequirements(visaTypeId, visaName) {
   el("visa-requirements-title").textContent = visaName || "";
   el("visa-requirements-card").classList.remove("hidden");
   const canWrite = mgmtCanWrite("visas");
+  ["vt-edit-pricingMode", "vt-edit-priceUnit", "vt-edit-paymentAfterDocumentReview", "visa-pricing-save-btn"].forEach((id) => {
+    el(id).disabled = !canWrite;
+  });
+  api
+    .get(`/visa-types/${visaTypeId}`)
+    .then(({ data }) => fillPricingFields("vt-edit", data))
+    .catch((error) => showAlert(mgmtAlert(), error.message));
   el("visa-requirement-create-card").classList.toggle("hidden", !canWrite);
   el("visa-requirement-create-btn").classList.toggle("hidden", !canWrite);
   loadVisaRequirements();
   el("visa-requirements-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function saveVisaPricing() {
+  if (!currentVisaRequirementsTypeId) return;
+  showAlert(mgmtAlert(), "");
+  try {
+    await api.patch(`/visa-types/${currentVisaRequirementsTypeId}`, readPricingFields("vt-edit"));
+    showAlert(mgmtAlert(), "تم حفظ طريقة التسعير.", "success");
+    loadVisaTypes();
+  } catch (error) {
+    showAlert(mgmtAlert(), error.message);
+  }
 }
 
 function closeVisaRequirements() {

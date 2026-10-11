@@ -269,12 +269,15 @@ describe("progress semantics", () => {
     await uploadReceipt(tracking, id);
     progress = (await tracking.request(id)).progress;
     assert.equal(state("DOCUMENTS"), "done");
-    assert.equal(state("PAYMENT"), "current", "a receipt is not an accepted payment");
+    // The customer's part (transfer + receipt) is done; the payment is not
+    // accepted until staff decide: PAYMENT_REVIEW stays current.
+    assert.equal(state("PAYMENT"), "done");
+    assert.equal(state("PAYMENT_REVIEW"), "current", "a receipt is not an accepted payment");
 
     assert.equal((await accountant.post(`/api/contact-requests/${id}/confirm-payment`).send({})).status, 200);
     assert.equal((await employee.post(`/api/contact-requests/${id}/start-execution`).send({})).status, 200);
     progress = (await tracking.request(id)).progress;
-    assert.equal(state("PAYMENT"), "done");
+    assert.equal(state("PAYMENT_REVIEW"), "done");
     assert.equal(state("EXECUTION"), "current", "started is not finished");
     assert.equal(state("DELIVERY"), "upcoming");
 

@@ -10,6 +10,7 @@ import {
   validateTravelers, validateSlots, buildUploadParts, collectAnswers, missingAnswers, draftKey, serializeDraft, parseDraft,
 } from "../intake-core.js";
 import { setTrackingPrefill } from "../tracking.js";
+import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-view.js";
 
 const ALLOWED_DOC_ACCEPT = "image/*,.pdf";
 const STEP_TITLES = { data: "البيانات", docs: "المستندات", review: "المراجعة" };
@@ -161,6 +162,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   if (draft) Object.assign(state.values, draft.values, { travelers: draft.values.travelers?.length ? draft.values.travelers : state.values.travelers });
   state.values.travelers = state.values.travelers.slice(0, maxTravelers);
 
+  // Fixed catalog price (explicit agency setting): the review step shows the
+  // final total and the order is confirmed at that total. Updated if the
+  // server answers that the price changed meanwhile.
+  let pricingItem = item;
+  const pricing = () => fixedPricing(pricingItem);
+
   const hasDocumentRequirements = requirements.some((requirement) => requirement.type === "DOCUMENT");
   const answerRequirements = () => requirements.filter((requirement) => requirement.type !== "DOCUMENT" && requirementApplies(requirement, state.values.answers));
   const slots = () => buildDocumentSlots(requirements, state.values.answers, state.values.travelers);
@@ -232,7 +239,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   function renderStepper() {
     const list = steps();
     stepper.innerHTML = list
-      .map((key, index) => `<li class="${key === state.step ? "current" : list.indexOf(state.step) > index ? "done" : ""}"><span class="step-dot">${list.indexOf(state.step) > index ? icon("check", { size: 14 }) : index + 1}</span><span class="step-name">${STEP_TITLES[key]}</span></li>`)
+      .map((key, index) => `<li class="${key === state.step ? "current" : list.indexOf(state.step) > index ? "done" : ""}"><span class="step-dot">${list.indexOf(state.step) > index ? icon("check", { size: 14 }) : index + 1}</span><span class="step-name">${key === "review" && pricing() ? "الإجمالي والتأكيد" : STEP_TITLES[key]}</span></li>`)
       .join("");
   }
 
@@ -242,7 +249,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     const last = index === list.length - 1;
     stepActions.innerHTML = `
       ${index > 0 ? `<button type="button" class="secondary" id="backStepBtn">السابق</button>` : ""}
-      <button type="button" class="primary" id="nextStepBtn">${last ? "إرسال الطلب للوكالة" : "التالي"}</button>`;
+      <button type="button" class="primary" id="nextStepBtn">${last ? (pricing() ? "تأكيد الطلب بهذا الإجمالي" : "إرسال الطلب للوكالة") : "التالي"}</button>`;
     stepActions.querySelector("#backStepBtn")?.addEventListener("click", () => goStep(list[index - 1], { validate: false }));
     stepActions.querySelector("#nextStepBtn").addEventListener("click", () => (last ? submit() : goStep(list[index + 1], { validate: true })));
   }
@@ -398,8 +405,9 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         </section>` : ""}
       <section class="form-section">
         <label class="field"><span>ملاحظات إضافية</span><textarea name="notes" rows="3">${esc(v.notes)}</textarea></label>
-        <p class="field-hint">لا يُعد الطلب مُرسلًا إلا بعد أن يظهر لك رقم الطلب. السعر النهائي وتعليمات الدفع تصلك بعد مراجعة الوكالة.</p>
+        <p class="field-hint">لا يُعد الطلب مُرسلًا إلا بعد أن يظهر لك رقم الطلب.${pricing() ? "" : " السعر النهائي وتعليمات الدفع تصلك بعد مراجعة الوكالة."}</p>
       </section>
+      ${totalReviewHtml()}
       <div id="uploadProgressWrap" class="upload-progress-wrap" hidden>
         <div class="upload-progress-bar"><div id="uploadProgressFill" class="upload-progress-fill"></div></div>
         <span id="uploadProgressLabel">0%</span>
@@ -408,6 +416,22 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       state.values.notes = event.target.value;
       saveDraft();
     });
+  }
+
+  // Fixed price: the final total, how it is made up and when it is paid,
+  // and an explicit confirmation. Accepting it here is the price approval;
+  // no second approval follows.
+  function totalReviewHtml() {
+    const current = pricing();
+    if (!current) return "";
+    const summary = fixedTotalSummary(current, state.values.travelers.length);
+    return `
+      <section class="form-section review total-review" id="fixedTotalReview" aria-labelledby="fixedTotalTitle">
+        <h3 id="fixedTotalTitle">الإجمالي النهائي</h3>
+        <div class="review-row"><span>${esc(summary.breakdown)}</span><b id="fixedTotalAmount"><bdi>${esc(summary.totalText)}</bdi></b></div>
+        <p class="field-hint">${esc(summary.payment)}</p>
+        <label class="confirm-check"><input type="checkbox" id="confirmTotal"> <span>أؤكد طلبي بإجمالي <bdi>${esc(summary.totalText)}</bdi>.</span></label>
+      </section>`;
   }
 
   function validateStep(step) {
@@ -447,6 +471,8 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     const notes = stepBody.querySelector('[name="notes"]')?.value ?? state.values.notes;
     state.values.notes = notes;
     const messages = [...validateStep("data"), ...validateStep("docs")];
+    const fixed = pricing() ? fixedTotalSummary(pricing(), state.values.travelers.length) : null;
+    if (fixed && !stepBody.querySelector("#confirmTotal")?.checked) messages.push("أكّد الإجمالي النهائي قبل إرسال الطلب.");
     showErrors(messages);
     if (messages.length) return;
 
@@ -466,6 +492,10 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     const message = notes.trim() || `طلب ${item.name}`;
     payload.set("message", selection ? `${message}\n${selection.summary}` : message);
     payload.set("travelerCount", String(travelers.length));
+    if (fixed) {
+      payload.set("acceptedTotal", String(fixed.total));
+      payload.set("acceptedCurrency", fixed.currency);
+    }
     payload.set("travelers", JSON.stringify(travelers));
     payload.set("answers", JSON.stringify(v.answers));
     payload.set("intakeData", JSON.stringify({ travelers, answers: v.answers, notes, ...(selection ? { selection: selection.details || { summary: selection.summary } } : {}) }));
@@ -491,6 +521,17 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       setLoading(submitBtn, false);
       if (progressWrap) progressWrap.hidden = true;
       saveDraft();
+      // The agency changed the price (or moved the service to quotation)
+      // after this screen loaded: nothing was created. Show the current
+      // terms and ask for a fresh confirmation.
+      if (error instanceof ApiError && (error.code === "PRICE_CHANGED" || error.code === "PRICING_MODE_CHANGED")) {
+        pricingItem = error.code === "PRICE_CHANGED" ? withServerPrice(pricingItem, error.details) : { ...pricingItem, pricingMode: "QUOTE" };
+        renderStepper();
+        renderReview();
+        renderActions();
+        showErrors([error.message]);
+        return;
+      }
       showErrors([submitFailureMessage(error)]);
       toast(submitFailureMessage(error), { tone: "error" });
     }

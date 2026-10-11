@@ -843,12 +843,40 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 /* Test builds only (never rendered when config.environment is "production") */
 .env-badge { position: fixed; top: calc(var(--safe-top) + 2px); inset-inline-start: 8px; z-index: 9999; padding: 1px 8px; border-radius: 999px; background: #b42318; color: #fff; font-size: 10px; font-weight: 800; pointer-events: none; opacity: .9; }
 
-/* Request progress (server-computed, service-specific stages) */
+/* Request progress: connected, tappable stage circles (server-computed,
+   service-specific stages). The track scrolls sideways inside its own box
+   when the stages do not fit, never the page. RTL follows the document. */
 .progress-label { margin: 0 0 10px; font-weight: 700; color: var(--navy); }
-.progress-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.progress-step { display: flex; align-items: center; gap: 10px; color: var(--muted, #6b7280); font-size: 14px; }
-.progress-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); flex: none; }
-.progress-step-done { color: var(--text, #1f2937); }
-.progress-step-done .progress-dot { background: var(--gold, #c9a227); border-color: var(--gold, #c9a227); }
-.progress-step-current { color: var(--navy); font-weight: 700; }
-.progress-step-current .progress-dot { border-color: var(--navy); background: var(--surface); box-shadow: 0 0 0 3px rgba(11, 37, 69, 0.15); }
+.progress-track-scroll { overflow-x: auto; overscroll-behavior-x: contain; margin: 0 -4px; padding: 4px 4px 2px; scrollbar-width: none; }
+.progress-track-scroll::-webkit-scrollbar { display: none; }
+.progress-track { list-style: none; margin: 0; padding: 0; display: flex; align-items: flex-start; min-width: min-content; }
+.progress-node { position: relative; flex: 1 0 64px; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 64px; }
+/* Connector to the previous stage (inline-start side). */
+.progress-node + .progress-node::before { content: ""; position: absolute; top: 21px; inset-inline-start: calc(-50% + 22px); width: calc(100% - 44px); height: 3px; border-radius: 2px; background: var(--border); }
+.progress-node-done + .progress-node::before { background: var(--gold); }
+.progress-circle { width: 44px; height: 44px; min-width: 44px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface); color: var(--text-muted); display: grid; place-items: center; font-weight: 800; font-size: 15px; padding: 0; cursor: pointer; position: relative; z-index: 1; }
+.progress-node-done .progress-circle { background: var(--gold); border-color: var(--gold); color: var(--navy-dark); }
+.progress-node-current .progress-circle { border-color: var(--navy); color: var(--navy); box-shadow: 0 0 0 4px rgba(8, 43, 88, 0.14); }
+/* Execution recorded but not finished: a half-filled ring, never a check. */
+.progress-node-started .progress-circle { background: linear-gradient(to top, rgba(214, 170, 75, .35) 50%, var(--surface) 50%); }
+.progress-circle[aria-selected="true"] { outline: 3px solid var(--navy-light); outline-offset: 3px; }
+.progress-circle:focus-visible { outline: 3px solid var(--gold-dark); outline-offset: 3px; }
+.progress-node-label { font-size: 11.5px; line-height: 1.35; text-align: center; color: var(--text-muted); max-width: 84px; }
+.progress-node-current .progress-node-label { color: var(--navy); font-weight: 700; }
+.progress-node-done .progress-node-label { color: var(--text); }
+.progress-panel { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg); }
+.progress-panel:focus { outline: none; }
+.progress-panel-title { margin: 0 0 6px; font-size: 14.5px; color: var(--navy); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.progress-panel-state { font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); }
+.progress-panel-state-done { color: var(--success); border-color: var(--success); }
+.progress-panel-state-current { color: var(--navy); border-color: var(--navy); }
+.progress-panel-status { margin: 0 0 8px; font-size: 13.5px; line-height: 1.6; }
+.progress-panel-facts { margin: 0 0 8px; display: grid; gap: 4px; font-size: 13px; }
+.progress-panel-facts div { display: flex; justify-content: space-between; gap: 12px; }
+.progress-panel-facts dt { color: var(--text-muted); }
+.progress-panel-facts dd { margin: 0; font-weight: 700; word-break: break-word; text-align: end; }
+.progress-panel-action { width: 100%; }
+.total-review { border: 2px solid var(--gold); }
+.total-review #fixedTotalAmount { font-size: 18px; color: var(--navy); }
+.confirm-check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; font-weight: 700; margin-top: 8px; }
+.confirm-check input { width: 22px; height: 22px; flex: none; margin: 0; }

@@ -10,6 +10,11 @@ export const createServiceSchema = z.object({
   description: z.string().optional().nullable(),
   basePrice: z.coerce.number().nonnegative(),
   currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
+  // Explicit pricing configuration (contact-request-pricing/fixed-price.js):
+  // never inferred from basePrice.
+  pricingMode: z.enum(["QUOTE", "FIXED"]).optional(),
+  priceUnit: z.enum(["PER_REQUEST", "PER_TRAVELER"]).optional(),
+  paymentAfterDocumentReview: z.coerce.boolean().optional(),
   active: z.coerce.boolean().optional(),
   sortOrder: z.coerce.number().int().optional(),
   iconKey: z.enum(ICON_KEYS).optional().nullable(),

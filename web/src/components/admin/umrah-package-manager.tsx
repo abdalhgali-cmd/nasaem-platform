@@ -8,6 +8,7 @@ import { ArrowDown, ArrowUp, Check, Edit3, ImagePlus, Loader2, PackagePlus, X } 
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { adminRequest } from "@/lib/admin-api";
+import { PricingModeFields, emptyPricing, pricingFrom, type PricingFields } from "@/components/admin/pricing-mode-fields";
 
 type PackageService = {
   id: string;
@@ -22,9 +23,9 @@ type PackageService = {
   processingTime?: string | null;
   features?: string[] | null;
   imageKey?: string | null;
-};
+} & Partial<PricingFields>;
 
-type PackageForm = {
+type PackageForm = PricingFields & {
   code: string;
   name: string;
   description: string;
@@ -54,6 +55,7 @@ const empty: PackageForm = {
   included: "",
   excluded: "",
   active: true,
+  ...emptyPricing,
 };
 
 function readFeature(features: string[] | null | undefined, prefix: string) {
@@ -79,6 +81,7 @@ function formFromPackage(item: PackageService): PackageForm {
     included: splitFeatures(item.features, "INCLUDED"),
     excluded: splitFeatures(item.features, "EXCLUDED"),
     active: item.active,
+    ...pricingFrom(item),
   };
 }
 
@@ -150,6 +153,9 @@ export function UmrahPackageManager() {
         active: form.active,
         features: featuresFromForm(form),
         processingTime: form.duration || null,
+        pricingMode: form.pricingMode,
+        priceUnit: form.priceUnit,
+        paymentAfterDocumentReview: form.paymentAfterDocumentReview,
       });
       const payload = editingId
         ? await adminRequest<{ data: PackageService }>(`/services/${editingId}`, { method: "PATCH", body })
@@ -219,6 +225,7 @@ export function UmrahPackageManager() {
       <label className="text-sm font-bold">النقل<input value={form.transport} onChange={(e) => setForm({ ...form, transport: e.target.value })} className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label>
       <label className="text-sm font-bold">التأشيرة<input value={form.visa} onChange={(e) => setForm({ ...form, visa: e.target.value })} className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label>
       <label className="text-sm font-bold">العملة<select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal"><option value="SAR">SAR</option><option value="USD">USD</option><option value="AED">AED</option><option value="EUR">EUR</option></select></label>
+      <PricingModeFields value={pricingFrom(form)} onChange={(next) => setForm({ ...form, ...next })} />
       <label className="flex items-center gap-2 self-end text-sm font-bold"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />ظاهرة للعملاء</label>
       <label className="sm:col-span-2 lg:col-span-3 text-sm font-bold">الوصف<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-2 min-h-20 w-full rounded-xl border border-border bg-background p-3 font-normal" /></label>
       <label className="text-sm font-bold">الخدمات المشمولة<textarea placeholder="سطر لكل خدمة" value={form.included} onChange={(e) => setForm({ ...form, included: e.target.value })} className="mt-2 min-h-24 w-full rounded-xl border border-border bg-background p-3 font-normal" /></label>

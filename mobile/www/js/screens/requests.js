@@ -7,7 +7,7 @@ import * as tracking from "../tracking.js";
 import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
 import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "../payment-view.js";
-import { progressBlockHtml } from "../progress-view.js";
+import { bindProgressTrack, progressBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
 
@@ -388,10 +388,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         <p>${esc(request.nextAction || "")}</p>
       </div>
 
-      ${progressBlockHtml(request.progress, esc)}
+      ${progressBlockHtml(request.progress, esc, request)}
 
       ${pricing || payState.label ? `
-        <div class="detail-block quote-block">
+        <div class="detail-block quote-block" id="quoteBlock">
           <h4>${pricing ? "السعر والدفع" : "الدفع"}</h4>
           ${pricing ? `<strong class="quote-amount">${esc(price)}</strong>${pricing.label ? `<small>${esc(pricing.label)}</small>` : ""}${sdgLine ? `<small class="quote-sdg">${esc(sdgLine)}</small>` : sdgUnavailable(pricing) ? `<small class="quote-sdg-unavailable">${esc(SDG_UNAVAILABLE_NOTICE)}</small>` : ""}${request.invoice?.description ? `<p>${esc(request.invoice.description)}</p>` : ""}` : ""}
           ${payState.label ? `<div class="pay-state pay-state-${esc(payState.tone)}" role="status"><b>${esc(payState.label)}</b><span>${esc(payState.detail)}</span></div>` : ""}
@@ -400,7 +400,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         </div>` : ""}
 
       ${request.offers?.length ? `
-        <div class="detail-block">
+        <div class="detail-block" id="offersBlock">
           <h4>عروض الوكالة</h4>
           ${request.offers.map((offer) => `
             <div class="offer-row">
@@ -414,7 +414,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         </div>` : ""}
 
       ${request.checklist?.length ? checklistBlock(request) : request.documents?.length ? `
-        <div class="detail-block">
+        <div class="detail-block" id="documentsBlock">
           <h4>المستندات</h4>
           ${request.documents.filter((doc) => !doc.supersededAt).map((doc) => `
             <div class="doc-row">
@@ -425,7 +425,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         </div>` : ""}
 
       ${request.deliverables?.length ? `
-        <div class="detail-block">
+        <div class="detail-block" id="deliverablesBlock">
           <h4>الملفات النهائية</h4>
           ${request.deliverables.map((file) => `<button class="secondary deliverable-btn" data-id="${esc(file.id)}">${icon("download", { size: 16 })} ${esc(file.label || file.fileName)}</button>`).join("")}
         </div>` : ""}
@@ -443,6 +443,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     `;
 
     const panel = bodyEl.querySelector("#trackingActionPanel");
+    bindProgressTrack(bodyEl, { request, progress: request.progress, esc });
 
     bodyEl.querySelector("#approveBtn")?.addEventListener("click", () => {
       ensureTrackingAndRun(panel, () => tracking.approveInvoice(request.id, request.invoice?.version), { onDone: () => { toast("تمت الموافقة على السعر"); load(); } });
@@ -479,7 +480,7 @@ function checklistBlock(request) {
   const groups = groupChecklist(request.checklist);
   const todo = actionCount(request.checklist);
   return `
-    <div class="detail-block checklist">
+    <div class="detail-block checklist" id="documentsBlock">
       <h4>المستندات والمعلومات المطلوبة</h4>
       <p class="checklist-summary ${todo ? "needs-action" : "all-good"}">${todo ? `يلزم منك ${todo} ${todo === 1 ? "بند" : "بنود"} لإكمال الطلب` : "لا يوجد مطلوب منك الآن"}</p>
       ${groups.map((group) => `

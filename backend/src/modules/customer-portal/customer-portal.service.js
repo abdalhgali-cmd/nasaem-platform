@@ -198,7 +198,7 @@ const CUSTOMER_REQUEST_INCLUDE = {
   documents: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, status: true, reviewNote: true, travelerId: true, requirementId: true, supersededAt: true, classification: true, createdAt: true }, orderBy: { createdAt: "desc" } },
   travelers: { select: { id: true, fullName: true, isPrimary: true, sortOrder: true }, orderBy: { sortOrder: "asc" } },
   // For the completion policy only (Egypt travel tasks); not returned.
-  tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true } },
+  tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true, systemKey: true } },
   // Drafts are filtered out in toCustomerRequest (publishedAt null).
   deliverables: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, publishedAt: true, travelerIds: true, createdAt: true }, orderBy: { createdAt: "desc" } },
 };

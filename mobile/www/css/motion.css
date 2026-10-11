@@ -79,6 +79,14 @@
 .bottom-nav button .nav-icon { transition: transform var(--dur-base) var(--ease-spring); }
 .bottom-nav button.active .nav-icon { transform: translate3d(0, -2px, 0) scale(1.08); }
 
+/* Request progress circles: a short press response and a soft ring on the
+   current stage. Both disappear under reduced motion (below). */
+@keyframes progress-ring { 0%, 100% { box-shadow: 0 0 0 4px rgba(8, 43, 88, 0.14); } 50% { box-shadow: 0 0 0 7px rgba(8, 43, 88, 0.06); } }
+.progress-circle { transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-base) var(--ease-out); }
+.progress-circle:active { transform: scale(.94); }
+.progress-node-current .progress-circle { animation: progress-ring 2.4s ease-in-out infinite; }
+.progress-panel { animation: fade-in var(--dur-base) var(--ease-out) both; }
+
 /* Gentle continuous motion (onboarding / welcome art only) */
 .float-y { animation: float-y 5s ease-in-out infinite; }
 
@@ -92,4 +100,6 @@
     scroll-behavior: auto !important;
   }
   .float-y, .ob-orbit, .skeleton-card, .skeleton-row, .skeleton-banner::after { animation: none !important; }
+  .progress-node-current .progress-circle, .progress-panel { animation: none !important; }
+  .progress-circle:active { transform: none; }
 }

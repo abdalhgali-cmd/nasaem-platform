@@ -15,7 +15,7 @@ import {
 import { getContactRequestDeliverableFile } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import path from "path";
 import { notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
-import { ACTIONS, allowedActions, checkAction, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { ACTIONS, allowedActions, checkAction, paymentLockReasons, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-checklist.js";
 
@@ -87,8 +87,10 @@ export async function verifyLoginCode(rawPhone, code) {
 
 const PAYMENT_OPEN_STATES = new Set(["AWAITING_TRANSFER", "UNDER_REVIEW"]);
 
+// A fixed price whose payment waits for the document review is not open
+// yet: no bank accounts are shown until the documents are approved.
 export function isPaymentOpen(request) {
-  return PAYMENT_OPEN_STATES.has(request.paymentStatus);
+  return PAYMENT_OPEN_STATES.has(request.paymentStatus) && paymentLockReasons(request).length === 0;
 }
 
 // Accounts for one currency, only to a phone that owns a request whose price it
@@ -127,7 +129,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       serviceRef: { select: { id: true, name: true, category: true } },
       visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
       // For the completion policy only (Egypt travel tasks); not sent to the customer.
-      tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true } },
+      tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true, systemKey: true } },
     },
   });
 

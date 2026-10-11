@@ -10,7 +10,10 @@
 
 export function pricingOf(request) {
   const invoice = request?.invoice;
-  if (invoice) return { kind: "invoice", ...pick(invoice), status: invoice.status };
+  if (invoice) {
+    const fixed = request.progress?.pricingMode === "FIXED";
+    return { kind: "invoice", ...pick(invoice), status: invoice.status, ...(fixed ? { label: "سعر ثابت أكّدته عند الطلب" } : {}) };
+  }
   const offer = (request?.offers || []).find((candidate) => candidate.id === request.selectedOfferId);
   if (offer) return { kind: "offer", ...pick(offer), label: offer.carrier, status: "APPROVED" };
   return null;
@@ -67,6 +70,10 @@ export function paymentState(request) {
     return { key: "UNDER_REVIEW", tone: "wait", label: "إيصال الدفع قيد المراجعة", detail: "رفعت الإيصال، ولم يُعتمد الدفع بعد. ستصلك نتيجة المراجعة." };
   }
   if (request?.paymentStatus === "AWAITING_TRANSFER") {
+    // Fixed price paid after the document review (server: progress.paymentLocked).
+    if (request.progress?.paymentLocked) {
+      return { key: "PAYMENT_LOCKED", tone: "wait", label: "الدفع بعد اعتماد المستندات", detail: "طلبك مؤكد بالسعر الثابت. يُفتح الدفع بعد اعتماد مستنداتك، بالسعر نفسه." };
+    }
     if (request.paymentRejection) {
       return { key: "RECEIPT_REJECTED", tone: "bad", label: "تم رفض إيصال الدفع", detail: `السبب: ${request.paymentRejection.reason}. ارفع إيصالًا صحيحًا.` };
     }

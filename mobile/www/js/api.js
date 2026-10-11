@@ -2,12 +2,14 @@ import { CONFIG } from "./config.js";
 import { arabicErrorMessage } from "./errors-ar.js";
 
 export class ApiError extends Error {
-  constructor(message, { status, errors, code } = {}) {
+  constructor(message, { status, errors, code, details } = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status ?? 0;
     this.errors = errors || null;
     this.code = code || null;
+    // Structured context of a refusal (e.g. the current fixed total).
+    this.details = details || null;
     this.offline = status === 0;
   }
 }
@@ -103,6 +105,7 @@ export async function api(path, options = {}) {
       status: response.status,
       errors: body.errors || null,
       code: body.code || null,
+      details: body.details || null,
     });
     if (response.status === 401 && usedSessionToken && !skipSessionCheck) onSessionRejected?.(error);
     throw error;
@@ -168,7 +171,7 @@ export function apiUpload(path, formData, onProgress, authOverride) {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve(body);
         } else {
-          reject(new ApiError(arabicErrorMessage(xhr.status, body.message, "تعذر رفع الملف."), { status: xhr.status, errors: body.errors || null, code: body.code || null }));
+          reject(new ApiError(arabicErrorMessage(xhr.status, body.message, "تعذر رفع الملف."), { status: xhr.status, errors: body.errors || null, code: body.code || null, details: body.details || null }));
         }
       };
 

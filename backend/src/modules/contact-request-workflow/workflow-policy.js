@@ -10,7 +10,8 @@
 // transaction holding the request's row lock (workflow-lock.js) and pass
 // it here, so the decision is made on the state that will be written.
 import { requirementApplies } from "../requirements/requirement-conditions.js";
-import { EGYPT_TRAVEL_TASK_TITLES } from "../contact-request-tracking/egypt-travel-tasks.js";
+import { isEgyptTravelTask } from "../contact-request-tracking/egypt-travel-tasks.js";
+import { requestPricingMode } from "../contact-request-pricing/fixed-price.js";
 
 export const ACTIONS = Object.freeze({
   ISSUE_QUOTE: "ISSUE_QUOTE",
@@ -153,6 +154,24 @@ export function evaluateReadiness(request) {
   };
 }
 
+// A fixed price accepted at submission is the approved price: there is no
+// quote stage. When the item requires the document review before payment,
+// payment stays locked (same price) until the documents are approved.
+export function isFixedPrice(request) {
+  return requestPricingMode(request) === "FIXED";
+}
+
+export function paymentLockReasons(request) {
+  if (!isFixedPrice(request) || !request.pricingSnapshot?.paymentAfterDocumentReview) return [];
+  if (request.paymentStatus === "UNDER_REVIEW" || request.paymentStatus === "CONFIRMED") return [];
+  const readiness = evaluateReadiness(request);
+  if (readiness.ready) return [];
+  return [
+    { code: "PAYMENT_AFTER_DOCUMENT_REVIEW", message: "يُفتح الدفع بعد اعتماد المستندات، بالسعر نفسه الذي قبلته." },
+    ...readiness.reasons,
+  ];
+}
+
 export function evaluatePayment(request) {
   if (request.paymentStatus === "CONFIRMED") return { satisfied: true, reasons: [] };
   if (!isPriced(request)) {
@@ -241,7 +260,7 @@ export function egyptTravelBlockers(request) {
     if (!ticket) reasons.push({ code: "TRAVEL_TICKET_MISSING", message: "تذكرة/إثبات حجز الرحلة غير مرفوع." });
     else if (ticket.status === "REJECTED") reasons.push({ code: "TRAVEL_TICKET_REJECTED", message: "تذكرة/إثبات حجز الرحلة مرفوض وبانتظار بديل." });
   }
-  const openTasks = (request.tasks || []).filter((t) => t.status === "OPEN" && (!t.source || t.source === "SYSTEM") && EGYPT_TRAVEL_TASK_TITLES.includes(t.title));
+  const openTasks = (request.tasks || []).filter((t) => t.status === "OPEN" && isEgyptTravelTask(t));
   if (openTasks.length) {
     reasons.push({ code: "TRAVEL_TASKS_OPEN", message: `مهام السفر لم تُنجز بعد: ${openTasks.map((t) => t.title).join("، ")}.` });
   }
@@ -296,10 +315,12 @@ export function checkAction(action, request, context = {}) {
 
   switch (action) {
     case ACTIONS.ISSUE_QUOTE:
+      if (isFixedPrice(request)) return refuse("FIXED_PRICE", "سعر هذا الطلب ثابت وقبله العميل عند التقديم؛ لا يُصدر له عرض سعر.");
       if (request.invoice?.status === "APPROVED") return refuse("ALREADY_APPROVED", "وافق العميل على السعر، ولا يمكن تعديله الآن.");
       if ((request.offers?.length ?? 0) > 0) return refuse("OFFERS_EXIST", "لهذا الطلب عروض أسعار متعددة؛ أضف عرضًا بدل تحديد سعر واحد.");
       return null;
     case ACTIONS.ADD_OFFER:
+      if (isFixedPrice(request)) return refuse("FIXED_PRICE", "سعر هذا الطلب ثابت وقبله العميل عند التقديم؛ لا تُضاف له عروض.");
       if (request.invoice) return refuse("INVOICE_EXISTS", "لهذا الطلب سعر واحد محدد؛ لا يمكن إضافة عروض متعددة.");
       if (request.selectedOfferId) return refuse("ALREADY_SELECTED", "اختار العميل عرضًا بالفعل.");
       return null;
@@ -327,6 +348,10 @@ export function checkAction(action, request, context = {}) {
     case ACTIONS.DECLARE_TRANSFER:
     case ACTIONS.UPLOAD_RECEIPT:
       if (request.paymentStatus !== "AWAITING_TRANSFER") return refuse("PAYMENT_NOT_AWAITING", "لا ينتظر هذا الطلب تحويلًا الآن؛ حدّث الصفحة.");
+      {
+        const locked = paymentLockReasons(request);
+        if (locked.length) return refuse("PAYMENT_AFTER_DOCUMENT_REVIEW", `${locked[0].message} ${locked.slice(1).map((r) => r.message).join(" ")}`.trim(), locked);
+      }
       return null;
     case ACTIONS.CONFIRM_PAYMENT:
     case ACTIONS.REJECT_PAYMENT:

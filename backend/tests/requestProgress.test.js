@@ -60,7 +60,11 @@ describe("service-specific request progress", () => {
     assert.equal(fresh.steps.find((s) => s.key === "RECEIVED").state, "done");
     assert.equal(fresh.steps.find((s) => s.key === "DOCUMENTS").state, "current");
     const receipt = deriveRequestProgress(req({ paymentStatus: "UNDER_REVIEW", invoice: { status: "APPROVED" } }));
-    assert.equal(receipt.steps.find((s) => s.key === "PAYMENT").state, "current");
+    // Uploading the receipt completes the customer's part (PAYMENT); the
+    // payment itself is accepted only by staff (PAYMENT_REVIEW stays current).
+    assert.equal(receipt.steps.find((s) => s.key === "PAYMENT").state, "done");
+    assert.equal(receipt.steps.find((s) => s.key === "PAYMENT_REVIEW").state, "current");
+    assert.match(receipt.steps.find((s) => s.key === "PAYMENT_REVIEW").status, /لم يُقبل الدفع بعد/);
     const paidButMissing = deriveRequestProgress(req({ requirementsSnapshot: snapshot, travelers, paymentStatus: "CONFIRMED", invoice: { status: "APPROVED" }, documents: [{ id: "x", requirementId: "r1", travelerId: "t1", status: "ACCEPTED" }] }));
     assert.equal(paidButMissing.canStartExecution, false);
     assert.ok(paidButMissing.blockers.some((b) => b.code === "DOCUMENTS_MISSING" && b.message.includes("ب")));

@@ -18,14 +18,23 @@ const paidAwaiting = {
   ],
 };
 
-test("the progress block renders the server's stages and nothing else", () => {
+test("the progress block renders the server's stages as connected tappable circles", () => {
   const html = progressBlockHtml(paidAwaiting, esc);
   assert.match(html, /تم قبول الدفع، بانتظار بدء التنفيذ/);
-  assert.match(html, /progress-step-current" aria-current="step"><span class="progress-dot" aria-hidden="true"><\/span><span>تأكيد الحجز مع الفندق/);
+  assert.match(html, /role="tablist" aria-label="مراحل الطلب"/);
+  // one circle (tab) per server stage, in order, each with an accessible name
+  const tabs = [...html.matchAll(/role="tab"[^>]*data-step="(\w+)"[^>]*data-state="(\w+)"/g)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(tabs, [["RECEIVED", "done"], ["QUOTE", "done"], ["PAYMENT", "done"], ["EXECUTION", "current"], ["DELIVERY", "upcoming"]]);
+  assert.match(html, /aria-label="4 من 5: تأكيد الحجز مع الفندق — المرحلة الحالية"/);
+  assert.match(html, /aria-label="1 من 5: استلام الطلب ومراجعة المستندات — مكتملة"/);
+  assert.match(html, /aria-label="5 من 5: تسليم تأكيد الحجز — لم تبدأ بعد"/);
+  // the current stage is selected and is the single tab stop
+  assert.match(html, /data-step="EXECUTION" data-state="current"\s+aria-selected="true" aria-controls="progressStepPanel" tabindex="0" aria-current="step"/);
+  assert.equal((html.match(/tabindex="0"/g) || []).length, 1);
   assert.match(html, /حجز الفنادق/);
   assert.equal(progressBlockHtml(null, esc), "");
   assert.equal(progressBlockHtml({ steps: [] }, esc), "");
-  assert.deepEqual(progressSteps({ steps: [{ key: "X", label: "x", state: "weird" }] }), [{ key: "X", label: "x", state: "upcoming" }]);
+  assert.deepEqual(progressSteps({ steps: [{ key: "X", label: "x", state: "weird" }] }), [{ key: "X", label: "x", state: "upcoming", status: "" }]);
   assert.doesNotMatch(progressBlockHtml({ ...paidAwaiting, label: "<img src=x>" }, esc), /<img/);
 });
 

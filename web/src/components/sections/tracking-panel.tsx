@@ -130,7 +130,7 @@ type TrackedRequest = {
   // What the customer may do now (the server's workflow policy). A closed
   // request is read-only whatever this says.
   allowedActions?: string[];
-  progress?: { stage: string; label: string; steps: { key: string; label: string; state: TimelineStepState }[] };
+  progress?: { stage: string; label: string; pricingMode?: "FIXED" | "QUOTE"; steps: { key: string; label: string; state: TimelineStepState }[] };
   createdAt: string;
   invoice: TrackedInvoice | null;
   offers: TrackedOffer[];
@@ -234,7 +234,11 @@ function getRequestTimeline(req: TrackedRequest): TimelineStep[] {
     steps.push({ label: "اختيار العرض المناسب", state: req.selectedOfferId ? "done" : "current" });
   }
 
-  if (req.invoice) {
+  // A fixed catalog price was accepted with the order itself: there is no
+  // separate price-approval step (backend request-progress.js).
+  if (req.invoice && req.progress?.pricingMode === "FIXED") {
+    steps.push({ label: "تأكيد الطلب بالسعر الثابت", state: "done" });
+  } else if (req.invoice) {
     steps.push({
       label: "اعتماد السعر",
       state: req.invoice.status === "APPROVED" ? "done" : req.invoice.status === "PENDING" ? "current" : "upcoming",

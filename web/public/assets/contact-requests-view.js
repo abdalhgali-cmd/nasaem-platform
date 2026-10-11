@@ -10,6 +10,9 @@ const CR_STATUS_AR = { NEW: "جديد", CONTACTED: "تم التواصل", CLOSED
 const CR_OUTCOME_AR = { COMPLETED: "مكتمل", REJECTED: "مرفوض", CANCELLED: "ملغي" };
 const CR_PAYMENT_AR = { NOT_REQUIRED: "لا يوجد سعر بعد", AWAITING_TRANSFER: "بانتظار التحويل / إيصال جديد", UNDER_REVIEW: "إشعار دفع للمراجعة", CONFIRMED: "الدفع مؤكد" };
 const CR_DOC_STATUS_AR = { PENDING: "بانتظار المراجعة", ACCEPTED: "مقبول", REJECTED: "مرفوض" };
+// Stable keys of the Egypt travel-plan system tasks (CaseTask.systemKey,
+// backend egypt-travel-tasks.js); never matched by title.
+const CR_EGYPT_TRAVEL_TASK_KEYS = ["EGYPT_TRAVEL_BOOKING_AIR", "EGYPT_TRAVEL_BOOKING_BORDER", "EGYPT_TRAVEL_CIRCULAR"];
 const CR_CURRENCIES = ["SAR", "USD", "SDG", "EGP", "AED", "EUR", "GBP", "QAR"];
 
 const CR_ROLE_CAN = {
@@ -178,6 +181,14 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
 
   function pricingHtml(r) {
     const parts = [];
+    // Fixed catalog price: accepted by the customer at submission; there is
+    // no quote to issue or approve (the server refuses ISSUE_QUOTE).
+    if (r.pricingMode === "FIXED") {
+      const snap = r.pricingSnapshot || {};
+      parts.push(`<p data-cr-pricing-mode="FIXED"><span class="badge status-APPROVED">سعر ثابت</span> أكّده العميل عند الطلب${snap.priceUnit === "PER_TRAVELER" ? ` — ${formatMoney(snap.unitPrice, snap.currency)} × ${escapeHtml(snap.units)} مسافر` : ""}${snap.paymentAfterDocumentReview ? " · الدفع بعد اعتماد المستندات" : ""}.</p>`);
+    } else if (r.pricingSnapshot?.reason === "FIXED_PRICE_NOT_CONFIRMED") {
+      parts.push('<p class="muted small" data-cr-pricing-mode="QUOTE">الخدمة بسعر ثابت لكن الطلب وصل دون تأكيد العميل للإجمالي (تطبيق أقدم أو نموذج لا يعرضه): يُسعَّر بعرض سعر.</p>');
+    }
     if (r.invoice) {
       parts.push(`<p>السعر: <strong>${formatMoney(r.invoice.amount, r.invoice.currency)}</strong> — ${statusBadge(r.invoice.status)}${r.invoice.description ? ` · ${escapeHtml(r.invoice.description)}` : ""}</p>${sdgLine(r.invoice)}`);
     }
@@ -322,13 +333,13 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     // Why «مكتمل» is not available yet (the server's own list), and the
     // system tasks staff can finish here (Egypt travel booking/circular).
     const blockers = canComplete ? [] : r.progress?.completionBlockers || [];
-    const travelTasks = (r.tasks || []).filter((t) => t.status === "OPEN" && t.source === "SYSTEM" && /مصر/.test(t.title));
+    const travelTasks = (r.tasks || []).filter((t) => t.status === "OPEN" && t.source === "SYSTEM" && CR_EGYPT_TRAVEL_TASK_KEYS.includes(t.systemKey));
     const blockersHtml = blockers.length
       ? `<div class="card inset" data-cr-completion-blockers="1"><h4>لا يمكن الإغلاق كمكتمل بعد</h4><ul class="plain-list">${blockers
           .map((b) => `<li>${escapeHtml(b.message)}</li>`)
           .join("")}</ul>${travelTasks.length && can("work")
           ? `<ul class="plain-list">${travelTasks
-              .map((t) => `<li>${escapeHtml(t.title)} <button type="button" class="btn secondary" data-cr-task-done="${escapeHtml(t.id)}">تم إنجازها</button></li>`)
+              .map((t) => `<li>${escapeHtml(t.title)} <button type="button" class="btn secondary" data-cr-task-done="${escapeHtml(t.id)}" data-cr-task-key="${escapeHtml(t.systemKey)}">تم إنجازها</button></li>`)
               .join("")}</ul>`
           : ""}</div>`
       : "";

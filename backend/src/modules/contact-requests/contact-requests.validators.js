@@ -42,6 +42,17 @@ export const createContactRequestSchema = z.object({
   serviceId: z.string().trim().min(1).optional().or(z.literal("")),
   visaTypeId: z.string().trim().min(1).optional().or(z.literal("")),
   travelerCount: z.coerce.number().int().positive().max(50).optional(),
+  // Fixed-price items only: the total the customer saw and confirmed on the
+  // review step (and its currency). The server recomputes it from the
+  // catalog and refuses a mismatch (contact-request-pricing/fixed-price.js).
+  acceptedTotal: z.preprocess(
+    (value) => (value === "" || value === null ? undefined : value),
+    z.coerce.number().nonnegative().max(1_000_000_000).optional()
+  ),
+  acceptedCurrency: z.preprocess(
+    (value) => (value === "" || value === null ? undefined : value),
+    z.enum(SUPPORTED_CURRENCIES).optional()
+  ),
   // Free-form structured answers from the wizard's "service data" step
   // (traveler list, package/visa-specific notes, ...) — intentionally
   // unstructured server-side (see schema.prisma's ContactRequest.intakeData

@@ -12,6 +12,7 @@ import { deriveRequestProgress } from "../contact-request-progress/request-progr
 import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, publishedDeliverables, allowedActions } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
 import { normalizePhone } from "../../utils/phone.js";
 import {
   OUTCOME_LABELS,
@@ -203,6 +204,11 @@ async function createContactRequestOnce(data, req, files) {
     }
   }
 
+  // Fixed catalog price: recomputed here from the catalog and compared with
+  // the total the customer confirmed; a mismatch creates nothing (409).
+  const pricing = await resolveSubmissionPricing(data, { travelers: travelers.length });
+  if (pricing.error) return pricing;
+
   const baseData = {
     name: data.name,
     organizationId: req.customer?.organizationId || publicOrganizationId(),
@@ -231,6 +237,11 @@ async function createContactRequestOnce(data, req, files) {
         ? { ...(data.intakeData || {}), ...(data.answers ? { answers: data.answers } : {}) }
         : undefined,
     requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
+    pricingMode: pricing.mode,
+    pricingSnapshot: pricing.snapshot ?? undefined,
+    // The accepted fixed price is the approved price: payment is next (or
+    // after the document review, see workflow-policy.js paymentLockReasons).
+    ...(pricing.mode === "FIXED" ? { invoice: { create: pricing.invoice }, paymentStatus: "AWAITING_TRANSFER" } : {}),
     message: data.message,
     customerId: req.customer?.id || null,
     submissionKey: data.submissionKey || null,
@@ -441,7 +452,7 @@ const CONTACT_REQUEST_CASE_INCLUDE = {
   tasks: {
     where: { status: "OPEN" },
     orderBy: { createdAt: "asc" },
-    select: { id: true, type: true, title: true, status: true, source: true, dueAt: true, assignedUserId: true },
+    select: { id: true, type: true, title: true, status: true, source: true, systemKey: true, dueAt: true, assignedUserId: true },
   },
 };
 

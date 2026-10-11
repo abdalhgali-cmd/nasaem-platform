@@ -3,7 +3,7 @@ import { trackingScope } from "../../utils/publicOrganization.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createContactRequestDocument } from "../contact-request-documents/contact-request-documents.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
-import { EGYPT_BOOKING_TASK_TITLES, EGYPT_CIRCULAR_TASK_TITLE } from "./egypt-travel-tasks.js";
+import { EGYPT_TRAVEL_TASK_KEYS, EGYPT_TRAVEL_TASK_TITLES } from "./egypt-travel-tasks.js";
 import { ACTIONS, checkAction, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 import { refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 
@@ -71,12 +71,13 @@ function ticketLabel(entryMode) {
     : "إثبات حجز الرحلة البرية — التعميم";
 }
 
-function bookingTaskTitle(entryMode) {
-  return entryMode === "AIR" ? EGYPT_BOOKING_TASK_TITLES.AIR : EGYPT_BOOKING_TASK_TITLES.BORDER;
+function bookingTaskKey(entryMode) {
+  return entryMode === "AIR" ? EGYPT_TRAVEL_TASK_KEYS.BOOKING_AIR : EGYPT_TRAVEL_TASK_KEYS.BOOKING_BORDER;
 }
 
+// Tasks are found by their stable systemKey; the title is only for display.
 async function syncEgyptTravelTasks(contactRequestId, plan) {
-  const bookingTitles = [EGYPT_BOOKING_TASK_TITLES.AIR, EGYPT_BOOKING_TASK_TITLES.BORDER];
+  const bookingKeys = [EGYPT_TRAVEL_TASK_KEYS.BOOKING_AIR, EGYPT_TRAVEL_TASK_KEYS.BOOKING_BORDER];
 
   if (plan.bookingStatus === "NEEDS_NASAEM") {
     await prisma.caseTask.updateMany({
@@ -85,7 +86,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: { in: bookingTitles.filter((title) => title !== bookingTaskTitle(plan.entryMode)) },
+        systemKey: { in: bookingKeys.filter((key) => key !== bookingTaskKey(plan.entryMode)) },
       },
       data: { status: "CANCELLED" },
     });
@@ -96,7 +97,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: bookingTaskTitle(plan.entryMode),
+        systemKey: bookingTaskKey(plan.entryMode),
       },
       select: { id: true },
     });
@@ -106,7 +107,8 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
           contactRequestId,
           type: "OTHER",
           source: "SYSTEM",
-          title: bookingTaskTitle(plan.entryMode),
+          systemKey: bookingTaskKey(plan.entryMode),
+          title: EGYPT_TRAVEL_TASK_TITLES[bookingTaskKey(plan.entryMode)],
         },
       });
     }
@@ -117,13 +119,13 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: { in: bookingTitles },
+        systemKey: { in: bookingKeys },
       },
       data: { status: "CANCELLED" },
     });
   }
 
-  const circularTitle = EGYPT_CIRCULAR_TASK_TITLE;
+  const circularKey = EGYPT_TRAVEL_TASK_KEYS.CIRCULAR;
   if (plan.circularStatus === "READY_FOR_CIRCULAR") {
     const parsed = parseDateOnly(plan.entryDate);
     const dueAt = parsed ? new Date(parsed.utc.getTime() - 3 * MS_PER_DAY) : null;
@@ -133,7 +135,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: circularTitle,
+        systemKey: circularKey,
       },
       select: { id: true },
     });
@@ -145,7 +147,8 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
           contactRequestId,
           type: "OTHER",
           source: "SYSTEM",
-          title: circularTitle,
+          systemKey: circularKey,
+          title: EGYPT_TRAVEL_TASK_TITLES[circularKey],
           dueAt,
         },
       });
@@ -157,7 +160,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: circularTitle,
+        systemKey: circularKey,
       },
       data: { status: "CANCELLED" },
     });

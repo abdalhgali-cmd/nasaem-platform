@@ -296,6 +296,11 @@ model CaseTask {
   title             String
   status            CaseTaskStatus @default(OPEN)
   source            CaseTaskSource @default(SYSTEM)
+  // Stable identifier of a specific system task, independent of its
+  // (translatable) title — e.g. "EGYPT_TRAVEL_BOOKING_AIR",
+  // "EGYPT_TRAVEL_BOOKING_BORDER", "EGYPT_TRAVEL_CIRCULAR". Null for manual
+  // tasks and for the generic per-type system tasks.
+  systemKey         String?
   assignedUserId    String?
   dueAt             DateTime?
   completedAt       DateTime?
@@ -316,6 +321,7 @@ model CaseTask {
   @@index([assignedUserId])
   @@index([status])
   @@index([dueAt])
+  @@index([systemKey])
 }
 
 // Internal staff-only notes on a case — never shown to the customer, never
@@ -527,6 +533,18 @@ model Service {
   // as VisaType.processingTime: wording varies too much ("same day",
   // "3-5 working days", ...) to force a fixed shape.
   processingTime     String?
+  // How the final price is decided, set explicitly by the agency (never
+  // inferred from basePrice): "QUOTE" (default) — the agency issues a quote
+  // after reviewing the request and the customer approves that exact
+  // version; "FIXED" — basePrice is the final price, shown to the customer
+  // as a total before submission and accepted there (no second approval).
+  // priceUnit: "PER_REQUEST" or "PER_TRAVELER" (basePrice × travelers).
+  // paymentAfterDocumentReview: for FIXED, payment opens only once the
+  // documents are approved, at the same accepted price.
+  // Plain strings validated in code (services/visa-types validators).
+  pricingMode                String  @default("QUOTE")
+  priceUnit                  String  @default("PER_REQUEST")
+  paymentAfterDocumentReview Boolean @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -576,6 +594,12 @@ model VisaType {
   // the authoritative classification the public API filters on — it must
   // never be inferred/hidden in the frontend.
   category       String   @default("OTHER")
+  // Same explicit pricing configuration as Service (see there); a visa
+  // type's own setting applies to requests for it.
+  // Plain strings validated in code (services/visa-types validators).
+  pricingMode                String  @default("QUOTE")
+  priceUnit                  String  @default("PER_REQUEST")
+  paymentAfterDocumentReview Boolean @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -1276,6 +1300,16 @@ model ContactRequest {
   // this field existed; see docs/WORKFLOW-POLICY.md for how those are
   // treated. Plain string + validation in code, like `category` on Service.
   requestKind              String?
+  // The pricing mode in force for this request, decided at submission from
+  // the catalog's explicit configuration: "FIXED" (the customer confirmed
+  // the server-computed total; an approved Invoice was created with it) or
+  // "QUOTE". Null on requests created before this field: treated as QUOTE.
+  // pricingSnapshot records what was computed and accepted (item, unit
+  // price, unit, travelers counted, total, currency, payment rule), or why
+  // a FIXED item was taken as a quote request (client did not confirm the
+  // total, e.g. an older app).
+  pricingMode              String?
+  pricingSnapshot          Json?
   executionStartedAt       DateTime?
   executionStartedByUserId String?
   executionNote            String?
@@ -1569,13 +1603,15 @@ model Invoice {
   // rejects one exact version (the one displayed to them); a decision on
   // any other version is refused.
   version          Int           @default(1)
-  createdByUserId  String
+  // Null for a fixed catalog price accepted by the customer at submission
+  // (no staff member issued it).
+  createdByUserId  String?
   decidedAt        DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
-  createdBy      User           @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdBy      User?          @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
 
   @@index([status])
   @@index([createdByUserId])

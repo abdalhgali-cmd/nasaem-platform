@@ -7,6 +7,7 @@ import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
+import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
 
 // Smart Case Operations — Release B (server-side intake drafts). The
 // authoritative pre-submission state for an in-progress intake, so a weak
@@ -285,6 +286,11 @@ export async function submitDraft(token, { message }) {
   const travelers = Array.isArray(draft.travelers) ? draft.travelers : [];
   const travelerRefs = draft.documentTravelerRefs || {};
 
+  // The guided intake does not show a fixed total for confirmation, so a
+  // fixed-price item submitted here is recorded as a quote request
+  // (contact-request-pricing/fixed-price.js); the reason is kept.
+  const pricing = await resolveSubmissionPricing({ serviceId: draft.serviceId, visaTypeId: draft.visaTypeId, travelerCount: draft.travelerCount }, { travelers: travelers.length });
+
   const contactRequest = await prisma.$transaction(async (tx) => {
     const created = await tx.contactRequest.create({
       data: {
@@ -298,6 +304,8 @@ export async function submitDraft(token, { message }) {
         travelerCount: draft.travelerCount ?? null,
         // The guided intake is always an application for a service.
         requestKind: "SERVICE_APPLICATION",
+        pricingMode: "QUOTE",
+        pricingSnapshot: pricing.snapshot ?? undefined,
         intakeData: {
           ...(travelers.length ? { travelers } : {}),
           ...(draft.notes ? { notes: draft.notes } : {}),

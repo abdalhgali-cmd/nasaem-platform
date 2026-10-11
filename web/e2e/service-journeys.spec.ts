@@ -394,7 +394,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         expect(((await premature.json()).reasons as { code: string }[]).map((r) => r.code)).toContain("TRAVEL_PLAN_MISSING");
         await openCustomerRequest(id);
         await bothSay("ملفاتك النهائية جاهزة للتحميل");
-        await expect(app.locator('#requestProgress [aria-current="step"]')).toContainText("بيانات السفر والتعميم");
+        await expect(app.locator('#requestProgress [aria-current="step"]')).toHaveAttribute("aria-label", /بيانات السفر والتعميم — المرحلة الحالية/);
         await app.locator("#egyptTravelBtn").click();
         const entry = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
         await app.locator('#egyptPlanForm [name="entryMode"]').selectOption("AIR");
@@ -422,7 +422,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await openCustomerRequest(id);
       await bothSay("تم إنجاز طلبك بنجاح");
       await expect(app.locator(".deliverable-btn")).toHaveCount(2);
-      await expect(app.locator("#requestProgress .progress-step-current")).toHaveCount(0);
+      await expect(app.locator("#requestProgress .progress-node-current")).toHaveCount(0);
       // closed: read-only for the customer and for staff
       await expect(app.locator("#approveBtn, #uploadReceiptBtn, #egyptTravelBtn, [data-upload-item]")).toHaveCount(0);
       await openStaffRequest(id, travelers[0]);

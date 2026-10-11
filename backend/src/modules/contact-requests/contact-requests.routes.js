@@ -48,6 +48,7 @@ import {
   storeCaseTask,
 } from "../case-tasks/case-tasks.controller.js";
 import { getCaseNotes, storeCaseNote } from "../case-notes/case-notes.controller.js";
+import { resolvePublicContactLimit } from "./public-contact-limit.js";
 
 const router = Router();
 
@@ -77,13 +78,11 @@ function handleIntakeDocumentsUpload(req, res, next) {
   });
 }
 
-// Anonymous submissions per client per 15 minutes. The default stays strict;
-// only the browser E2E environment raises it (several suites submit requests
-// from one IP in a few minutes).
-const publicContactLimit = Number.parseInt(process.env.PUBLIC_CONTACT_RATE_LIMIT ?? "", 10);
+// Anonymous submissions per client per 15 minutes: 5 in production; only
+// test/development may raise it (public-contact-limit.js).
 const publicContactLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: Number.isInteger(publicContactLimit) && publicContactLimit > 0 ? publicContactLimit : 5,
+  limit: resolvePublicContactLimit(),
   standardHeaders: true,
   legacyHeaders: false,
   message: {

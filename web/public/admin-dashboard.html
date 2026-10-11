@@ -332,6 +332,29 @@
                 <option value="QAR">ريال قطري (QAR)</option>
               </select>
             </div>
+            <fieldset class="field" style="grid-column: 1 / -1" id="sv-edit-pricing">
+              <legend>طريقة التسعير (يحددها المسؤول صراحةً)</legend>
+              <div class="grid cols-3">
+                <div class="field">
+                  <label for="sv-edit-pricingMode">التسعير</label>
+                  <select id="sv-edit-pricingMode">
+                    <option value="QUOTE">بعرض سعر من الوكالة (موافقة العميل على الإصدار)</option>
+                    <option value="FIXED">سعر ثابت نهائي (يؤكده العميل عند الطلب)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="sv-edit-priceUnit">وحدة السعر الثابت</label>
+                  <select id="sv-edit-priceUnit">
+                    <option value="PER_REQUEST">للطلب كاملًا</option>
+                    <option value="PER_TRAVELER">لكل مسافر</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label><input type="checkbox" id="sv-edit-paymentAfterDocumentReview" /> الدفع بعد اعتماد المستندات</label>
+                </div>
+              </div>
+              <p class="muted" style="font-size: 12px">السعر الثابت = السعر الأساسي أعلاه. لا يُستنتج من وجود سعر؛ الافتراضي «بعرض سعر».</p>
+            </fieldset>
             <div class="field">
               <label for="sv-icon">الأيقونة</label>
               <select id="sv-icon">
@@ -605,6 +628,32 @@
         </div>
         <div class="card hidden" id="visa-requirements-card">
           <h2>متطلبات: <span id="visa-requirements-title"></span> <button type="button" class="btn secondary" id="visa-requirements-close-btn" style="margin-inline-start: 8px">إغلاق</button></h2>
+          <div class="grid cols-3" id="visa-pricing-card">
+            <fieldset class="field" style="grid-column: 1 / -1" id="vt-edit-pricing">
+              <legend>طريقة التسعير (يحددها المسؤول صراحةً)</legend>
+              <div class="grid cols-3">
+                <div class="field">
+                  <label for="vt-edit-pricingMode">التسعير</label>
+                  <select id="vt-edit-pricingMode">
+                    <option value="QUOTE">بعرض سعر من الوكالة (موافقة العميل على الإصدار)</option>
+                    <option value="FIXED">سعر ثابت نهائي (يؤكده العميل عند الطلب)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="vt-edit-priceUnit">وحدة السعر الثابت</label>
+                  <select id="vt-edit-priceUnit">
+                    <option value="PER_REQUEST">للطلب كاملًا</option>
+                    <option value="PER_TRAVELER">لكل مسافر</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label><input type="checkbox" id="vt-edit-paymentAfterDocumentReview" /> الدفع بعد اعتماد المستندات</label>
+                </div>
+              </div>
+              <p class="muted" style="font-size: 12px">السعر الثابت = السعر الأساسي لنوع التأشيرة. لا يُستنتج من وجود سعر؛ الافتراضي «بعرض سعر».</p>
+            </fieldset>
+            <div class="field"><button type="button" class="btn" id="visa-pricing-save-btn">حفظ طريقة التسعير</button></div>
+          </div>
           <div class="grid cols-3 hidden" id="visa-requirement-create-card">
             <div class="field"><label for="vr-name">الاسم *</label><input id="vr-name" /></div>
             <div class="field"><label for="vr-nameEn">الاسم بالإنجليزية</label><input id="vr-nameEn" /></div>
