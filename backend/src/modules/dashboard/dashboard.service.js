@@ -56,17 +56,34 @@ function orderNextAction(order) {
   return { key: "REVIEW", label: "مراجعة الطلب" };
 }
 
+// Draft (unpublished) final files are not delivery.
+const CONTACT_OPERATIONS_INCLUDE = {
+  invoice: { select: { status: true, amount: true, currency: true } },
+  offers: { select: { id: true, carrier: true, amount: true, currency: true } },
+  documents: { select: { id: true, label: true, status: true } },
+  deliverables: { where: { publishedAt: { not: null } }, select: { id: true }, take: 1 },
+};
+
 export async function getOperationsCenter(organizationId) {
   const orgFilter = organizationId ? { organizationId } : {};
   const orderOrgFilter = organizationId ? { order: { organizationId } } : {};
   const [contactRequests, orders, pendingContactPayments, pendingOrderPayments, unassignedOrders, waitingDocs] = await Promise.all([
-    prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: { invoice: { select: { status: true, amount: true, currency: true } }, offers: { select: { id: true, carrier: true, amount: true, currency: true } }, documents: { select: { id: true, label: true, status: true } }, deliverables: { select: { id: true }, take: 1 } } }),
+    prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: CONTACT_OPERATIONS_INCLUDE }),
     prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: { customer: { select: { fullName: true, phone: true, passportNo: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
     prisma.contactRequest.count({ where: { paymentStatus: "UNDER_REVIEW", ...orgFilter } }),
     prisma.payment.count({ where: { reviewStatus: "PENDING", ...orderOrgFilter } }),
     prisma.order.count({ where: { assignedUserId: null, status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, ...orgFilter } }),
     prisma.order.count({ where: { status: "WAITING_DOCUMENTS", ...orgFilter } }),
   ]);
+  // Every payment waiting for review is listed, however recent: the 50
+  // stalest open records above would otherwise hide a fresh receipt from
+  // the payment-review screen on a busy day.
+  const [reviewRequests, reviewOrders] = await Promise.all([
+    prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" }, paymentStatus: "UNDER_REVIEW", ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 200, include: CONTACT_OPERATIONS_INCLUDE }),
+    prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, payments: { some: { reviewStatus: "PENDING" } }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 200, include: { customer: { select: { fullName: true, phone: true, passportNo: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
+  ]);
+  for (const request of reviewRequests) if (!contactRequests.some((r) => r.id === request.id)) contactRequests.push(request);
+  for (const order of reviewOrders) if (!orders.some((o) => o.id === order.id)) orders.push(order);
 
   const now = Date.now();
   const stalledHours = 24;
@@ -74,7 +91,9 @@ export async function getOperationsCenter(organizationId) {
   const orderItems = orders.map((order) => ({ source: "order", id: order.id, reference: order.orderNumber, customerName: order.customer?.fullName || "بدون اسم", phone: order.customer?.phone || "", passportNo: order.customer?.passportNo || "", service: order.items?.[0]?.service?.name || "طلب", serviceId: order.items?.[0]?.service?.id || null, status: order.status, paymentStatus: order.paymentStatus, amount: order.totalAmount, currency: order.currency, updatedAt: order.updatedAt, assignedUser: order.assignedUser?.fullName || null, assignedUserId: order.assignedUserId || null, ageHours: Math.floor((now - new Date(order.updatedAt).getTime()) / 3600000), nextAction: orderNextAction(order), hasPaymentUnderReview: order.payments.length > 0, pendingPayment: order.payments[0] ? { id: order.payments[0].id, amount: order.payments[0].amount, currency: order.payments[0].currency } : null }));
   const items = [...contactItems, ...orderItems].sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
   const stalled = items.filter((item) => item.ageHours >= stalledHours).length;
-  return { queues: { newRequests: contactRequests.filter((r) => r.status === "NEW").length, waitingPaymentReview: pendingContactPayments + pendingOrderPayments, unassignedOrders, waitingDocuments: waitingDocs, waitingCustomer: contactRequests.filter((r) => contactNextAction(r).key === "CUSTOMER_DECISION").length, readyToDeliver: contactRequests.filter((r) => ["START_EXECUTION", "DELIVER"].includes(contactNextAction(r).key)).length, stalled }, items: items.slice(0, 80) };
+  const reviewItems = items.filter((item) => item.hasPaymentUnderReview);
+  const otherItems = items.filter((item) => !item.hasPaymentUnderReview).slice(0, 80);
+  return { queues: { newRequests: contactRequests.filter((r) => r.status === "NEW").length, waitingPaymentReview: pendingContactPayments + pendingOrderPayments, unassignedOrders, waitingDocuments: waitingDocs, waitingCustomer: contactRequests.filter((r) => contactNextAction(r).key === "CUSTOMER_DECISION").length, readyToDeliver: contactRequests.filter((r) => ["START_EXECUTION", "DELIVER"].includes(contactNextAction(r).key)).length, stalled }, items: [...reviewItems, ...otherItems] };
 }
 
 export async function getDashboardSummary(organizationId) {

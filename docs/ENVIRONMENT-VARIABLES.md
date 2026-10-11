@@ -21,6 +21,7 @@
 | `PROVIDER_EMAIL_TRANSPORT`, `PROVIDER_EMAIL_API_URL`, `PROVIDER_EMAIL_API_KEY` | اختيارية | إرسال حزم المزوّدين |
 | `API_RATE_LIMIT`, `API_SESSION_RATE_LIMIT`, `LOGIN_IP_FAILURE_LIMIT` | اختيارية | حدود المعدّل (الافتراضات آمنة) |
 | `PUBLIC_CONTACT_RATE_LIMIT` | **لا تُضبط في الإنتاج** | يرفع حد إرسال الطلبات العامة؛ لبيئة E2E فقط (الافتراضي 5 كل 15 دقيقة) |
+| `TRACKING_CODE_RATE_LIMIT` | **لا تُضبط في الإنتاج** | يرفع حد طلب رمز التتبع؛ لبيئة E2E فقط (الافتراضي 5 كل 15 دقيقة) |
 | `STARTUP_DB_ATTEMPTS`, `STARTUP_DB_RETRY_DELAY_MS`, `DB_COMPAT_ACKNOWLEDGED_MIGRATIONS` | اختيارية | سلوك الإقلاع والتوافق (انظر `docs/admin-remediation-release.md` على فرع #86) |
 
 ## الموقع (Vercel)
@@ -33,4 +34,4 @@
 الاختبار والبناء التجريبي يستخدمان staging من `mobile/www/js/config.js` ويُظهران شارة «بيئة اختبار» (لا تظهر في بناء الإنتاج).
 
 ## الاختبارات/CI (محلية أو GitHub، ليست إنتاجًا)
-`DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `CORS_ORIGIN` (يشمل `http://localhost:8081` لتطبيق العميل في E2E), `SEED_ADMIN_PASSWORD`, `API_RATE_LIMIT`, `PUBLIC_CONTACT_RATE_LIMIT`, `PLAYWRIGHT_CHROMIUM_PATH` (اختياري).
+`DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `CORS_ORIGIN` (يشمل `http://localhost:8081` لتطبيق العميل في E2E), `SEED_ADMIN_PASSWORD`, `API_RATE_LIMIT`, `PUBLIC_CONTACT_RATE_LIMIT`, `TRACKING_CODE_RATE_LIMIT`, `PLAYWRIGHT_CHROMIUM_PATH` (اختياري).

@@ -25,6 +25,13 @@ type Journey = {
   start: (app: Page) => Promise<void>;
   rejectFirstDocument?: boolean;
   rejectFirstReceipt?: boolean;
+  // Seeded flights/ferries/hotels have no document requirement; for the run
+  // a clearly-labelled TEST-WF requirement is configured through the admin
+  // API (and removed afterwards) so their document path is exercised.
+  testRequirementService?: string;
+  // Egypt clearance continues after the approval file: travel plan, then
+  // staff complete the request.
+  travelPlan?: boolean;
 };
 
 const visaName = `تأشيرة سياحية تركيا ${unique()}`;
@@ -38,6 +45,7 @@ const JOURNEYS: Journey[] = [
   {
     name: "flights",
     execution: "جارٍ إصدار تذكرة الطيران",
+    testRequirementService: "SVC-FLIGHT",
     rejectFirstReceipt: true,
     start: async (app) => {
       await shortcut(app, "flights");
@@ -51,6 +59,7 @@ const JOURNEYS: Journey[] = [
   {
     name: "ferries",
     execution: "جارٍ إصدار تذكرة العبّارة",
+    testRequirementService: "SVC-FERRY",
     start: async (app) => {
       await shortcut(app, "ferries");
       const route = app.locator('#ferryForm [name="route"]');
@@ -68,6 +77,7 @@ const JOURNEYS: Journey[] = [
   {
     name: "hotels",
     execution: "جارٍ تأكيد حجز الفندق",
+    testRequirementService: "SVC-HOTEL",
     start: async (app) => {
       await app.locator('#bottomNav [data-tab="services"]').click();
       await app.locator(".svc-card", { hasText: "حجز الفنادق" }).first().click();
@@ -94,6 +104,7 @@ const JOURNEYS: Journey[] = [
   {
     name: "Egypt clearance",
     execution: "جارٍ استخراج الموافقة الأمنية",
+    travelPlan: true,
     start: async (app) => shortcut(app, "egypt"),
   },
   {
@@ -113,6 +124,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   let appContext: BrowserContext;
   let app: Page;
   let office: Page;
+  const testRequirementIds: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
     // One customer device for all journeys: the phone is verified once (the
@@ -134,9 +146,21 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       data: { name: "صورة الجواز", type: "DOCUMENT", scope: "TRAVELER", required: true },
     });
     expect(requirement.ok(), await requirement.text()).toBeTruthy();
+
+    const catalog = (await (await office.request.get(`${BACKEND}/api/services/public`)).json()).data.services as { id: string; code: string }[];
+    for (const journey of JOURNEYS.filter((j) => j.testRequirementService)) {
+      const service = catalog.find((candidate) => candidate.code === journey.testRequirementService);
+      expect(service, journey.testRequirementService).toBeTruthy();
+      const added = await office.request.post(`${BACKEND}/api/services/${service!.id}/requirements`, {
+        data: { name: "TEST-WF صورة الجواز (اختبار)", type: "DOCUMENT", scope: "TRAVELER", required: true },
+      });
+      expect(added.ok(), await added.text()).toBeTruthy();
+      testRequirementIds.push((await added.json()).data.id);
+    }
   });
 
   test.afterAll(async () => {
+    for (const id of testRequirementIds) await office?.request.delete(`${BACKEND}/api/services/requirements/${id}`).catch(() => undefined);
     await appContext?.close();
     await office?.context().close();
   });
@@ -334,15 +358,63 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await bothSay(journey.execution);
       await expect(app.locator("#requestProgress")).not.toContainText("أُرسل للجهة المختصة");
 
-      // ---- staff: final file; the request closes as completed
+      // ---- staff: final files per traveler. The first traveler's file alone
+      // does not complete the group; the second one does (Egypt: after the
+      // customer's travel plan, staff complete it).
       await openStaffRequest(id, travelers[0]);
-      await office.fill("#cr-deliverable-label", "الملف النهائي");
-      await office.locator("#cr-deliverable-file").setInputFiles({ name: "final.pdf", mimeType: "application/pdf", buffer: PDF });
-      await staffAct(detail.locator('[data-cr-form="deliverable"] button[type="submit"]'), "تم رفع الملف");
+      const travelerIds = (await (await office.request.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data.travelers.map((t: { id: string }) => t.id);
+      await office.fill("#cr-deliverable-label", `الملف النهائي — ${travelers[0]}`);
+      await office.locator("#cr-deliverable-file").setInputFiles({ name: "final-1.pdf", mimeType: "application/pdf", buffer: PDF });
+      await office.locator(`[data-cr-form="deliverable"] input[name="travelerIds"][value="${travelerIds[0]}"]`).check();
+      await expect(office.locator('[data-cr-form="deliverable"] input[name="publish"]')).toBeChecked();
+      await staffAct(detail.locator('[data-cr-form="deliverable"] button[type="submit"]'), "تم رفع الملف ونشره");
+      await expect(detail.locator("[data-cr-delivery-missing]")).toContainText(travelers[1]);
+      await openCustomerRequest(id);
+      await bothSay(journey.execution);
+      await expect(app.locator(".deliverable-btn")).toHaveCount(1);
+
+      // the second traveler's file: prepared as a draft (invisible), then published
+      await openStaffRequest(id, travelers[0]);
+      await office.fill("#cr-deliverable-label", `الملف النهائي — ${travelers[1]}`);
+      await office.locator("#cr-deliverable-file").setInputFiles({ name: "final-2.pdf", mimeType: "application/pdf", buffer: PDF });
+      await office.locator(`[data-cr-form="deliverable"] input[name="travelerIds"][value="${travelerIds[1]}"]`).check();
+      await office.locator('[data-cr-form="deliverable"] input[name="publish"]').uncheck();
+      await staffAct(detail.locator('[data-cr-form="deliverable"] button[type="submit"]'), "مسودة");
+      await openCustomerRequest(id);
+      await expect(app.locator(".deliverable-btn")).toHaveCount(1);
+      await openStaffRequest(id, travelers[0]);
+      await staffAct(detail.locator("[data-cr-publish]").first(), "تم نشر الملف");
+
+      if (journey.travelPlan) {
+        await openCustomerRequest(id);
+        await bothSay("ملفاتك النهائية جاهزة للتحميل");
+        await app.locator("#egyptTravelBtn").click();
+        const entry = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
+        await app.locator('#egyptPlanForm [name="entryMode"]').selectOption("AIR");
+        await app.locator('#egyptPlanForm [name="bookingStatus"]').selectOption("EXISTING");
+        await app.fill('#egyptPlanForm [name="entryDate"]', entry);
+        await app.locator('#egyptPlanForm [name="file"]').setInputFiles(png("ticket.png"));
+        await app.locator("#egyptPlanForm button[type=submit]").click();
+        await expect(app.locator("#egyptTravelSummary")).toContainText("جاهز لتجهيز التعميم", { timeout: 15_000 });
+        // staff review the ticket, then complete the request by hand
+        await openStaffRequest(id, travelers[0]);
+        while ((await detail.locator("[data-doc-accept]").count()) > 0) {
+          const before = await detail.locator("[data-doc-accept]").count();
+          await detail.locator("[data-doc-accept]").first().click();
+          await expect(detail.locator("[data-doc-accept]")).toHaveCount(before - 1, { timeout: 15_000 });
+        }
+        await office.locator("#cr-outcome").selectOption("COMPLETED");
+        await staffAct(detail.locator('[data-cr-form="close"] button[type="submit"]'), "تم إغلاق الطلب");
+      }
+
       await openCustomerRequest(id);
       await bothSay("تم إنجاز طلبك بنجاح");
-      await expect(app.locator(".deliverable-btn")).toContainText("الملف النهائي");
+      await expect(app.locator(".deliverable-btn")).toHaveCount(2);
       await expect(app.locator("#requestProgress .progress-step-current")).toHaveCount(0);
+      // closed: read-only for the customer and for staff
+      await expect(app.locator("#approveBtn, #uploadReceiptBtn, #egyptTravelBtn, [data-upload-item]")).toHaveCount(0);
+      await openStaffRequest(id, travelers[0]);
+      await expect(detail.locator('[data-cr-form="deliverable"], [data-cr-form="close"], [data-doc-accept]')).toHaveCount(0);
     });
   }
 });

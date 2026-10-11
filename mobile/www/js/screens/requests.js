@@ -430,7 +430,8 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
           ${request.deliverables.map((file) => `<button class="secondary deliverable-btn" data-id="${esc(file.id)}">${icon("download", { size: 16 })} ${esc(file.label || file.fileName)}</button>`).join("")}
         </div>` : ""}
 
-      ${isEgyptClearance ? `<button class="primary" id="egyptTravelBtn">استكمال بيانات السفر والتعميم</button>` : ""}
+      ${request.intakeData?.egyptTravel ? egyptTravelSummary(request.intakeData.egyptTravel) : ""}
+      ${isEgyptClearance ? `<button class="primary" id="egyptTravelBtn">${request.intakeData?.egyptTravel ? "تعديل بيانات السفر والتعميم" : "استكمال بيانات السفر والتعميم"}</button>` : ""}
 
       <div id="trackingActionPanel"></div>
 
@@ -585,6 +586,26 @@ function showReceiptUpload(panel, requestId, onUploaded) {
       onDone: () => { toast("تم رفع إثبات الدفع للمراجعة"); onUploaded(); },
     });
   });
+}
+
+// What the server recorded about the Egypt travel plan (it computes the
+// circular status from the stored entry date; nothing is guessed here).
+const EGYPT_CIRCULAR_AR = {
+  WAITING_APPROVAL: "بانتظار صدور الموافقة الأمنية",
+  BOOKING_REQUIRED: "بانتظار حجز الرحلة من الوكالة",
+  READY_FOR_CIRCULAR: "جاهز لتجهيز التعميم قبل الدخول",
+  TIME_CONFIRMATION_REQUIRED: "يلزم تأكيد وقت الوصول مع الوكالة",
+  TOO_LATE_FOR_NORMAL_CIRCULAR: "الوقت قصير للتعميم المعتاد؛ تواصل مع الوكالة",
+  ENTRY_DATE_PASSED: "تاريخ الدخول مضى",
+};
+
+function egyptTravelSummary(plan) {
+  return `
+    <div class="detail-block" id="egyptTravelSummary">
+      <h4>بيانات السفر والتعميم</h4>
+      <p>${plan.entryMode === "AIR" ? "منفذ جوي" : "منفذ بري"} · تاريخ الدخول <span dir="ltr">${esc(plan.entryDate || "")}</span></p>
+      <p class="field-hint">${esc(EGYPT_CIRCULAR_AR[plan.circularStatus] || plan.circularStatus || "")}</p>
+    </div>`;
 }
 
 function showEgyptTravelPlan(panel, requestId, onSaved) {

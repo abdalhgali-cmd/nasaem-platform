@@ -242,6 +242,9 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
         ) : null}
         {can("PREPARE_DELIVERABLE") ? (
           <form
+            // Remount when the release conditions change, so "publish now"
+            // reflects them (defaultChecked only applies on first render).
+            key={`${detail.paymentStatus}-${detail.executionStartedAt ?? "none"}`}
             className="mt-3 flex flex-col gap-2"
             data-testid="workflow-deliverable"
             onSubmit={(event) => {

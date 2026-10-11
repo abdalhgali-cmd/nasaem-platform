@@ -196,6 +196,7 @@ jobs:
       SEED_ADMIN_PASSWORD: CiTest@12345
       API_RATE_LIMIT: 2000
       PUBLIC_CONTACT_RATE_LIMIT: 50
+      TRACKING_CODE_RATE_LIMIT: 30
 
     steps:
       - uses: actions/checkout@v4
