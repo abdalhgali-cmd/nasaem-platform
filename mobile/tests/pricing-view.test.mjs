@@ -23,7 +23,8 @@ test("the total follows the price unit and the travelers", () => {
 });
 
 test("a PRICE_CHANGED refusal updates the price for a new confirmation", () => {
-  const updated = withServerPrice(item(), { unitPrice: 200, priceUnit: "PER_TRAVELER", total: 400 });
+  const updated = withServerPrice(item(), { unitPrice: 200, priceUnit: "PER_TRAVELER", total: 400, currency: "SAR" });
   assert.equal(fixedTotal(fixedPricing(updated), 2).total, 400);
+  assert.equal(fixedPricing(updated).currency, "SAR", "review must display the updated currency before the customer re-confirms");
   assert.equal(withServerPrice(item(), null).basePrice, "150.00");
 });
