@@ -84,3 +84,40 @@ describe("documents are always tied to the correct traveler", () => {
     assert.equal(await prisma.contactRequestDocument.count({ where: { contactRequestId: requestB.id } }), 0);
   });
 });
+
+describe("the customer's checklist tells them exactly which document is still missing", () => {
+  test("account requests expose the checklist per traveler and the next actions", async () => {
+    const visaType = await prisma.visaType.findUnique({ where: { code: "VISA-EGYPT-CLEARANCE" } });
+    const passportRequirement = await prisma.visaRequirement.findFirst({ where: { visaTypeId: visaType.id, attachmentType: "passport_copy", active: true } });
+    const entryModeRequirement = await prisma.visaRequirement.findFirst({ where: { visaTypeId: visaType.id, attachmentType: "egypt_entry_mode", active: true } });
+    const { agent } = await registerCustomer();
+    const res = await agent
+      .post("/api/contact-requests")
+      .field("name", "Checklist")
+      .field("phone", `092${uniqueSuffix()}`)
+      .field("message", "موافقة أمنية لمسافرين")
+      .field("visaTypeId", visaType.id)
+      .field("travelers", JSON.stringify([{ fullName: "أول", isPrimary: true }, { fullName: "ثان" }]))
+      .field("answers", JSON.stringify({ [entryModeRequirement.id]: "AIR" }));
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const id = res.body.data.id;
+    const travelers = await prisma.traveler.findMany({ where: { contactRequestId: id }, orderBy: { sortOrder: "asc" } });
+
+    const before = (await agent.get(`/api/customer/requests/${id}`)).body.data;
+    const passports = before.checklist.filter((item) => item.requirementId === passportRequirement.id);
+    assert.deepEqual(passports.map((item) => [item.travelerName, item.state]), [["أول", "MISSING"], ["ثان", "MISSING"]]);
+    assert.ok(before.nextActions.some((action) => action.code === "UPLOAD_DOCUMENT" && action.travelerId === travelers[1].id));
+
+    const upload = await agent
+      .post(`/api/customer/requests/${id}/documents`)
+      .field("label", "صورة الجواز")
+      .field("requirementId", passportRequirement.id)
+      .field("travelerId", travelers[1].id)
+      .attach("file", PNG(), { filename: "second.png", contentType: "image/png" });
+    assert.equal(upload.status, 201, JSON.stringify(upload.body));
+
+    const after = (await agent.get(`/api/customer/requests/${id}`)).body.data;
+    const states = Object.fromEntries(after.checklist.filter((item) => item.requirementId === passportRequirement.id).map((item) => [item.travelerName, item.state]));
+    assert.deepEqual(states, { "أول": "MISSING", "ثان": "UNDER_REVIEW" }, "the file counts only for the traveler it was sent for");
+  });
+});

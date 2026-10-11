@@ -75,6 +75,15 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], baseURL: "http://localhost:3000" },
     },
     {
+      // The Android app's web bundle (mobile/www) against the real backend and
+      // back-office: requests with several travelers, per-traveler documents,
+      // staff review, price, payment accounts and receipt review.
+      name: "mobile-app",
+      testMatch: /mobile-app\.spec\.ts/,
+      timeout: 90_000,
+      use: { ...devices["Pixel 5"], baseURL: "http://localhost:8081" },
+    },
+    {
       name: "mobile-frontend",
       testMatch: /frontend\.spec\.ts/,
       // Deliberately not devices["iPhone 12"]/any Apple preset — those
@@ -116,6 +125,15 @@ export default defineConfig({
       url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
+      command: "node e2e/support/mobile-www-server.mjs",
+      cwd: __dirname,
+      url: "http://localhost:8081/index.html",
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
       stdout: "pipe",
       stderr: "pipe",
     },

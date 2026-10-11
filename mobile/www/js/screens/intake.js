@@ -112,13 +112,16 @@ async function fetchRequirements(item) {
 // come from that service's checklist, managed in the back-office.
 // `selection` (optional): what the customer already picked before the form,
 // e.g. a flight — { summary, details }. It is shown and sent with the request.
-export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null }) {
+export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null, fallbackRequirementsItem = null }) {
   setTitle(`طلب ${item.name}`);
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل متطلبات الخدمة…</p></div>`;
 
   let requirements;
   try {
     requirements = await fetchRequirements(item);
+    // A package the agency has not given its own checklist falls back to the
+    // checklist of the parent service (e.g. the Umrah service's passport/sponsor).
+    if (!requirements.length && fallbackRequirementsItem) requirements = await fetchRequirements(fallbackRequirementsItem);
   } catch (error) {
     // Without the checklist we can't tell the customer what to send, so the
     // form is not offered at all — only a retry.
@@ -130,7 +133,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         <button type="button" class="primary" id="retryRequirementsBtn">إعادة المحاولة</button>
       </div>`;
     bodyEl.querySelector("#retryRequirementsBtn").addEventListener("click", () =>
-      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection })
+      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem })
     );
     return;
   }
@@ -186,7 +189,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
 
   bodyEl.querySelector("#discardDraftBtn")?.addEventListener("click", () => {
     clearDraft(storageKey);
-    renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection });
+    renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem });
   });
 
   function showErrors(messages) {

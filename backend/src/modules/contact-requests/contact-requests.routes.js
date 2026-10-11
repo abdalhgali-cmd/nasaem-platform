@@ -74,9 +74,13 @@ function handleIntakeDocumentsUpload(req, res, next) {
   });
 }
 
+// Anonymous submissions per client per 15 minutes. The default stays strict;
+// only the browser E2E environment raises it (several suites submit requests
+// from one IP in a few minutes).
+const publicContactLimit = Number.parseInt(process.env.PUBLIC_CONTACT_RATE_LIMIT ?? "", 10);
 const publicContactLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 5,
+  limit: Number.isInteger(publicContactLimit) && publicContactLimit > 0 ? publicContactLimit : 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

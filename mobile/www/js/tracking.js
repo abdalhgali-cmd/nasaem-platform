@@ -85,6 +85,10 @@ export async function uploadPaymentReceipt(requestId, file, onProgress) {
   return trackingUpload(`/tracking/requests/${requestId}/payment-receipt`, form, onProgress);
 }
 
+export async function uploadDocument(requestId, form, onProgress) {
+  return trackingUpload(`/tracking/requests/${requestId}/documents`, form, onProgress);
+}
+
 export async function saveEgyptTravelPlan(requestId, { entryMode, bookingStatus, entryDate }, file, onProgress) {
   const form = new FormData();
   form.set("entryMode", entryMode);

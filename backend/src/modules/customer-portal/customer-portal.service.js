@@ -1,3 +1,4 @@
+import { buildCustomerChecklist, buildCustomerNextActions } from "../contact-request-tracking/customer-checklist.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { getSystemActorId } from "../../utils/systemActor.js";
@@ -210,7 +211,10 @@ function getRequestNextAction(request) {
 }
 
 function toCustomerRequest(request) {
+  const checklist = buildCustomerChecklist(request);
   return {
+    checklist,
+    nextActions: buildCustomerNextActions(request, checklist),
     id: request.id,
     requestNumber: request.id,
     service: request.serviceRef || (request.service ? { name: request.service, category: null } : null),

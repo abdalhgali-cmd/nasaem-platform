@@ -1,4 +1,5 @@
-import { esc, money, toast, skeletonList } from "../ui.js";
+import { esc, toast, skeletonList } from "../ui.js";
+import { startingPrice, priceText, sdgText, shortDescription, durationOf } from "../service-view.js";
 import { icon } from "../icons.js";
 import { loadPackages } from "../catalog.js";
 import { renderIntakeScreen } from "./intake.js";
@@ -9,13 +10,7 @@ export async function renderUmrahScreen({ bodyEl, params }) {
     <div class="service-hero">
       <div class="service-hero-icon">${icon("umrah", { size: 36 })}</div>
       <h2>العمرة</h2>
-      <p>ابدأ طلبك وحدد عدد المعتمرين. لكل معتمر بيانات وجواز مستقل، ويراجع فريق نسائم الحرمين السعر والتوفر قبل الدفع.</p>
-      <div class="feature-list">
-        <span>${icon("check-circle", { size: 16 })} تأشيرة عمرة</span>
-        <span>${icon("check-circle", { size: 16 })} باقات بحر وجو</span>
-        <span>${icon("check-circle", { size: 16 })} فنادق ونقل وإشراف</span>
-        <span>${icon("check-circle", { size: 16 })} متابعة الطلب والمستندات</span>
-      </div>
+      <p>اختر الباقة المناسبة وحدد عدد المعتمرين. لكل معتمر بيانات وجواز مستقل، ويراجع فريق نسائم الحرمين السعر والتوفر قبل الدفع.</p>
     </div>
 
     <section class="section">
@@ -43,14 +38,14 @@ export async function renderUmrahScreen({ bodyEl, params }) {
         <button class="package-card" data-id="${esc(pkg.id)}">
           <div>
             <b>${esc(pkg.name)}</b>
-            ${pkg.description ? `<span>${esc(pkg.description)}</span>` : ""}
+            ${shortDescription(pkg) ? `<span>${esc(shortDescription(pkg))}</span>` : ""}${durationOf(pkg) ? `<span>${esc(durationOf(pkg))}</span>` : ""}
           </div>
-          ${pkg.basePrice ? `<strong>${money(pkg.basePrice, pkg.currency)}</strong>` : `<span class="pending-price">السعر بعد مراجعة الوكالة</span>`}
+          ${startingPrice(pkg) ? `<strong><bdi>${esc(priceText(startingPrice(pkg)))}</bdi>${sdgText(startingPrice(pkg)) ? `<small><bdi>${esc(sdgText(startingPrice(pkg)))}</bdi></small>` : ""}</strong>` : `<span class="pending-price">السعر بعد مراجعة الوكالة</span>`}
         </button>`).join("");
       packagesList.querySelectorAll(".package-card").forEach((card) => {
         card.addEventListener("click", () => {
           const pkg = packages.find((p) => p.id === card.dataset.id);
-          if (pkg) mountIntake(bodyEl, pkg);
+          if (pkg) mountIntake(bodyEl, pkg, item);
         });
       });
     }
@@ -60,8 +55,17 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   }
 }
 
-function mountIntake(bodyEl, item) {
+// `baseItem` (the Umrah service) supplies the checklist when the chosen package
+// has none of its own.
+function mountIntake(bodyEl, item, baseItem = null) {
   const mount = bodyEl.querySelector("#umrahIntakeMount");
   mount.scrollIntoView({ behavior: "smooth" });
-  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item });
+  const price = baseItem ? startingPrice(item) : null;
+  const selection = baseItem
+    ? {
+        summary: `الباقة المختارة: ${item.name}${price ? ` — السعر المعلن من ${priceText(price)}${sdgText(price) ? ` (${sdgText(price)})` : ""}، والسعر النهائي تؤكده الوكالة` : ""}`,
+        details: { type: "UMRAH_PACKAGE", packageId: item.id, name: item.name, basePrice: price?.amount ?? null, currency: price?.currency ?? null },
+      }
+    : null;
+  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection, fallbackRequirementsItem: baseItem }).catch((error) => toast(error.message, { tone: "error" }));
 }

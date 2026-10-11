@@ -826,3 +826,16 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 .flight-actions { display: grid; gap: 8px; padding: 16px; }
 .selection-card p { white-space: pre-line; }
 #flightSearchForm .segmented, #ferryForm .segmented { padding: 0; }
+.package-card strong small { display: block; font-size: 11px; color: var(--text-muted); font-weight: 600; }
+
+/* Request checklist */
+.checklist-summary { margin: 0 0 8px; padding: 8px 12px; border-radius: 12px; font-weight: 800; font-size: 13px; }
+.checklist-summary.needs-action { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); }
+.checklist-summary.all-good { background: var(--success-bg); color: var(--success); }
+.check-group h5 { margin: 12px 0 6px; font-size: 13.5px; color: var(--navy); }
+.check-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f2f4f7; font-size: 13.5px; }
+.check-main { display: grid; gap: 3px; min-width: 0; }
+.check-side { display: grid; gap: 6px; justify-items: end; flex: none; }
+.check-rejected .doc-status { color: var(--danger); }
+.check-accepted .doc-status { color: var(--success); }
+.check-row .chip-btn { position: relative; cursor: pointer; min-height: 34px; padding: 5px 12px; }

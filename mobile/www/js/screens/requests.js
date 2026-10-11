@@ -1,4 +1,4 @@
-import { api, ApiError, getToken } from "../api.js";
+import { api, apiUpload, ApiError, getToken } from "../api.js";
 import { CONFIG } from "../config.js";
 import { esc, money, toast, skeletonList, emptyState, errorState, setLoading } from "../ui.js";
 import { icon } from "../icons.js";
@@ -7,6 +7,8 @@ import * as tracking from "../tracking.js";
 import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
 import { pricingOf, paymentActions, formatAmount, sdgEquivalent } from "../payment-view.js";
+import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
+import { validateFile } from "../intake-core.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
 // these three values — everything a customer actually cares about day to
@@ -356,7 +358,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         const list = await tracking.listTrackedRequests();
         const found = list.find((request) => request.id === params.requestId);
         if (!found) throw new ApiError("الطلب غير متاح لهذا الرقم", { status: 404 });
-        renderDetail(fromTracking(found));
+        renderDetail(fromTracking(found), { viaTracking: true });
         return;
       }
       const res = await api(`/customer/requests/${params.requestId}`);
@@ -366,7 +368,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     }
   }
 
-  function renderDetail(request) {
+  function renderDetail(request, { viaTracking = false } = {}) {
     const pricing = pricingOf(request);
     const price = pricing ? formatAmount(pricing.amount, pricing.currency) : "";
     const sdgLine = sdgEquivalent(pricing);
@@ -403,10 +405,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
             </div>`).join("")}
         </div>` : ""}
 
-      ${request.documents?.length ? `
+      ${request.checklist?.length ? checklistBlock(request) : request.documents?.length ? `
         <div class="detail-block">
           <h4>المستندات</h4>
-          ${request.documents.map((doc) => `
+          ${request.documents.filter((doc) => !doc.supersededAt).map((doc) => `
             <div class="doc-row">
               <span>${esc(doc.label)}</span>
               <b class="doc-status doc-status-${esc((doc.status || "").toLowerCase())}">${esc(DOCUMENT_STATUS_AR[doc.status] || doc.status)}</b>
@@ -442,6 +444,13 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", () => showPaymentAccounts(panel, pricing.currency));
     bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", () => showReceiptUpload(panel, request.id, load));
     bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load));
+    bodyEl.querySelectorAll("[data-upload-item]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const item = request.checklist.find((entry) => `${entry.requirementId}::${entry.travelerId || ""}` === input.dataset.uploadItem);
+        const file = input.files?.[0];
+        if (item && file) uploadChecklistDocument({ panel, request, item, file, viaTracking, reload: load, row: input.closest(".check-row") });
+      });
+    });
     bodyEl.querySelectorAll(".select-offer-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         ensureTrackingAndRun(panel, () => tracking.selectOffer(request.id, btn.dataset.offerId), {
@@ -455,6 +464,71 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   }
 
   await load();
+}
+
+function checklistBlock(request) {
+  const groups = groupChecklist(request.checklist);
+  const todo = actionCount(request.checklist);
+  return `
+    <div class="detail-block checklist">
+      <h4>المستندات والمعلومات المطلوبة</h4>
+      <p class="checklist-summary ${todo ? "needs-action" : "all-good"}">${todo ? `يلزم منك ${todo} ${todo === 1 ? "بند" : "بنود"} لإكمال الطلب` : "لا يوجد مطلوب منك الآن"}</p>
+      ${groups.map((group) => `
+        <div class="check-group">
+          <h5>${esc(group.title)}</h5>
+          ${group.items.map((item) => `
+            <div class="check-row check-${esc(String(item.state).toLowerCase())}" data-row="${esc(item.requirementId)}::${esc(item.travelerId || "")}">
+              <div class="check-main">
+                <span>${esc(item.label)}${item.required ? "" : " <small>(اختياري)</small>"}</span>
+                ${item.kind === "ANSWER" && item.answer ? `<small>${esc(item.answer)}</small>` : ""}
+                ${item.state === "REJECTED" && item.reviewNote ? `<p class="field-error">السبب: ${esc(item.reviewNote)}</p>` : ""}
+                <p class="field-error check-error" hidden></p>
+              </div>
+              <div class="check-side">
+                <b class="doc-status doc-status-${esc(String(item.state).toLowerCase())}">${esc(stateLabel(item.state))}</b>
+                ${canUpload(item) ? `<label class="chip-btn">${icon("upload", { size: 15 })}<span>${item.state === "REJECTED" ? "رفع بديل" : "رفع"}</span><input type="file" class="sr-only" accept="image/*,.pdf" data-upload-item="${esc(item.requirementId)}::${esc(item.travelerId || "")}"></label>` : ""}
+              </div>
+            </div>`).join("")}
+        </div>`).join("")}
+    </div>`;
+}
+
+// A document is always sent for the exact requirement and traveler of the
+// checklist row it was picked on.
+async function uploadChecklistDocument({ panel, request, item, file, viaTracking, reload, row }) {
+  const errorEl = row?.querySelector(".check-error");
+  const problem = validateFile(file, null);
+  if (problem) {
+    if (errorEl) {
+      errorEl.textContent = problem;
+      errorEl.hidden = false;
+    }
+    return;
+  }
+  if (errorEl) errorEl.hidden = true;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("label", uploadLabel(item));
+  form.append("requirementId", item.requirementId);
+  if (item.travelerId) form.append("travelerId", item.travelerId);
+  const done = () => {
+    toast("تم رفع المستند وهو الآن قيد المراجعة");
+    reload();
+  };
+  if (viaTracking) {
+    await ensureTrackingAndRun(panel, () => tracking.uploadDocument(request.id, form), { onDone: done });
+    return;
+  }
+  try {
+    await apiUpload(`/customer/requests/${request.id}/documents`, form);
+    done();
+  } catch (error) {
+    if (errorEl) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    }
+    toast(error.message, { tone: "error" });
+  }
 }
 
 async function showPaymentAccounts(panel, currency) {
