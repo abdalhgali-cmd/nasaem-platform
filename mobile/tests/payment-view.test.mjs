@@ -55,3 +55,19 @@ test("states before any payment", () => {
   assert.equal(paymentState({ invoice: invoice({ status: "REJECTED" }), paymentStatus: "NOT_REQUIRED" }).key, "PRICE_REJECTED");
   assert.equal(paymentState({ offers: [{ id: "o", amount: 1, currency: "SAR" }], paymentStatus: "NOT_REQUIRED" }).key, "OFFERS_PENDING");
 });
+
+import { sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "../www/js/payment-view.js";
+import { sdgUnavailable as serviceSdgUnavailable, startingPrice } from "../www/js/service-view.js";
+
+test("without an active rate only the original price is shown, with an Arabic notice - never a zero conversion", () => {
+  const noRate = pricingOf({ invoice: invoice({ amountSdg: null, exchangeRateToSdg: null }) });
+  assert.equal(sdgUnavailable(noRate), true);
+  assert.equal(sdgEquivalent(noRate), "");
+  assert.match(SDG_UNAVAILABLE_NOTICE, /غير متاح/);
+  assert.equal(sdgUnavailable(pricingOf({ invoice: invoice({ amountSdg: "0", exchangeRateToSdg: "0" }) })), true, "a zero figure is treated as no figure");
+  assert.equal(sdgEquivalent(pricingOf({ invoice: invoice({ amountSdg: "0" }) })), "");
+  assert.equal(sdgUnavailable(pricingOf({ invoice: invoice() })), false);
+  assert.equal(sdgUnavailable(pricingOf({ invoice: invoice({ currency: "SDG", amountSdg: null }) })), false);
+  assert.equal(serviceSdgUnavailable(startingPrice({ basePrice: "100", currency: "SAR", priceSdg: null })), true);
+  assert.equal(serviceSdgUnavailable(startingPrice({ basePrice: "100", currency: "SAR", priceSdg: "16000" })), false);
+});

@@ -1,9 +1,11 @@
 import XLSX from "xlsx";
+import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
 import {
   createManualFlight,
   deleteManualFlight,
   getCurrencyRates,
+  getCurrencyRateStatuses,
   listManualFlights,
   searchManualFlights,
   updateCurrencyRates,
@@ -85,6 +87,29 @@ export async function removeFlight(req, res, next) {
   try {
     await deleteManualFlight(req.params.id);
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Who changed which rate, when (from the audit log), newest first.
+export async function getRateHistory(req, res, next) {
+  try {
+    const rows = await prisma.activityLog.findMany({
+      where: { action: "FX_RATES_UPDATED", organizationId: req.user.organizationId },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      select: { id: true, createdAt: true, oldValue: true, newValue: true, user: { select: { fullName: true, role: true } } },
+    });
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getRateStatuses(req, res, next) {
+  try {
+    res.json({ success: true, data: await getCurrencyRateStatuses() });
   } catch (error) {
     next(error);
   }

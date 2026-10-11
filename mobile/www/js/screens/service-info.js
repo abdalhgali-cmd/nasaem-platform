@@ -12,6 +12,8 @@ import {
   startingPrice,
   priceText,
   sdgText,
+  sdgUnavailable,
+  SDG_UNAVAILABLE_NOTICE,
   durationOf,
   groupRequirements,
   REQUEST_STEPS,
@@ -69,7 +71,7 @@ export async function renderServiceInfoScreen({ bodyEl, setTitle, params }) {
       <section class="info-facts">
         <div class="info-fact">
           <small>السعر المعلن</small>
-          ${price ? `<strong>من <bdi>${esc(priceText(price))}</bdi></strong>${sdgText(price) ? `<span><bdi>${esc(sdgText(price))}</bdi></span>` : ""}` : `<strong>يُحدد بعد مراجعة طلبك</strong>`}
+          ${price ? `<strong>من <bdi>${esc(priceText(price))}</bdi></strong>${sdgText(price) ? `<span><bdi>${esc(sdgText(price))}</bdi></span>` : sdgUnavailable(price) ? `<span>${esc(SDG_UNAVAILABLE_NOTICE)}</span>` : ""}` : `<strong>يُحدد بعد مراجعة طلبك</strong>`}
         </div>
         <div class="info-fact">
           <small>مدة الإنجاز</small>

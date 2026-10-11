@@ -51,6 +51,14 @@ export function sdgText(price) {
   return price?.priceSdg ? `≈ ${NUMBER.format(price.priceSdg)} SDG` : "";
 }
 
+// Shown instead of a conversion when the agency has no active exchange rate for
+// the price's currency: only the original price is displayed, with this notice.
+export const SDG_UNAVAILABLE_NOTICE = "المقابل بالجنيه السوداني غير متاح حاليًا";
+
+export function sdgUnavailable(price) {
+  return Boolean(price) && price.currency !== "SDG" && !(price.priceSdg > 0);
+}
+
 export function durationOf(item) {
   const value = String(item?.processingTime || "").trim();
   return value || null;

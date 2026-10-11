@@ -6,7 +6,7 @@ import { go } from "../router.js";
 import * as tracking from "../tracking.js";
 import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
-import { pricingOf, paymentActions, formatAmount, sdgEquivalent } from "../payment-view.js";
+import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "../payment-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
 
@@ -385,7 +385,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
       ${pricing || payState.label ? `
         <div class="detail-block quote-block">
           <h4>${pricing ? "السعر والدفع" : "الدفع"}</h4>
-          ${pricing ? `<strong class="quote-amount">${esc(price)}</strong>${pricing.label ? `<small>${esc(pricing.label)}</small>` : ""}${sdgLine ? `<small class="quote-sdg">${esc(sdgLine)}</small>` : ""}${request.invoice?.description ? `<p>${esc(request.invoice.description)}</p>` : ""}` : ""}
+          ${pricing ? `<strong class="quote-amount">${esc(price)}</strong>${pricing.label ? `<small>${esc(pricing.label)}</small>` : ""}${sdgLine ? `<small class="quote-sdg">${esc(sdgLine)}</small>` : sdgUnavailable(pricing) ? `<small class="quote-sdg-unavailable">${esc(SDG_UNAVAILABLE_NOTICE)}</small>` : ""}${request.invoice?.description ? `<p>${esc(request.invoice.description)}</p>` : ""}` : ""}
           ${payState.label ? `<div class="pay-state pay-state-${esc(payState.tone)}" role="status"><b>${esc(payState.label)}</b><span>${esc(payState.detail)}</span></div>` : ""}
           ${canApprove ? `<button class="primary" id="approveBtn">موافق على السعر</button><button class="secondary" id="rejectBtn">رفض العرض</button>` : ""}
           ${canPay ? `<button class="primary" id="paymentInfoBtn">عرض بيانات الدفع</button><button class="secondary" id="uploadReceiptBtn">رفع إثبات الدفع</button>` : ""}

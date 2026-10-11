@@ -23,6 +23,8 @@ import { renderLegalScreen } from "./screens/legal.js";
 import { renderServiceInfoScreen } from "./screens/service-info.js";
 import { launchRoute } from "./experience-core.js";
 import { tapFeedback } from "./motion.js";
+import { CONFIG } from "./config.js";
+import { showEnvironmentBadge } from "./environment.js";
 
 const screenEl = document.getElementById("screen");
 const navEl = document.getElementById("bottomNav");
@@ -157,6 +159,7 @@ function wireConnectivity() {
 
 async function boot() {
   registerAllScreens();
+  showEnvironmentBadge(CONFIG);
   initRouter({ screenElement: screenEl, navElement: navEl, emptyStackHandler: () => {} });
   wireBottomNav();
   wireBackButton();

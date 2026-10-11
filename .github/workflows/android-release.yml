@@ -79,6 +79,8 @@ jobs:
             fs.writeFileSync(file, source);
           '
           grep -n "apiBaseUrl\|environment" www/js/config.js
+          # The customer build must identify as production (no test badge).
+          grep -q 'environment: "production"' www/js/config.js
 
       - name: Sync Capacitor
         run: npx cap sync android

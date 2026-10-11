@@ -6,6 +6,8 @@ import {
   downloadExcelTemplate,
   getFlights,
   getRates,
+  getRateHistory,
+  getRateStatuses,
   importExcel,
   patchFlight,
   postFlight,
@@ -24,6 +26,8 @@ router.use(requireAuth);
 router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), getFlights);
 router.get("/template", requireRole("SUPER_ADMIN", "ADMIN"), downloadExcelTemplate);
 router.get("/admin/rates", requireRole("SUPER_ADMIN", "ADMIN"), getRates);
+router.get("/admin/rates/status", requireRole("SUPER_ADMIN", "ADMIN"), getRateStatuses);
+router.get("/admin/rates/history", requireRole("SUPER_ADMIN", "ADMIN"), getRateHistory);
 router.patch("/admin/rates", requireRole("SUPER_ADMIN", "ADMIN"), patchRatesAndRefresh);
 router.post("/", requireRole("SUPER_ADMIN", "ADMIN"), postFlight);
 router.patch("/:id", requireRole("SUPER_ADMIN", "ADMIN"), patchFlight);

@@ -9,12 +9,49 @@ function showFm(message, isError = false) {
   showAlert($fm("alert"), message, isError ? "error" : "success");
 }
 
+const FX_CODES = [["USD", "دولار أمريكي"], ["SAR", "ريال سعودي"], ["AED", "درهم إماراتي"], ["EGP", "جنيه مصري"]];
+
+const fxText = (value) => (value === null || value === undefined ? "غير فعّال" : String(value));
+const fxSummary = (rates) => FX_CODES.map(([code]) => `${code}: ${fxText(rates?.[code])}`).join(" · ");
+
 async function loadRates() {
-  const { data } = await api.get("/flights/admin/rates");
-  $fm("fx-usd").value = data.USD || "";
-  $fm("fx-sar").value = data.SAR || "";
-  $fm("fx-aed").value = data.AED || "";
-  $fm("fx-egp").value = data.EGP || "";
+  const { data } = await api.get("/flights/admin/rates/status");
+  $fm("fx-body").innerHTML = FX_CODES.map(([code, name]) => {
+    const row = data[code] || { active: false, rate: null, updatedAt: null };
+    return `<tr>
+      <td><strong dir="ltr">${escapeHtml(code)}</strong> <span class="muted">${escapeHtml(name)}</span></td>
+      <td>${row.active ? '<span class="badge status-ACTIVE">فعّال</span>' : '<span class="badge status-INACTIVE">غير فعّال</span>'}</td>
+      <td><input id="fx-${code}" type="number" min="0.000001" step="0.000001" dir="ltr" value="${row.active ? escapeHtml(row.rate) : ""}" aria-label="سعر ${escapeHtml(code)}" /></td>
+      <td>${row.updatedAt ? escapeHtml(formatDateTime(row.updatedAt)) : "-"}</td>
+      <td><div class="stack wrap">
+        <button type="button" class="btn" data-fx-save="${code}">${row.active ? "حفظ السعر" : "تفعيل بهذا السعر"}</button>
+        ${row.active ? `<button type="button" class="btn secondary" data-fx-off="${code}">إيقاف</button>` : ""}
+      </div></td>
+    </tr>`;
+  }).join("");
+  await loadRateHistory();
+}
+
+async function loadRateHistory() {
+  const { data } = await api.get("/flights/admin/rates/history");
+  $fm("fx-history-body").innerHTML = data.length
+    ? data
+        .map(
+          (row) => `<tr>
+        <td>${escapeHtml(formatDateTime(row.createdAt))}</td>
+        <td>${escapeHtml(row.user?.fullName || "-")}</td>
+        <td dir="ltr" class="small">${escapeHtml(fxSummary(row.oldValue))}</td>
+        <td dir="ltr" class="small">${escapeHtml(fxSummary(row.newValue))}</td>
+      </tr>`
+        )
+        .join("")
+    : '<tr><td colspan="4" class="muted">لا توجد تغييرات مسجّلة بعد.</td></tr>';
+}
+
+async function changeRate(code, value) {
+  await api.patch("/flights/admin/rates", { [code]: value });
+  showFm(value === null ? `تم إيقاف ${code}.` : `تم حفظ سعر ${code} وتفعيله.`);
+  await loadRates();
 }
 
 async function loadFlights() {
@@ -75,17 +112,23 @@ async function bootFlightManagement() {
     return;
   }
 
-  const saveFx = $fm("save-fx");
-  saveFx.addEventListener("click", withBusy(saveFx, async () => {
-    await api.patch("/flights/admin/rates", {
-      USD: Number($fm("fx-usd").value),
-      SAR: Number($fm("fx-sar").value),
-      AED: Number($fm("fx-aed").value),
-      EGP: Number($fm("fx-egp").value),
-    });
-    showFm("تم حفظ أسعار الصرف.");
-    await loadFlights();
-  }));
+  $fm("fx-body").addEventListener("click", async (event) => {
+    const save = event.target.closest("[data-fx-save]");
+    const off = event.target.closest("[data-fx-off]");
+    try {
+      if (save) {
+        const code = save.dataset.fxSave;
+        const value = Number($fm(`fx-${code}`).value);
+        if (!(value > 0)) return showFm("اكتب سعر صرف أكبر من صفر.", true);
+        await changeRate(code, value);
+      } else if (off) {
+        if (!window.confirm(`إيقاف ${off.dataset.fxOff}؟ لن يظهر لها مقابل بالجنيه حتى تُفعَّل من جديد.`)) return;
+        await changeRate(off.dataset.fxOff, null);
+      }
+    } catch (error) {
+      showFm(error.message, true);
+    }
+  });
 
   const flightForm = $fm("flight-form");
   const flightSubmit = flightForm.querySelector('button[type="submit"]');

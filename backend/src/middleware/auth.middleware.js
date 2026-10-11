@@ -151,7 +151,7 @@ export async function requireAuth(req, res, next) {
 }
 
 export function requireRole(...allowedRoles) {
-  return (req, res, next) => {
+  const guard = (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -169,4 +169,7 @@ export function requireRole(...allowedRoles) {
 
     next();
   };
+  // Exposed so tests can read the roles each route allows (tests/rbacMatrix.test.js).
+  guard.allowedRoles = allowedRoles;
+  return guard;
 }

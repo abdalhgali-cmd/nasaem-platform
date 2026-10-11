@@ -839,3 +839,6 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 .check-rejected .doc-status { color: var(--danger); }
 .check-accepted .doc-status { color: var(--success); }
 .check-row .chip-btn { position: relative; cursor: pointer; min-height: 34px; padding: 5px 12px; }
+
+/* Test builds only (never rendered when config.environment is "production") */
+.env-badge { position: fixed; top: calc(var(--safe-top) + 2px); inset-inline-start: 8px; z-index: 9999; padding: 1px 8px; border-radius: 999px; background: #b42318; color: #fff; font-size: 10px; font-weight: 800; pointer-events: none; opacity: .9; }

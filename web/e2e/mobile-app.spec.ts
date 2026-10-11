@@ -110,6 +110,52 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     expect(text).not.toMatch(/lorem|placeholder|undefined|NaN|\[object/i);
   });
 
+  test("exchange rate: with no active SAR rate only the original price and an Arabic notice show; with one, the equivalent", async ({ page }) => {
+    const api = await staff(page);
+    const original = (await (await api.get(`${BACKEND}/api/flights/admin/rates`)).json()).data;
+    try {
+      expect((await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: 0 } })).status()).toBe(400);
+      expect((await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: null } })).ok()).toBeTruthy();
+      await skipOnboarding(page);
+      await page.locator(".featured-row", { hasText: "SAR" }).first().click();
+      await expect(page.locator(".info-fact").first()).toContainText("SAR");
+      await expect(page.locator(".info-fact").first()).toContainText("غير متاح حاليًا");
+      await expect(page.locator(".info-fact").first()).not.toContainText("SDG");
+
+      expect((await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: 160 } })).ok()).toBeTruthy();
+      await page.reload();
+      await skipOnboarding(page);
+      await page.locator(".featured-row", { hasText: "SAR" }).first().click();
+      await expect(page.locator(".info-fact").first()).toContainText("SDG");
+      await expect(page.locator(".info-fact").first()).not.toContainText("غير متاح");
+    } finally {
+      await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: original?.SAR ?? null } });
+    }
+  });
+
+  test("back-office: an admin activates, deactivates and audits an exchange rate", async ({ page }) => {
+    const api = await staff(page);
+    const original = (await (await api.get(`${BACKEND}/api/flights/admin/rates`)).json()).data;
+    page.on("dialog", (dialog) => void dialog.accept());
+    try {
+      await page.goto(`${BACKEND}/flight-management.html`);
+      const row = page.locator("#fx-body tr", { hasText: "AED" });
+      await expect(row).toBeVisible({ timeout: 15_000 });
+      await row.locator("input").fill("0");
+      await row.getByRole("button").first().click();
+      await expect(page.locator("#alert")).toContainText("أكبر من صفر");
+      await row.locator("input").fill("117.5");
+      await row.getByRole("button").first().click();
+      await expect(page.locator("#fx-body tr", { hasText: "AED" })).toContainText("فعّال", { timeout: 15_000 });
+      await page.locator("#fx-body tr", { hasText: "AED" }).locator("[data-fx-off]").click();
+      await expect(page.locator("#fx-body tr", { hasText: "AED" })).toContainText("غير فعّال", { timeout: 15_000 });
+      await expect(page.locator("#fx-history-body tr").first()).toContainText("AED: غير فعّال");
+      await expect(page.locator("#fx-history-body")).toContainText("AED: 117.5");
+    } finally {
+      await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { AED: original?.AED ?? null } });
+    }
+  });
+
   test("family visit for two visitors: each visitor's passport goes to that visitor, and a missing document blocks sending", async ({ page }) => {
     await skipOnboarding(page);
     await startFromShortcut(page, "family");
@@ -135,6 +181,47 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
       expect(own.length, `documents of ${traveler.fullName}`).toBeGreaterThan(0);
       expect(own.every((d: { label: string }) => d.label.includes(traveler.fullName))).toBeTruthy();
     }
+  });
+
+  test("staff: opening the notification about a request goes to that exact request", async ({ page }) => {
+    await staff(page);
+    await page.goto(`${BACKEND}/admin-dashboard.html`);
+    await page.locator("#notif-btn").click();
+    const item = page.locator(`.notif-item[data-notif-href*="${family.id}"]`).first();
+    await expect(item).toBeVisible({ timeout: 15_000 });
+    await item.click();
+    await expect(page).toHaveURL(new RegExp(`#/requests/${family.id}`), { timeout: 15_000 });
+    await expect(page.locator("#cr-detail")).toContainText(family.travelers[0], { timeout: 15_000 });
+  });
+
+  test("customer with an account: the notification about a price opens that request", async ({ page }) => {
+    const phone = localPhone();
+    const password = "E2e@Pass12345";
+    const register = await page.request.post(`${BACKEND}/api/customer-auth/register`, { data: { fullName: "عميل الإشعارات", phone, password } });
+    expect(register.ok(), await register.text()).toBeTruthy();
+    const { token } = (await register.json()).data;
+    const created = await page.request.post(`${BACKEND}/api/contact-requests`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: "عميل الإشعارات", phone, message: "طلب لاختبار الإشعار" },
+    });
+    expect(created.status()).toBe(201);
+    const id = (await created.json()).data.id;
+
+    const api = await staff(page);
+    const amount = 101 + Math.floor(Math.random() * 897);
+    expect((await api.post(`${BACKEND}/api/contact-requests/${id}/invoice`, { data: { amount, currency: "SAR" } })).ok()).toBeTruthy();
+
+    await skipOnboarding(page);
+    await page.locator('#bottomNav [data-tab="account"]').click();
+    await page.locator("#guestLoginBtn").click();
+    await page.fill('#loginForm [name="identifier"]', phone);
+    await page.fill('#loginForm [name="password"]', password);
+    await page.locator("#loginSubmit").click();
+    await page.locator(".account-menu-item", { hasText: "الإشعارات" }).click({ timeout: 15_000 });
+    const row = page.locator(`.notification-row[data-request-id="${id}"]`).filter({ hasText: "عرض السعر" }).first();
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.click();
+    await expect(page.locator(".quote-amount")).toContainText(String(amount), { timeout: 15_000 });
   });
 
   test("Egypt security approval: traveler data, passport and the agency's question", async ({ page }) => {

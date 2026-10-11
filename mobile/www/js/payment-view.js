@@ -40,6 +40,14 @@ export function sdgEquivalent(pricing) {
   return `ما يعادل ${formatAmount(pricing.amountSdg, "SDG")} بسعر الصرف وقت إصدار السعر`;
 }
 
+// A price in a foreign currency whose SDG equivalent was never frozen (the
+// agency had no active rate when it was issued): say so instead of converting.
+export function sdgUnavailable(pricing) {
+  return Boolean(pricing) && pricing.currency !== "SDG" && !(pricing.amountSdg > 0);
+}
+
+export const SDG_UNAVAILABLE_NOTICE = "المقابل بالجنيه السوداني غير متاح حاليًا";
+
 export function paymentState(request) {
   const pricing = pricingOf(request);
   const pending = (request?.offers || []).length > 0 && !request.selectedOfferId && !request.invoice;
