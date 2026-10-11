@@ -22,7 +22,13 @@ export const createPaymentSchema = z.object({
   paidAt: z.string().datetime().optional().or(z.string().min(1).optional()),
   // When true, the payment is recorded as awaiting review (not counted as
   // received until a staff member confirms it).
-  pendingReview: z.coerce.boolean().optional(),
+  // `z.coerce.boolean()` uses JavaScript truthiness: the text "false"
+  // becomes true, unexpectedly holding a payment for review. Preserve
+  // actual booleans and conventional form strings; reject other values.
+  pendingReview: z.preprocess(
+    (value) => value === "true" ? true : value === "false" ? false : (value === "" || value === null) ? undefined : value,
+    z.boolean().optional(),
+  ),
   idempotencyKey,
 });
 
