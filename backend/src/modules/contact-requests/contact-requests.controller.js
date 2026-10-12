@@ -50,6 +50,8 @@ import { parsePagination } from "../../utils/pagination.js";
 // createContactRequest instead when a Service Intake submission's
 // documentRequirementIds fail their requirement's own rules.
 const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
+  EGYPT_VARIANT_UNAVAILABLE: "هذا النوع من الموافقة غير متاح للحجز حاليًا.",
+  FIXED_TOTAL_REQUIRED: "أكّد الإجمالي النهائي قبل إرسال الطلب.",
   ENTRY_MODE_MISMATCH: "طريقة الدخول المرسلة لا تطابق نوع الموافقة المختار. اختر النوع الصحيح ثم أعد الإرسال.",
   ENTRY_MODE_INVALID: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر.",
   REQUIREMENT_NOT_FOUND: "One of the selected requirements does not belong to the selected visa type",
@@ -99,7 +101,7 @@ export async function storeContactRequest(req, res, next) {
       });
     }
     if (contactRequest?.error) {
-      const status = contactRequest.error === "FEATURE_DISABLED" ? 403 : contactRequest.error === "SUBMISSION_KEY_CONFLICT" ? 409 : 400;
+      const status = contactRequest.error === "FEATURE_DISABLED" ? 403 : contactRequest.error === "SUBMISSION_KEY_CONFLICT" || contactRequest.error === "EGYPT_VARIANT_UNAVAILABLE" ? 409 : 400;
       return res.status(status).json({
         success: false,
         message: UPLOAD_REQUIREMENT_ERROR_MESSAGES[contactRequest.error] || "Validation failed",

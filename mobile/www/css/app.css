@@ -896,3 +896,4 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 .faq-collapsed > summary { cursor: pointer; list-style: none; }
 .faq-collapsed > summary h3 { display: inline; font-size: 15px; }
 .variant-prices { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
+.variant-card.variant-unavailable { opacity: .6; cursor: not-allowed; }

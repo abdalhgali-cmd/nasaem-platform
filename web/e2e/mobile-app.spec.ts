@@ -224,23 +224,21 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await expect(page.locator(".quote-amount")).toContainText(String(amount), { timeout: 15_000 });
   });
 
-  test("Egypt security approval: traveler data, passport and the agency's question", async ({ page }) => {
+  test("Egypt, unconfigured catalog: both variants shown as unavailable, no form, no fallback to the original item", async ({ page }) => {
     await skipOnboarding(page);
-    await startFromShortcut(page, "egypt");
-    // The entry method's options show their Arabic labels and submit stable values (not "[object Object]").
-    const entrySelect = page.locator("#answersSection select").first();
-    await expect(entrySelect.locator("option")).toHaveText(["اختر", "منفذ جوي", "منفذ بري"]);
-    expect(await entrySelect.locator("option").evaluateAll((els) => els.map((el) => (el as HTMLOptionElement).value))).toEqual(["", "AIR", "BORDER"]);
-    await fillData(page, { name: "علي حسن", phone: localPhone(), travelers: ["علي حسن"] });
-    await uploadAllSlots(page);
-    await page.locator("#nextStepBtn").click();
-    const reference = await submitFromReview(page);
-    const api = await staff(page);
-    const request = await staffRequest(api, reference);
-    expect(request.travelers).toHaveLength(1);
-    expect(request.documents.length).toBeGreaterThan(0);
-    expect(request.documents.every((d: { travelerId: string | null }) => d.travelerId === request.travelers[0].id)).toBeTruthy();
-    expect(request.intakeData.egyptEntryMode).toBe("AIR");
+    await page.locator('.shortcut[data-key="egypt"]').click();
+    await expect(page.locator("#egyptVariantPrices")).toContainText("غير متاحة للحجز حاليًا");
+    await page.locator("#startRequestBtn").click();
+    const cards = page.locator(".variant-card");
+    await expect(cards).toHaveCount(2);
+    await expect(cards.nth(0)).toContainText("موافقة حربي — دخول بالطيران");
+    await expect(cards.nth(1)).toContainText("موافقة حربي — دخول عبر المعبر");
+    for (const index of [0, 1]) {
+      await expect(cards.nth(index)).toContainText("غير متاحة للحجز حاليًا");
+      await expect(cards.nth(index)).toBeDisabled();
+    }
+    await expect(page.locator("#egyptUnavailable")).toBeVisible();
+    await expect(page.locator('[name="name"]')).toHaveCount(0);
   });
 
   test("Egypt variants: entry method with its own configured price first, then traveler, documents, confirmed total; entry method stored", async ({ page }) => {

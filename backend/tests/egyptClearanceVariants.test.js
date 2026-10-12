@@ -60,6 +60,52 @@ function submit(variant, { phone, acceptedTotal, acceptedCurrency, answers }) {
   return req;
 }
 
+describe("Egypt clearance variants: unconfigured or quoted variants are not bookable", () => {
+  test("inactive, QUOTE-priced or unconfirmed-total variant submissions are refused, nothing created, no quote fallback", async () => {
+    const air = variants["VISA-EGYPT-CLEARANCE-AIR"];
+    const phone = testPhone();
+    // Not confirmed: no total sent → refused (never recorded as a quote request).
+    const noTotal = await submit(air, { phone });
+    assert.equal(noTotal.status, 400);
+    assert.equal(noTotal.body.code, "FIXED_TOTAL_REQUIRED");
+    // Switched to quotation by the agency → unavailable.
+    await admin.patch(`/api/visa-types/${air.visaType.id}`).send({ pricingMode: "QUOTE" });
+    const quoted = await submit(air, { phone, acceptedTotal: "120", acceptedCurrency: "USD" });
+    assert.equal(quoted.status, 409);
+    assert.equal(quoted.body.code, "EGYPT_VARIANT_UNAVAILABLE");
+    // Deactivated → unavailable, and hidden from the public catalog.
+    await admin.patch(`/api/visa-types/${air.visaType.id}`).send({ pricingMode: "FIXED", active: false });
+    const inactive = await submit(air, { phone, acceptedTotal: "120", acceptedCurrency: "USD" });
+    assert.equal(inactive.status, 409);
+    assert.equal(inactive.body.code, "EGYPT_VARIANT_UNAVAILABLE");
+    const catalog = await request(app).get("/api/services/public");
+    assert.ok(!catalog.body.data.visaTypes.some((v) => v.code === "VISA-EGYPT-CLEARANCE-AIR"));
+    assert.equal(await prisma.contactRequest.count({ where: { phone } }), 0);
+    // Restore the configured variant for the tests below.
+    const restored = await admin.patch(`/api/visa-types/${air.visaType.id}`).send({ pricingMode: "FIXED", basePrice: 120, currency: "USD", priceUnit: "PER_TRAVELER", active: true });
+    assert.equal(restored.status, 200, JSON.stringify(restored.body));
+  });
+
+  test("the draft route (website) refuses an unconfirmed total the same way", async () => {
+    const border = variants["VISA-EGYPT-CLEARANCE-BORDER"];
+    const created = await request(app).post("/api/intake-drafts").send({ serviceKind: "visa", visaTypeId: border.visaType.id });
+    const token = created.body.data.token;
+    await request(app).patch(`/api/intake-drafts/${token}`).send({ name: "TEST-EG", phone: testPhone(), travelerCount: 1, travelers: [{ fullName: "TEST-EG", passportNo: "P7654321", birthDate: "1991-02-02" }] });
+    const passport = border.requirements.find((r) => r.attachmentType === "passport_copy");
+    const uploaded = await request(app).post(`/api/intake-drafts/${token}/documents`).field("label", "جواز").field("requirementId", passport.id).field("travelerIndex", "0").attach("file", PDF(), { filename: "p.pdf", contentType: "application/pdf" });
+    assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
+    const noTotal = await request(app).post(`/api/intake-drafts/${token}/submit`).send({});
+    assert.equal(noTotal.status, 400, JSON.stringify(noTotal.body));
+    assert.equal(noTotal.body.code, "FIXED_TOTAL_REQUIRED");
+    const ok = await request(app).post(`/api/intake-drafts/${token}/submit`).send({ acceptedTotal: "45000", acceptedCurrency: "SDG" });
+    assert.equal(ok.status, 201, JSON.stringify(ok.body));
+    const stored = await prisma.contactRequest.findUnique({ where: { id: ok.body.data.id }, include: { invoice: true } });
+    assert.equal(stored.pricingMode, "FIXED");
+    assert.equal(stored.intakeData.egyptEntryMode, "BORDER");
+    assert.equal(Number(stored.invoice.amount), 45000);
+  });
+});
+
 describe("Egypt clearance variants", () => {
   test("the public catalog lists both variants with their own configured price and currency", async () => {
     const catalog = await request(app).get("/api/services/public");

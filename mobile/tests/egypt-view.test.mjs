@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { egyptVariants, isEgyptClearanceItem, selectOptions, variantPriceText } from "../www/js/egypt-view.js";
+import { EGYPT_UNAVAILABLE, egyptVariantOptions, egyptVariants, isEgyptClearanceItem, selectOptions, variantPriceText } from "../www/js/egypt-view.js";
 import { resolveServiceScreen } from "../www/js/catalog.js";
 
 const air = { id: "a", code: "VISA-EGYPT-CLEARANCE-AIR", name: "موافقة حربي — دخول بالطيران", pricingMode: "FIXED", basePrice: "120", currency: "USD", priceUnit: "PER_TRAVELER" };
@@ -29,4 +29,15 @@ test("SELECT options render their Arabic label and submit their stable value ([o
   assert.deepEqual(options, [{ value: "AIR", label: "منفذ جوي" }, { value: "BORDER", label: "منفذ بري" }]);
   assert.ok(!options.some((o) => o.value.includes("[object") || o.label.includes("[object")));
   assert.deepEqual(selectOptions(["نعم", "لا"]), [{ value: "نعم", label: "نعم" }, { value: "لا", label: "لا" }]);
+});
+
+test("unconfigured catalog: both variants listed as unavailable, nothing bookable, no fallback", () => {
+  for (const catalog of [null, { visaTypes: [base] }, { visaTypes: [base, { ...air, pricingMode: "QUOTE" }, { ...border, basePrice: "0" }] }]) {
+    const options = egyptVariantOptions(catalog);
+    assert.deepEqual(options.map((o) => o.code), ["VISA-EGYPT-CLEARANCE-AIR", "VISA-EGYPT-CLEARANCE-BORDER"]);
+    assert.ok(options.every((o) => !o.bookable && o.item === null && o.priceText === EGYPT_UNAVAILABLE));
+  }
+  const configured = egyptVariantOptions({ visaTypes: [base, air, border] });
+  assert.ok(configured.every((o) => o.bookable));
+  assert.equal(configured[0].item.id, "a");
 });

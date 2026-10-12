@@ -5,7 +5,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
-import { applyEgyptEntryMode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { applyEgyptEntryMode, egyptVariantBookingError } from "../egypt-clearance/egypt-clearance-variants.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -292,7 +292,9 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   let answers = draft.answers;
   let egyptEntryMode = null;
   if (draft.visaTypeId) {
-    const visaType = await prisma.visaType.findUnique({ where: { id: draft.visaTypeId }, select: { code: true } });
+    const visaType = await prisma.visaType.findUnique({ where: { id: draft.visaTypeId }, select: { code: true, active: true, pricingMode: true, basePrice: true, currency: true } });
+    const unavailable = egyptVariantBookingError(visaType, { acceptedTotal });
+    if (unavailable) return unavailable;
     const egypt = applyEgyptEntryMode(visaType?.code, requirementsSnapshot, answers);
     if (egypt.error) return egypt;
     answers = egypt.answers;

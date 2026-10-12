@@ -22,7 +22,7 @@ import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
-import { applyEgyptEntryMode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { applyEgyptEntryMode, egyptVariantBookingError } from "../egypt-clearance/egypt-clearance-variants.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 
@@ -210,7 +210,9 @@ async function createContactRequestOnce(data, req, files) {
   // one is refused before anything is created.
   let egyptEntryMode = null;
   if (data.visaTypeId) {
-    const visaType = await prisma.visaType.findUnique({ where: { id: data.visaTypeId }, select: { code: true } });
+    const visaType = await prisma.visaType.findUnique({ where: { id: data.visaTypeId }, select: { code: true, active: true, pricingMode: true, basePrice: true, currency: true } });
+    const unavailable = egyptVariantBookingError(visaType, { acceptedTotal: data.acceptedTotal });
+    if (unavailable) return unavailable;
     const egypt = applyEgyptEntryMode(visaType?.code, requirementsSnapshot, data.answers);
     if (egypt.error) return egypt;
     if (egypt.entryMode) {

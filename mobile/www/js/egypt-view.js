@@ -4,7 +4,12 @@
 // reuses another item's price. Pure, unit-tested without a DOM.
 import { fixedPricing, moneyText } from "./pricing-view.js";
 
-export const EGYPT_VARIANT_CODES = Object.freeze(["VISA-EGYPT-CLEARANCE-AIR", "VISA-EGYPT-CLEARANCE-BORDER"]);
+export const EGYPT_VARIANTS = Object.freeze([
+  { code: "VISA-EGYPT-CLEARANCE-AIR", name: "موافقة حربي — دخول بالطيران" },
+  { code: "VISA-EGYPT-CLEARANCE-BORDER", name: "موافقة حربي — دخول عبر المعبر" },
+]);
+export const EGYPT_VARIANT_CODES = Object.freeze(EGYPT_VARIANTS.map((variant) => variant.code));
+export const EGYPT_UNAVAILABLE = "غير متاحة للحجز حاليًا";
 const EGYPT_CODES = new Set(["VISA-EGYPT-CLEARANCE", "SVC-EGYPT-CLEARANCE", ...EGYPT_VARIANT_CODES]);
 
 export function isEgyptClearanceItem(item) {
@@ -16,6 +21,19 @@ export function isEgyptClearanceItem(item) {
 export function egyptVariants(catalog) {
   const visaTypes = catalog?.visaTypes || [];
   return EGYPT_VARIANT_CODES.map((code) => visaTypes.find((item) => String(item.code || "").toUpperCase() === code)).filter(Boolean);
+}
+
+// Both variants, always listed. A variant can be booked only when the agency
+// published it with a fixed price (active, FIXED, positive price): its card
+// shows that price. Otherwise it shows «غير متاحة للحجز حاليًا» and cannot be
+// chosen; there is no quote fallback and no switch to the original item.
+export function egyptVariantOptions(catalog) {
+  const published = egyptVariants(catalog);
+  return EGYPT_VARIANTS.map((variant) => {
+    const item = published.find((candidate) => String(candidate.code || "").toUpperCase() === variant.code) || null;
+    const bookable = Boolean(item && fixedPricing(item));
+    return { ...variant, name: item?.name || variant.name, item: bookable ? item : null, bookable, priceText: bookable ? variantPriceText(item).text : EGYPT_UNAVAILABLE };
+  });
 }
 
 // The price line of a variant card: its own fixed price and unit, or that the

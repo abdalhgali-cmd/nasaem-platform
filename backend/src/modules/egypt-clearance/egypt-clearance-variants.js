@@ -58,3 +58,16 @@ export function applyEgyptEntryMode(code, checklist, answers) {
   if (!question || !resolved.entryMode) return { answers, entryMode: resolved.entryMode };
   return { answers: { ...(answers || {}), [question.id]: resolved.entryMode }, entryMode: resolved.entryMode };
 }
+
+// A variant is booked only at its fixed price: it must be active and priced
+// FIXED (positive price) by the agency, and the submission must carry the
+// total the customer confirmed. There is no quote fallback and no silent
+// switch to the original item. (The total itself is checked by
+// contact-request-pricing/fixed-price.js.)
+export function egyptVariantBookingError(visaType, { acceptedTotal } = {}) {
+  if (!variantEntryMode(visaType?.code)) return null;
+  const priced = visaType.pricingMode === "FIXED" && Number(visaType.basePrice) > 0 && Boolean(visaType.currency);
+  if (!visaType.active || !priced) return { error: "EGYPT_VARIANT_UNAVAILABLE", details: { code: visaType.code } };
+  if (acceptedTotal === undefined || acceptedTotal === null || acceptedTotal === "") return { error: "FIXED_TOTAL_REQUIRED", details: { code: visaType.code } };
+  return null;
+}
