@@ -56,4 +56,14 @@ Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton
 
 VERIFIED wording: app flight and hotel screens and the website flight search say results are agency-entered and that availability and final price are confirmed by staff before any payment (not live bookable inventory).
 
-Known functional gaps (documented, not release blockers for QUOTE services): website/guided-intake/hotel/ferry forms don't show a fixed total, so FIXED items ordered there fall back to QUOTE. Next implementation task (after the release gates): the website service wizard submits via `/intake-drafts/:token/submit`, so it needs `acceptedTotal`/`acceptedCurrency` on that endpoint (same `resolveSubmissionPricing`) plus a total review step; deferred because FIXED cannot be enabled before the new Android app is distributed.
+## Follow-up branch `claude/release-next` (base `claude/release-integration`, not merged)
+
+| Item | Evidence |
+|---|---|
+| Staff `CASE_ASSIGNED` notification now links to the assigned request (`contactRequestId`); all other staff/customer request notifications already did | `notificationContactRequestLink.test.js` 2/2 |
+| `POST /api/intake-drafts/:token/submit` accepts `acceptedTotal`/`acceptedCurrency` with the app's server pricing: match → FIXED + approved invoice; missing/wrong currency or total → 409 `PRICE_CHANGED`, nothing created, draft intact; no total → QUOTE (reason kept); total on a quoted item → 409 `PRICING_MODE_CHANGED` | `intakeDraftPricing.test.js` + `intakeDrafts.test.js` 11/11 (fresh DB) |
+| Website service wizard (umrah/package/visa; posts `/contact-requests`): FIXED items show the server-equivalent final total (per traveler/per request) and currency, require an explicit confirmation, send `acceptedTotal`/`acceptedCurrency`; 409 `PRICE_CHANGED` replaces the total and asks again; quoted items label their figure as an estimate; success screen states the payment next step for FIXED | `web/e2e/website-fixed-price.spec.ts` (API mocked) + `p0-request-ux.spec.ts` 3/3 local |
+| Android release workflow: `version_name` validated (`X.Y.Z`) and passed via env (was interpolated into shell/node); device checklist includes the QUOTE/FIXED checks | `android-release.yml`, `docs/ANDROID-RELEASE.md` — NOT RUN (owner-triggered, needs signing secrets) |
+| Flights/hotels/ferries readiness: website and app wording reviewed — flight results are agency-entered, hotels/ferries are requests whose availability and price staff confirm; no instant-booking claims | grep review; no code change needed |
+
+Remaining known gaps (not blockers while every service is QUOTE): hotel and ferry forms have no fixed-total step (a FIXED item there falls back to QUOTE, never charged unseen). FIXED stays disabled until the new Android app is distributed and checked on a real device.
