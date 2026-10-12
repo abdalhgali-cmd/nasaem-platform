@@ -50,6 +50,8 @@ import { parsePagination } from "../../utils/pagination.js";
 // createContactRequest instead when a Service Intake submission's
 // documentRequirementIds fail their requirement's own rules.
 const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
+  ENTRY_MODE_MISMATCH: "طريقة الدخول المرسلة لا تطابق نوع الموافقة المختار. اختر النوع الصحيح ثم أعد الإرسال.",
+  ENTRY_MODE_INVALID: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر.",
   REQUIREMENT_NOT_FOUND: "One of the selected requirements does not belong to the selected visa type",
   INVALID_MIME: "One of the uploaded files has a type that isn't allowed for its requirement",
   FILE_TOO_LARGE: "One of the uploaded files exceeds the maximum size allowed for its requirement",
@@ -101,6 +103,7 @@ export async function storeContactRequest(req, res, next) {
       return res.status(status).json({
         success: false,
         message: UPLOAD_REQUIREMENT_ERROR_MESSAGES[contactRequest.error] || "Validation failed",
+        code: contactRequest.error,
         details: contactRequest.details,
       });
     }

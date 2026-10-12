@@ -7,7 +7,7 @@ import { EGYPT_TRAVEL_TASK_KEYS, EGYPT_TRAVEL_TASK_TITLES } from "./egypt-travel
 import { ACTIONS, checkAction, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 import { refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 
-const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
+import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
 const KHARTOUM_TIME_ZONE = "Africa/Khartoum";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -182,7 +182,7 @@ export async function saveMyEgyptTravelPlan(
   });
 
   if (!request) return { error: "NOT_FOUND" };
-  if (request.visaType?.code !== EGYPT_CLEARANCE_CODE) return { error: "WRONG_SERVICE" };
+  if (!isEgyptClearanceCode(request.visaType?.code)) return { error: "WRONG_SERVICE" };
   const closedRefusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, request);
   if (closedRefusal) return { refusal: closedRefusal };
 

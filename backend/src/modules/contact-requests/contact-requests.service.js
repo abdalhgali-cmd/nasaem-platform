@@ -22,6 +22,7 @@ import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
+import { applyEgyptEntryMode } from "../egypt-clearance/egypt-clearance-variants.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 
@@ -204,6 +205,20 @@ async function createContactRequestOnce(data, req, files) {
     }
   }
 
+  // Egypt clearance: the variant (air / border crossing) fixes the entry
+  // method; it is recorded as the answer, and a submission claiming the other
+  // one is refused before anything is created.
+  let egyptEntryMode = null;
+  if (data.visaTypeId) {
+    const visaType = await prisma.visaType.findUnique({ where: { id: data.visaTypeId }, select: { code: true } });
+    const egypt = applyEgyptEntryMode(visaType?.code, requirementsSnapshot, data.answers);
+    if (egypt.error) return egypt;
+    if (egypt.entryMode) {
+      egyptEntryMode = egypt.entryMode;
+      data = { ...data, answers: egypt.answers };
+    }
+  }
+
   // Fixed catalog price: recomputed here from the catalog and compared with
   // the total the customer confirmed; a mismatch creates nothing (409).
   const pricing = await resolveSubmissionPricing(data, { travelers: travelers.length });
@@ -233,8 +248,8 @@ async function createContactRequestOnce(data, req, files) {
     // comment); a submission with neither keeps intakeData exactly as it
     // was before this release.
     intakeData:
-      data.intakeData || data.answers
-        ? { ...(data.intakeData || {}), ...(data.answers ? { answers: data.answers } : {}) }
+      data.intakeData || data.answers || egyptEntryMode
+        ? { ...(data.intakeData || {}), ...(data.answers ? { answers: data.answers } : {}), ...(egyptEntryMode ? { egyptEntryMode } : {}) }
         : undefined,
     requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
     pricingMode: pricing.mode,

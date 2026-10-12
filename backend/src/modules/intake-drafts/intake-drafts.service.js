@@ -5,6 +5,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
+import { applyEgyptEntryMode } from "../egypt-clearance/egypt-clearance-variants.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -286,6 +287,18 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   const travelers = Array.isArray(draft.travelers) ? draft.travelers : [];
   const travelerRefs = draft.documentTravelerRefs || {};
 
+  // Egypt clearance: the variant fixes the entry method (recorded as the
+  // answer); a draft claiming the other one is refused.
+  let answers = draft.answers;
+  let egyptEntryMode = null;
+  if (draft.visaTypeId) {
+    const visaType = await prisma.visaType.findUnique({ where: { id: draft.visaTypeId }, select: { code: true } });
+    const egypt = applyEgyptEntryMode(visaType?.code, requirementsSnapshot, answers);
+    if (egypt.error) return egypt;
+    answers = egypt.answers;
+    egyptEntryMode = egypt.entryMode || null;
+  }
+
   // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
   // a fixed-price item is recorded as FIXED only when the customer confirmed
   // the total and currency the server recomputes; without a confirmation it
@@ -316,7 +329,8 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
         intakeData: {
           ...(travelers.length ? { travelers } : {}),
           ...(draft.notes ? { notes: draft.notes } : {}),
-          ...(draft.answers ? { answers: draft.answers } : {}),
+          ...(answers ? { answers } : {}),
+          ...(egyptEntryMode ? { egyptEntryMode } : {}),
         },
         requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
         message: message || draft.notes || "طلب خدمة عبر نموذج الحجز الإلكتروني",

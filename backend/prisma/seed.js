@@ -3,6 +3,7 @@ import prisma from "../src/config/database.js";
 import { nextSequence } from "../src/utils/sequence.js";
 import { FEATURE_FLAG_DESCRIPTIONS, FEATURE_FLAG_KEYS } from "../src/modules/feature-flags/feature-flags.constants.js";
 import { reconcileEgyptClearanceRequirements } from "./seed-egypt-clearance.js";
+import { ensureEgyptClearanceVariants } from "./setup-egypt-clearance-variants.js";
 
 const SERVICE_CATEGORIES = [
   { code: "SVC-FLIGHT", name: "تذاكر الطيران", category: "flight" },
@@ -525,6 +526,7 @@ async function main() {
   // (a plain case-scoped passport document plus the legacy ticket), and this
   // reconciles it into the structured approval-first shape the journey needs.
   await reconcileEgyptClearanceRequirements();
+  await ensureEgyptClearanceVariants();
 }
 
 main()

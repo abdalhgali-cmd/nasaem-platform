@@ -240,7 +240,9 @@ export function requestKindOf(request) {
   return referencesService ? "SERVICE_APPLICATION" : "LEGACY_INQUIRY";
 }
 
-export const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
+import { EGYPT_CLEARANCE_CODE, isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
+
+export { EGYPT_CLEARANCE_CODE };
 
 // The Egypt clearance continues after the approval file: the customer's
 // travel plan (egypt-clearance-travel.service.js) and the agency's tasks it
@@ -249,7 +251,7 @@ export const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
 // still under review is already blocked by readiness); and none of the
 // plan's system tasks (booking by the agency, circular) still open.
 export function egyptTravelBlockers(request) {
-  if (request.visaType?.code !== EGYPT_CLEARANCE_CODE) return [];
+  if (!isEgyptClearanceCode(request.visaType?.code)) return [];
   const plan = request.intakeData?.egyptTravel;
   if (!plan || !plan.entryMode || !plan.bookingStatus || !plan.entryDate) {
     return [{ code: "TRAVEL_PLAN_MISSING", message: "لم تُستكمل بيانات السفر والتعميم (طريقة الدخول، حالة الحجز، تاريخ الدخول) من العميل." }];
@@ -286,10 +288,10 @@ export function completionBlockers(request) {
 }
 
 // Services whose request continues after the final file (the Egypt
-// clearance travel plan and circular) are never closed automatically.
-const POST_DELIVERY_STAGE = new Set([EGYPT_CLEARANCE_CODE]);
+// clearance and its entry-method variants: travel plan and circular) are
+// never closed automatically.
 export function autoCompletes(request) {
-  return !POST_DELIVERY_STAGE.has(request.visaType?.code);
+  return !isEgyptClearanceCode(request.visaType?.code);
 }
 
 // Validates the travelers a final file is said to cover.
@@ -408,7 +410,7 @@ export function allowedActions(request, { audience, role } = {}) {
       ? CUSTOMER_ACTIONS
       : Object.keys(STAFF_ACTION_ROLES).filter((action) => !role || STAFF_ACTION_ROLES[action].includes(role));
   return candidates.filter((action) => {
-    if (action === ACTIONS.SAVE_TRAVEL_PLAN && request.visaType?.code !== EGYPT_CLEARANCE_CODE) return false;
+    if (action === ACTIONS.SAVE_TRAVEL_PLAN && !isEgyptClearanceCode(request.visaType?.code)) return false;
     if (action === ACTIONS.PUBLISH_DELIVERABLE && !(request.deliverables || []).some((d) => !isPublished(d))) return false;
     if (action === ACTIONS.REVIEW_DOCUMENT && !(request.documents || []).some((d) => !d.supersededAt && d.status === "PENDING" && d.classification !== "FINANCIAL_DOCUMENT")) return false;
     // Offered when allowed for the version currently stored (what the
