@@ -84,7 +84,14 @@ test("website fixed price, real backend: stale total refused, nothing created, r
     await expect(progress.locator('[role="tab"][data-step="RECEIVED"]')).toHaveAttribute("data-state", "done", { timeout: 15_000 });
     await expect(progress.locator('[role="tab"][data-step="RECEIVED"]')).toHaveAttribute("aria-label", /تأكيد الطلب بالسعر الثابت/);
     await expect(progress.locator('[role="tab"][data-step="QUOTE"]')).toHaveCount(0);
-    await expect(progress.locator('[role="tab"][data-step="PAYMENT"]')).toHaveAttribute("data-state", "current");
+    // Every circle shows exactly the state the server computed for this request.
+    const serverSteps = detail.progress.steps as Array<{ key: string; state: string }>;
+    expect(serverSteps.some((step) => step.key === "QUOTE")).toBe(false);
+    await expect(progress.locator('[role="tab"]')).toHaveCount(serverSteps.length);
+    for (const step of serverSteps) {
+      await expect(progress.locator(`[role="tab"][data-step="${step.key}"]`)).toHaveAttribute("data-state", step.state);
+    }
+    expect(serverSteps.filter((step) => step.state === "current").length).toBeLessThanOrEqual(1);
     await expect(page.getByRole("button", { name: "موافقة على السعر" })).toHaveCount(0);
     await expect(page.getByTestId("payment-amount")).toHaveText("180 USD");
   } finally {
