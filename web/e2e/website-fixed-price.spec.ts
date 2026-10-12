@@ -83,6 +83,8 @@ test("fixed price: confirm total and currency, re-confirm after PRICE_CHANGED", 
   await send.click();
 
   await expect(page.getByText("تم استلام طلبك")).toBeVisible();
+  await expect(page.getByText("لن يصلك عرض سعر آخر")).toBeVisible();
+  await expect(page.getByText("خطوة الدفع مفتوحة الآن")).toBeVisible();
   expect(sent).toEqual([
     { acceptedTotal: "150.00", acceptedCurrency: "USD" },
     { acceptedTotal: "180.00", acceptedCurrency: "USD" },

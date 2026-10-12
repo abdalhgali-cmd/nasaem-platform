@@ -313,7 +313,12 @@ export function ServiceIntakeWizard({
   const [priceConfirmed, setPriceConfirmed] = React.useState(false);
   const [serverPrice, setServerPrice] = React.useState<{ itemId: string; total: number; currency: string } | null>(null);
   const [quotedNow, setQuotedNow] = React.useState<string | null>(null);
-  const [result, setResult] = React.useState<{ id: string } | null>(null);
+  // `fixed` is set only when a confirmed total was sent and accepted (the
+  // server records such a request as FIXED or refuses it with 409).
+  const [result, setResult] = React.useState<{
+    id: string;
+    fixed?: { total: number; currency: string; afterDocuments: boolean } | null;
+  } | null>(null);
   const [copiedRequestNumber, setCopiedRequestNumber] = React.useState(false);
 
   // Draft save/resume (per-browser, via localStorage — no account or
@@ -1168,7 +1173,13 @@ export function ServiceIntakeWizard({
         throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
       }
 
-      setResult({ id: payload.data.id });
+      setResult({
+        id: payload.data.id,
+        fixed:
+          fixedPrice && priceConfirmed
+            ? { ...fixedPrice, afterDocuments: Boolean(selectedPriceItem?.paymentAfterDocumentReview) }
+            : null,
+      });
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى");
     } finally {
@@ -1207,12 +1218,36 @@ export function ServiceIntakeWizard({
         </div>
         <div className="mt-4 rounded-2xl border border-border bg-background p-5 text-start">
           <h3 className="text-sm font-bold text-foreground">ماذا سيحدث الآن؟</h3>
-          <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
-            <li><span className="font-semibold text-foreground">1.</span> سنراجع بيانات طلبك والمستندات المرفقة.</li>
-            <li><span className="font-semibold text-foreground">2.</span> سيتواصل معك فريقنا عند الحاجة إلى معلومة أو مستند إضافي.</li>
-            <li><span className="font-semibold text-foreground">3.</span> يمكنك متابعة الحالة باستخدام رقم الطلب من صفحة التتبع.</li>
-          </ol>
-          <p className="mt-3 text-xs text-muted-foreground">هذا طلب خدمة أولي، وليس عملية دفع أو طلبًا مؤكدًا داخل حساب العميل.</p>
+          {result.fixed ? (
+            <>
+              <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>
+                  <span className="font-semibold text-foreground">1.</span> اعتمدت السعر الثابت{" "}
+                  <span dir="ltr" className="font-semibold text-foreground">
+                    {result.fixed.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {result.fixed.currency}
+                  </span>
+                  ؛ لن يصلك عرض سعر آخر.
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">2.</span>{" "}
+                  {result.fixed.afterDocuments
+                    ? "سنراجع مستنداتك أولًا، وبعد اعتمادها تُفتح خطوة الدفع بالسعر نفسه."
+                    : "خطوة الدفع مفتوحة الآن: حوّل المبلغ إلى أحد حسابات الوكالة الظاهرة في صفحة التتبع، ثم اضغط «تم تحويل المبلغ»."}
+                </li>
+                <li><span className="font-semibold text-foreground">3.</span> يبدأ التنفيذ بعد تأكيد الوكالة لاستلام المبلغ، وتتابع كل مرحلة برقم الطلب.</li>
+              </ol>
+              <p className="mt-3 text-xs text-muted-foreground">لا تحوّل أي مبلغ إلا إلى حسابات الوكالة الظاهرة في صفحة التتبع.</p>
+            </>
+          ) : (
+            <>
+              <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+                <li><span className="font-semibold text-foreground">1.</span> سنراجع بيانات طلبك والمستندات المرفقة.</li>
+                <li><span className="font-semibold text-foreground">2.</span> سيتواصل معك فريقنا عند الحاجة إلى معلومة أو مستند إضافي.</li>
+                <li><span className="font-semibold text-foreground">3.</span> يمكنك متابعة الحالة باستخدام رقم الطلب من صفحة التتبع.</li>
+              </ol>
+              <p className="mt-3 text-xs text-muted-foreground">هذا طلب خدمة أولي، وليس عملية دفع أو طلبًا مؤكدًا داخل حساب العميل.</p>
+            </>
+          )}
         </div>
         <Button asChild variant="gold" size="lg" className="mt-6 w-full">
           <Link href="/track">تابع طلبك من هنا</Link>
