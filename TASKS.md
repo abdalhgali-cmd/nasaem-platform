@@ -66,4 +66,6 @@ VERIFIED wording: app flight and hotel screens and the website flight search say
 | Android release workflow: `version_name` validated (`X.Y.Z`) and passed via env (was interpolated into shell/node); device checklist includes the QUOTE/FIXED checks | `android-release.yml`, `docs/ANDROID-RELEASE.md` — NOT RUN (owner-triggered, needs signing secrets) |
 | Flights/hotels/ferries readiness: website and app wording reviewed — flight results are agency-entered, hotels/ferries are requests whose availability and price staff confirm; no instant-booking claims | grep review; no code change needed |
 
+**GitHub Actions on `3328e17` (PR #92)**: Backend tests ✅, Frontend typecheck + build ✅, Playwright E2E (full suite, incl. `website-fixed-price.spec.ts`) ✅, PostgreSQL backup + restore drill ✅. The local full Playwright run did not finish (session time limit); CI is the evidence.
+
 Remaining known gaps (not blockers while every service is QUOTE): hotel and ferry forms have no fixed-total step (a FIXED item there falls back to QUOTE, never charged unseen). FIXED stays disabled until the new Android app is distributed and checked on a real device.
