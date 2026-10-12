@@ -1,12 +1,12 @@
 import { esc, skeletonGrid, skeletonList, errorState, emptyState } from "../ui.js";
-import { startingPrice, priceText, sdgText, durationOf, shortDescription } from "../service-view.js";
+import { startingPrice, priceText, sdgText, durationOf, shortDescription, serviceDirectoryItems, VISAS_HUB_ITEM } from "../service-view.js";
 import { stagger } from "../motion.js";
 import { icon, iconForService } from "../icons.js";
 import { loadCatalog, resolveServiceScreen } from "../catalog.js";
 import { go } from "../router.js";
 import { renderIntakeScreen } from "./intake.js";
 
-export const VISAS_HUB_CODE = "HUB-VISAS";
+export const VISAS_HUB_CODE = VISAS_HUB_ITEM.id;
 
 function findItemById(catalog, id) {
   return catalog.services.find((s) => s.id === id) || catalog.visaTypes.find((v) => v.id === id);
@@ -43,7 +43,7 @@ export async function renderServicesScreen({ bodyEl }) {
   bodyEl.innerHTML = `<div class="svc-flow">${skeletonList(5)}</div>`;
   try {
     const catalog = await loadCatalog();
-    const items = [...catalog.services, ...catalog.visaTypes];
+    const items = serviceDirectoryItems(catalog);
     if (!items.length) {
       bodyEl.innerHTML = emptyState({ icon: "inbox", title: "لا توجد خدمات منشورة حالياً" });
       return;
