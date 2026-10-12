@@ -10,6 +10,7 @@ import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable,
 import { bindProgressTrack, progressBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
+import { isEgyptClearanceItem } from "../egypt-view.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
 // these three values — everything a customer actually cares about day to
@@ -379,7 +380,8 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     // The server says what is possible now (allowedActions); a closed request
     // offers nothing, even without that list.
     const mayDo = (action) => request.status !== "CLOSED" && (!Array.isArray(request.allowedActions) || request.allowedActions.includes(action));
-    const isEgyptClearance = request.visaType?.code === "VISA-EGYPT-CLEARANCE" && mayDo("SAVE_TRAVEL_PLAN");
+    // The original item and its entry-method variants share the travel plan.
+    const isEgyptClearance = isEgyptClearanceItem(request.visaType) && mayDo("SAVE_TRAVEL_PLAN");
 
     bodyEl.innerHTML = `
       <div class="request-summary">

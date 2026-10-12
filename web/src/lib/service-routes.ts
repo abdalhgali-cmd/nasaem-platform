@@ -34,6 +34,9 @@ export type RoutableItem = {
 const DEDICATED_ROUTES: Record<string, string> = {
   "SVC-EGYPT-CLEARANCE": "/visas/egypt-security-approval",
   "VISA-EGYPT-CLEARANCE": "/visas/egypt-security-approval",
+  // Its entry-method variants (air / border crossing) are chosen on that page.
+  "VISA-EGYPT-CLEARANCE-AIR": "/visas/egypt-security-approval",
+  "VISA-EGYPT-CLEARANCE-BORDER": "/visas/egypt-security-approval",
   "SVC-FAMILY-VISIT": "/visas/saudi-family-visit",
   "VISA-FAMILY-VISIT": "/visas/saudi-family-visit",
   // Umrah's VisaType record — SVC-UMRAH (the Service record) already
