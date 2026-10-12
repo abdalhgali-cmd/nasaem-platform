@@ -30,6 +30,9 @@ type PublicService = {
   currency: string;
   fxRateToSdg: number | null;
   priceSdg: number | null;
+  pricingMode?: "QUOTE" | "FIXED" | null;
+  priceUnit?: "PER_REQUEST" | "PER_TRAVELER" | null;
+  paymentAfterDocumentReview?: boolean | null;
 };
 
 type PublicVisaType = {
@@ -42,6 +45,9 @@ type PublicVisaType = {
   currency: string;
   fxRateToSdg: number | null;
   priceSdg: number | null;
+  pricingMode?: "QUOTE" | "FIXED" | null;
+  priceUnit?: "PER_REQUEST" | "PER_TRAVELER" | null;
+  paymentAfterDocumentReview?: boolean | null;
   serviceId: string | null;
   category: string;
 };
@@ -300,6 +306,13 @@ export function ServiceIntakeWizard({
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState("");
+  // Fixed-price confirmation (backend contact-request-pricing/fixed-price.js):
+  // the customer ticks the exact total + currency; the server recomputes it
+  // and answers 409 PRICE_CHANGED (new total in `details`) or
+  // PRICING_MODE_CHANGED (the item is now quoted) instead of creating.
+  const [priceConfirmed, setPriceConfirmed] = React.useState(false);
+  const [serverPrice, setServerPrice] = React.useState<{ itemId: string; total: number; currency: string } | null>(null);
+  const [quotedNow, setQuotedNow] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<{ id: string } | null>(null);
   const [copiedRequestNumber, setCopiedRequestNumber] = React.useState(false);
 
@@ -674,6 +687,24 @@ export function ServiceIntakeWizard({
     service === "umrah" ? umrahService : service === "package" ? selectedPackage : selectedVisaType;
   const hasPublishedPrice = Boolean(selectedPriceItem && Number(selectedPriceItem.basePrice) > 0);
 
+  // Same arithmetic as the server (fixed-price.js billableUnits/fixedTotal):
+  // per-traveler items count max(named travelers, declared count, 1).
+  const priceUnits =
+    selectedPriceItem?.priceUnit === "PER_TRAVELER" ? Math.max(filledTravelers.length, travelerCount, 1) : 1;
+  const isFixedPrice = Boolean(
+    hasPublishedPrice && selectedPriceItem?.pricingMode === "FIXED" && quotedNow !== selectedPriceItem?.id
+  );
+  const fixedPrice =
+    isFixedPrice && selectedPriceItem
+      ? serverPrice && serverPrice.itemId === selectedPriceItem.id
+        ? { total: serverPrice.total, currency: serverPrice.currency }
+        : {
+            total: Math.round(Number(selectedPriceItem.basePrice) * priceUnits * 100) / 100,
+            currency: selectedPriceItem.currency || "SAR",
+          }
+      : null;
+  const estimateUnits = selectedPriceItem?.priceUnit === "PER_REQUEST" ? 1 : travelerCount;
+
   // Umrah and Package are Services; Visa uses the selected VisaType — each
   // has its own Requirements Engine endpoint (both backed by the same
   // checklist model, see backend/src/modules/requirements). Only the id
@@ -994,6 +1025,10 @@ export function ServiceIntakeWizard({
     setTravelers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
   }
 
+  React.useEffect(() => {
+    setPriceConfirmed(false);
+  }, [fixedPrice?.total, fixedPrice?.currency]);
+
   function canGoNext() {
     const current = steps[step];
 
@@ -1054,6 +1089,10 @@ export function ServiceIntakeWizard({
       }
 
       formData.append("travelerCount", String(travelerCount));
+      if (fixedPrice && priceConfirmed) {
+        formData.append("acceptedTotal", fixedPrice.total.toFixed(2));
+        formData.append("acceptedCurrency", fixedPrice.currency);
+      }
 
       formData.append(
         "intakeData",
@@ -1115,6 +1154,17 @@ export function ServiceIntakeWizard({
       const payload = await response.json().catch(() => null);
 
       if (!response.ok) {
+        if (response.status === 409 && payload?.code === "PRICE_CHANGED" && payload.details && selectedPriceItem) {
+          setServerPrice({
+            itemId: selectedPriceItem.id,
+            total: Number(payload.details.total),
+            currency: String(payload.details.currency),
+          });
+          setPriceConfirmed(false);
+        } else if (response.status === 409 && payload?.code === "PRICING_MODE_CHANGED" && selectedPriceItem) {
+          setQuotedNow(selectedPriceItem.id);
+          setPriceConfirmed(false);
+        }
         throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
       }
 
@@ -1588,9 +1638,48 @@ export function ServiceIntakeWizard({
             <div className="rounded-xl border border-accent/40 bg-accent/5 p-4">
               <span className="font-bold text-foreground">التكلفة</span>
               <div className="mt-2 flex flex-col gap-1.5">
-                {hasPublishedPrice && selectedPriceItem ? (
+                {fixedPrice && selectedPriceItem ? (
                   <>
-                    {travelerCount > 1 ? (
+                    {priceUnits > 1 ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>سعر الفرد × {priceUnits}</span>
+                        <span dir="ltr">
+                          {Number(selectedPriceItem.basePrice).toLocaleString("en-US")} {selectedPriceItem.currency}
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">الإجمالي النهائي</span>
+                      <span className="font-bold text-foreground" dir="ltr" data-testid="fixed-total">
+                        {fixedPrice.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {fixedPrice.currency}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      سعر ثابت معتمد من الإدارة، بلا عرض سعر لاحق. تُفتح خطوة الدفع في متابعة الطلب
+                      {selectedPriceItem.paymentAfterDocumentReview
+                        ? " بعد اعتماد مستنداتك."
+                        : "."}
+                    </p>
+                    <label className="mt-2 flex items-start gap-2 text-sm font-semibold text-foreground">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-4 accent-primary"
+                        checked={priceConfirmed}
+                        onChange={(e) => setPriceConfirmed(e.target.checked)}
+                        data-testid="confirm-fixed-total"
+                      />
+                      <span>
+                        أؤكد الإجمالي النهائي{" "}
+                        <span dir="ltr">
+                          {fixedPrice.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {fixedPrice.currency}
+                        </span>{" "}
+                        وعملته
+                      </span>
+                    </label>
+                  </>
+                ) : hasPublishedPrice && selectedPriceItem ? (
+                  <>
+                    {estimateUnits > 1 ? (
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>سعر الفرد</span>
                         <span dir="ltr">
@@ -1599,9 +1688,9 @@ export function ServiceIntakeWizard({
                       </div>
                     ) : null}
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">{travelerCount > 1 ? "الإجمالي" : "السعر"}</span>
+                      <span className="text-xs text-muted-foreground">{estimateUnits > 1 ? "الإجمالي التقديري" : "السعر"}</span>
                       <span className="font-bold text-foreground" dir="ltr">
-                        {(Number(selectedPriceItem.basePrice) * travelerCount).toLocaleString("en-US")}{" "}
+                        {(Number(selectedPriceItem.basePrice) * estimateUnits).toLocaleString("en-US")}{" "}
                         {selectedPriceItem.currency}
                       </span>
                     </div>
@@ -1609,12 +1698,12 @@ export function ServiceIntakeWizard({
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>السعر التقريبي بالجنيه</span>
                         <span dir="ltr">
-                          يعادل تقريبًا {Math.round(selectedPriceItem.priceSdg * travelerCount).toLocaleString("en-US")} ج.س
+                          يعادل تقريبًا {Math.round(selectedPriceItem.priceSdg * estimateUnits).toLocaleString("en-US")} ج.س
                         </span>
                       </div>
                     ) : null}
                     <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                      السعر المعروض من تسعير الإدارة الحالي، والمبلغ النهائي يُعتمد بعد مراجعة طلبك.
+                      السعر المعروض تقديري من تسعير الإدارة الحالي، والمبلغ النهائي يصلك في عرض سعر بعد مراجعة طلبك.
                     </p>
                   </>
                 ) : (
@@ -1652,7 +1741,7 @@ export function ServiceIntakeWizard({
               <ChevronRight className="size-4" />
               السابق
             </Button>
-            <Button type="button" variant="gold" onClick={handleSubmit} disabled={submitting}>
+            <Button type="button" variant="gold" onClick={handleSubmit} disabled={submitting || Boolean(fixedPrice && !priceConfirmed)}>
               {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
               {submitting ? "جارٍ الإرسال..." : "إرسال الطلب"}
             </Button>
