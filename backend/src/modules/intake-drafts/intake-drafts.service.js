@@ -266,7 +266,7 @@ export async function removeDraftDocument(token, documentId) {
 // Everything runs in one transaction: either the request exists with all
 // its travelers and documents attached, or nothing changed and the
 // customer's draft is still intact to retry.
-export async function submitDraft(token, { message }) {
+export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency } = {}) {
   const found = await findMutableDraft(token);
   if (found.error) return found;
 
@@ -286,10 +286,16 @@ export async function submitDraft(token, { message }) {
   const travelers = Array.isArray(draft.travelers) ? draft.travelers : [];
   const travelerRefs = draft.documentTravelerRefs || {};
 
-  // The guided intake does not show a fixed total for confirmation, so a
-  // fixed-price item submitted here is recorded as a quote request
-  // (contact-request-pricing/fixed-price.js); the reason is kept.
-  const pricing = await resolveSubmissionPricing({ serviceId: draft.serviceId, visaTypeId: draft.visaTypeId, travelerCount: draft.travelerCount }, { travelers: travelers.length });
+  // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
+  // a fixed-price item is recorded as FIXED only when the customer confirmed
+  // the total and currency the server recomputes; without a confirmation it
+  // is a quote request (reason kept); a mismatch creates nothing (409).
+  const namedTravelers = travelers.filter((traveler) => traveler?.fullName).length;
+  const pricing = await resolveSubmissionPricing(
+    { serviceId: draft.serviceId, visaTypeId: draft.visaTypeId, travelerCount: draft.travelerCount, acceptedTotal, acceptedCurrency },
+    { travelers: namedTravelers }
+  );
+  if (pricing.error) return pricing;
 
   const contactRequest = await prisma.$transaction(async (tx) => {
     const created = await tx.contactRequest.create({
@@ -304,8 +310,9 @@ export async function submitDraft(token, { message }) {
         travelerCount: draft.travelerCount ?? null,
         // The guided intake is always an application for a service.
         requestKind: "SERVICE_APPLICATION",
-        pricingMode: "QUOTE",
+        pricingMode: pricing.mode,
         pricingSnapshot: pricing.snapshot ?? undefined,
+        ...(pricing.mode === "FIXED" ? { invoice: { create: pricing.invoice }, paymentStatus: "AWAITING_TRANSFER" } : {}),
         intakeData: {
           ...(travelers.length ? { travelers } : {}),
           ...(draft.notes ? { notes: draft.notes } : {}),
