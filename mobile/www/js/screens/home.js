@@ -5,7 +5,7 @@ import { getCustomer, isAccountUnlocked } from "../auth.js";
 import { loadCatalog, loadHomepage } from "../catalog.js";
 import { go, goToTab } from "../router.js";
 import { openServiceById, openServiceItem, VISAS_HUB_CODE } from "./services.js";
-import { resolveShortcuts, featuredServices, startingPrice, priceText, sdgText, durationOf } from "../service-view.js";
+import { resolveShortcuts, homeFeaturedServices, startingPrice, priceText, sdgText, durationOf } from "../service-view.js";
 import { firstName, greeting, buildBannerSlides, nextSlide } from "../experience-core.js";
 import { prefersReducedMotion, stagger, watchSnapIndex, scrollToSlide, tapFeedback } from "../motion.js";
 import { loadAgency, whatsappLink } from "../agency.js";
@@ -29,7 +29,6 @@ const REQUEST_OUTCOME_AR = { COMPLETED: "مكتمل", REJECTED: "مرفوض", CA
 
 const MAIN_SERVICE_ORDER = ["SVC-UMRAH", "SVC-FLIGHT", "SVC-HOTEL", "SVC-FERRY"];
 
-const VISAS_HUB_CARD = { id: VISAS_HUB_CODE, code: VISAS_HUB_CODE, name: "التأشيرات", category: "visa" };
 
 function pickMainServices(catalog) {
   const byCode = new Map();
@@ -37,7 +36,7 @@ function pickMainServices(catalog) {
   for (const visaType of catalog.visaTypes) if (!byCode.has(visaType.code)) byCode.set(visaType.code, { ...visaType, isVisaType: true });
 
   const ordered = MAIN_SERVICE_ORDER.map((code) => byCode.get(code)).filter(Boolean);
-  return [VISAS_HUB_CARD, ...ordered];
+  return [{ id: VISAS_HUB_CODE, code: VISAS_HUB_CODE, name: "التأشيرات", category: "visa" }, ...ordered];
 }
 
 function serviceCard(item) {
@@ -254,7 +253,7 @@ async function loadCatalogSection(bodyEl) {
 
     // Services with a price the agency announced, straight from the catalog
     // (the back-office price and rate); none are listed when none are priced.
-    const featured = featuredServices(catalog);
+    const featured = homeFeaturedServices(catalog, shortcuts);
     const section = bodyEl.querySelector("#featuredSection");
     if (featured.length) {
       bodyEl.querySelector("#featuredList").innerHTML = featured.map(featuredRow).join("");
