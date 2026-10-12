@@ -683,6 +683,8 @@ export async function assignContactRequest(id, assignedUserId, actingUserId, org
       message: `تم إسنادك للطلب ${describeRequest(updated)}.`,
       type: "CASE_ASSIGNED",
       userId: assignedUserId,
+      // Opening the notification goes straight to the assigned request.
+      contactRequestId: updated.id,
     });
   }
 
