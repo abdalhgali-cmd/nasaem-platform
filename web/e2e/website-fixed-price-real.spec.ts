@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { loginAsSeededAdmin } from "./helpers";
+import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 
 // The website wizard's real submit path against the real backend: multipart
 // POST /api/contact-requests with acceptedTotal + acceptedCurrency (the
@@ -73,6 +73,20 @@ test("website fixed price, real backend: stale total refused, nothing created, r
     expect(detail.pricingSnapshot.currency).toBe("USD");
     expect(detail.invoice.status).toBe("APPROVED");
     expect(Number(detail.invoice.amount)).toBe(180);
+
+    // /track: a fixed price has no quote stage; payment is the current stage.
+    await page.goto("/track");
+    await page.locator("#phone").fill(`+2499${stamp}`);
+    await page.getByRole("button", { name: "إرسال رمز التحقق" }).click();
+    await page.locator("#code").fill(readTrackingLoginCode(`2499${stamp}`));
+    await page.getByRole("button", { name: "تأكيد" }).click();
+    const progress = page.getByTestId("request-progress");
+    await expect(progress.locator('[role="tab"][data-step="RECEIVED"]')).toHaveAttribute("data-state", "done", { timeout: 15_000 });
+    await expect(progress.locator('[role="tab"][data-step="RECEIVED"]')).toHaveAttribute("aria-label", /تأكيد الطلب بالسعر الثابت/);
+    await expect(progress.locator('[role="tab"][data-step="QUOTE"]')).toHaveCount(0);
+    await expect(progress.locator('[role="tab"][data-step="PAYMENT"]')).toHaveAttribute("data-state", "current");
+    await expect(page.getByRole("button", { name: "موافقة على السعر" })).toHaveCount(0);
+    await expect(page.getByTestId("payment-amount")).toHaveText("180 USD");
   } finally {
     await admin.patch(`${BACKEND}/api/visa-types/${visaId}`, { data: { active: false } });
   }

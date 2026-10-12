@@ -36,6 +36,24 @@ test("website payment step: details, copy, receipt upload -> under review (not p
     await page.getByRole("button", { name: "إرسال رمز التحقق" }).click();
     await page.locator("#code").fill(readTrackingLoginCode(phone));
     await page.getByRole("button", { name: "تأكيد" }).click();
+    // Quote-required: server-driven, service-specific circles with exactly one current stage.
+    const progress = page.getByTestId("request-progress");
+    await expect(progress.locator('[role="tab"][data-step="QUOTE"]')).toHaveAttribute("data-state", "current", { timeout: 15_000 });
+    await expect(progress.locator('[role="tab"][data-step="RECEIVED"]')).toHaveAttribute("data-state", "done");
+    await expect(progress.locator('[role="tab"][data-state="current"]')).toHaveCount(1);
+    await expect(progress.locator('[role="tab"][data-step="PAYMENT"]')).toHaveAttribute("data-state", "upcoming");
+    const panel = progress.getByTestId("progress-panel");
+    await expect(panel).toContainText("عرض السعر بانتظار موافقتك.");
+    // Interactive: another circle shows its own stage; arrow keys move between stages.
+    await progress.locator('[role="tab"][data-step="PAYMENT"]').click();
+    await expect(panel.getByTestId("progress-panel-state")).toHaveText("لم تبدأ بعد");
+    await progress.locator('[role="tab"][data-step="PAYMENT"]').press("Home");
+    await expect(progress.locator('[role="tab"][data-step="RECEIVED"]')).toBeFocused();
+    await expect(progress.locator('[role="tab"][data-step="RECEIVED"]')).toHaveAttribute("aria-selected", "true");
+    await progress.locator('[role="tab"][data-step="QUOTE"]').click();
+    await panel.getByRole("button", { name: "مراجعة السعر والموافقة عليه" }).click();
+    await expect(page.getByRole("button", { name: "موافقة على السعر" })).toBeFocused();
+
     await page.getByRole("button", { name: "موافقة على السعر" }).click({ timeout: 15_000 });
 
     const step = page.getByTestId("payment-step");
@@ -57,6 +75,8 @@ test("website payment step: details, copy, receipt upload -> under review (not p
     await expect(page.getByTestId("payment-under-review")).toContainText("قيد المراجعة", { timeout: 15_000 });
     await expect(page.getByTestId("payment-under-review")).toContainText("لا يُعتبر الطلب مدفوعًا");
     await expect(page.getByTestId("payment-step")).toHaveCount(0);
+    await expect(progress.locator('[role="tab"][data-step="PAYMENT_REVIEW"]')).toHaveAttribute("data-state", "current");
+    await expect(progress.locator('[role="tab"][data-step="PAYMENT"]')).toHaveAttribute("data-state", "done");
 
     const staff = await admin.get(`${BACKEND}/api/contact-requests/${requestId}`);
     expect((await staff.json()).data.paymentStatus).toBe("UNDER_REVIEW");
