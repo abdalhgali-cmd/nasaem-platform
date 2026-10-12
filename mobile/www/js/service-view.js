@@ -17,6 +17,24 @@ function allItems(catalog) {
   return [...(catalog?.services || []), ...(catalog?.visaTypes || [])];
 }
 
+export const VISAS_HUB_ITEM = Object.freeze({
+  id: "HUB-VISAS",
+  code: "HUB-VISAS",
+  name: "التأشيرات",
+  category: "visa",
+  description: "اختر نوع التأشيرة واطّلع على متطلباتها قبل بدء الطلب.",
+});
+
+// The public API intentionally returns Service and VisaType as separate
+// resources. Several visa types point back to an already-visible Service,
+// so concatenating both arrays makes Umrah, family visit and Egypt clearance
+// appear twice. The directory keeps one entry per customer journey: every
+// top-level Service plus one visas hub whose next screen lists VisaTypes.
+export function serviceDirectoryItems(catalog) {
+  const services = catalog?.services || [];
+  return (catalog?.visaTypes || []).length ? [VISAS_HUB_ITEM, ...services] : [...services];
+}
+
 // Only shortcuts whose service is actually published are returned: a shortcut
 // never leads to a service the agency has switched off.
 export function resolveShortcuts(catalog) {
@@ -75,6 +93,16 @@ export function shortDescription(item, max = 110) {
 export function featuredServices(catalog, limit = 4) {
   return allItems(catalog)
     .filter((item) => startingPrice(item))
+    .slice(0, limit);
+}
+
+// Home shortcuts already expose the principal journeys and the visas hub.
+// "Featured" therefore uses only other priced Service records: no duplicate
+// shortcut cards and no individual VisaType duplicated outside its hub.
+export function homeFeaturedServices(catalog, shortcuts = resolveShortcuts(catalog), limit = 4) {
+  const shortcutIds = new Set(shortcuts.map((shortcut) => shortcut.item?.id).filter(Boolean));
+  return featuredServices({ services: catalog?.services || [], visaTypes: [] }, Number.MAX_SAFE_INTEGER)
+    .filter((item) => !shortcutIds.has(item.id))
     .slice(0, limit);
 }
 
