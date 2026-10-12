@@ -227,6 +227,10 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
   test("Egypt security approval: traveler data, passport and the agency's question", async ({ page }) => {
     await skipOnboarding(page);
     await startFromShortcut(page, "egypt");
+    // The entry method's options show their Arabic labels and submit stable values (not "[object Object]").
+    const entrySelect = page.locator("#answersSection select").first();
+    await expect(entrySelect.locator("option")).toHaveText(["اختر", "منفذ جوي", "منفذ بري"]);
+    expect(await entrySelect.locator("option").evaluateAll((els) => els.map((el) => (el as HTMLOptionElement).value))).toEqual(["", "AIR", "BORDER"]);
     await fillData(page, { name: "علي حسن", phone: localPhone(), travelers: ["علي حسن"] });
     await uploadAllSlots(page);
     await page.locator("#nextStepBtn").click();
@@ -236,6 +240,64 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     expect(request.travelers).toHaveLength(1);
     expect(request.documents.length).toBeGreaterThan(0);
     expect(request.documents.every((d: { travelerId: string | null }) => d.travelerId === request.travelers[0].id)).toBeTruthy();
+    expect(request.intakeData.egyptEntryMode).toBe("AIR");
+  });
+
+  test("Egypt variants: entry method with its own configured price first, then traveler, documents, confirmed total; entry method stored", async ({ page }) => {
+    test.setTimeout(180_000);
+    const api = await staff(page);
+    const list = (await (await api.get(`${BACKEND}/api/visa-types?limit=200`)).json()).data as Array<{ id: string; code: string }>;
+    const idOf = (code: string) => list.find((v) => v.code === code)?.id as string;
+    const airId = idOf("VISA-EGYPT-CLEARANCE-AIR");
+    const borderId = idOf("VISA-EGYPT-CLEARANCE-BORDER");
+    expect(airId && borderId, "variants are created by the seed (inactive, unpriced)").toBeTruthy();
+    // Test fixture prices (the agency sets the real ones in the back-office).
+    expect((await api.patch(`${BACKEND}/api/visa-types/${airId}`, { data: { pricingMode: "FIXED", basePrice: 120, currency: "USD", priceUnit: "PER_TRAVELER", active: true } })).ok()).toBeTruthy();
+    expect((await api.patch(`${BACKEND}/api/visa-types/${borderId}`, { data: { pricingMode: "FIXED", basePrice: 45000, currency: "SDG", priceUnit: "PER_REQUEST", active: true } })).ok()).toBeTruthy();
+    try {
+      await skipOnboarding(page);
+      await page.locator('.shortcut[data-key="egypt"]').click();
+      const infoPrices = page.locator("#egyptVariantPrices");
+      await expect(infoPrices).toContainText("120");
+      await expect(infoPrices).toContainText("45");
+      await expect(page.locator(".info-fact").first()).not.toContainText("50 ");
+      await page.locator("#startRequestBtn").click();
+
+      for (const [code, travelers, totalDigits, currency, mode] of [
+        ["VISA-EGYPT-CLEARANCE-AIR", ["مسافر جوي"], "120", "USD", "AIR"],
+        ["VISA-EGYPT-CLEARANCE-BORDER", ["مسافر بري", "مرافق بري"], "45", "SDG", "BORDER"],
+      ] as const) {
+        const cards = page.locator(".variant-card");
+        await expect(cards).toHaveCount(2);
+        await expect(cards.nth(0)).toContainText("موافقة حربي — دخول بالطيران");
+        await expect(cards.nth(1)).toContainText("موافقة حربي — دخول عبر المعبر");
+        await page.locator(`.variant-card[data-code="${code}"]`).click();
+        await expect(page.locator(`.variant-card[data-code="${code}"]`)).toHaveAttribute("aria-checked", "true");
+        await expect(page.locator("#egyptFaqHelp")).not.toHaveAttribute("open", "");
+        await fillData(page, { name: "عميل مصر", phone: localPhone(), travelers: [...travelers] });
+        await uploadAllSlots(page);
+        await page.locator("#nextStepBtn").click();
+        await expect(page.locator("#fixedTotalAmount")).toContainText(totalDigits);
+        await expect(page.locator("#fixedTotalAmount")).toContainText(currency);
+        await page.locator("#confirmTotal").check();
+        const reference = await submitFromReview(page);
+        const stored = await staffRequest(api, reference);
+        expect(stored.visaType.code).toBe(code);
+        expect(stored.pricingMode).toBe("FIXED");
+        expect(stored.invoice.status).toBe("APPROVED");
+        expect(stored.invoice.currency).toBe(currency);
+        expect(stored.intakeData.egyptEntryMode).toBe(mode);
+        expect(stored.allowedActions).not.toContain("ISSUE_QUOTE");
+        if (mode === "AIR") {
+          await page.goto("/index.html");
+          await page.locator('.shortcut[data-key="egypt"]').click();
+          await page.locator("#startRequestBtn").click();
+        }
+      }
+    } finally {
+      await api.patch(`${BACKEND}/api/visa-types/${airId}`, { data: { pricingMode: "QUOTE", active: false } });
+      await api.patch(`${BACKEND}/api/visa-types/${borderId}`, { data: { pricingMode: "QUOTE", active: false } });
+    }
   });
 
   test("Umrah: choose a package, then each pilgrim's own documents", async ({ page }) => {

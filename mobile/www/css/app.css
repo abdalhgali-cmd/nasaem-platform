@@ -883,3 +883,16 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 .total-review #fixedTotalAmount { font-size: 18px; color: var(--navy); }
 .confirm-check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; font-weight: 700; margin-top: 8px; }
 .confirm-check input { width: 22px; height: 22px; flex: none; margin: 0; }
+
+/* Egypt clearance: variant (entry method) chooser with its own price. */
+.service-hero-compact { padding: 16px 14px; }
+.service-hero-compact .service-hero-icon { width: 48px; height: 48px; margin-bottom: 10px; }
+.variant-list { display: grid; gap: 10px; }
+.variant-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: start; border: 2px solid var(--border); border-radius: 16px; background: var(--surface); padding: 14px; font: inherit; color: inherit; cursor: pointer; }
+.variant-card.selected { border-color: var(--navy-light); background: #edf4fc; }
+.variant-card strong { font-size: 15px; }
+.variant-price { font-weight: 800; color: var(--gold-dark); }
+.variant-price-quote { font-weight: 600; color: var(--text-muted); }
+.faq-collapsed > summary { cursor: pointer; list-style: none; }
+.faq-collapsed > summary h3 { display: inline; font-size: 15px; }
+.variant-prices { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
