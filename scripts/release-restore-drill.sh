@@ -16,7 +16,17 @@
 #   DRILL_DB_NAME    name of the database to create (default nasaem_drill_<time>);
 #                    it must not exist yet.
 #   ROLLBACK_REF     git ref of the build the environment would roll back to,
-#                    for `release:rollback-check` (default: origin/main).
+#                    for `release:rollback-check` (default: origin/main). For
+#                    Railway staging use the deployed commit (see the runbook).
+#   DRILL_ALLOW_NO_UPLOADS=1  accept a run without an uploads archive (CI only;
+#                    a real drill must pass the archive).
+#   DRILL_EXPECT_ROLLBACK_EXIT  expected rollback-check exit code (default 2:
+#                    the older build is refused, i.e. roll-forward only).
+#
+# Exit code: 0 only when every check passes (backend/src/release/drill-checks.js):
+# row counts and payment total unchanged, no FIXED item or request, the
+# expected rollback-check exit code, and 0 missing upload files. Anything else
+# exits non-zero; the drill is then NOT a pass.
 set -euo pipefail
 
 DUMP=${1:?usage: release-restore-drill.sh <dump.pgcustom> [uploads.tar.gz]}
@@ -44,11 +54,13 @@ psql "$DRILL_ADMIN_URL" -qc "CREATE DATABASE \"$DB\""
 echo "== restore into $DB (local)"
 pg_restore --no-owner --no-acl -d "$TARGET_URL" "$DUMP"
 
-COUNTS_SQL='SELECT (SELECT count(*) FROM "User") AS users, (SELECT count(*) FROM "Customer") AS customers,
-  (SELECT count(*) FROM "ContactRequest") AS requests, (SELECT count(*) FROM "Invoice") AS invoices,
-  (SELECT count(*) FROM "Payment") AS payments, (SELECT coalesce(sum(amount),0) FROM "Payment") AS payment_total,
-  (SELECT count(*) FROM "ContactRequestDocument") AS request_documents, (SELECT count(*) FROM "_prisma_migrations") AS migrations'
-echo "== counts after restore"; psql "$TARGET_URL" -x -c "$COUNTS_SQL" | tee /tmp/drill-before.txt
+COUNTS_SQL='SELECT json_build_object(
+  '"'"'users'"'"', (SELECT count(*) FROM "User"), '"'"'customers'"'"', (SELECT count(*) FROM "Customer"),
+  '"'"'requests'"'"', (SELECT count(*) FROM "ContactRequest"), '"'"'invoices'"'"', (SELECT count(*) FROM "Invoice"),
+  '"'"'payments'"'"', (SELECT count(*) FROM "Payment"), '"'"'payment_total'"'"', (SELECT coalesce(sum(amount),0)::text FROM "Payment"),
+  '"'"'request_documents'"'"', (SELECT count(*) FROM "ContactRequestDocument"), '"'"'migrations'"'"', (SELECT count(*) FROM "_prisma_migrations"))'
+BEFORE=$(psql "$TARGET_URL" -Atc "$COUNTS_SQL")
+echo "== counts after restore: $BEFORE"
 
 echo "== migrations this candidate would apply"
 ( cd "$ROOT/backend" && DATABASE_URL="$PRISMA_URL" npx prisma migrate status 2>&1 | sed -n '/following migration/,$p' || true )
@@ -56,26 +68,36 @@ echo "== migrations this candidate would apply"
 echo "== prisma migrate deploy (as the container does on start)"
 ( cd "$ROOT/backend" && DATABASE_URL="$PRISMA_URL" npx prisma migrate deploy )
 
-echo "== counts after migrate (existing rows must be unchanged; migrations count grows)"
-psql "$TARGET_URL" -x -c "$COUNTS_SQL" | tee /tmp/drill-after.txt
-diff <(grep -v migrations /tmp/drill-before.txt) <(grep -v migrations /tmp/drill-after.txt) && echo "row counts and payment total unchanged"
+AFTER=$(psql "$TARGET_URL" -Atc "$COUNTS_SQL")
+echo "== counts after migrate: $AFTER"
 
-echo "== pricing defaults (every existing item must be QUOTE)"
-psql "$TARGET_URL" -Atc 'SELECT '"'"'Service'"'"' AS item, "pricingMode", count(*) FROM "Service" GROUP BY 2 UNION ALL SELECT '"'"'VisaType'"'"', "pricingMode", count(*) FROM "VisaType" GROUP BY 2' 
+FIXED_ITEMS=$(psql "$TARGET_URL" -Atc 'SELECT (SELECT count(*) FROM "Service" WHERE "pricingMode" = '"'"'FIXED'"'"') + (SELECT count(*) FROM "VisaType" WHERE "pricingMode" = '"'"'FIXED'"'"')')
+FIXED_REQUESTS=$(psql "$TARGET_URL" -Atc 'SELECT count(*) FROM "ContactRequest" WHERE "pricingMode" = '"'"'FIXED'"'"'')
+echo "== FIXED catalog items: $FIXED_ITEMS, FIXED requests: $FIXED_REQUESTS (both must be 0)"
 
-echo "== rollback check against ${ROLLBACK_REF:-origin/main} (read-only; exit 2 = roll-forward only)"
+REF=${ROLLBACK_REF:-origin/main}
+EXPECTED_ROLLBACK=${DRILL_EXPECT_ROLLBACK_EXIT:-2}
+echo "== rollback check against $REF (read-only; expected exit $EXPECTED_ROLLBACK)"
 set +e
-( cd "$ROOT/backend" && DATABASE_URL="$PRISMA_URL" npm run -s release:rollback-check -- --ref "${ROLLBACK_REF:-origin/main}" )
-echo "rollback-check exit code: $?"
+( cd "$ROOT/backend" && DATABASE_URL="$PRISMA_URL" npm run -s release:rollback-check -- --ref "$REF" )
+ROLLBACK_EXIT=$?
 set -e
+echo "rollback-check exit code: $ROLLBACK_EXIT"
 
+UPLOADS_CHECKED=false
+MISSING=0
 if [ -n "$UPLOADS" ]; then
+  UPLOADS_CHECKED=true
   TMP=$(mktemp -d)
   echo "== uploads archive -> $TMP"
   tar -xzf "$UPLOADS" -C "$TMP"
   MISSING=$(psql "$TARGET_URL" -Atc 'SELECT "storagePath" FROM "ContactRequestDocument" UNION ALL SELECT "storagePath" FROM "ContactRequestDeliverable"' |
-    while read -r p; do [ -z "$p" ] || [ -e "$TMP/$p" ] || [ -e "$TMP/uploads/$p" ] || echo "$p"; done | wc -l)
+    while read -r p; do [ -z "$p" ] || [ -e "$TMP/$p" ] || [ -e "$TMP/uploads/$p" ] || echo "$p"; done | wc -l | tr -d ' ')
   echo "request files referenced in the DB but missing from the archive: $MISSING"
+else
+  echo "== uploads archive not given: files NOT checked (a real drill must pass one)"
 fi
 
 echo "== drill database kept for inspection: $DB (drop it when done)"
+echo "== verdict"
+( cd "$ROOT/backend" && node src/release/drill-checks.js "{\"before\":$BEFORE,\"after\":$AFTER,\"fixedCatalogItems\":$FIXED_ITEMS,\"fixedRequests\":$FIXED_REQUESTS,\"rollbackExit\":$ROLLBACK_EXIT,\"expectedRollbackExit\":$EXPECTED_ROLLBACK,\"missingFiles\":$MISSING,\"uploadsChecked\":$UPLOADS_CHECKED,\"allowNoUploads\":$([ "${DRILL_ALLOW_NO_UPLOADS:-}" = "1" ] && echo true || echo false)}" )

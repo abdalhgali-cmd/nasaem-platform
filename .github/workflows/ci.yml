@@ -132,6 +132,34 @@ jobs:
           test "$restored_services" = "${{ steps.source.outputs.services }}"
           test "$restored_migrations" = "${{ steps.source.outputs.migrations }}"
           psql -h localhost -U postgres -d nasaem_backup_restore -Atc 'SELECT 1;' | grep -qx '1'
+      - name: Release restore drill script passes on a clean dump
+        env:
+          DRILL_ADMIN_URL: postgresql://postgres:password@localhost:5432/postgres
+          DRILL_DB_NAME: nasaem_drill_pass
+          # This dump already has every migration, so the checkout itself is
+          # an acceptable rollback target (exit 0); on a real pre-release dump
+          # the default expectation is 2 (roll-forward only).
+          ROLLBACK_REF: HEAD
+          DRILL_EXPECT_ROLLBACK_EXIT: "0"
+          DRILL_ALLOW_NO_UPLOADS: "1"
+        run: bash scripts/release-restore-drill.sh /tmp/nasaem-backup.dump
+      - name: Release restore drill script fails when a FIXED item exists
+        env:
+          DRILL_ADMIN_URL: postgresql://postgres:password@localhost:5432/postgres
+          DRILL_DB_NAME: nasaem_drill_fixed
+          ROLLBACK_REF: HEAD
+          DRILL_EXPECT_ROLLBACK_EXIT: "0"
+          DRILL_ALLOW_NO_UPLOADS: "1"
+        run: |
+          createdb -h localhost -U postgres nasaem_drill_fixed_src
+          pg_restore -h localhost -U postgres -d nasaem_drill_fixed_src --no-owner --no-acl /tmp/nasaem-backup.dump
+          psql -h localhost -U postgres -d nasaem_drill_fixed_src -qc 'UPDATE "Service" SET "pricingMode" = '"'"'FIXED'"'"' WHERE id = (SELECT id FROM "Service" ORDER BY id LIMIT 1)'
+          test "$(psql -h localhost -U postgres -d nasaem_drill_fixed_src -Atc 'SELECT count(*) FROM "Service" WHERE "pricingMode" = '"'"'FIXED'"'"'')" = "1"
+          pg_dump -h localhost -U postgres -d nasaem_drill_fixed_src -Fc --no-owner --no-acl -f /tmp/nasaem-fixed.dump
+          if bash scripts/release-restore-drill.sh /tmp/nasaem-fixed.dump; then
+            echo "The drill passed although a FIXED service exists; it must fail." >&2
+            exit 1
+          fi
       - name: Record drill metrics
         run: |
           {
