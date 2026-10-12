@@ -40,6 +40,17 @@ Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton
 | `scripts/release-restore-drill.sh` on a synthetic `main`-schema dump | applies 11 migrations; counts and payment total unchanged; all items `QUOTE`; rollback-check exit 2 (roll-forward only, expected); uploads check 0 missing; refuses non-local hosts. **Synthetic only: not evidence of a real staging backup.** |
 | Drill is now a hard pass/fail (owner review on #91, 2026-10-12) | exits non-zero on: changed counts/payment total, any FIXED item or request, rollback-check exit ≠ expected (default 2), missing upload files, or no uploads archive (unless `DRILL_ALLOW_NO_UPLOADS=1`, CI only). `releaseDrillChecks.test.js` 5/5; local runs: clean → 0, FIXED → 1, no uploads → 1, wrong rollback exit → 1. CI backup job now runs the script twice (must pass / must fail on a FIXED service) |
 
+## Egypt variants: bookable only at a published fixed price; website chooser (2026-10-12, `b280a95`)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Website variant chooser before traveler details and documents | DONE | `web/src/components/sections/egypt-clearance-booking.tsx` + `egypt-security-approval/page.tsx` (catalog not cached): both cards, each with its configured price; the form (traveler, passport) mounts only after choosing; the original item's single price is no longer shown |
+| Only an active FIXED-priced variant can be booked; otherwise «غير متاحة للحجز حاليًا»; no quote fallback, no legacy routing | DONE | Server `egyptVariantBookingError`: inactive/QUOTE/unpriced → 409 `EGYPT_VARIANT_UNAVAILABLE`; no confirmed total → 400 `FIXED_TOTAL_REQUIRED` (both `/contact-requests` and draft submit). App and website list both variants; unconfigured ones disabled with «غير متاحة للحجز حاليًا», no form, no fallback to `VISA-EGYPT-CLEARANCE`. Existing orders untouched (no data change); old APKs still post to the original item, which the server keeps accepting (preserves their in-flight bookings) |
+| Flow: variant + price → travelers/documents → confirm total once → payment (account details + receipt) → no quote approval | VERIFIED | App: `mobile-app.spec.ts` «Egypt variants» (both) + `service-journeys.spec.ts` Egypt journey now on the fixed air variant (no staff quote, no approve button, receipt → under review → accepted → execution → delivery → travel plan). Website: `egypt-passport-upload.spec.ts` (both variants submitted FIXED + approved invoice + entry method stored; air → `/track` payment step with account details, copy, receipt → `UNDER_REVIEW`; price changed after display → 409, new total shown, re-confirmed) |
+| Unconfigured catalog tested | VERIFIED | Backend `egyptClearanceVariants.test.js` (inactive / QUOTE / no total refused, nothing created; hidden from catalog); app «Egypt, unconfigured catalog»; website «unconfigured catalog»; mobile unit `egypt-view.test.mjs` |
+
+Local results: backend Egypt/pricing/intake/workflow/progress/CSRF suites 145/145 (fresh DB); mobile unit 81/81; Playwright website Egypt 6/6 + app 10/10; web tsc/eslint ok. Service journeys + platform3: see below. Latest-head CI: reported separately (not yet complete when written).
+
 ## Egypt clearance (موافقة حربي) — real-device feedback (2026-10-12)
 
 | # | Feedback | Status | Evidence / remaining gap |
