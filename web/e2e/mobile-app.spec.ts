@@ -299,9 +299,16 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await page.locator("#approveBtn").click();
     await expect(page.locator("#paymentInfoBtn")).toBeVisible({ timeout: 15_000 });
     await page.locator("#paymentInfoBtn").click();
-    await expect(page.locator(".payment-card", { hasText: accountNumber })).toBeVisible();
+    // One payment step: amount + currency, bank, holder, number with copy, and the receipt field together.
+    const step = page.locator(".payment-step");
+    await expect(step.locator(".payment-amount")).toContainText("1,000");
+    await expect(step.locator(".payment-amount")).toContainText("SAR");
+    const card = step.locator(".payment-card", { hasText: accountNumber });
+    await expect(card).toContainText("E2E Bank");
+    await expect(card).toContainText("صاحب الحساب: Nasaem");
+    await expect(card.locator(`[data-copy="${accountNumber}"]`)).toBeVisible();
+    await expect(step.locator('#receiptForm input[name="file"]')).toHaveAttribute("accept", "image/*,.pdf");
 
-    await page.locator("#uploadReceiptBtn").click();
     await page.locator('#receiptForm input[name="file"]').setInputFiles(file("receipt.png"));
     await page.locator("#receiptForm button").click();
     await expect(page.locator(".pay-state")).toContainText("قيد المراجعة", { timeout: 15_000 });
