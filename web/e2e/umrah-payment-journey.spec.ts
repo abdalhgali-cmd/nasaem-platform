@@ -47,7 +47,7 @@ test("Umrah: fixed price → documents → summary → payment → receipt under
 
   try {
     await page.goto(`/umrah?package=${code}`);
-    await expect(page.getByRole("heading", { name: "اختر الباقة" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "اختر الباقة", exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(page.locator("button").filter({ hasText: packageName })).toBeVisible();
     await page.getByRole("button", { name: "التالي" }).click();
 
@@ -97,7 +97,7 @@ test("Umrah: fixed price → documents → summary → payment → receipt under
     await step.getByRole("button", { name: "إرسال الطلب للمراجعة" }).click();
     expect((await uploaded).status()).toBe(201);
 
-    await expect(page.getByText("تم استلام طلبك")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "تم استلام طلبك", exact: true })).toBeVisible();
     await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة التحويل");
     // Finished: a later refresh shows the form again, not the old payment.
     await page.reload();

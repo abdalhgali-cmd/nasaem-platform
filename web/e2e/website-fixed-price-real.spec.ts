@@ -66,7 +66,7 @@ test("website fixed price, real backend: stale total refused, nothing created, r
     await expect(page.getByTestId("payment-step")).toBeVisible();
     await expect(page.getByTestId("payment-amount")).toHaveText("180 USD");
     await page.getByRole("button", { name: /سأحوّل لاحقًا|متابعة إلى صفحة التأكيد/ }).click();
-    await expect(page.getByText("تم استلام طلبك")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "تم استلام طلبك", exact: true })).toBeVisible();
     await expect(page.getByTestId("payment-status")).toHaveText("بانتظار التحويل");
 
     const found = await requestsFor();
