@@ -217,9 +217,16 @@ export async function uploadMyDocument(phoneNormalized, contactRequestId, { labe
 }
 
 export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, file) {
+  return recordPaymentReceipt(contactRequestId, trackingScope(phoneNormalized), file);
+}
+
+// One path for every customer receipt upload (phone-code tracking, or the
+// request-scoped payment access right after submission): `scope` decides who
+// may see the request at all.
+export async function recordPaymentReceipt(contactRequestId, scope, file) {
   // The receipt is what puts the payment in front of the accountant. This only
   // moves it to "under review": it is never marked paid until staff accept it.
-  const result = await withLockedRequest(contactRequestId, trackingScope(phoneNormalized), async (tx, request) => {
+  const result = await withLockedRequest(contactRequestId, scope, async (tx, request) => {
     const refusal = checkAction(ACTIONS.UPLOAD_RECEIPT, request);
     if (refusal) refuseWith(refusal);
     const document = await tx.contactRequestDocument.create({
@@ -237,7 +244,13 @@ export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, fi
       where: { id: contactRequestId },
       data: { paymentStatus: "UNDER_REVIEW", paymentRejectionReason: null, paymentRejectedAt: null },
     });
-    await auditInTransaction(tx, { action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED", entityId: contactRequestId, organizationId: request.organizationId });
+    await auditInTransaction(tx, {
+      action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED",
+      entityId: contactRequestId,
+      organizationId: request.organizationId,
+      oldValue: { paymentStatus: request.paymentStatus },
+      newValue: { paymentStatus: "UNDER_REVIEW", documentId: document.id, amount: request.invoice ? String(request.invoice.amount) : null, currency: request.invoice?.currency ?? null },
+    });
     return { document, request };
   });
   if (result.error || result.refusal) return result;

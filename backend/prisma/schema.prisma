@@ -1264,6 +1264,14 @@ model ContactRequest {
   // retries): a retried POST returns the request already created instead of
   // a duplicate. Null for every submission that doesn't send one.
   submissionKey        String?                     @unique
+  // Request-scoped payment access issued once the request is created with an
+  // accepted fixed price: lets the same customer see the agency's account for
+  // this request's currency and upload the transfer receipt straight after
+  // submitting, without a separate phone-code sign-in. Only the SHA-256 hash
+  // of the token is stored; it expires and opens nothing but this request's
+  // payment step.
+  paymentAccessTokenHash String?                   @unique
+  paymentAccessExpiresAt DateTime?
   name                 String
   phone                String
   phoneNormalized      String                      @default("")
