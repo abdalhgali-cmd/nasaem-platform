@@ -14,7 +14,14 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { RequestPaymentStep, type PaymentAccess, type PaymentSummary } from "@/components/sections/request-payment-step";
+import {
+  RequestPaymentStep,
+  clearPendingPayment,
+  readPendingPayment,
+  savePendingPayment,
+  type PaymentAccess,
+  type PaymentSummary,
+} from "@/components/sections/request-payment-step";
 import { API_URL } from "@/lib/api-url";
 
 export type EgyptClearanceRequirement = {
@@ -110,6 +117,19 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
   const [resultId, setResultId] = React.useState<string | null>(null);
   const [paymentAccess, setPaymentAccess] = React.useState<PaymentAccess | null>(null);
   const [payment, setPayment] = React.useState<{ summary: PaymentSummary | null; outcome: "RECEIPT_SENT" | "LATER" } | null>(null);
+  const [resumedPayment, setResumedPayment] = React.useState(false);
+  const pendingSurface = `egypt-clearance:${visaTypeId}`;
+
+  // A refresh during the payment step comes back to it (the request exists;
+  // nothing is sent again).
+  React.useEffect(() => {
+    const pending = readPendingPayment(pendingSurface);
+    if (!pending) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- restoring browser-tab state once on mount.
+    setResultId(pending.requestId);
+    setPaymentAccess(pending.access);
+    setResumedPayment(true);
+  }, [pendingSurface]);
   const draftTokenRef = React.useRef<string | null>(null);
   const draftPromiseRef = React.useRef<Promise<string> | null>(null);
   const hydratedRef = React.useRef(false);
@@ -363,7 +383,9 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
       }
       const id = payload?.data?.id as string | undefined;
       if (!id) throw new Error("تم الإرسال لكن تعذّر قراءة رقم الطلب");
-      setPaymentAccess(!fixedPrice.paymentAfterDocumentReview && payload?.data?.paymentAccess?.token ? payload.data.paymentAccess : null);
+      const access: PaymentAccess | null = !fixedPrice.paymentAfterDocumentReview && payload?.data?.paymentAccess?.token ? payload.data.paymentAccess : null;
+      if (access) savePendingPayment(pendingSurface, { requestId: id, access });
+      setPaymentAccess(access);
       setResultId(id);
       try {
         window.localStorage.removeItem(LOCAL_KEY);
@@ -379,7 +401,17 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
   }
 
   if (resultId && paymentAccess && !payment) {
-    return <RequestPaymentStep requestId={resultId} access={paymentAccess} onFinished={(summary, outcome) => setPayment({ summary, outcome })} />;
+    return (
+      <RequestPaymentStep
+        requestId={resultId}
+        access={paymentAccess}
+        resumed={resumedPayment}
+        onFinished={(summary, outcome) => {
+          clearPendingPayment(pendingSurface);
+          setPayment({ summary, outcome });
+        }}
+      />
+    );
   }
 
   if (resultId) {

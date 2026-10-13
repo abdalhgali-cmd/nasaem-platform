@@ -136,3 +136,38 @@ export function countSelectedDocuments({ travelerFiles = [], requirementFiles = 
 export function parseRequirementsResponse(body) {
   return Array.isArray(body?.data) ? body.data : null;
 }
+
+// A request saved at a fixed price whose payment step is not finished: kept
+// on the device so an app restart offers «أكمل الدفع» instead of losing the
+// payment step (the request itself already exists and is never re-sent).
+export const PENDING_PAYMENT_KEY = "nasaem.pendingPayment.v1";
+
+export function savePendingPayment(storage, pending) {
+  try {
+    storage.setItem(PENDING_PAYMENT_KEY, JSON.stringify(pending));
+  } catch {
+    // Non-fatal: tracking still reaches the payment.
+  }
+}
+
+export function readPendingPayment(storage, now = Date.now()) {
+  try {
+    const parsed = JSON.parse(storage.getItem(PENDING_PAYMENT_KEY) || "null");
+    if (!parsed?.id || !parsed.paymentAccess?.token) return null;
+    if (parsed.paymentAccess.expiresAt && new Date(parsed.paymentAccess.expiresAt).getTime() <= now) {
+      storage.removeItem(PENDING_PAYMENT_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingPayment(storage) {
+  try {
+    storage.removeItem(PENDING_PAYMENT_KEY);
+  } catch {
+    // ignore
+  }
+}

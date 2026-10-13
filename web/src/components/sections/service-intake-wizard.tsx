@@ -17,7 +17,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
-import { RequestPaymentStep, type PaymentAccess, type PaymentSummary } from "@/components/sections/request-payment-step";
+import {
+  RequestPaymentStep,
+  clearPendingPayment,
+  readPendingPayment,
+  savePendingPayment,
+  type PaymentAccess,
+  type PaymentSummary,
+} from "@/components/sections/request-payment-step";
 
 // One key per form session, sent on every attempt: a repeated tap or a retry
 // after a lost response returns the request already created (backend
@@ -333,6 +340,7 @@ export function ServiceIntakeWizard({
   } | null>(null);
   const [payment, setPayment] = React.useState<{ summary: PaymentSummary | null; outcome: "RECEIPT_SENT" | "LATER" } | null>(null);
   const submissionKeyRef = React.useRef<string>("");
+  const [resumedPayment, setResumedPayment] = React.useState(false);
   const submittingRef = React.useRef(false);
   const [copiedRequestNumber, setCopiedRequestNumber] = React.useState(false);
 
@@ -630,10 +638,22 @@ export function ServiceIntakeWizard({
     if (!result) return;
     try {
       window.localStorage.removeItem(draftKey);
+      // The server draft too: otherwise a refresh would offer to resume
+      // (and resend) a request that already exists.
+      window.localStorage.removeItem(serverDraftKey);
     } catch {
       // ignore
     }
-  }, [result, draftKey]);
+    serverDraftTokenRef.current = null;
+  }, [result, draftKey, serverDraftKey]);
+
+  // A refresh during the payment step: back to that step, never the form.
+  React.useEffect(() => {
+    const pending = readPendingPayment(draftKey);
+    if (!pending) return;
+    setResult({ id: pending.requestId, fixed: null, paymentAccess: pending.access });
+    setResumedPayment(true);
+  }, [draftKey]);
 
   React.useEffect(() => {
     let ignore = false;
@@ -1203,14 +1223,15 @@ export function ServiceIntakeWizard({
       }
 
       const paymentAccess: PaymentAccess | null =
-        payload.data.paymentAccess?.token ? payload.data.paymentAccess : null;
+        payload.data.paymentAccess?.token && !selectedPriceItem?.paymentAfterDocumentReview ? payload.data.paymentAccess : null;
+      if (paymentAccess) savePendingPayment(draftKey, { requestId: payload.data.id, access: paymentAccess });
       setResult({
         id: payload.data.id,
         fixed:
           fixedPrice && priceConfirmed
             ? { ...fixedPrice, afterDocuments: Boolean(selectedPriceItem?.paymentAfterDocumentReview) }
             : null,
-        paymentAccess: paymentAccess && !selectedPriceItem?.paymentAfterDocumentReview ? paymentAccess : null,
+        paymentAccess,
       });
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى");
@@ -1225,7 +1246,11 @@ export function ServiceIntakeWizard({
       <RequestPaymentStep
         requestId={result.id}
         access={result.paymentAccess}
-        onFinished={(summary, outcome) => setPayment({ summary, outcome })}
+        resumed={resumedPayment}
+        onFinished={(summary, outcome) => {
+          clearPendingPayment(draftKey);
+          setPayment({ summary, outcome });
+        }}
       />
     );
   }

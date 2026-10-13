@@ -185,3 +185,75 @@ describe("payment straight after submission", () => {
     assert.equal(early.status, 409, JSON.stringify(early.body));
   });
 });
+
+describe("payment access token: scope and limits", () => {
+  async function fixedRequest() {
+    const visaType = await visa({ pricingMode: "FIXED" });
+    const created = await submit({ phone: testPhone(), visaType, acceptedTotal: "200.00", acceptedCurrency: "USD" });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    return created.body.data;
+  }
+
+  test("the token never confirms or rejects a payment, nor opens staff, tracking or document routes", async () => {
+    const { id, paymentAccess } = await fixedRequest();
+    const withToken = (req) => req.set("X-Payment-Access", paymentAccess.token).set("X-Requested-With", "XMLHttpRequest");
+    const asBearer = (req) => req.set("Authorization", `Bearer ${paymentAccess.token}`).set("X-Requested-With", "XMLHttpRequest");
+
+    assert.ok((await uploadWith(id, paymentAccess.token)).status === 201);
+    const document = await prisma.contactRequestDocument.findFirst({ where: { contactRequestId: id } });
+
+    for (const make of [withToken, asBearer]) {
+      assert.equal((await make(request(app).post(`/api/contact-requests/${id}/confirm-payment`)).send({})).status, 401, "confirm");
+      assert.equal((await make(request(app).post(`/api/contact-requests/${id}/reject-payment`)).send({ reason: "TEST-WF رفض" })).status, 401, "reject");
+      assert.equal((await make(request(app).get(`/api/contact-requests/${id}`))).status, 401, "staff detail");
+      assert.equal((await make(request(app).get(`/api/contact-requests/${id}/documents/${document.id}/file`))).status, 401, "document file");
+      assert.equal((await make(request(app).get("/api/tracking/requests"))).status, 401, "tracking list");
+      assert.equal((await make(request(app).get(`/api/tracking/requests/${id}/documents/${document.id}/file`))).status, 401, "tracking document");
+    }
+    const stored = await prisma.contactRequest.findUnique({ where: { id } });
+    assert.equal(stored.paymentStatus, "UNDER_REVIEW", "still waiting for staff");
+    assert.equal(stored.paymentConfirmedAt, null);
+  });
+
+  test("the summary shows only payment facts: no documents, travelers, phone or passport data", async () => {
+    const { id, paymentAccess } = await fixedRequest();
+    const res = await access(id, paymentAccess.token);
+    assert.equal(res.status, 200);
+    assert.deepEqual(Object.keys(res.body.data).sort(), [
+      "accounts", "amount", "amountSdg", "currency", "expiresAt", "id", "lockReasons", "paymentOpen",
+      "paymentStatus", "paymentStatusLabel", "rejectionReason", "service", "statusLabel",
+    ]);
+    const text = JSON.stringify(res.body);
+    assert.ok(!/phone|passport|documents|travelers|storagePath|fileName/i.test(text.replace(/"accounts"/, "")), text);
+  });
+
+  test("only a header token works; a query-string token or a lowercase variant of another request's token does not", async () => {
+    const { id, paymentAccess } = await fixedRequest();
+    assert.equal((await request(app).get(`/api/contact-requests/${id}/payment-access?token=${paymentAccess.token}`)).status, 404);
+    assert.equal((await access(id, paymentAccess.token.toLowerCase() === paymentAccess.token ? `${paymentAccess.token.slice(0, -1)}A` : paymentAccess.token.toLowerCase())).status, 404);
+  });
+
+  test("receipt upload is validated: file required, type checked, refused once paid or closed", async () => {
+    const { id, paymentAccess } = await fixedRequest();
+    const noFile = await request(app).post(`/api/contact-requests/${id}/payment-access/receipt`).set("X-Payment-Access", paymentAccess.token);
+    assert.equal(noFile.status, 400);
+    const wrongType = await request(app)
+      .post(`/api/contact-requests/${id}/payment-access/receipt`)
+      .set("X-Payment-Access", paymentAccess.token)
+      .attach("file", Buffer.from("not a receipt"), { filename: "r.txt", contentType: "text/plain" });
+    assert.equal(wrongType.status, 400, JSON.stringify(wrongType.body));
+    assert.equal((await prisma.contactRequest.findUnique({ where: { id } })).paymentStatus, "AWAITING_TRANSFER");
+
+    assert.equal((await uploadWith(id, paymentAccess.token)).status, 201);
+    assert.equal((await accountant.post(`/api/contact-requests/${id}/confirm-payment`).send({})).status, 200);
+    assert.equal((await uploadWith(id, paymentAccess.token)).status, 409, "nothing to pay once confirmed");
+
+    const other = await fixedRequest();
+    await prisma.contactRequest.update({ where: { id: other.id }, data: { status: "CLOSED", outcome: "CANCELLED" } });
+    const closed = await uploadWith(other.id, other.paymentAccess.token);
+    assert.notEqual(closed.status, 201, "a closed request takes no receipt");
+    const summary = await access(other.id, other.paymentAccess.token);
+    assert.equal(summary.body.data.paymentOpen, false);
+    assert.deepEqual(summary.body.data.accounts, []);
+  });
+});

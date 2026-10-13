@@ -28,13 +28,11 @@ test("Umrah: fixed price → documents → summary → payment → receipt under
   expect(pkg.ok(), await pkg.text()).toBeTruthy();
   const packageId = (await pkg.json()).data.id as string;
   created.services.push(packageId);
-  for (const requirement of [
-    { name: "صورة الجواز ساري المفعول", scope: "TRAVELER" },
-    { name: "إقامة الضامن", scope: "CASE" },
-  ]) {
-    const res = await admin.post(`${BACKEND}/api/services/${packageId}/requirements`, { data: { ...requirement, type: "DOCUMENT", required: true } });
-    expect(res.ok(), await res.text()).toBeTruthy();
-  }
+  // A new Umrah package inherits «إقامة الضامن» on its own; only the passport is added here.
+  const inherited = (await (await admin.get(`${BACKEND}/api/services/${packageId}/requirements/public`)).json()).data as Array<{ name: string }>;
+  expect(inherited.map((r) => r.name)).toEqual(["إقامة الضامن"]);
+  const passport = await admin.post(`${BACKEND}/api/services/${packageId}/requirements`, { data: { name: "صورة الجواز ساري المفعول", scope: "TRAVELER", type: "DOCUMENT", required: true } });
+  expect(passport.ok(), await passport.text()).toBeTruthy();
   const account = await admin.post(`${BACKEND}/api/payment-accounts`, {
     data: { name: `E2E ${accountNumber}`, bankName: "بنك العمرة للاختبار", accountName: "وكالة نسائم الاختبار", accountNumber, currency: "SAR" },
   });
@@ -81,6 +79,14 @@ test("Umrah: fixed price → documents → summary → payment → receipt under
     const submitted = page.waitForResponse((r) => r.url().endsWith("/api/contact-requests") && r.request().method() === "POST");
     await send.dblclick();
     expect((await submitted).status()).toBe(201);
+    await expect(page.getByTestId("payment-step")).toBeVisible({ timeout: 15_000 });
+
+    // A refresh during the payment step: back to the same request's payment,
+    // no form to resend, no second request.
+    await page.reload();
+    await expect(page.getByTestId("payment-resumed")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("لديك طلب غير مكتمل")).toHaveCount(0);
+    expect(await requestsFor(), "a refresh never creates a second request").toHaveLength(1);
 
     // Payment straight away: amount, the agency account in SAR, receipt.
     const step = page.getByTestId("payment-step");
@@ -93,6 +99,9 @@ test("Umrah: fixed price → documents → summary → payment → receipt under
 
     await expect(page.getByText("تم استلام طلبك")).toBeVisible();
     await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة التحويل");
+    // Finished: a later refresh shows the form again, not the old payment.
+    await page.reload();
+    await expect(page.getByTestId("payment-step")).toHaveCount(0);
 
     const found = await requestsFor();
     expect(found, "a double tap never creates a second request").toHaveLength(1);

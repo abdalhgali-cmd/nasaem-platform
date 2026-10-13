@@ -10,12 +10,14 @@ import { icon } from "../icons.js";
 import { replace } from "../router.js";
 import { validateFile } from "../intake-core.js";
 import { formatAmount } from "../payment-view.js";
+import { savePendingPayment, clearPendingPayment } from "../experience-core.js";
 
 function paymentPath(id) {
   return `/contact-requests/${encodeURIComponent(id)}/payment-access`;
 }
 
 function finish(params, summary) {
+  clearPendingPayment(localStorage);
   replace(
     "requestSubmitted",
     {
@@ -43,6 +45,14 @@ function accountCard(account, currency) {
 
 export async function renderRequestPaymentScreen({ bodyEl, params }) {
   const access = params.paymentAccess;
+  savePendingPayment(localStorage, {
+    id: params.id,
+    paymentAccess: access,
+    customerConfirmation: params.customerConfirmation,
+    serviceName: params.serviceName,
+    phone: params.phone,
+    travelerCount: params.travelerCount,
+  });
   const headers = { "X-Payment-Access": access?.token || "" };
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
 
@@ -63,6 +73,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
 
   bodyEl.innerHTML = `
     <div class="detail-block payment-step" data-testid="direct-payment-step">
+      ${params.resumed ? `<p class="field-hint" id="paymentResumed">طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.</p>` : ""}
       <p class="field-hint">حُفظ طلبك برقم <code dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ ثم ارفع إشعار التحويل لإرسال الطلب للمراجعة.</p>
       <h4>الدفع بالتحويل البنكي</h4>
       <p class="payment-amount">المبلغ المطلوب: <strong id="directPaymentAmount"><bdi>${esc(amountText)}</bdi></strong></p>

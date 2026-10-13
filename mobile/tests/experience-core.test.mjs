@@ -161,3 +161,19 @@ test("OTP: undeliverable codes are reported plainly with a support path; other e
     assert.doesNotMatch(notice.message, /تم إرسال|سيصلك/);
   }
 });
+
+test("an unfinished payment is kept on the device until finished or expired", async () => {
+  const { savePendingPayment, readPendingPayment, clearPendingPayment } = await import("../www/js/experience-core.js");
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  const pending = { id: "cm1", paymentAccess: { token: "t".repeat(43), expiresAt: "2026-10-16T00:00:00.000Z" }, serviceName: "عمرة" };
+  savePendingPayment(storage, pending);
+  assert.deepEqual(readPendingPayment(storage, Date.parse("2026-10-15T00:00:00Z")), pending);
+  assert.equal(readPendingPayment(storage, Date.parse("2026-10-17T00:00:00Z")), null, "an expired token is dropped");
+  assert.equal(store.size, 0);
+  savePendingPayment(storage, pending);
+  clearPendingPayment(storage);
+  assert.equal(readPendingPayment(storage), null);
+  storage.setItem("nasaem.pendingPayment.v1", "{broken");
+  assert.equal(readPendingPayment(storage), null);
+});

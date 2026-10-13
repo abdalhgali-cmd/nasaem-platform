@@ -17,6 +17,45 @@ import { API_URL } from "@/lib/api-url";
 
 export type PaymentAccess = { token: string; expiresAt: string };
 
+// A request saved at a fixed price whose payment is not finished yet, kept
+// for this browser tab only (sessionStorage) so a refresh during the payment
+// step comes back to it instead of the form — the request is never sent a
+// second time. Cleared when the customer finishes or chooses to pay later.
+export type PendingPayment = { requestId: string; access: PaymentAccess };
+const PENDING_KEY = "nasaem-pending-payment";
+
+export function savePendingPayment(surface: string, pending: PendingPayment) {
+  try {
+    window.sessionStorage.setItem(`${PENDING_KEY}:${surface}`, JSON.stringify(pending));
+  } catch {
+    // Storage unavailable: the payment can still be finished from /track.
+  }
+}
+
+export function readPendingPayment(surface: string): PendingPayment | null {
+  try {
+    const raw = window.sessionStorage.getItem(`${PENDING_KEY}:${surface}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PendingPayment;
+    if (!parsed?.requestId || !parsed.access?.token) return null;
+    if (parsed.access.expiresAt && new Date(parsed.access.expiresAt).getTime() <= Date.now()) {
+      clearPendingPayment(surface);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingPayment(surface: string) {
+  try {
+    window.sessionStorage.removeItem(`${PENDING_KEY}:${surface}`);
+  } catch {
+    // ignore
+  }
+}
+
 export type PaymentSummary = {
   id: string;
   service: string | null;
@@ -75,9 +114,12 @@ export function RequestPaymentStep({
   requestId,
   access,
   onFinished,
+  resumed = false,
 }: {
   requestId: string;
   access: PaymentAccess;
+  /** Shown again after a page refresh: the request already exists. */
+  resumed?: boolean;
   /** Called with the latest summary after the receipt is sent, or with the last known one when the customer chooses to pay later. */
   onFinished: (summary: PaymentSummary | null, outcome: "RECEIPT_SENT" | "LATER") => void;
 }) {
@@ -182,6 +224,11 @@ export function RequestPaymentStep({
 
   return (
     <div className="mx-auto max-w-lg rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8" data-testid="payment-step">
+      {resumed ? (
+        <p className="mb-3 rounded-xl bg-primary/5 p-3 text-xs font-semibold text-primary dark:text-secondary" data-testid="payment-resumed">
+          طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.
+        </p>
+      ) : null}
       <p className="text-xs font-bold text-primary dark:text-secondary">الخطوة الأخيرة</p>
       <h3 className="mt-1 text-xl font-bold text-foreground">الدفع بالتحويل البنكي</h3>
       <p className="mt-1 text-sm text-muted-foreground">

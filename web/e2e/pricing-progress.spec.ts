@@ -255,6 +255,11 @@ test.describe.serial("pricing modes and interactive progress", () => {
       await app.locator("#confirmTotal").check();
       await nextStep();
 
+      await expect(app.getByTestId("direct-payment-step")).toBeVisible({ timeout: 30_000 });
+      // App closed / reloaded during payment: the home screen offers to finish it.
+      await home();
+      await app.locator("#resumePaymentBtn").click();
+      await expect(app.locator("#paymentResumed")).toBeVisible({ timeout: 15_000 });
       const step = app.getByTestId("direct-payment-step");
       await expect(step).toBeVisible({ timeout: 30_000 });
       await expect(app.locator("#directPaymentAmount")).toContainText("USD");
@@ -267,6 +272,10 @@ test.describe.serial("pricing modes and interactive progress", () => {
       await expect(app.locator("#requestReference")).toBeVisible({ timeout: 15_000 });
       await expect(app.locator("#submittedPaymentStatus")).toHaveText("بانتظار مراجعة التحويل");
       const id = (await app.locator("#requestReference").innerText()).trim();
+      await home();
+      await expect(app.locator("#resumePaymentBtn")).toHaveCount(0);
+      const sameCustomer = (await (await office.request.get(`${BACKEND}/api/contact-requests?limit=20&search=${encodeURIComponent(id)}`)).json()).data as Array<{ id: string }>;
+      expect(sameCustomer.map((row) => row.id)).toEqual([id]);
       const stored = (await (await office.request.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
       expect(stored.pricingMode).toBe("FIXED");
       expect(stored.paymentStatus).toBe("UNDER_REVIEW");
