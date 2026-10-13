@@ -79,6 +79,11 @@ export function submissionOutcome(body) {
     id,
     duplicate: Boolean(body.data.duplicate),
     customerConfirmation: body.data.customerConfirmation === "QUEUED" ? "QUEUED" : "NOT_AVAILABLE",
+    // Request-scoped access to this request's payment step (fixed price only).
+    paymentAccess:
+      body.data.paymentAccess && typeof body.data.paymentAccess.token === "string"
+        ? { token: body.data.paymentAccess.token, expiresAt: body.data.paymentAccess.expiresAt || null }
+        : null,
   };
 }
 

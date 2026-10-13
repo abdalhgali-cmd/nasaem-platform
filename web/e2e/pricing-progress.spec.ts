@@ -102,6 +102,9 @@ test.describe.serial("pricing modes and interactive progress", () => {
   async function sendAndGetReference() {
     await nextStep();
     const reference = app.locator("#requestReference");
+    const payment = app.getByTestId("direct-payment-step");
+    await reference.or(payment).first().waitFor({ timeout: 30_000 });
+    if (await payment.isVisible()) await app.locator("#paymentLaterBtn").click();
     await expect(reference).toBeVisible({ timeout: 30_000 });
     return (await reference.innerText()).trim();
   }
@@ -233,6 +236,44 @@ test.describe.serial("pricing modes and interactive progress", () => {
     await expect(circle("EXECUTION")).toHaveAttribute("aria-label", /استخراج التأشيرة — قيد التنفيذ، لم تكتمل بعد/);
     await expect(app.locator("#requestProgress .progress-node-started")).toHaveCount(1);
     await expect(panel()).toContainText("بدأ التنفيذ ولم يكتمل بعد");
+  });
+
+  test("fixed price, payment open: straight to the payment screen, receipt → «بانتظار مراجعة التحويل», never paid", async () => {
+    test.setTimeout(180_000);
+    const visaName = `تأشيرة دفع مباشر ${unique()}`;
+    const visaId = await createVisa(visaName, 90, true);
+    await configureFixedInBackOffice(visaId, visaName, { perTraveler: false, afterDocuments: false });
+    const accountNumber = `APPPAY${unique()}`;
+    const account = await office.request.post(`${BACKEND}/api/payment-accounts`, {
+      data: { name: `E2E ${accountNumber}`, bankName: "بنك التطبيق للاختبار", accountName: "وكالة الاختبار", accountNumber, currency: "USD" },
+    });
+    expect(account.ok(), await account.text()).toBeTruthy();
+    const accountId = (await account.json()).data.id as string;
+    try {
+      await fillRequest(visaName, [`مسافر دفع ${unique()}`]);
+      await expect(app.locator("#fixedTotalReview")).toContainText("بعد تأكيد الطلب تظهر لك تعليمات التحويل مباشرة");
+      await app.locator("#confirmTotal").check();
+      await nextStep();
+
+      const step = app.getByTestId("direct-payment-step");
+      await expect(step).toBeVisible({ timeout: 30_000 });
+      await expect(app.locator("#directPaymentAmount")).toContainText("USD");
+      await expect(step.getByTestId("payment-account").filter({ hasText: accountNumber })).toContainText("بنك التطبيق للاختبار");
+      await step.locator('input[name="file"]').setInputFiles({ name: "transfer.pdf", mimeType: "application/pdf", buffer: PDF });
+      const uploaded = app.waitForResponse((r) => r.url().includes("/payment-access/receipt"));
+      await app.locator("#sendReceiptBtn").click();
+      expect((await uploaded).status()).toBe(201);
+
+      await expect(app.locator("#requestReference")).toBeVisible({ timeout: 15_000 });
+      await expect(app.locator("#submittedPaymentStatus")).toHaveText("بانتظار مراجعة التحويل");
+      const id = (await app.locator("#requestReference").innerText()).trim();
+      const stored = (await (await office.request.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
+      expect(stored.pricingMode).toBe("FIXED");
+      expect(stored.paymentStatus).toBe("UNDER_REVIEW");
+      expect(stored.paymentConfirmedAt).toBeNull();
+    } finally {
+      await office.request.patch(`${BACKEND}/api/payment-accounts/${accountId}`, { data: { active: false } });
+    }
   });
 
   test("a price changed by the agency after the review is refused and re-confirmed", async () => {

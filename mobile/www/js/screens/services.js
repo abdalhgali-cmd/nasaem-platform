@@ -1,5 +1,5 @@
 import { esc, skeletonGrid, skeletonList, errorState, emptyState } from "../ui.js";
-import { startingPrice, priceText, sdgText, durationOf, shortDescription, serviceDirectoryItems, VISAS_HUB_ITEM } from "../service-view.js";
+import { startingPrice, priceText, sdgText, durationOf, shortDescription, serviceDirectoryItems, hubVisaTypes, VISAS_HUB_ITEM } from "../service-view.js";
 import { stagger } from "../motion.js";
 import { icon, iconForService } from "../icons.js";
 import { loadCatalog, resolveServiceScreen } from "../catalog.js";
@@ -85,14 +85,15 @@ export async function renderVisasHubScreen({ bodyEl }) {
   bodyEl.innerHTML = `<div class="services-grid">${skeletonGrid(6)}</div>`;
   try {
     const catalog = await loadCatalog();
-    if (!catalog.visaTypes.length) {
+    const visaTypes = hubVisaTypes(catalog);
+    if (!visaTypes.length) {
       bodyEl.innerHTML = emptyState({ icon: "inbox", title: "لا توجد أنواع تأشيرات منشورة حالياً" });
       return;
     }
     bodyEl.innerHTML = `
       <p class="field-hint section-intro">اختر نوع التأشيرة لعرض المتطلبات والسعر وبدء الطلب.</p>
       <div class="package-list">
-        ${catalog.visaTypes.map((visaType) => `
+        ${visaTypes.map((visaType) => `
           <button class="package-card" data-id="${esc(visaType.id)}">
             <span class="service-card-icon">${icon(iconForService(visaType), { size: 22 })}</span>
             <div>
@@ -104,7 +105,7 @@ export async function renderVisasHubScreen({ bodyEl }) {
       </div>`;
     bodyEl.querySelectorAll(".package-card").forEach((card) => {
       card.addEventListener("click", () => {
-        const visaType = catalog.visaTypes.find((v) => v.id === card.dataset.id);
+        const visaType = visaTypes.find((v) => v.id === card.dataset.id);
         if (visaType) openServiceItem(visaType);
       });
     });

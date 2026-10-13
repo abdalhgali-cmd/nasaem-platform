@@ -13,6 +13,7 @@ import { renderHotelsScreen } from "./screens/hotels.js";
 import { renderEgyptClearanceScreen } from "./screens/egypt-clearance.js";
 import { renderSaudiFamilyVisitScreen } from "./screens/saudi-family-visit.js";
 import { renderRequestSubmittedScreen } from "./screens/intake.js";
+import { renderRequestPaymentScreen } from "./screens/request-payment.js";
 import { renderRequestsTabScreen, renderRequestDetailScreen, renderOrderDetailScreen, renderTrackedRequestDetailScreen, renderGuestTrackingScreen } from "./screens/requests.js";
 import { renderNotificationsScreen } from "./screens/notifications.js";
 import { renderAccountScreen, renderEditProfileScreen, renderChangePasswordScreen, renderMyDocumentsScreen, setOnLoggedOut, setOnReplayOnboarding } from "./screens/account.js";
@@ -51,6 +52,7 @@ function registerAllScreens() {
   registerScreen("egyptClearance", renderEgyptClearanceScreen);
   registerScreen("saudiFamilyVisit", renderSaudiFamilyVisitScreen);
   registerScreen("requestSubmitted", renderRequestSubmittedScreen);
+  registerScreen("requestPayment", renderRequestPaymentScreen);
 
   registerScreen("requests", renderRequestsTabScreen);
   registerScreen("requestDetail", renderRequestDetailScreen);

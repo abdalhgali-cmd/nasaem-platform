@@ -88,7 +88,13 @@ test("agency links", () => {
 });
 
 test("submission: success only with a real stored id", () => {
-  assert.deepEqual(submissionOutcome({ success: true, data: { id: "cm123", customerConfirmation: "QUEUED" } }), { ok: true, id: "cm123", duplicate: false, customerConfirmation: "QUEUED" });
+  assert.deepEqual(submissionOutcome({ success: true, data: { id: "cm123", customerConfirmation: "QUEUED" } }), { ok: true, id: "cm123", duplicate: false, customerConfirmation: "QUEUED", paymentAccess: null });
+  assert.deepEqual(
+    submissionOutcome({ success: true, data: { id: "cm123", paymentAccess: { token: "t".repeat(43), expiresAt: "2026-10-16T00:00:00.000Z" } } }).paymentAccess,
+    { token: "t".repeat(43), expiresAt: "2026-10-16T00:00:00.000Z" },
+    "a fixed-price request carries its payment access to the payment screen"
+  );
+  assert.equal(submissionOutcome({ success: true, data: { id: "cm123", paymentAccess: { token: 5 } } }).paymentAccess, null);
   assert.equal(submissionOutcome({ success: true, data: { id: "cm123", duplicate: true } }).duplicate, true);
   // spam-trap answer: 201 without an id is NOT a success
   assert.deepEqual(submissionOutcome({ success: true, message: "Request received" }), { ok: false });

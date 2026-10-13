@@ -28,3 +28,14 @@ test("a PRICE_CHANGED refusal updates the price for a new confirmation", () => {
   assert.equal(fixedPricing(updated).currency, "SAR", "review must display the updated currency before the customer re-confirms");
   assert.equal(withServerPrice(item(), null).basePrice, "150.00");
 });
+
+test("the SDG equivalent of a fixed total comes only from the agency's active rate", () => {
+  const withRate = fixedTotalSummary(fixedPricing(item({ currency: "SAR", fxRateToSdg: 160, priceUnit: "PER_REQUEST", basePrice: "2500" })), 1);
+  assert.match(withRate.sdgText, /SDG/);
+  assert.match(withRate.sdgText, /المعتمد/);
+  const noRate = fixedTotalSummary(fixedPricing(item({ currency: "SAR", fxRateToSdg: null })), 1);
+  assert.match(noRate.sdgText, /غير متاح/, "no rate: never a guessed conversion");
+  assert.equal(fixedTotalSummary(fixedPricing(item({ currency: "SDG", fxRateToSdg: null })), 1).sdgText, "");
+  const repriced = withServerPrice(item({ currency: "SAR", fxRateToSdg: 160 }), { unitPrice: 50, currency: "USD", priceUnit: "PER_REQUEST" });
+  assert.equal(fixedPricing(repriced).fxRateToSdg, null, "a rate for the old currency is dropped");
+});

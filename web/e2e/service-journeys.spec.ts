@@ -238,6 +238,14 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     if (await app.locator("#confirmTotal").count()) await app.locator("#confirmTotal").check();
     await nextStep();
     const reference = app.locator("#requestReference");
+    // A fixed price with payment open goes straight to the payment screen;
+    // this journey pays through tracking, so it continues with «سأحوّل لاحقًا».
+    const payment = app.getByTestId("direct-payment-step");
+    await reference.or(payment).first().waitFor({ timeout: 30_000 });
+    if (await payment.isVisible()) {
+      await expect(app.locator("#directPaymentAmount")).not.toBeEmpty();
+      await app.locator("#paymentLaterBtn").click();
+    }
     await expect(reference).toBeVisible({ timeout: 30_000 });
     return { id: (await reference.innerText()).trim(), documents: keys.length };
   }

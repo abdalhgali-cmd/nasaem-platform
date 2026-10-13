@@ -1,0 +1,136 @@
+// The payment step straight after a fixed-price submission: the amount and
+// currency the customer accepted, the agency's accounts in that currency
+// (with copy buttons) and the transfer receipt, on one screen. Uses the
+// request-scoped token from the creation response (X-Payment-Access), which
+// opens nothing but this request's payment. A receipt puts the payment
+// «بانتظار مراجعة التحويل» — never paid — until staff confirm it.
+import { api, apiUpload } from "../api.js";
+import { esc, toast, setLoading, errorState } from "../ui.js";
+import { icon } from "../icons.js";
+import { replace } from "../router.js";
+import { validateFile } from "../intake-core.js";
+import { formatAmount } from "../payment-view.js";
+
+function paymentPath(id) {
+  return `/contact-requests/${encodeURIComponent(id)}/payment-access`;
+}
+
+function finish(params, summary) {
+  replace(
+    "requestSubmitted",
+    {
+      id: params.id,
+      customerConfirmation: params.customerConfirmation,
+      serviceName: params.serviceName,
+      phone: params.phone,
+      travelerCount: params.travelerCount,
+      paymentSummary: summary || null,
+    },
+    { title: "تم استلام طلبك" }
+  );
+}
+
+function accountCard(account, currency) {
+  return `
+    <div class="payment-card" data-testid="payment-account">
+      <strong>${esc(account.bankName || account.name || "حساب الدفع")}</strong>
+      ${account.accountName ? `<span>صاحب الحساب: ${esc(account.accountName)}</span>` : ""}
+      ${account.accountNumber ? `<div class="copy-row"><code dir="ltr">${esc(account.accountNumber)}</code><button type="button" class="chip-btn" data-copy="${esc(account.accountNumber)}">نسخ رقم الحساب</button></div>` : ""}
+      ${account.iban ? `<div class="copy-row"><code dir="ltr">${esc(account.iban)}</code><button type="button" class="chip-btn" data-copy="${esc(account.iban)}">نسخ IBAN</button></div>` : ""}
+      <small>${esc(account.currency || currency || "")}</small>
+    </div>`;
+}
+
+export async function renderRequestPaymentScreen({ bodyEl, params }) {
+  const access = params.paymentAccess;
+  const headers = { "X-Payment-Access": access?.token || "" };
+  bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
+
+  let summary;
+  try {
+    summary = (await api(paymentPath(params.id), { headers })).data;
+  } catch (error) {
+    bodyEl.innerHTML = `
+      ${errorState(error.message)}
+      <button type="button" class="secondary" id="paymentLaterBtn">متابعة بدون الدفع الآن</button>`;
+    bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, null));
+    return;
+  }
+
+  const amountText = formatAmount(summary.amount, summary.currency);
+  const sdgText = summary.currency !== "SDG" && Number(summary.amountSdg) > 0 ? formatAmount(summary.amountSdg, "SDG") : "";
+  const accounts = summary.accounts || [];
+
+  bodyEl.innerHTML = `
+    <div class="detail-block payment-step" data-testid="direct-payment-step">
+      <p class="field-hint">حُفظ طلبك برقم <code dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ ثم ارفع إشعار التحويل لإرسال الطلب للمراجعة.</p>
+      <h4>الدفع بالتحويل البنكي</h4>
+      <p class="payment-amount">المبلغ المطلوب: <strong id="directPaymentAmount"><bdi>${esc(amountText)}</bdi></strong></p>
+      ${sdgText ? `<p class="field-hint">ما يعادل <bdi>${esc(sdgText)}</bdi> بسعر الصرف المعتمد وقت تأكيد الطلب</p>` : ""}
+      ${summary.rejectionReason ? `<p class="field-error" role="alert">لم يُقبل الإشعار السابق: ${esc(summary.rejectionReason)}</p>` : ""}
+      ${summary.paymentOpen
+        ? `
+          <p class="field-hint">حوّل المبلغ بالعملة نفسها (${esc(summary.currency || "")}) إلى أحد الحسابات التالية فقط.</p>
+          ${accounts.length
+            ? accounts.map((account) => accountCard(account, summary.currency)).join("")
+            : `<p class="field-hint">لا يوجد حساب دفع مفعّل لهذه العملة حاليًا. لا تحوّل أي مبلغ قبل تواصل الوكالة معك.</p>`}
+          <form id="directReceiptForm" class="form">
+            <label class="field">
+              <span>إشعار التحويل (صورة أو PDF) *</span>
+              <input name="file" type="file" accept="image/*,.pdf" required>
+            </label>
+            <div class="upload-progress-wrap" id="directReceiptProgressWrap" hidden>
+              <div class="upload-progress-bar"><div class="upload-progress-fill" id="directReceiptProgressFill"></div></div>
+            </div>
+            <button type="submit" class="primary" id="sendReceiptBtn">إرسال الطلب للمراجعة</button>
+            <small>رفع الإشعار لا يعني تأكيد السداد؛ تصبح حالة الدفع «بانتظار مراجعة التحويل» حتى يؤكدها موظف مختص.</small>
+          </form>`
+        : `<p class="field-hint"><b>${esc(summary.paymentStatusLabel || "")}</b></p>${(summary.lockReasons || []).map((reason) => `<p class="field-hint">${esc(reason)}</p>`).join("")}`}
+      <button type="button" class="secondary" id="paymentLaterBtn">${summary.paymentOpen ? "سأحوّل لاحقًا" : "متابعة"}</button>
+    </div>`;
+
+  bodyEl.querySelectorAll("[data-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy);
+        toast("تم النسخ");
+      } catch {
+        toast("انسخ الرقم يدويًا", { tone: "error" });
+      }
+    });
+  });
+  bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, summary));
+
+  const form = bodyEl.querySelector("#directReceiptForm");
+  if (!form) return;
+  let sending = false;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    // One upload at a time: repeated taps never send a second receipt.
+    if (sending) return;
+    const file = new FormData(form).get("file");
+    const problem = !file || !file.size ? "اختر صورة أو ملف PDF لإشعار التحويل." : validateFile(file, null);
+    if (problem) {
+      toast(problem, { tone: "error" });
+      return;
+    }
+    sending = true;
+    const button = form.querySelector("#sendReceiptBtn");
+    setLoading(button, true, "جارٍ الإرسال…");
+    const progressWrap = bodyEl.querySelector("#directReceiptProgressWrap");
+    const progressFill = bodyEl.querySelector("#directReceiptProgressFill");
+    progressWrap.hidden = false;
+    const payload = new FormData();
+    payload.set("file", file);
+    try {
+      const res = await apiUpload(`${paymentPath(params.id)}/receipt`, payload, (percent) => { progressFill.style.width = `${percent}%`; }, headers);
+      toast("تم إرسال إشعار التحويل للمراجعة");
+      finish(params, res.data?.request || summary);
+    } catch (error) {
+      sending = false;
+      setLoading(button, false);
+      progressWrap.hidden = true;
+      toast(error.message, { tone: "error" });
+    }
+  });
+}

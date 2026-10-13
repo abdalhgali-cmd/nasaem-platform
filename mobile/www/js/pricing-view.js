@@ -19,6 +19,9 @@ export function fixedPricing(item) {
     currency: item.currency || "SAR",
     priceUnit: item.priceUnit === "PER_TRAVELER" ? "PER_TRAVELER" : "PER_REQUEST",
     paymentAfterDocumentReview: Boolean(item.paymentAfterDocumentReview),
+    // The agency's active exchange rate for this currency (null without one —
+    // the SDG equivalent is then not shown, never estimated).
+    fxRateToSdg: Number(item.fxRateToSdg) > 0 ? Number(item.fxRateToSdg) : null,
   };
 }
 
@@ -41,12 +44,26 @@ export function fixedTotalSummary(pricing, travelerCount) {
   const payment = pricing.paymentAfterDocumentReview
     ? "يُفتح الدفع بعد اعتماد الوكالة لمستنداتك، بهذا الإجمالي نفسه."
     : "بعد تأكيد الطلب تظهر لك تعليمات التحويل مباشرة لرفع إيصال الدفع.";
-  return { units, total, totalText: moneyText(total, pricing.currency), breakdown, payment, currency: pricing.currency };
+  const sdgText =
+    pricing.currency === "SDG"
+      ? ""
+      : pricing.fxRateToSdg
+        ? `ما يعادل ${moneyText(Math.round(total * pricing.fxRateToSdg), "SDG")} بسعر الصرف المعتمد من الوكالة`
+        : "المقابل بالجنيه السوداني غير متاح حاليًا؛ الدفع بالعملة الظاهرة.";
+  return { units, total, totalText: moneyText(total, pricing.currency), breakdown, payment, currency: pricing.currency, sdgText };
 }
 
 // After a PRICE_CHANGED refusal: the item with the agency's current unit
 // price, so the review shows the new total for a fresh confirmation.
 export function withServerPrice(item, details) {
   if (!details || !(Number(details.unitPrice) > 0)) return item;
-  return { ...item, basePrice: details.unitPrice, priceUnit: details.priceUnit || item.priceUnit, currency: details.currency || item.currency };
+  const currencyChanged = Boolean(details.currency) && details.currency !== item.currency;
+  return {
+    ...item,
+    basePrice: details.unitPrice,
+    priceUnit: details.priceUnit || item.priceUnit,
+    currency: details.currency || item.currency,
+    // A rate for another currency would mislabel the new total.
+    ...(currencyChanged ? { fxRateToSdg: null } : {}),
+  };
 }
