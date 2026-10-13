@@ -84,6 +84,23 @@ Tests: backend `egyptClearanceVariants.test.js` 5/5 (catalog prices per variant;
 
 Local runs for this reconciliation: website/platform3 Playwright project 55/55 (incl. `admin-workflow`, `platform3`, website pricing/payment specs); web tsc/eslint ok. CI pending on the pushed head.
 
+## Service flow: Umrah section, Egypt approval, direct payment, admin queues (2026-10-13, branch `ccr-6f320531-vdqix0`, based on `claude/release-next`)
+
+Not merged, nothing deployed, no live data touched. Two **additive** migrations: `20261015090000_request_payment_access` (2 nullable columns + unique index), `20261015100000_umrah_guarantor_residence` (requirement rows: Umrah personal photo **deactivated, never deleted**; «إقامة الضامن» added once where missing).
+
+| Item | Status | Evidence |
+|---|---|---|
+| Unified flow: service → applicant → details → documents → summary + final price → **payment straight away** (amount, account in that currency, receipt) → submit for review → confirmation with number, request and payment status | VERIFIED (website Umrah/visa wizard, website Egypt form, app intake) | Request-scoped payment token returned on creation (`POST /contact-requests` and draft submit) for FIXED requests; stored as SHA-256 hash, 72h, opens only `GET /contact-requests/:id/payment-access` and `POST …/payment-access/receipt`. `paymentAccess.test.js` 5/5, `intakeDraftPricing.test.js`; e2e `umrah-payment-journey.spec.ts`, `egypt-passport-upload.spec.ts` (BORDER pays on the spot), `pricing-progress.spec.ts` «payment open: straight to the payment screen» |
+| Receipt ≠ paid: status «بانتظار مراجعة التحويل» (`UNDER_REVIEW`); only ACCOUNTANT/ADMIN confirm; audited with amount/currency/status change; staff notification linked to the request | VERIFIED | `paymentAccess.test.js` (employee 403, accountant 200, audit row, notification `contactRequestId`) |
+| Duplicate submissions | VERIFIED | Website wizard now sends one `submissionKey` per form + in-flight guard (app already did); retry returns the same request with a fresh token, old token stops working (`paymentAccess.test.js`, `website-fixed-price.spec.ts`, e2e double-click in `umrah-payment-journey.spec.ts`) |
+| Umrah as its own section | VERIFIED | `/umrah` uses the intake wizard on Umrah packages (documents, final price, payment) instead of the contact-only form; Umrah visa types removed from `/visas`, homepage visa list, wizard visa list and the app's visas hub (`platform3.spec.ts`, `service-view.test.mjs`). Existing Umrah requests untouched |
+| «إقامة الضامن» instead of the personal photo (Umrah only) | VERIFIED | Migration + seed; `umrahGuarantorRequirement.test.js` 6/6; checked on a DB with existing data and on a fresh DB; other packages keep their photo |
+| Prices SAR + SDG, admin-managed, no default rate | VERIFIED (existing + review line) | Prices come from the catalog (admin); SDG shown only from the agency's active FX rate (`fxRateToSdg`), otherwise «غير متاح حاليًا» (`pricing-view.test.mjs`). Seed's initial Umrah package prices are dev seed values only (QUOTE until the admin sets FIXED) |
+| Egypt form | VERIFIED (most was already done on `claude/release-next`: variants, `[object Object]`, entry method, FAQ) | Website form now shows a review of the data before sending and goes straight to payment |
+| Admin: Umrah / Egypt queues, receipt, statuses | VERIFIED | `GET /contact-requests?serviceKind=UMRAH|EGYPT_CLEARANCE` + case-workspace filter, service and payment chips; payment-review queue links the latest receipt (`staffServiceQueues.test.js` 2/2) |
+
+NOT TESTED: real Android device, live staging/production (no access, no approval). A page reload during the website payment step drops the token (customer continues from /track). Umrah packages created later get no «إقامة الضامن» automatically — add it from the requirements screen.
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.
