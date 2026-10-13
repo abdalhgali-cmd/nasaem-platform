@@ -31,7 +31,16 @@ export async function loadCatalog({ fresh = false } = {}) {
     if (cached) memoryCatalog = cached;
   }
 
-  const res = await api("/services/public");
+  let res;
+  try {
+    res = await api("/services/public");
+  } catch (error) {
+    // Offline / server down: the last saved catalog, marked as possibly
+    // outdated (screens say so). Without a saved copy, the error stands.
+    const saved = memoryCatalog || readCache();
+    if (saved) return { ...saved, stale: true };
+    throw error;
+  }
   // Tagged once, here, at the source — every downstream screen (intake.js's
   // requirement-scope lookup especially) reads `isVisaType` instead of
   // re-guessing it from `category`, which is NOT a reliable discriminator:

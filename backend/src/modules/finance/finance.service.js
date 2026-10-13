@@ -1,3 +1,4 @@
+import { computeSettlement } from "../payments/settlement.js";
 import prisma from "../../config/database.js";
 
 // Never labeled "profit" unless every order item counted actually has a
@@ -46,25 +47,29 @@ async function fetchOrdersInRange({ from, to, organizationId }) {
     },
     include: {
       items: { include: { service: { select: { id: true, name: true, category: true } }, supplier: { select: { id: true, name: true } } } },
-      payments: { select: { status: true, amount: true } },
+      payments: { select: { id: true, status: true, amount: true, currency: true, kind: true, reviewStatus: true } },
       assignedUser: { select: { id: true, fullName: true } },
     },
   });
 }
 
 function emptyOrderMetrics() {
-  return { ordersCount: 0, revenue: 0, paid: 0, outstanding: 0, refunds: 0, itemsTotal: 0, itemsWithCost: 0, supplierCost: 0 };
+  return { ordersCount: 0, revenue: 0, paid: 0, outstanding: 0, refunds: 0, pending: 0, itemsTotal: 0, itemsWithCost: 0, supplierCost: 0, currencies: new Set() };
 }
 
 function accumulateOrder(metrics, order) {
   metrics.ordersCount += 1;
   metrics.revenue += num(order.totalAmount);
+  metrics.currencies.add(order.currency);
 
-  const paid = order.payments.filter((p) => p.status === "PAID").reduce((sum, p) => sum + num(p.amount), 0);
-  const refunded = order.payments.filter((p) => p.status === "REFUNDED").reduce((sum, p) => sum + num(p.amount), 0);
-  metrics.paid += paid;
-  metrics.refunds += refunded;
-  metrics.outstanding += Math.max(num(order.totalAmount) - paid, 0);
+  // Same settlement the payment write path enforces (payments/settlement.js):
+  // confirmed money in the order's currency only, refunds subtracted,
+  // pending money excluded.
+  const settlement = computeSettlement(order, order.payments);
+  metrics.paid += num(settlement.netPaid);
+  metrics.refunds += num(settlement.refunded);
+  metrics.outstanding += num(settlement.outstanding);
+  metrics.pending += num(settlement.pending);
 
   for (const item of order.items) {
     metrics.itemsTotal += 1;
@@ -90,25 +95,33 @@ function finalizeOrderMetrics(metrics) {
         : `Gross margin unavailable — supplier cost recorded for ${metrics.itemsWithCost} of ${metrics.itemsTotal} order items. Showing Revenue only.`;
   }
 
+  // Amounts in different currencies are never added together: a group that
+  // mixes currencies reports null money totals (see totalsByCurrency).
+  const mixed = metrics.currencies.size > 1;
+  const money = (value) => (mixed ? null : round2(value));
   return {
     ordersCount: metrics.ordersCount,
-    revenue: round2(metrics.revenue),
-    paid: round2(metrics.paid),
-    outstanding: round2(metrics.outstanding),
-    refunds: round2(metrics.refunds),
-    supplierCost: metrics.itemsWithCost > 0 ? round2(metrics.supplierCost) : null,
-    grossProfit: grossProfitAvailable ? round2(metrics.revenue - metrics.supplierCost) : null,
+    currency: mixed ? null : [...metrics.currencies][0] || null,
+    mixedCurrencies: mixed,
+    revenue: money(metrics.revenue),
+    paid: money(metrics.paid),
+    outstanding: money(metrics.outstanding),
+    refunds: money(metrics.refunds),
+    pendingReview: money(metrics.pending),
+    supplierCost: metrics.itemsWithCost > 0 && !mixed ? round2(metrics.supplierCost) : null,
+    grossProfit: grossProfitAvailable && !mixed ? round2(metrics.revenue - metrics.supplierCost) : null,
     costCoverage: Number(coverage.toFixed(2)),
-    note,
+    note: mixed ? "المبالغ بعملات مختلفة؛ راجع الإجماليات حسب العملة." : note,
   };
 }
 
 function emptyItemMetrics() {
-  return { itemsTotal: 0, itemsWithCost: 0, revenue: 0, supplierCost: 0 };
+  return { itemsTotal: 0, itemsWithCost: 0, revenue: 0, supplierCost: 0, currencies: new Set() };
 }
 
-function accumulateItem(metrics, item) {
+function accumulateItem(metrics, item, currency) {
   metrics.itemsTotal += 1;
+  metrics.currencies.add(currency);
   metrics.revenue += num(item.total);
   if (item.supplierCost != null) {
     metrics.itemsWithCost += 1;
@@ -118,11 +131,14 @@ function accumulateItem(metrics, item) {
 
 function finalizeItemMetrics(metrics) {
   const grossProfitAvailable = metrics.itemsTotal > 0 && metrics.itemsWithCost === metrics.itemsTotal;
+  const mixed = metrics.currencies.size > 1;
   return {
     itemsTotal: metrics.itemsTotal,
-    revenue: round2(metrics.revenue),
-    supplierCost: metrics.itemsWithCost > 0 ? round2(metrics.supplierCost) : null,
-    grossProfit: grossProfitAvailable ? round2(metrics.revenue - metrics.supplierCost) : null,
+    currency: mixed ? null : [...metrics.currencies][0] || null,
+    mixedCurrencies: mixed,
+    revenue: mixed ? null : round2(metrics.revenue),
+    supplierCost: metrics.itemsWithCost > 0 && !mixed ? round2(metrics.supplierCost) : null,
+    grossProfit: grossProfitAvailable && !mixed ? round2(metrics.revenue - metrics.supplierCost) : null,
     costCoverage: metrics.itemsTotal > 0 ? Number((metrics.itemsWithCost / metrics.itemsTotal).toFixed(2)) : 0,
   };
 }
@@ -151,16 +167,66 @@ function itemGroupKey(groupBy, item) {
   return { key: item.supplierId || "UNKNOWN", label: item.supplier?.name || "بدون مورّد محدد" };
 }
 
+// Customer requests (the main app flow) are paid against the price the agency
+// issued: the approved invoice, or the offer the customer chose. Money is
+// reported per ORIGINAL currency; the Sudanese-pound figure is the sum of the
+// equivalents frozen when each price was issued, and requests priced without a
+// configured rate are counted separately instead of being converted now.
+export async function getContactRequestPaymentReport({ from, to, organizationId }) {
+  const priceOf = (request) => (request.invoice?.status === "APPROVED" ? request.invoice : request.selectedOffer);
+  const base = { ...(organizationId ? { organizationId } : {}) };
+  const include = { invoice: { select: { status: true, amount: true, currency: true, amountSdg: true } }, selectedOffer: { select: { amount: true, currency: true, amountSdg: true } } };
+  const [confirmed, underReview] = await Promise.all([
+    prisma.contactRequest.findMany({
+      where: { ...base, paymentStatus: "CONFIRMED", paymentConfirmedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } },
+      include,
+    }),
+    prisma.contactRequest.findMany({ where: { ...base, paymentStatus: "UNDER_REVIEW" }, include }),
+  ]);
+
+  const rows = new Map();
+  const row = (currency) => {
+    if (!rows.has(currency)) rows.set(currency, { currency, confirmedCount: 0, confirmed: 0, confirmedSdg: 0, confirmedWithoutSdgCount: 0, underReviewCount: 0, underReview: 0 });
+    return rows.get(currency);
+  };
+  for (const request of confirmed) {
+    const price = priceOf(request);
+    if (!price) continue;
+    const entry = row(price.currency);
+    entry.confirmedCount += 1;
+    entry.confirmed += num(price.amount);
+    if (price.amountSdg != null) entry.confirmedSdg += num(price.amountSdg);
+    else entry.confirmedWithoutSdgCount += 1;
+  }
+  for (const request of underReview) {
+    const price = priceOf(request);
+    if (!price) continue;
+    const entry = row(price.currency);
+    entry.underReviewCount += 1;
+    entry.underReview += num(price.amount);
+  }
+  return [...rows.values()]
+    .map((entry) => ({ ...entry, confirmed: round2(entry.confirmed), confirmedSdg: round2(entry.confirmedSdg), underReview: round2(entry.underReview) }))
+    .sort((a, b) => a.currency.localeCompare(b.currency));
+}
+
 export async function getFinancialReport({ period, from, to, groupBy, organizationId }) {
   const range = resolveRange({ period, from, to });
   const orders = await fetchOrdersInRange({ ...range, organizationId });
 
   const totals = emptyOrderMetrics();
-  for (const order of orders) accumulateOrder(totals, order);
+  const byCurrency = new Map();
+  for (const order of orders) {
+    accumulateOrder(totals, order);
+    if (!byCurrency.has(order.currency)) byCurrency.set(order.currency, emptyOrderMetrics());
+    accumulateOrder(byCurrency.get(order.currency), order);
+  }
 
   const report = {
     period: { from: range.from, to: range.to, label: range.label },
     totals: finalizeOrderMetrics(totals),
+    totalsByCurrency: [...byCurrency.entries()].map(([currency, metrics]) => ({ currency, ...finalizeOrderMetrics(metrics) })),
+    contactRequestPayments: await getContactRequestPaymentReport({ from: range.from, to: range.to, organizationId }),
     breakdown: null,
   };
 
@@ -177,21 +243,21 @@ export async function getFinancialReport({ period, from, to, groupBy, organizati
         groupBy,
         rows: [...groups.values()]
           .map((g) => ({ key: g.key, label: g.label, ...finalizeOrderMetrics(g.metrics) }))
-          .sort((a, b) => b.revenue - a.revenue),
+          .sort((a, b) => (b.revenue ?? 0) - (a.revenue ?? 0)),
       };
     } else {
       for (const order of orders) {
         for (const item of order.items) {
           const { key, label } = itemGroupKey(groupBy, item);
           if (!groups.has(key)) groups.set(key, { key, label, metrics: emptyItemMetrics() });
-          accumulateItem(groups.get(key).metrics, item);
+          accumulateItem(groups.get(key).metrics, item, order.currency);
         }
       }
       report.breakdown = {
         groupBy,
         rows: [...groups.values()]
           .map((g) => ({ key: g.key, label: g.label, ...finalizeItemMetrics(g.metrics) }))
-          .sort((a, b) => b.revenue - a.revenue),
+          .sort((a, b) => (b.revenue ?? 0) - (a.revenue ?? 0)),
       };
     }
   }

@@ -1,3 +1,4 @@
+/* GENERATED from backend/public by scripts/sync-static-admin.mjs. Do not edit here: edit backend/public and run `node scripts/sync-static-admin.mjs`. */
 function renderHeader(user, activePage) {
   const header = document.getElementById("app-header");
   if (!header) return;
@@ -10,7 +11,7 @@ function renderHeader(user, activePage) {
   const navHtml = links
     .map(
       (link) =>
-        `<a href="${link.href}" class="${link.key === activePage ? "active" : ""}">${link.label}</a>`
+        `<a href="${escapeHtml(link.href)}" class="${link.key === activePage ? "active" : ""}">${escapeHtml(link.label)}</a>`
     )
     .join("");
 
@@ -22,7 +23,7 @@ function renderHeader(user, activePage) {
         <button type="button" id="notif-btn">🔔<span class="notif-badge hidden" id="notif-badge">0</span></button>
         <div class="notif-dropdown hidden" id="notif-dropdown"></div>
       </div>
-      <span class="user-chip">${user.fullName} · ${user.employeeNo}</span>
+      <span class="user-chip">${escapeHtml(user.fullName)} · ${escapeHtml(user.employeeNo)}</span>
       <button type="button" id="logout-btn">تسجيل الخروج</button>
     </nav>
   `;
@@ -37,6 +38,14 @@ function renderHeader(user, activePage) {
   });
 
   wireNotificationBell();
+}
+
+// Where a notification leads (admin-dashboard.js turns these deep links into
+// the right section and record), or "" when it is not about a record.
+function notificationHref(n) {
+  if (n.contactRequestId) return `/admin-dashboard.html?customerRequest=${encodeURIComponent(n.contactRequestId)}`;
+  if (n.orderId) return `/admin-dashboard.html?order=${encodeURIComponent(n.orderId)}`;
+  return "";
 }
 
 async function wireNotificationBell() {
@@ -70,7 +79,7 @@ async function wireNotificationBell() {
       dropdown.innerHTML = data
         .map(
           (n) => `
-          <div class="notif-item ${n.readAt ? "" : "unread"}" data-notif-id="${n.id}">
+          <div class="notif-item ${n.readAt ? "" : "unread"}" data-notif-id="${escapeHtml(n.id)}" data-notif-href="${escapeHtml(notificationHref(n))}" ${notificationHref(n) ? 'role="link" tabindex="0" style="cursor:pointer"' : ""}>
             <strong>${escapeHtml(n.title)}</strong>
             <p>${escapeHtml(n.message)}</p>
             <span class="muted">${formatDate(n.createdAt)}</span>
@@ -78,7 +87,7 @@ async function wireNotificationBell() {
         )
         .join("");
     } catch (error) {
-      dropdown.innerHTML = `<p class="muted" style="padding: 10px">${error.message}</p>`;
+      dropdown.innerHTML = `<p class="muted" style="padding: 10px">${escapeHtml(error.message)}</p>`;
     }
   }
 
@@ -88,15 +97,29 @@ async function wireNotificationBell() {
     if (willOpen) await loadDropdown();
   });
 
-  dropdown.addEventListener("click", async (e) => {
+  async function openNotification(item) {
+    if (item.classList.contains("unread")) {
+      try {
+        await api.patch(`/notifications/${item.dataset.notifId}/read`);
+        item.classList.remove("unread");
+        refreshBadge();
+      } catch (error) {
+        // Ignore — item stays marked unread, user can retry.
+      }
+    }
+    // A notification about a request or order opens that record directly.
+    if (item.dataset.notifHref) window.location.href = item.dataset.notifHref;
+  }
+
+  dropdown.addEventListener("click", (e) => {
     const item = e.target.closest("[data-notif-id]");
-    if (!item || !item.classList.contains("unread")) return;
-    try {
-      await api.patch(`/notifications/${item.dataset.notifId}/read`);
-      item.classList.remove("unread");
-      refreshBadge();
-    } catch (error) {
-      // Ignore — item stays marked unread, user can retry.
+    if (item) openNotification(item);
+  });
+  dropdown.addEventListener("keydown", (e) => {
+    const item = e.target.closest("[data-notif-id]");
+    if (item && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      openNotification(item);
     }
   });
 

@@ -1,8 +1,11 @@
 import path from "path";
 import prisma from "../../config/database.js";
+import { ACTIONS, checkAction, paymentLockReasons } from "../contact-request-workflow/workflow-policy.js";
+import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
+import { notifyRequestCustomer } from "../../utils/notifications.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { describeRequest, notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
 
@@ -58,7 +61,7 @@ async function validateRequirementUpload(contactRequest, requirementId, file, tr
   return { requirement };
 }
 
-export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, classification }) {
+export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, classification, silent = false }) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
   });
@@ -78,6 +81,13 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
 
   let requirement = null;
   if (requirementId) {
+    // A per-traveler requirement (passport, photo...) on a request that has
+    // travelers must say WHOSE document it is. Without this, a passport could
+    // be filed against the case and later be shown as another traveler's.
+    const needsTraveler = await prisma.visaRequirement.findUnique({ where: { id: requirementId }, select: { scope: true } });
+    if (needsTraveler?.scope === "TRAVELER" && !travelerId && (await prisma.traveler.count({ where: { contactRequestId } })) > 0) {
+      return { error: "TRAVELER_REQUIRED" };
+    }
     const validation = await validateRequirementUpload(contactRequest, requirementId, file, travelerId);
     if (validation.error) return { error: validation.error.code, details: validation.error };
     requirement = validation.requirement;
@@ -94,32 +104,42 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
   // documents are ever auto-superseded this way — a PENDING/ACCEPTED
   // document for the same requirement is left alone (multiple files can be
   // legitimately in flight up to maxFiles, e.g. a multi-page upload).
-  if (requirementId) {
-    await prisma.contactRequestDocument.updateMany({
-      where: { contactRequestId, requirementId, travelerId: travelerId || null, status: "REJECTED", supersededAt: null },
-      data: { supersededAt: new Date() },
-    });
-  }
-
-  const document = await prisma.contactRequestDocument.create({
-    data: {
-      contactRequestId,
-      label,
-      requirementId: requirementId || null,
-      travelerId: travelerId || null,
-      // Defaults to CUSTOMER_DOCUMENT at the schema level — only callers
-      // that know better (e.g. a payment receipt) pass something else.
-      ...(classification ? { classification } : {}),
-      ocrResult: ocrResult ?? undefined,
-      fileName: file.originalname,
-      // Relative to the uploads root, not the absolute server path — same
-      // convention as documents.controller.js, so API responses never leak
-      // server directory layout.
-      storagePath: path.join("contact-request-documents", file.filename),
-      mimeType: file.mimetype,
-      sizeBytes: file.size,
-    },
+  // Superseding and creating happen under the request's row lock, after
+  // checking the request still accepts documents: an upload that arrives
+  // after the request was closed is refused, not attached to it.
+  const created = await withLockedRequest(contactRequestId, null, async (tx, locked) => {
+    const refusal = checkAction(ACTIONS.UPLOAD_DOCUMENT, locked);
+    if (refusal) refuseWith(refusal);
+    if (requirementId) {
+      await tx.contactRequestDocument.updateMany({
+        where: { contactRequestId, requirementId, travelerId: travelerId || null, status: "REJECTED", supersededAt: null },
+        data: { supersededAt: new Date() },
+      });
+    }
+    return {
+      document: await tx.contactRequestDocument.create({
+        data: {
+          contactRequestId,
+          label,
+          requirementId: requirementId || null,
+          travelerId: travelerId || null,
+          // Defaults to CUSTOMER_DOCUMENT at the schema level — only callers
+          // that know better (e.g. a payment receipt) pass something else.
+          ...(classification ? { classification } : {}),
+          ocrResult: ocrResult ?? undefined,
+          fileName: file.originalname,
+          // Relative to the uploads root, not the absolute server path — same
+          // convention as documents.controller.js, so API responses never leak
+          // server directory layout.
+          storagePath: path.join("contact-request-documents", file.filename),
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+        },
+      }),
+    };
   });
+  if (created.error || created.refusal) return created;
+  const { document } = created;
 
   // Customer-initiated (no staff req.user) — logged with userId: null, same
   // as every other tracking-driven event, and fanned out to admins so
@@ -130,11 +150,18 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
     entityId: contactRequestId,
   });
 
-  await notifyAdmins({
-    title: "رفع مستند جديد",
-    message: `رفع ${contactRequest.name} مستندًا جديدًا: ${label.slice(0, 60)}`,
-    type: "CONTACT_REQUEST_DOCUMENT_UPLOADED",
-  });
+  // `silent`: the caller sends its own, more specific notification (e.g. a
+  // payment receipt goes to the accountants, not as "a new document").
+  if (!silent) {
+    await notifyAdmins({
+      organizationId: contactRequest.organizationId,
+      title: "رفع مستند جديد",
+      message: `رفع ${contactRequest.name} مستندًا جديدًا: ${label.slice(0, 60)}`,
+      type: "CONTACT_REQUEST_DOCUMENT_UPLOADED",
+      contactRequestId,
+      alsoRoles: ["EMPLOYEE"],
+    });
+  }
 
   // Release E: a new upload is new review work.
   await refreshCaseTasks(contactRequestId);
@@ -168,31 +195,45 @@ export async function updateContactRequestDocumentStatus(
   { status, reviewNote },
   reviewerUserId
 ) {
-  const document = await prisma.contactRequestDocument.findFirst({
-    where: { id: documentId, contactRequestId },
+  // Decided under the request's row lock: a closed request's documents are
+  // no longer reviewed, and a receipt is decided in the payment step.
+  const result = await withLockedRequest(contactRequestId, null, async (tx, request) => {
+    const document = request.documents.find((candidate) => candidate.id === documentId);
+    if (!document) return { error: "NOT_FOUND" };
+    const refusal = checkAction(ACTIONS.REVIEW_DOCUMENT, request, { document: { ...document, status: "PENDING" } });
+    if (refusal) refuseWith(refusal);
+    const updated = await tx.contactRequestDocument.update({
+      where: { id: documentId },
+      data: {
+        status,
+        reviewNote: reviewNote || null,
+        reviewedByUserId: reviewerUserId,
+        reviewedAt: new Date(),
+      },
+      include: { reviewedBy: { select: safeUserSelect } },
+    });
+    await auditInTransaction(tx, {
+      userId: reviewerUserId,
+      action: "CONTACT_REQUEST_DOCUMENT_REVIEWED",
+      entityId: contactRequestId,
+      organizationId: request.organizationId,
+      newValue: { documentId, status },
+    });
+    // Fixed price paid after the document review: did this decision open
+    // the payment (same accepted price)?
+    const reviewed = { ...request, documents: request.documents.map((d) => (d.id === documentId ? { ...d, status } : d)) };
+    const paymentUnlocked = paymentLockReasons(request).length > 0 && paymentLockReasons(reviewed).length === 0;
+    return { document, updated, paymentUnlocked, request };
   });
+  if (result.error || result.refusal) return result;
+  const { document, updated } = result;
 
-  if (!document) {
-    return { error: "NOT_FOUND" };
+  if (result.paymentUnlocked) {
+    const invoice = result.request.invoice;
+    const message = `تم اعتماد مستندات طلبك (${describeRequest(result.request)}). يمكنك الآن تحويل المبلغ المؤكد ${invoice ? `${Number(invoice.amount)} ${invoice.currency}` : ""} ورفع الإيصال.`;
+    await notifyRequestCustomer(result.request, { title: "فُتح الدفع لطلبك", message, type: "CONTACT_REQUEST_PAYMENT_OPEN" });
+    sendWhatsAppMessage(result.request.phoneNormalized, message);
   }
-
-  const updated = await prisma.contactRequestDocument.update({
-    where: { id: documentId },
-    data: {
-      status,
-      reviewNote: reviewNote || null,
-      reviewedByUserId: reviewerUserId,
-      reviewedAt: new Date(),
-    },
-    include: { reviewedBy: { select: safeUserSelect } },
-  });
-
-  logActivity({
-    userId: reviewerUserId,
-    action: "CONTACT_REQUEST_DOCUMENT_REVIEWED",
-    entity: "ContactRequest",
-    entityId: contactRequestId,
-  });
 
   // Release E: a review decision can complete "review documents" or open
   // "check payment" — keep the case's open tasks in step with it.
@@ -215,6 +256,11 @@ export async function updateContactRequestDocumentStatus(
     // Not awaited: same rationale as every other WhatsApp send in this
     // codebase — never let a slow/unreachable WhatsApp API delay the staff
     // response.
+    await notifyRequestCustomer(contactRequest, {
+      title: updated.status === "ACCEPTED" ? "تم قبول مستند" : "مستند مرفوض أو ناقص",
+      message,
+      type: updated.status === "ACCEPTED" ? "CONTACT_REQUEST_DOCUMENT_ACCEPTED" : "CONTACT_REQUEST_DOCUMENT_REJECTED",
+    });
     sendWhatsAppMessage(contactRequest.phoneNormalized, message);
   }
 

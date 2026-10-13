@@ -370,20 +370,20 @@ describe("multi-currency SDG conversion (public catalog)", () => {
     assert.equal(found.priceSdg, 250);
   });
 
-  test("a zero exchange rate reports the price as not convertible instead of a zero/free price", async () => {
-    const fxRes = await agent.patch("/api/flights/admin/rates").send({ ...previousRates, AED: 0 });
+  test("an inactive (deactivated) exchange rate reports the price as not convertible instead of a zero/free price", async () => {
+    const fxRes = await agent.patch("/api/flights/admin/rates").send({ ...previousRates, AED: null });
     assert.equal(fxRes.status, 200, JSON.stringify(fxRes.body));
 
     const svc = await createService(agent, { currency: "AED", basePrice: 100, active: true });
     const catalogRes = await request(app).get("/api/services/public");
     const found = catalogRes.body.data.services.find((item) => item.id === svc.id);
     assert.ok(found);
-    assert.equal(found.fxRateToSdg, null, "a 0 rate must not be reported as a valid conversion rate");
+    assert.equal(found.fxRateToSdg, null, "an inactive rate must not be reported as a valid conversion rate");
     assert.equal(found.priceSdg, null, "priceSdg must not silently become 0 when the rate is unset");
   });
 
   test("a currency with no configured FX rate at all (e.g. USD unset) reports null instead of NaN", async () => {
-    const fxRes = await agent.patch("/api/flights/admin/rates").send({ SAR: previousRates.SAR, AED: previousRates.AED, EGP: previousRates.EGP, USD: 0 });
+    const fxRes = await agent.patch("/api/flights/admin/rates").send({ SAR: previousRates.SAR, AED: previousRates.AED, EGP: previousRates.EGP, USD: null });
     assert.equal(fxRes.status, 200, JSON.stringify(fxRes.body));
 
     const svc = await createService(agent, { currency: "USD", basePrice: 100, active: true });
@@ -394,8 +394,8 @@ describe("multi-currency SDG conversion (public catalog)", () => {
     assert.equal(found.priceSdg, null);
   });
 
-  test("negative FX rates are rejected at the write endpoint", async () => {
-    const res = await agent.patch("/api/flights/admin/rates").send({ SAR: -1 });
-    assert.equal(res.status, 400);
+  test("zero and negative FX rates are rejected at the write endpoint", async () => {
+    assert.equal((await agent.patch("/api/flights/admin/rates").send({ SAR: -1 })).status, 400);
+    assert.equal((await agent.patch("/api/flights/admin/rates").send({ SAR: 0 })).status, 400);
   });
 });

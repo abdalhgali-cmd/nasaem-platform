@@ -10,10 +10,17 @@ import {
   uploadContactRequestIntakeDocuments,
 } from "../../middleware/upload.middleware.js";
 import {
+  getCustomerMessages,
+  retryCustomerConfirmation,
   confirmPayment,
+  rejectPayment,
+  startExecution,
+  revertExecution,
+  publishDeliverable,
   downloadDeliverableFile,
   downloadDocumentFile,
   getContactRequests,
+  getContactRequest,
   getQueueSummary,
   patchContactRequestAssignment,
   patchContactRequestStatus,
@@ -41,6 +48,7 @@ import {
   storeCaseTask,
 } from "../case-tasks/case-tasks.controller.js";
 import { getCaseNotes, storeCaseNote } from "../case-notes/case-notes.controller.js";
+import { resolvePublicContactLimit } from "./public-contact-limit.js";
 
 const router = Router();
 
@@ -70,9 +78,11 @@ function handleIntakeDocumentsUpload(req, res, next) {
   });
 }
 
+// Anonymous submissions per client per 15 minutes: 5 in production; only
+// test/development may raise it (public-contact-limit.js).
 const publicContactLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 5,
+  limit: resolvePublicContactLimit(),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -83,10 +93,16 @@ const publicContactLimiter = rateLimit({
 
 router.post("/", publicContactLimiter, attachOptionalCustomer, handleIntakeDocumentsUpload, storeContactRequest);
 
+// Staff: customer message delivery records for a case + manual retry.
+router.get("/:id/customer-messages", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), getCustomerMessages);
+router.post("/:id/customer-messages/confirmation", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), retryCustomerConfirmation);
+
+// ACCOUNTANT reads requests (list + detail) for the financial context of a
+// payment review; it cannot change their status, documents or pricing.
 router.get(
   "/",
   requireAuth,
-  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
   getContactRequests
 );
 // Smart Case Operations — Release G. Declared before "/:id/..." routes so
@@ -96,6 +112,13 @@ router.get(
   requireAuth,
   requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
   getQueueSummary
+);
+router.get(
+  "/:id",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  requireContactRequestOrganization,
+  getContactRequest
 );
 // Smart Case Operations — Release G (case intelligence: expiry, OCR
 // mismatch and duplicate warnings — advisory only, never a rejection).
@@ -218,6 +241,32 @@ router.post(
   requireFeatureEnabled("PAYMENTS"),
   confirmPayment
 );
+router.post(
+  "/:id/reject-payment",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"),
+  requireContactRequestOrganization,
+  requireFeatureEnabled("PAYMENTS"),
+  rejectPayment
+);
+// Recording that work on a paid request has started is an operations
+// action (the roles that work cases), not a finance one.
+router.post(
+  "/:id/start-execution",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  startExecution
+);
+// Correction of an accidental execution start: managers only, with a
+// written reason; refused once a final file was published.
+router.post(
+  "/:id/execution/revert",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN"),
+  requireContactRequestOrganization,
+  revertExecution
+);
 router.get(
   "/:id/documents/:documentId/file",
   requireAuth,
@@ -241,6 +290,15 @@ router.post(
   requireFeatureEnabled("DOCUMENTS"),
   handleDeliverableUpload,
   storeDeliverable
+);
+// Publishes a prepared (draft) final file to the customer.
+router.post(
+  "/:id/deliverables/:deliverableId/publish",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  requireFeatureEnabled("DOCUMENTS"),
+  publishDeliverable
 );
 // Smart Case Operations — Release F (provider operations). Mounted on the
 // case itself rather than a separate provider app: sending a case out is

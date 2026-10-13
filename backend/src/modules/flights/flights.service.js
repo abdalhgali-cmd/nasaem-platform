@@ -30,12 +30,26 @@ function isSudaneseAirline(name) {
   return [...SUDANESE_AIRLINES].some((item) => normalized.includes(item));
 }
 
+// A rate is either ACTIVE (a number greater than zero) or INACTIVE (null).
+// Zero is never a rate: it is only the legacy storage marker for "inactive",
+// and is read back as null so no calculation, display or report can multiply
+// by it.
 async function getFxRates() {
   const rows = await prisma.setting.findMany({ where: { key: { in: Object.values(FX_KEYS) } } });
   return Object.fromEntries(Object.entries(FX_KEYS).map(([code, key]) => {
     const row = rows.find((item) => item.key === key);
     const value = Number(row?.value ?? 0);
-    return [code, Number.isFinite(value) ? value : 0];
+    return [code, Number.isFinite(value) && value > 0 ? value : null];
+  }));
+}
+
+export async function getCurrencyRateStatuses() {
+  const rows = await prisma.setting.findMany({ where: { key: { in: Object.values(FX_KEYS) } } });
+  return Object.fromEntries(Object.entries(FX_KEYS).map(([code, key]) => {
+    const row = rows.find((item) => item.key === key);
+    const value = Number(row?.value ?? 0);
+    const active = Number.isFinite(value) && value > 0;
+    return [code, { rate: active ? value : null, active, updatedAt: row?.updatedAt ?? null }];
   }));
 }
 
@@ -47,9 +61,11 @@ export async function updateCurrencyRates(input) {
   const entries = Object.entries(FX_KEYS);
   for (const [code, key] of entries) {
     if (input[code] === undefined) continue;
-    const value = Number(input[code]);
-    if (!Number.isFinite(value) || value < 0) {
-      const error = new Error(`Invalid FX rate for ${code}`);
+    // null = deactivate. Anything else must be a real rate above zero.
+    const deactivate = input[code] === null;
+    const value = deactivate ? 0 : typeof input[code] === "number" || (typeof input[code] === "string" && input[code].trim() !== "") ? Number(input[code]) : NaN;
+    if (!Number.isFinite(value) || (!deactivate && value <= 0)) {
+      const error = new Error(`سعر الصرف لعملة ${code} يجب أن يكون أكبر من صفر. لإيقاف العملة أرسل null.`);
       error.statusCode = 400;
       throw error;
     }

@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { assertNoHorizontalOverflow, loginAsSeededAdmin } from "./helpers";
 
-// frontend/request.html is the staff intake page — creating an order and
+// backend/public/request.html is the staff intake page — creating an order and
 // uploading the customer's documents (passport/photo/etc.) from a phone in
 // the field is exactly the mobile use case this covers, and it's the
 // primary "Documents" surface (Order.documents), distinct from the

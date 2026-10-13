@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import { LegalPlaceholder } from "@/components/sections/legal-placeholder";
+import { LegalDocument } from "@/components/sections/legal-document";
 
 export const metadata: Metadata = {
   title: "سياسة الخصوصية",
-  description: "صفحة سياسة الخصوصية في نسائم الحرمين — النص المعتمد سيُنشر قبل الإطلاق العام.",
-  robots: { index: false, follow: false },
+  description: "توضح هذه السياسة كيف تجمع «نسائم الحرمين للسفر والسياحة» بياناتك وتستخدمها وتحميها عند استخدامك تطبيقنا أو موقعنا أو التواصل معنا لتقديم طلب سفر.",
 };
 
 export default function PrivacyPage() {
-  return <LegalPlaceholder title="سياسة الخصوصية" description="تعرف على كيفية التعامل مع البيانات عند اعتماد النص الرسمي من مالك المنصة والمراجع القانوني." />;
+  return <LegalDocument id="privacy" />;
 }

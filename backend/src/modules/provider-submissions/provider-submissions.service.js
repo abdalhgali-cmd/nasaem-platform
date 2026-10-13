@@ -148,6 +148,10 @@ export async function createProviderSubmission(
     },
   });
   if (!contactRequest) return { error: "NOT_FOUND" };
+  // A closed request is read-only: it is not handed to a provider either.
+  if (contactRequest.status === "CLOSED") {
+    return { refusal: { status: 409, code: "REQUEST_CLOSED", message: "هذا الطلب مغلق ولا يقبل إجراءات جديدة. يمكن للإدارة إعادة فتحه بسبب مكتوب عند الحاجة." } };
+  }
 
   const supplier = await prisma.supplier.findFirst({ where: { id: supplierId, active: true } });
   if (!supplier) return { error: "PROVIDER_NOT_FOUND" };

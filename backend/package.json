@@ -12,7 +12,10 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "finance:diagnose": "node src/scripts/financial-diagnostics.js",
+    "release:rollback-check": "node src/scripts/rollback-check.js",
+    "sync:static-admin": "node ../scripts/sync-static-admin.mjs"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -37,6 +40,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "jsdom": "^24.1.3",
     "nodemon": "^3.1.4",
     "prisma": "^6.0.0",
     "supertest": "^7.0.0"

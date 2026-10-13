@@ -57,7 +57,11 @@ const PUBLIC_SERVICE_SELECT = {
   motionEnabled: true,
   motionVideoKey: true,
   features: true,
-  processingTime: true,
+  processingTime: true,  // What the customer surfaces need to show a fixed total or "price by
+  // quote" (contact-request-pricing/fixed-price.js).
+  pricingMode: true,
+  priceUnit: true,
+  paymentAfterDocumentReview: true,
 };
 
 const PUBLIC_VISA_TYPE_SELECT = {
@@ -75,7 +79,11 @@ const PUBLIC_VISA_TYPE_SELECT = {
   stayDuration: true,
   validity: true,
   entryType: true,
-  category: true,
+  category: true,  // What the customer surfaces need to show a fixed total or "price by
+  // quote" (contact-request-pricing/fixed-price.js).
+  pricingMode: true,
+  priceUnit: true,
+  paymentAfterDocumentReview: true,
 };
 
 // visaCategory (VISA_TYPE_CATEGORIES — INTERNATIONAL/UMRAH/FAMILY_VISIT/
@@ -131,6 +139,9 @@ export async function createService(data) {
       motionEnabled: typeof data.motionEnabled === "boolean" ? data.motionEnabled : false,
       features: data.features ?? undefined,
       processingTime: data.processingTime || null,
+      pricingMode: data.pricingMode || "QUOTE",
+      priceUnit: data.priceUnit || "PER_REQUEST",
+      paymentAfterDocumentReview: Boolean(data.paymentAfterDocumentReview),
     },
   });
 }

@@ -659,20 +659,27 @@ test.describe("Security approvals — full lifecycle through the real customer-f
       const confirmRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/confirm-payment`, { data: {} });
       expect(confirmRes.ok(), await confirmRes.text()).toBeTruthy();
 
-      // 5. Delivery — staff uploads the finished clearance letter (admin API).
+      // 5. Processing — staff record the start of execution (admin API);
+      // the customer's page now shows the service stage, not "completed".
+      const startRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/start-execution`, { data: {} });
+      expect(startRes.ok(), await startRes.text()).toBeTruthy();
+      await page.reload();
+      await expect(page.getByText("جارٍ استخراج الموافقة الأمنية").first()).toBeVisible({ timeout: 15_000 });
+
+      // 6. Delivery — staff upload and publish the finished clearance letter
+      // (admin API). Publishing the last required output completes the
+      // request (a prepared, unpublished file would not).
       const deliverableRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/deliverables`, {
         multipart: {
           label: "خطاب الموافقة الأمنية",
+          publish: "true",
           file: { name: "clearance.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") },
         },
       });
       expect(deliverableRes.ok(), await deliverableRes.text()).toBeTruthy();
-
-      // 6. Completion — staff closes the request as COMPLETED.
-      const closeRes = await admin.patch(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/status`, {
-        data: { status: "CLOSED", outcome: "COMPLETED" },
-      });
-      expect(closeRes.ok(), await closeRes.text()).toBeTruthy();
+      const closed = await (await admin.get(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}`)).json();
+      expect(closed.data.status).toBe("CLOSED");
+      expect(closed.data.outcome).toBe("COMPLETED");
 
       // The real customer, in the real browser, sees the finished result:
       // completion status and a downloadable deliverable.

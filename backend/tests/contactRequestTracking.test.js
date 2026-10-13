@@ -1,7 +1,7 @@
 import "./env.js";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { app, request, uniqueSuffix } from "./helpers/api.js";
+import { app, request, uniqueSuffix, quoteVersion } from "./helpers/api.js";
 import prisma from "../src/config/database.js";
 import { getSystemActorId } from "../src/utils/systemActor.js";
 import { normalizePhone } from "../src/utils/phone.js";
@@ -288,7 +288,7 @@ describe("contact request tracking (customer WhatsApp-OTP login)", () => {
     // Sanity check: customer B (the actual owner) can still act on their own
     // request, proving the 404s above are isolation, not a broken route.
     const agentB = await loginAsTrackingPhone(phoneB);
-    const bApprovesOwnInvoice = await agentB.post(`/api/tracking/requests/${requestBId}/invoice/approve`);
+    const bApprovesOwnInvoice = await agentB.post(`/api/tracking/requests/${requestBId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(agentB, requestBId) });
     assert.equal(bApprovesOwnInvoice.status, 200, JSON.stringify(bApprovesOwnInvoice.body));
     assert.equal(invoiceB.contactRequestId, requestBId);
   });

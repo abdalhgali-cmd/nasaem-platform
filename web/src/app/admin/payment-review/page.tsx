@@ -81,7 +81,8 @@ export default function PaymentReviewPage() {
   }
 
   async function rejectPayment(item: Item) {
-    if (!item.pendingPayment) return;
+    const isContactRequest = item.source === "contact_request";
+    if (!isContactRequest && !item.pendingPayment) return;
     if (!rejectReason.trim()) {
       setError("يرجى كتابة سبب الرفض");
       return;
@@ -90,7 +91,12 @@ export default function PaymentReviewPage() {
     setMessage("");
     setError("");
     try {
-      const response = await fetch(`${API_URL}/payments/${encodeURIComponent(item.pendingPayment.id)}/reject`, {
+      // A customer request's receipt is rejected on the request itself (it
+      // returns to "awaiting transfer" and the customer sees the reason).
+      const endpoint = isContactRequest
+        ? `${API_URL}/contact-requests/${encodeURIComponent(item.id)}/reject-payment`
+        : `${API_URL}/payments/${encodeURIComponent(item.pendingPayment!.id)}/reject`;
+      const response = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -149,7 +155,7 @@ export default function PaymentReviewPage() {
                     <Button type="button" variant="gold" onClick={() => void confirmPayment(item)} disabled={workingId === item.id}>
                       <CheckCircle2 className="size-4" />{workingId === item.id ? "جارٍ التأكيد..." : "تأكيد الدفع"}
                     </Button>
-                    {item.pendingPayment ? (
+                    {item.pendingPayment || item.source === "contact_request" ? (
                       <Button type="button" variant="outline" className="text-destructive" onClick={() => { setRejectingId(rejectingId === item.id ? null : item.id); setRejectReason(""); }}>
                         <XCircle className="size-4" />رفض
                       </Button>

@@ -192,9 +192,11 @@ jobs:
       DATABASE_URL: postgresql://postgres:password@localhost:5432/nasaem_platform_dev?schema=public
       JWT_SECRET: ci_test_secret_do_not_use_in_production
       JWT_EXPIRES_IN: 7d
-      CORS_ORIGIN: http://localhost:3000
+      CORS_ORIGIN: http://localhost:3000,http://localhost:8081
       SEED_ADMIN_PASSWORD: CiTest@12345
       API_RATE_LIMIT: 2000
+      PUBLIC_CONTACT_RATE_LIMIT: 80
+      TRACKING_CODE_RATE_LIMIT: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -222,7 +224,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run Playwright E2E suite
         working-directory: web
-        run: npx playwright test --project=mobile-web --project=mobile-frontend --project=platform3
+        run: npx playwright test --project=mobile-web --project=mobile-frontend --project=platform3 --project=mobile-app
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4

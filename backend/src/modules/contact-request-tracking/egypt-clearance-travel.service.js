@@ -1,7 +1,11 @@
 import prisma from "../../config/database.js";
+import { trackingScope } from "../../utils/publicOrganization.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createContactRequestDocument } from "../contact-request-documents/contact-request-documents.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
+import { EGYPT_TRAVEL_TASK_KEYS, EGYPT_TRAVEL_TASK_TITLES } from "./egypt-travel-tasks.js";
+import { ACTIONS, checkAction, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 
 const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
 const KHARTOUM_TIME_ZONE = "Africa/Khartoum";
@@ -67,17 +71,13 @@ function ticketLabel(entryMode) {
     : "إثبات حجز الرحلة البرية — التعميم";
 }
 
-function bookingTaskTitle(entryMode) {
-  return entryMode === "AIR"
-    ? "ترتيب حجز طيران للموافقة الأمنية لمصر"
-    : "ترتيب رحلة برية للموافقة الأمنية لمصر";
+function bookingTaskKey(entryMode) {
+  return entryMode === "AIR" ? EGYPT_TRAVEL_TASK_KEYS.BOOKING_AIR : EGYPT_TRAVEL_TASK_KEYS.BOOKING_BORDER;
 }
 
+// Tasks are found by their stable systemKey; the title is only for display.
 async function syncEgyptTravelTasks(contactRequestId, plan) {
-  const bookingTitles = [
-    "ترتيب حجز طيران للموافقة الأمنية لمصر",
-    "ترتيب رحلة برية للموافقة الأمنية لمصر",
-  ];
+  const bookingKeys = [EGYPT_TRAVEL_TASK_KEYS.BOOKING_AIR, EGYPT_TRAVEL_TASK_KEYS.BOOKING_BORDER];
 
   if (plan.bookingStatus === "NEEDS_NASAEM") {
     await prisma.caseTask.updateMany({
@@ -86,7 +86,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: { in: bookingTitles.filter((title) => title !== bookingTaskTitle(plan.entryMode)) },
+        systemKey: { in: bookingKeys.filter((key) => key !== bookingTaskKey(plan.entryMode)) },
       },
       data: { status: "CANCELLED" },
     });
@@ -97,7 +97,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: bookingTaskTitle(plan.entryMode),
+        systemKey: bookingTaskKey(plan.entryMode),
       },
       select: { id: true },
     });
@@ -107,7 +107,8 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
           contactRequestId,
           type: "OTHER",
           source: "SYSTEM",
-          title: bookingTaskTitle(plan.entryMode),
+          systemKey: bookingTaskKey(plan.entryMode),
+          title: EGYPT_TRAVEL_TASK_TITLES[bookingTaskKey(plan.entryMode)],
         },
       });
     }
@@ -118,13 +119,13 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: { in: bookingTitles },
+        systemKey: { in: bookingKeys },
       },
       data: { status: "CANCELLED" },
     });
   }
 
-  const circularTitle = "تجهيز تعميم الموافقة الأمنية لمصر";
+  const circularKey = EGYPT_TRAVEL_TASK_KEYS.CIRCULAR;
   if (plan.circularStatus === "READY_FOR_CIRCULAR") {
     const parsed = parseDateOnly(plan.entryDate);
     const dueAt = parsed ? new Date(parsed.utc.getTime() - 3 * MS_PER_DAY) : null;
@@ -134,7 +135,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: circularTitle,
+        systemKey: circularKey,
       },
       select: { id: true },
     });
@@ -146,7 +147,8 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
           contactRequestId,
           type: "OTHER",
           source: "SYSTEM",
-          title: circularTitle,
+          systemKey: circularKey,
+          title: EGYPT_TRAVEL_TASK_TITLES[circularKey],
           dueAt,
         },
       });
@@ -158,7 +160,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: circularTitle,
+        systemKey: circularKey,
       },
       data: { status: "CANCELLED" },
     });
@@ -172,15 +174,17 @@ export async function saveMyEgyptTravelPlan(
   file
 ) {
   const request = await prisma.contactRequest.findFirst({
-    where: { id: contactRequestId, phoneNormalized },
+    where: { id: contactRequestId, ...trackingScope(phoneNormalized) },
     include: {
       visaType: { select: { code: true } },
-      deliverables: { select: { id: true } },
+      deliverables: { select: { id: true, publishedAt: true } },
     },
   });
 
   if (!request) return { error: "NOT_FOUND" };
   if (request.visaType?.code !== EGYPT_CLEARANCE_CODE) return { error: "WRONG_SERVICE" };
+  const closedRefusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, request);
+  if (closedRefusal) return { refusal: closedRefusal };
 
   const daysUntilEntry = calendarDaysUntilEntry(entryDate);
   if (daysUntilEntry === null) return { error: "INVALID_DATE" };
@@ -207,7 +211,7 @@ export async function saveMyEgyptTravelPlan(
   const circular = deriveEgyptCircularStatus({
     entryDate,
     bookingStatus,
-    approvalIssued: request.deliverables.length > 0,
+    approvalIssued: publishedDeliverables(request).length > 0,
   });
 
   const plan = {
@@ -220,15 +224,18 @@ export async function saveMyEgyptTravelPlan(
     updatedAt: new Date().toISOString(),
   };
 
-  await prisma.contactRequest.update({
-    where: { id: contactRequestId },
-    data: {
-      intakeData: {
-        ...(request.intakeData || {}),
-        egyptTravel: plan,
-      },
-    },
+  // Written under the request's row lock, re-checking that it is still
+  // open and merging into the intakeData stored at that moment.
+  const saved = await withLockedRequest(contactRequestId, null, async (tx, locked) => {
+    const refusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, locked);
+    if (refusal) refuseWith(refusal);
+    await tx.contactRequest.update({
+      where: { id: contactRequestId },
+      data: { intakeData: { ...(locked.intakeData || {}), egyptTravel: plan } },
+    });
+    return { ok: true };
   });
+  if (saved.error || saved.refusal) return saved;
 
   await syncEgyptTravelTasks(contactRequestId, plan);
 
@@ -246,6 +253,8 @@ export async function saveMyEgyptTravelPlan(
         ? `طلب العميل حجز ${entryMode === "AIR" ? "طيران" : "رحلة برية"} للطلب ${contactRequestId} بتاريخ دخول ${entryDate}.`
         : `رفع العميل بيانات الحجز للطلب ${contactRequestId} بتاريخ دخول ${entryDate}.`,
     type: "EGYPT_CLEARANCE_TRAVEL_PLAN_UPDATED",
+    contactRequestId,
+    alsoRoles: ["EMPLOYEE"],
   });
 
   return { plan };

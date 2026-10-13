@@ -45,10 +45,16 @@ describe("service intake — public catalog", () => {
       "motionEnabled",
       "motionVideoKey",
       "name",
+      "paymentAfterDocumentReview",
       "priceSdg",
+      "priceUnit",
+      "pricingMode",
       "processingTime",
       "updatedAt",
     ]);
+    // Explicit pricing configuration (fixed price vs agency quote), never
+    // inferred from basePrice; seeded services stay QUOTE.
+    assert.equal(umrah.pricingMode, "QUOTE");
 
     const packages = res.body.data.services.filter((s) => s.category === "package");
     // Subset, not exact-count: the test database is shared across test

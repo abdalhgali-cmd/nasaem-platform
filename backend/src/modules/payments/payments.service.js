@@ -1,7 +1,9 @@
 import prismaPackage from "@prisma/client";
 
 const { Prisma } = prismaPackage;
+import crypto from "node:crypto";
 import prisma from "../../config/database.js";
+import { computeSettlement, refundableAmount, toMoney } from "./settlement.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 
@@ -12,45 +14,72 @@ function toDecimal(value) {
 const paymentInclude = {
   order: { include: { customer: { select: safeCustomerSelect } } },
   reviewedBy: { select: safeUserSelect },
+  createdBy: { select: safeUserSelect },
+  refundOf: { select: { id: true, amount: true, currency: true, paidAt: true, paymentMethod: true } },
 };
 
-// IMPORTANT: `db` must be the transaction client (`tx`) passed down from
-// createPayment's `prisma.$transaction(...)` callback, not the module-level
-// `prisma` client. The plain client runs its own queries outside the open
-// transaction, so it can't see writes the transaction hasn't committed yet
-// (e.g. the payment just created) and silently recalculates against stale
-// data — which is what was happening before this fix.
-//
-// Only PAID payments count toward the total. A payment awaiting review
-// (status stays UNPAID with reviewStatus PENDING until confirmed — see
-// confirmPayment/rejectPayment below) must never inflate the order's paid
-// total before staff have actually confirmed it.
+// Locks the order row for the rest of the transaction. Every write that
+// changes an order's money (record, confirm, reject, refund) takes this lock
+// first, so concurrent requests on the same order run one after another and
+// each sees the previous one's result: two simultaneous submissions cannot
+// both pass the over-payment or over-refund check.
+async function lockOrder(tx, orderId, organizationId) {
+  const rows = organizationId
+    ? await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} AND "organizationId" = ${organizationId} FOR UPDATE`
+    : await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+  if (rows.length === 0) return null;
+  return tx.order.findUnique({
+    where: { id: orderId },
+    select: { id: true, totalAmount: true, currency: true, organizationId: true },
+  });
+}
+
+async function loadSettlement(db, order) {
+  const payments = await db.payment.findMany({
+    where: { orderId: order.id },
+    select: { id: true, amount: true, currency: true, status: true, kind: true, reviewStatus: true },
+  });
+  return computeSettlement(order, payments);
+}
+
+// `db` must be the transaction client: the plain client cannot see the
+// transaction's uncommitted writes. Order.paymentStatus is the *settlement*
+// state (UNPAID / PARTIAL / PAID / REFUNDED) derived from confirmed money in
+// the order's currency; it is never set directly from a payment row's status.
 async function recalculateOrderPaymentStatus(db, orderId) {
   const order = await db.order.findUnique({
     where: { id: orderId },
-    select: { totalAmount: true },
+    select: { id: true, totalAmount: true, currency: true },
   });
+  const settlement = await loadSettlement(db, order);
+  await db.order.update({ where: { id: orderId }, data: { paymentStatus: settlement.status } });
+  return settlement;
+}
 
-  const payments = await db.payment.findMany({
-    where: { orderId, status: "PAID" },
-    select: { amount: true, status: true },
+function httpError(statusCode, code, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
+}
+
+function hashRequest(fields) {
+  return crypto.createHash("sha256").update(JSON.stringify(fields)).digest("hex");
+}
+
+// Returns the payment already stored under this key, or throws when the key
+// was used for a different request. null when the key is new.
+async function findIdempotentReplay(db, idempotencyKey, requestHash, organizationId) {
+  if (!idempotencyKey) return null;
+  const existing = await db.payment.findUnique({
+    where: { idempotencyKey },
+    include: { order: { select: { organizationId: true } } },
   });
-
-  const totalPaid = payments.reduce((sum, payment) => sum.plus(payment.amount), new Prisma.Decimal(0));
-
-  let paymentStatus = "UNPAID";
-  if (totalPaid.greaterThanOrEqualTo(order?.totalAmount ?? new Prisma.Decimal(0))) {
-    paymentStatus = "PAID";
-  } else if (totalPaid.greaterThan(0)) {
-    paymentStatus = "PARTIAL";
+  if (!existing) return null;
+  if (existing.requestHash !== requestHash || (organizationId && existing.order.organizationId !== organizationId)) {
+    throw httpError(409, "IDEMPOTENCY_KEY_REUSED", "تم استخدام مفتاح العملية نفسه لعملية مختلفة. أعد تحميل الصفحة ثم حاول مرة أخرى.");
   }
-
-  await db.order.update({
-    where: { id: orderId },
-    data: { paymentStatus },
-  });
-
-  return paymentStatus;
+  return existing;
 }
 
 export async function listPayments({ page, limit, skip, status, reviewStatus, orderId, organizationId }) {
@@ -86,63 +115,150 @@ export async function getPaymentById(id, organizationId) {
   });
 }
 
-// pendingReview: true records the payment as awaiting staff confirmation
-// (status UNPAID, reviewStatus PENDING) instead of immediately counting it
-// as PAID. Used when a customer/staff logs a bank transfer or receipt that
-// still needs to be verified before it can move the order's balance. The
-// default (no pendingReview) keeps the pre-existing behavior — staff
-// recording a payment they have already verified in person/at the counter.
-export async function createPayment(data, organizationId) {
-  return prisma.$transaction(async (tx) => {
-    const order = await tx.order.findFirst({
-      where: { id: data.orderId, ...(organizationId ? { organizationId } : {}) },
-      select: { id: true, totalAmount: true },
-    });
+// Records money received for an order.
+// - currency defaults to the ORDER's currency; a different currency is
+//   refused (no approved conversion workflow exists for payments).
+// - pendingReview: true stores it as awaiting confirmation (not counted as
+//   received until confirmed); otherwise it is a confirmed payment.
+// - a confirmed payment may not take net paid above the order total (no
+//   customer-credit workflow exists, so over-payment is refused rather than
+//   creating an untracked balance).
+// - idempotencyKey: a replay returns the stored payment ({ replayed: true });
+//   the same key with different data is refused.
+export async function createPayment(data, organizationId, actorId = null) {
+  const amount = toMoney(data.amount);
+  if (!amount.greaterThan(0)) throw httpError(400, "INVALID_AMOUNT", "المبلغ يجب أن يكون أكبر من صفر");
+  const pendingReview = Boolean(data.pendingReview);
 
-    if (!order) {
-      return null;
+  const run = () => prisma.$transaction(async (tx) => {
+    const order = await lockOrder(tx, data.orderId, organizationId);
+    if (!order) return null;
+
+    const currency = data.currency || order.currency;
+    const requestHash = hashRequest({
+      kind: "PAYMENT", orderId: order.id, amount: amount.toFixed(2), currency,
+      paymentMethod: data.paymentMethod, referenceNumber: data.referenceNumber || null, pendingReview,
+    });
+    const replay = await findIdempotentReplay(tx, data.idempotencyKey, requestHash, organizationId);
+    if (replay) return { payment: await tx.payment.findUnique({ where: { id: replay.id }, include: paymentInclude }), replayed: true };
+
+    if (currency !== order.currency) {
+      throw httpError(400, "CURRENCY_MISMATCH", `عملة الدفعة (${currency}) تختلف عن عملة الطلب (${order.currency}). سجّل الدفعة بعملة الطلب؛ لا يوجد تحويل عملات معتمد للدفعات.`);
     }
 
-    const pendingReview = Boolean(data.pendingReview);
+    if (!pendingReview) {
+      const settlement = await loadSettlement(tx, order);
+      if (amount.greaterThan(settlement.outstanding)) {
+        throw httpError(409, "OVERPAYMENT", `المبلغ يتجاوز المتبقي على الطلب (${settlement.outstanding} ${order.currency}).`);
+      }
+    }
+
     const payment = await tx.payment.create({
       data: {
-        orderId: data.orderId,
-        amount: toDecimal(data.amount),
-        currency: data.currency || "SAR",
+        orderId: order.id,
+        amount,
+        currency,
         paymentMethod: data.paymentMethod,
         referenceNumber: data.referenceNumber || null,
-        status: pendingReview ? "UNPAID" : data.status || "PAID",
+        status: pendingReview ? "UNPAID" : "PAID",
         reviewStatus: pendingReview ? "PENDING" : null,
         paidAt: data.paidAt ? new Date(data.paidAt) : new Date(),
+        kind: "PAYMENT",
+        createdByUserId: actorId,
+        idempotencyKey: data.idempotencyKey || null,
+        requestHash,
       },
     });
 
-    await recalculateOrderPaymentStatus(tx, data.orderId);
-
-    // Re-fetch with the order relation now that the transaction has applied
-    // the recalculated paymentStatus, so the response reflects reality.
-    return tx.payment.findUnique({
-      where: { id: payment.id },
-      include: paymentInclude,
-    });
+    await recalculateOrderPaymentStatus(tx, order.id);
+    return { payment: await tx.payment.findUnique({ where: { id: payment.id }, include: paymentInclude }), replayed: false };
   });
+
+  return retryOnIdempotencyRace(run, data.idempotencyKey);
 }
 
-// Confirming moves the payment to PAID (so it now counts toward the order's
-// paid total) and stamps who reviewed it. Only a payment still PENDING
-// review can be confirmed — a payment recorded directly (reviewStatus null)
-// was never submitted for review and has nothing to confirm; an already
-// decided one (CONFIRMED/REJECTED) must not be silently re-decided, which is
-// exactly the "confirming in a way that produces incorrect financial data"
-// the review workflow exists to prevent.
+// Two concurrent first submissions of the same key on *different* orders do
+// not share an order lock; the unique index rejects the second insert and a
+// re-run then finds the stored payment (or reports the key reuse).
+async function retryOnIdempotencyRace(run, idempotencyKey) {
+  try {
+    return await run();
+  } catch (error) {
+    if (idempotencyKey && error?.code === "P2002") return run();
+    throw error;
+  }
+}
+
+// Refunds part or all of one confirmed payment. The refund is its own row
+// (kind REFUND) linked to the original, which is never modified.
+export async function refundPayment(paymentId, { amount: rawAmount, reason, idempotencyKey }, organizationId, actorId) {
+  const amount = toMoney(rawAmount);
+  if (!amount.greaterThan(0)) throw httpError(400, "INVALID_AMOUNT", "المبلغ يجب أن يكون أكبر من صفر");
+
+  const run = () => prisma.$transaction(async (tx) => {
+    const original = await tx.payment.findFirst({
+      where: { id: paymentId, ...(organizationId ? { order: { organizationId } } : {}) },
+      select: { id: true, orderId: true },
+    });
+    if (!original) return null;
+    const order = await lockOrder(tx, original.orderId, organizationId);
+    if (!order) return null;
+
+    const payment = await tx.payment.findUnique({ where: { id: paymentId } });
+    const requestHash = hashRequest({ kind: "REFUND", paymentId, amount: amount.toFixed(2), reason });
+    const replay = await findIdempotentReplay(tx, idempotencyKey, requestHash, organizationId);
+    if (replay) return { payment: await tx.payment.findUnique({ where: { id: replay.id }, include: paymentInclude }), replayed: true };
+
+    if (payment.kind !== "PAYMENT" || payment.status !== "PAID") {
+      throw httpError(409, "NOT_REFUNDABLE", "يمكن الاسترجاع من دفعة مؤكدة فقط.");
+    }
+    const refunds = await tx.payment.findMany({ where: { refundOfPaymentId: paymentId }, select: { amount: true, status: true } });
+    const refundable = refundableAmount(payment, refunds);
+    if (amount.greaterThan(refundable)) {
+      throw httpError(409, "OVER_REFUND", `مبلغ الاسترجاع يتجاوز المتاح للاسترجاع من هذه الدفعة (${refundable.toFixed(2)} ${payment.currency}).`);
+    }
+
+    const refund = await tx.payment.create({
+      data: {
+        orderId: payment.orderId,
+        amount,
+        currency: payment.currency,
+        paymentMethod: payment.paymentMethod,
+        status: "PAID",
+        paidAt: new Date(),
+        kind: "REFUND",
+        refundOfPaymentId: payment.id,
+        refundReason: reason,
+        createdByUserId: actorId,
+        idempotencyKey: idempotencyKey || null,
+        requestHash,
+      },
+    });
+    await recalculateOrderPaymentStatus(tx, payment.orderId);
+    return { payment: await tx.payment.findUnique({ where: { id: refund.id }, include: paymentInclude }), replayed: false };
+  });
+
+  return retryOnIdempotencyRace(run, idempotencyKey);
+}
+
+// Confirming moves a payment awaiting review to PAID (now counted as
+// received) and stamps the reviewer. Only a PENDING payment can be decided,
+// and confirmation is refused if it would take net paid above the total.
 export async function confirmPayment(id, reviewedByUserId, organizationId) {
   return prisma.$transaction(async (tx) => {
-    const payment = await tx.payment.findFirst({ where: { id, ...(organizationId ? { order: { organizationId } } : {}) } });
-    if (!payment) return null;
+    const found = await tx.payment.findFirst({ where: { id, ...(organizationId ? { order: { organizationId } } : {}) }, select: { orderId: true } });
+    if (!found) return null;
+    const order = await lockOrder(tx, found.orderId, organizationId);
+    const payment = await tx.payment.findUnique({ where: { id } });
     if (payment.reviewStatus !== "PENDING") {
-      const error = new Error("Only a payment awaiting review can be confirmed");
-      error.statusCode = 409;
-      throw error;
+      throw httpError(409, "NOT_PENDING", "يمكن تأكيد دفعة بانتظار المراجعة فقط.");
+    }
+    if (payment.currency !== order.currency) {
+      throw httpError(409, "CURRENCY_MISMATCH", `عملة الدفعة (${payment.currency}) تختلف عن عملة الطلب (${order.currency}). ارفضها واطلب دفعة بعملة الطلب.`);
+    }
+    const settlement = await loadSettlement(tx, order);
+    if (new Prisma.Decimal(payment.amount).greaterThan(settlement.outstanding)) {
+      throw httpError(409, "OVERPAYMENT", `تأكيد هذه الدفعة يتجاوز المتبقي على الطلب (${settlement.outstanding} ${order.currency}).`);
     }
 
     await tx.payment.update({
@@ -157,21 +273,29 @@ export async function confirmPayment(id, reviewedByUserId, organizationId) {
 
 export async function rejectPayment(id, reviewedByUserId, reason, organizationId) {
   return prisma.$transaction(async (tx) => {
-    const payment = await tx.payment.findFirst({ where: { id, ...(organizationId ? { order: { organizationId } } : {}) } });
-    if (!payment) return null;
+    const found = await tx.payment.findFirst({ where: { id, ...(organizationId ? { order: { organizationId } } : {}) }, select: { orderId: true } });
+    if (!found) return null;
+    await lockOrder(tx, found.orderId, organizationId);
+    const payment = await tx.payment.findUnique({ where: { id } });
     if (payment.reviewStatus !== "PENDING") {
-      const error = new Error("Only a payment awaiting review can be rejected");
-      error.statusCode = 409;
-      throw error;
+      throw httpError(409, "NOT_PENDING", "يمكن رفض دفعة بانتظار المراجعة فقط.");
     }
 
     await tx.payment.update({
       where: { id },
       data: { status: "UNPAID", reviewStatus: "REJECTED", rejectionReason: reason, reviewedByUserId, reviewedAt: new Date() },
     });
-    // A rejected payment never counted toward the total (it stayed UNPAID),
-    // so the order's paymentStatus does not change — no recalculation needed.
-
+    // A rejected payment never counted as received, so the settlement does
+    // not change.
     return tx.payment.findUnique({ where: { id }, include: paymentInclude });
   });
 }
+
+// Settlement for one order (used by the order detail API).
+export async function getOrderSettlement(orderId) {
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, totalAmount: true, currency: true } });
+  if (!order) return null;
+  return loadSettlement(prisma, order);
+}
+
+export { recalculateOrderPaymentStatus, lockOrder };

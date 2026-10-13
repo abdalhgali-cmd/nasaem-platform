@@ -111,7 +111,7 @@ describe("contact request multi-carrier offers", () => {
     assert.equal(confirmRes.body.data.paymentStatus, "CONFIRMED");
 
     tracked = await fetchTracked(customerAgent, contactRequestId);
-    assert.equal(tracked.statusLabel, "تم قبول الدفع، بانتظار صدور التأشيرة");
+    assert.equal(tracked.statusLabel, "تم قبول الدفع، بانتظار بدء التنفيذ");
   });
 
   test("mutual exclusivity, ownership, and not-found guards", async () => {

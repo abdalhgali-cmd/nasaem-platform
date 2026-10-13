@@ -1,3 +1,6 @@
+import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
+import { allowedActions, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { buildCustomerChecklist, buildCustomerNextActions } from "../contact-request-tracking/customer-checklist.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { getSystemActorId } from "../../utils/systemActor.js";
@@ -189,11 +192,15 @@ export { COUPON_ERROR_MESSAGES };
 
 const CUSTOMER_REQUEST_INCLUDE = {
   serviceRef: { select: { id: true, name: true, category: true } },
-  visaType: { select: { id: true, name: true, country: true } },
-  invoice: { select: { id: true, amount: true, currency: true, description: true, status: true, createdAt: true, decidedAt: true } },
-  offers: { select: { id: true, carrier: true, description: true, amount: true, currency: true, createdAt: true }, orderBy: { createdAt: "desc" } },
-  documents: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, status: true, reviewNote: true, createdAt: true }, orderBy: { createdAt: "desc" } },
-  deliverables: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
+  invoice: { select: { id: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, description: true, status: true, version: true, createdAt: true, updatedAt: true, decidedAt: true } },
+  offers: { select: { id: true, carrier: true, description: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  documents: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, status: true, reviewNote: true, travelerId: true, requirementId: true, supersededAt: true, classification: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  travelers: { select: { id: true, fullName: true, isPrimary: true, sortOrder: true }, orderBy: { sortOrder: "asc" } },
+  // For the completion policy only (Egypt travel tasks); not returned.
+  tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true, systemKey: true } },
+  // Drafts are filtered out in toCustomerRequest (publishedAt null).
+  deliverables: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, publishedAt: true, travelerIds: true, createdAt: true }, orderBy: { createdAt: "desc" } },
 };
 
 function getRequestNextAction(request) {
@@ -209,7 +216,14 @@ function getRequestNextAction(request) {
 }
 
 function toCustomerRequest(request) {
+  const checklist = buildCustomerChecklist(request);
+  const progress = deriveRequestProgress(request);
   return {
+    progress,
+    statusLabel: progress.label,
+    allowedActions: allowedActions(request, { audience: "customer" }),
+    checklist,
+    nextActions: buildCustomerNextActions(request, checklist),
     id: request.id,
     requestNumber: request.id,
     service: request.serviceRef || (request.service ? { name: request.service, category: null } : null),
@@ -217,6 +231,8 @@ function toCustomerRequest(request) {
     status: request.status,
     outcome: request.outcome,
     paymentStatus: request.paymentStatus,
+    paymentRejection: request.paymentStatus === "AWAITING_TRANSFER" && request.paymentRejectionReason ? { reason: request.paymentRejectionReason, at: request.paymentRejectedAt } : null,
+    travelers: request.travelers,
     createdAt: request.createdAt,
     updatedAt: request.updatedAt,
     latestUpdateAt: request.updatedAt,
@@ -226,7 +242,7 @@ function toCustomerRequest(request) {
     offers: request.offers,
     selectedOfferId: request.selectedOfferId,
     documents: request.documents,
-    deliverables: request.deliverables,
+    deliverables: publishedDeliverables(request),
   };
 }
 
@@ -250,16 +266,16 @@ export async function getMyRequestById(customerId, requestId) {
   return { ...toCustomerRequest(request), timeline };
 }
 
-export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId }) {
+export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId, travelerId }) {
   const request = await prisma.contactRequest.findFirst({ where: { id: requestId, customerId }, select: { id: true } });
   if (!request) return { error: "NOT_FOUND" };
-  return createContactRequestDocument(requestId, { label, file, requirementId });
+  return createContactRequestDocument(requestId, { label, file, requirementId, travelerId });
 }
 
 export async function getMyRequestDeliverableFile(customerId, requestId, deliverableId) {
   const request = await prisma.contactRequest.findFirst({ where: { id: requestId, customerId }, select: { id: true } });
   if (!request) return null;
-  return getContactRequestDeliverableFile(requestId, deliverableId);
+  return getContactRequestDeliverableFile(requestId, deliverableId, { publishedOnly: true });
 }
 
 export { getRequestNextAction };
