@@ -169,6 +169,7 @@ export async function getContactRequests(req, res, next) {
       paymentStatus: req.query.paymentStatus,
       serviceId: req.query.serviceId,
       category: req.query.category,
+      serviceKind: req.query.serviceKind,
       createdFrom: req.query.createdFrom,
       createdTo: req.query.createdTo,
     });

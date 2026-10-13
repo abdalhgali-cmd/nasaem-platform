@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { RequestPaymentStep, type PaymentAccess, type PaymentSummary } from "@/components/sections/request-payment-step";
 import { API_URL } from "@/lib/api-url";
 
 export type EgyptClearanceRequirement = {
@@ -107,6 +108,8 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
   const [passportError, setPassportError] = React.useState("");
   const [passportOcrResult, setPassportOcrResult] = React.useState<Record<string, unknown> | null>(null);
   const [resultId, setResultId] = React.useState<string | null>(null);
+  const [paymentAccess, setPaymentAccess] = React.useState<PaymentAccess | null>(null);
+  const [payment, setPayment] = React.useState<{ summary: PaymentSummary | null; outcome: "RECEIPT_SENT" | "LATER" } | null>(null);
   const draftTokenRef = React.useRef<string | null>(null);
   const draftPromiseRef = React.useRef<Promise<string> | null>(null);
   const hydratedRef = React.useRef(false);
@@ -360,6 +363,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
       }
       const id = payload?.data?.id as string | undefined;
       if (!id) throw new Error("تم الإرسال لكن تعذّر قراءة رقم الطلب");
+      setPaymentAccess(!fixedPrice.paymentAfterDocumentReview && payload?.data?.paymentAccess?.token ? payload.data.paymentAccess : null);
       setResultId(id);
       try {
         window.localStorage.removeItem(LOCAL_KEY);
@@ -374,6 +378,10 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
     }
   }
 
+  if (resultId && paymentAccess && !payment) {
+    return <RequestPaymentStep requestId={resultId} access={paymentAccess} onFinished={(summary, outcome) => setPayment({ summary, outcome })} />;
+  }
+
   if (resultId) {
     return (
       <div className="mx-auto max-w-2xl rounded-3xl border border-success/30 bg-success/5 p-8 text-center shadow-sm sm:p-10">
@@ -382,13 +390,21 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           رقم طلبك <span className="font-mono font-bold text-foreground" dir="ltr">{resultId}</span>. يمكنك تحديد موعد السفر لاحقًا حتى لو كان بعد عدة أشهر، والتعميم سيكون مرحلة لاحقة في نفس الطلب.
         </p>
+        {payment?.summary ? (
+          <div className="mt-6 grid gap-2 rounded-2xl border border-border bg-card p-5 text-start text-sm">
+            <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">حالة الطلب</span><span className="font-semibold text-foreground">{payment.summary.statusLabel}</span></div>
+            <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">حالة الدفع</span><span className="font-semibold text-foreground" data-testid="payment-status">{payment.summary.paymentStatusLabel}</span></div>
+          </div>
+        ) : null}
         <div className="mt-6 rounded-2xl border border-border bg-card p-5 text-start text-sm">
           <p className="font-bold text-foreground">ماذا بعد؟</p>
           <p className="mt-2 text-muted-foreground" data-testid="egypt-next-step">
             اعتمدت السعر الثابت <span dir="ltr" className="font-bold text-foreground">{total.amount.toLocaleString("en-US")} {total.currency}</span>؛ لن يصلك عرض سعر آخر.{" "}
             {fixedPrice.paymentAfterDocumentReview
               ? "بعد اعتماد مستنداتك تُفتح خطوة الدفع في صفحة التتبع بهذا الإجمالي."
-              : "خطوة الدفع مفتوحة الآن في صفحة التتبع: بيانات الحساب ورفع إيصال التحويل."}{" "}
+              : payment?.outcome === "RECEIPT_SENT"
+                ? "وصل إشعار التحويل وهو بانتظار مراجعة موظف مختص؛ لا يُعتبر الطلب مدفوعًا قبل تأكيده."
+                : "خطوة الدفع مفتوحة في صفحة التتبع: بيانات الحساب ورفع إيصال التحويل."}{" "}
             عندما تحدد رحلتك ستكمل بيانات الحجز والتعميم من نفس الطلب.
           </p>
         </div>
@@ -514,12 +530,28 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
         <p className="mt-1 leading-relaxed text-muted-foreground">التعميم ليس شرطًا لتقديم الموافقة الآن. عندما تحدد موعد السفر سنطلب الحجز وتاريخ الدخول، ويجب تجهيز التعميم قبل الرحلة بمدة لا تقل عن 72 ساعة.</p>
       </div>
 
+      <div className="mt-7 rounded-2xl border border-border p-4 text-sm" data-testid="egypt-review">
+        <p className="font-bold text-foreground">راجع بياناتك قبل الإرسال</p>
+        <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">نوع الموافقة</dt><dd className="font-semibold text-foreground">{entryMode === "AIR" ? "دخول بالطيران" : entryMode === "BORDER" ? "دخول عبر المعبر" : "—"}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">الاسم</dt><dd className="font-semibold text-foreground">{name || "—"}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">الهاتف</dt><dd className="font-semibold text-foreground" dir="ltr">{phone || "—"}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">رقم الجواز</dt><dd className="font-semibold text-foreground" dir="ltr">{passportNo || "—"}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">تاريخ الميلاد</dt><dd className="font-semibold text-foreground" dir="ltr">{birthDate || "—"}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">صورة الجواز</dt><dd className="font-semibold text-foreground">{passportDocumentId ? "مرفقة" : "لم تُرفق بعد"}</dd></div>
+        </dl>
+        <p className="mt-2 text-xs text-muted-foreground">يمكنك تعديل أي حقل أعلاه قبل الإرسال.</p>
+      </div>
+
       <div className="mt-7 rounded-2xl border border-accent/40 bg-accent/5 p-4" data-testid="egypt-total">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm font-bold text-foreground">الإجمالي النهائي</span>
           <span className="text-lg font-black text-foreground" dir="ltr" data-testid="egypt-total-amount">{total.amount.toLocaleString("en-US")} {total.currency}</span>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">سعر ثابت من الوكالة، بلا عرض سعر لاحق.</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          سعر ثابت من الوكالة، بلا عرض سعر لاحق.
+          {fixedPrice.paymentAfterDocumentReview ? " يُفتح الدفع بعد اعتماد مستنداتك." : " بعد الإرسال تنتقل مباشرة إلى الدفع."}
+        </p>
         <label className="mt-3 flex items-start gap-2 text-sm font-semibold text-foreground">
           <input type="checkbox" className="mt-1 size-4 accent-primary" checked={totalConfirmed} onChange={(event) => setTotalConfirmed(event.target.checked)} data-testid="egypt-confirm-total" />
           <span>أؤكد الإجمالي النهائي وعملته</span>

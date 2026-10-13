@@ -41,10 +41,10 @@ type Detail = {
   };
 };
 
-const PAYMENT_LABEL: Record<string, string> = {
+export const PAYMENT_LABEL: Record<string, string> = {
   NOT_REQUIRED: "لم يُحدَّد سعر",
   AWAITING_TRANSFER: "بانتظار التحويل",
-  UNDER_REVIEW: "إيصال قيد المراجعة",
+  UNDER_REVIEW: "بانتظار مراجعة التحويل",
   CONFIRMED: "الدفع مقبول",
 };
 const CURRENCIES = ["SAR", "USD", "SDG", "EGP", "AED"];

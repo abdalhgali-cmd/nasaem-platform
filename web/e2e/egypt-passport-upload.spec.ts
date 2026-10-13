@@ -112,12 +112,27 @@ test.describe.serial("Egypt Security Approval on the website", () => {
         await expect(page.getByText("تم رفع الجواز بنجاح", { exact: true })).toBeVisible({ timeout: 60_000 });
 
         await expect(page.getByTestId("egypt-total-amount")).toHaveText(total);
+        // A review of what will be sent, editable until sending.
+        await expect(page.getByTestId("egypt-review")).toContainText(name);
+        await expect(page.getByTestId("egypt-review")).toContainText(`P${stamp}`);
+        await expect(page.getByTestId("egypt-review")).toContainText(mode === "AIR" ? "دخول بالطيران" : "دخول عبر المعبر");
         const send = page.getByRole("button", { name: "إرسال طلب الموافقة" });
         await expect(send).toBeDisabled();
         await page.getByTestId("egypt-confirm-total").check();
         const submitted = page.waitForResponse((r) => /\/intake-drafts\/[^/]+\/submit$/.test(r.url()));
         await send.click();
         expect((await submitted).status()).toBe(201);
+        // Straight to the payment step with the accepted total.
+        const directStep = page.getByTestId("payment-step");
+        await expect(directStep.getByTestId("payment-amount")).toHaveText(total, { timeout: 15_000 });
+        if (mode === "AIR") {
+          // AIR pays later through /track (below).
+          await directStep.getByRole("button", { name: /سأحوّل لاحقًا/ }).click();
+        } else {
+          await directStep.getByTestId("payment-receipt-input").setInputFiles(DOCUMENT_FIXTURE);
+          await directStep.getByRole("button", { name: "إرسال الطلب للمراجعة" }).click();
+          await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة التحويل", { timeout: 15_000 });
+        }
         await expect(page.getByText("تم استلام طلب الموافقة الأمنية")).toBeVisible();
         await expect(page.getByTestId("egypt-next-step")).toContainText("لن يصلك عرض سعر آخر");
 
@@ -130,6 +145,7 @@ test.describe.serial("Egypt Security Approval on the website", () => {
         expect(stored.invoice.currency).toBe(currency);
         expect(stored.intakeData.egyptEntryMode).toBe(mode);
         expect(stored.allowedActions).not.toContain("ISSUE_QUOTE");
+        expect(stored.paymentStatus).toBe(mode === "AIR" ? "AWAITING_TRANSFER" : "UNDER_REVIEW");
 
         if (mode === "AIR") {
           await page.goto("/track");
