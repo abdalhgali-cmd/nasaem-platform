@@ -30,9 +30,15 @@ export const VISAS_HUB_ITEM = Object.freeze({
 // so concatenating both arrays makes Umrah, family visit and Egypt clearance
 // appear twice. The directory keeps one entry per customer journey: every
 // top-level Service plus one visas hub whose next screen lists VisaTypes.
+// The visa types listed under «التأشيرات». Umrah is its own section (the
+// Umrah shortcut and screen), never a visa in this list.
+export function hubVisaTypes(catalog) {
+  return (catalog?.visaTypes || []).filter((visaType) => String(visaType.category || "").toUpperCase() !== "UMRAH");
+}
+
 export function serviceDirectoryItems(catalog) {
   const services = catalog?.services || [];
-  return (catalog?.visaTypes || []).length ? [VISAS_HUB_ITEM, ...services] : [...services];
+  return hubVisaTypes(catalog).length ? [VISAS_HUB_ITEM, ...services] : [...services];
 }
 
 // Only shortcuts whose service is actually published are returned: a shortcut
@@ -42,7 +48,7 @@ export function resolveShortcuts(catalog) {
   const out = [];
   for (const shortcut of SHORTCUTS) {
     if (shortcut.hub) {
-      if ((catalog?.visaTypes || []).length) out.push({ ...shortcut });
+      if (hubVisaTypes(catalog).length) out.push({ ...shortcut });
       continue;
     }
     const item = shortcut.codes.map((code) => items.find((candidate) => (candidate.code || "").toUpperCase() === code)).find(Boolean);

@@ -26,7 +26,8 @@ export function VisaServices() {
       const response = await fetch(`${API_URL}/services/public`, { cache: "no-store" });
       const payload = (await response.json()) as { success?: boolean; data?: { visaTypes?: PublicVisa[] }; message?: string };
       if (!response.ok || !payload.success) throw new Error(payload.message || "تعذر تحميل خدمات التأشيرات");
-      setVisas(payload.data?.visaTypes ?? []);
+      // Umrah has its own section (/umrah), not a visa card.
+      setVisas((payload.data?.visaTypes ?? []).filter((visa) => visa.category !== "UMRAH"));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "تعذر تحميل خدمات التأشيرات");
     } finally { setLoading(false); }

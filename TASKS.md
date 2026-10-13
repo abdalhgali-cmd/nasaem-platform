@@ -84,6 +84,58 @@ Tests: backend `egyptClearanceVariants.test.js` 5/5 (catalog prices per variant;
 
 Local runs for this reconciliation: website/platform3 Playwright project 55/55 (incl. `admin-workflow`, `platform3`, website pricing/payment specs); web tsc/eslint ok. CI pending on the pushed head.
 
+## Service flow: Umrah section, Egypt approval, direct payment, admin queues (2026-10-13, branch `ccr-6f320531-vdqix0`, based on `claude/release-next`)
+
+Not merged, nothing deployed, no live data touched. Two **additive** migrations: `20261015090000_request_payment_access` (2 nullable columns + unique index), `20261015100000_umrah_guarantor_residence` (requirement rows: Umrah personal photo **deactivated, never deleted**; «إقامة الضامن» added once where missing).
+
+| Item | Status | Evidence |
+|---|---|---|
+| Unified flow: service → applicant → details → documents → summary + final price → **payment straight away** (amount, account in that currency, receipt) → submit for review → confirmation with number, request and payment status | VERIFIED (website Umrah/visa wizard, website Egypt form, app intake) | Request-scoped payment token returned on creation (`POST /contact-requests` and draft submit) for FIXED requests; stored as SHA-256 hash, 72h, opens only `GET /contact-requests/:id/payment-access` and `POST …/payment-access/receipt`. `paymentAccess.test.js` 5/5, `intakeDraftPricing.test.js`; e2e `umrah-payment-journey.spec.ts`, `egypt-passport-upload.spec.ts` (BORDER pays on the spot), `pricing-progress.spec.ts` «payment open: straight to the payment screen» |
+| Receipt ≠ paid: status «بانتظار مراجعة التحويل» (`UNDER_REVIEW`); only ACCOUNTANT/ADMIN confirm; audited with amount/currency/status change; staff notification linked to the request | VERIFIED | `paymentAccess.test.js` (employee 403, accountant 200, audit row, notification `contactRequestId`) |
+| Duplicate submissions | VERIFIED | Website wizard now sends one `submissionKey` per form + in-flight guard (app already did); retry returns the same request with a fresh token, old token stops working (`paymentAccess.test.js`, `website-fixed-price.spec.ts`, e2e double-click in `umrah-payment-journey.spec.ts`) |
+| Umrah as its own section | VERIFIED | `/umrah` uses the intake wizard on Umrah packages (documents, final price, payment) instead of the contact-only form; Umrah visa types removed from `/visas`, homepage visa list, wizard visa list and the app's visas hub (`platform3.spec.ts`, `service-view.test.mjs`). Existing Umrah requests untouched |
+| «إقامة الضامن» instead of the personal photo (Umrah only) | VERIFIED | Migration + seed; `umrahGuarantorRequirement.test.js` 6/6; checked on a DB with existing data and on a fresh DB; other packages keep their photo |
+| Prices SAR + SDG, admin-managed, no default rate | VERIFIED (existing + review line) | Prices come from the catalog (admin); SDG shown only from the agency's active FX rate (`fxRateToSdg`), otherwise «غير متاح حاليًا» (`pricing-view.test.mjs`). Seed's initial Umrah package prices are dev seed values only (QUOTE until the admin sets FIXED) |
+| Egypt form | VERIFIED (most was already done on `claude/release-next`: variants, `[object Object]`, entry method, FAQ) | Website form now shows a review of the data before sending and goes straight to payment |
+| Admin: Umrah / Egypt queues, receipt, statuses | VERIFIED | `GET /contact-requests?serviceKind=UMRAH|EGYPT_CLEARANCE` + case-workspace filter, service and payment chips; payment-review queue links the latest receipt (`staffServiceQueues.test.js` 2/2) |
+
+PR: **#94** (`ccr-6f320531-vdqix0` → `claude/release-next`). Owner approval covers opening the PR, verifying and fixing only — no merge, no deploy, no live data.
+
+Follow-up on owner review (2026-10-13):
+
+| Item | Status | Evidence |
+|---|---|---|
+| Payment token security | VERIFIED | Scoped to one request (another request's token → 404); expires (72h, expired → 404 `PAYMENT_ACCESS_INVALID`, nothing changes); header only (query string refused); hash never returned. Cannot confirm/reject a payment, open the staff detail, document files or tracking routes (all 401, as header or as Bearer). Summary exposes payment facts only (no documents, travelers, phone, passport, file names). Receipt upload: file required, type checked (text → 400), refused once under review/confirmed (409) and on a closed request; only ACCOUNTANT/ADMIN confirm. `paymentAccess.test.js` 9/9 |
+| Refresh during payment: no duplicate, clear way to finish | VERIFIED (fixed a real gap) | Website: after a submit the server-draft token was still stored, so a refresh offered «متابعة الطلب» and could resend the request → now dropped; the pending payment is kept per tab and a refresh returns to the payment step («طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى»), same for the Egypt form. App: pending payment kept on the device, home screen card «طلب بانتظار الدفع» until finished or expired. e2e: `umrah-payment-journey.spec.ts` (reload → resumed, still 1 request), `pricing-progress.spec.ts` (reload app → resume → receipt, 1 request); unit `experience-core.test.mjs` |
+| New Umrah packages inherit «إقامة الضامن» | VERIFIED | Created (or moved into an Umrah category) in the same transaction; other services untouched; a deactivated one is not re-added. `umrahGuarantorRequirement.test.js` 9/9 |
+| Migrations on a DB with old requests and documents | VERIFIED (local) | DB built with the base code `eee34d1` (migrations + seed) + Umrah/family requests whose documents point at the photo requirement, receipts, invoices. After this branch's migrations: requests 5, documents 15, travelers 5, invoices 2 identical field by field; no requirement deleted; 0 dangling document→requirement links (3 documents still linked to the now-inactive photo requirement); staff API: every old request 200, every file downloaded (15/15), Umrah queue lists them; token hash never returned. `scripts/release-restore-drill.sh` on a dump of that data + uploads archive: verdict pass (counts/payment total unchanged, 0 missing files, rollback-check to `eee34d1` exit 2 = roll-forward only, as designed) |
+
+Local results on `23e96be` (disposable PostgreSQL 16): backend full **891/891**; mobile unit **84/84**; Playwright, all four CI projects in one run (`mobile-web`, `mobile-frontend`, `platform3`, `mobile-app`) **96/96** — includes the «homepage Services grid: Family Visit card» test that failed once earlier (73/74), now green in the full run; web tsc/eslint ok.
+
+GitHub Actions (PR #94):
+- `23e96be` and `b81ec67`: Backend ✅, Frontend ✅, backup/restore drill ✅, build-apk ✅, **Playwright ❌ 95/96** — the new `umrah-payment-journey.spec.ts` used a non-exact heading locator («اختر الباقة» also matched the page h1 «اختر الباقة وأرسل طلبك»; strict-mode violation in CI, passed locally only because the h1 rendered alone first). Fixed in `3cd1a01` (exact locators, also for «تم استلام طلبك»).
+- **`3cd1a01`: Backend tests ✅, Frontend typecheck + build ✅, Playwright E2E ✅, PostgreSQL backup + restore drill ✅, build-apk ✅.** Vercel ❌ «Account is blocked» (account issue, not code; same on #91/#92).
+
+NOT TESTED: real Android device, live staging/production (no access, no approval). (The earlier gaps — reload during the website payment step, new Umrah packages without «إقامة الضامن» — are fixed above.)
+
+## Registration signs the customer in straight away (2026-10-13, `claude/release-next`, PR #92 merged into `claude/release-integration` as `4c32651`)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Root cause | VERIFIED | Website (`nasaem-alharamain.com`) and API (`*.up.railway.app`) are different sites, so the `customerAccessToken` cookie is third-party and often blocked: registration succeeded but the account page then got 401 and asked to sign in. Reproduced in e2e by stripping `Set-Cookie`; fails without the fix |
+| Website | VERIFIED | Token from register/login kept in `localStorage` (`customer-session.ts`, `exp` checked) and sent as `Authorization: Bearer`; 401 forgets it and returns to login with «انتهت جلستك…»; existing phone (409) offers sign-in with the number prefilled; network loss shows a clear message; double clicks send one request; logout revokes and clears. No OTP exists on registration today — nothing bypassed. `account-registration.spec.ts` 3/3 |
+| App | VERIFIED | `startSession` stores the token and loads the customer, goes to the account; existing phone routes to sign-in prefilled. `mobile-app.spec.ts` registration test |
+| Backend | VERIFIED | Token-only session from the website Origin works for profile/logout; logout revokes; duplicate phone 409 returns no data. `customerRegistrationSession.test.js` 2/2 |
+| CI on `1384019` | VERIFIED | Backend, Frontend, Playwright, backup/restore, build-apk ✅; Vercel ❌ account blocked |
+
+## PR #94 merged with `claude/release-next` (2026-10-13, merge `b37ccee`)
+
+Owner chose: include PR #94 in `claude/release-next` before opening `claude/release-next` → `claude/release-integration`. Only conflict: `web/playwright.config.ts` `testMatch` (kept both `account-registration` and `umrah-payment-journey`). No new migrations from `release-next`; with PR #94 the release carries **13** additive migrations vs `main` (11 + `20261015090000_request_payment_access`, `20261015100000_umrah_guarantor_residence`).
+
+Local on `b37ccee` (fresh PostgreSQL, migrate + seed as CI): backend **893/893**; mobile unit **84/84** + syntax check; web tsc/eslint ok; `next build` ok; Playwright, all four CI projects in one run, **100/100**.
+
+Production gate NOT passed: no production backup yet (owner, 2026-10-13), production branch/Vercel project not verified, Vercel account blocked. No merge into `main`, no deploy, no DB change, no Android distribution.
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.

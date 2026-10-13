@@ -44,7 +44,7 @@ test("fixed price: confirm total and currency, re-confirm after PRICE_CHANGED", 
   await page.route("**/api/contact-requests", async (route) => {
     const body = route.request().postData() || "";
     const field = (name: string) => body.match(new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]*)`))?.[1] ?? "";
-    sent.push({ acceptedTotal: field("acceptedTotal"), acceptedCurrency: field("acceptedCurrency") });
+    sent.push({ acceptedTotal: field("acceptedTotal"), acceptedCurrency: field("acceptedCurrency"), submissionKey: field("submissionKey") });
     if (sent.length === 1) {
       await route.fulfill({
         status: 409,
@@ -69,7 +69,7 @@ test("fixed price: confirm total and currency, re-confirm after PRICE_CHANGED", 
   await page.getByRole("button", { name: "التالي" }).click();
   await page.getByRole("button", { name: "التالي" }).click();
 
-  const send = page.getByRole("button", { name: "إرسال الطلب" });
+  const send = page.getByRole("button", { name: "تأكيد ومتابعة إلى الدفع" });
   await expect(page.getByTestId("fixed-total")).toHaveText("150 USD");
   await expect(send).toBeDisabled();
   await page.getByTestId("confirm-fixed-total").check();
@@ -84,9 +84,12 @@ test("fixed price: confirm total and currency, re-confirm after PRICE_CHANGED", 
 
   await expect(page.getByText("تم استلام طلبك")).toBeVisible();
   await expect(page.getByText("لن يصلك عرض سعر آخر")).toBeVisible();
-  await expect(page.getByText("خطوة الدفع مفتوحة الآن")).toBeVisible();
-  expect(sent).toEqual([
+  await expect(page.getByText("خطوة الدفع مفتوحة")).toBeVisible();
+  expect(sent.map(({ acceptedTotal, acceptedCurrency }) => ({ acceptedTotal, acceptedCurrency }))).toEqual([
     { acceptedTotal: "150.00", acceptedCurrency: "USD" },
     { acceptedTotal: "180.00", acceptedCurrency: "USD" },
   ]);
+  // One submission key for the whole form: a retry can never create a second request.
+  expect(sent[0].submissionKey).toMatch(/^[A-Za-z0-9-]{16,64}$/);
+  expect(sent[1].submissionKey).toBe(sent[0].submissionKey);
 });

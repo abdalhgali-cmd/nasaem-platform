@@ -41,7 +41,7 @@ test("website fixed price, real backend: stale total refused, nothing created, r
     await page.getByRole("button", { name: "التالي" }).click();
     await page.getByRole("button", { name: "التالي" }).click();
 
-    const send = page.getByRole("button", { name: "إرسال الطلب" });
+    const send = page.getByRole("button", { name: "تأكيد ومتابعة إلى الدفع" });
     await expect(page.getByTestId("fixed-total")).toHaveText("150 USD");
     await page.getByTestId("confirm-fixed-total").check();
 
@@ -62,7 +62,12 @@ test("website fixed price, real backend: stale total refused, nothing created, r
     const accepted = page.waitForResponse((r) => r.url().endsWith("/api/contact-requests") && r.request().method() === "POST");
     await send.click();
     expect((await accepted).status()).toBe(201);
-    await expect(page.getByText("تم استلام طلبك")).toBeVisible();
+    // Straight to the payment step: the accepted amount and currency.
+    await expect(page.getByTestId("payment-step")).toBeVisible();
+    await expect(page.getByTestId("payment-amount")).toHaveText("180 USD");
+    await page.getByRole("button", { name: /سأحوّل لاحقًا|متابعة إلى صفحة التأكيد/ }).click();
+    await expect(page.getByRole("heading", { name: "تم استلام طلبك", exact: true })).toBeVisible();
+    await expect(page.getByTestId("payment-status")).toHaveText("بانتظار التحويل");
 
     const found = await requestsFor();
     expect(found).toHaveLength(1);

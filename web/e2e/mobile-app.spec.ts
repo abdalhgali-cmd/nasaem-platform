@@ -61,6 +61,9 @@ async function uploadAllSlots(page: Page) {
 async function submitFromReview(page: Page): Promise<string> {
   await page.locator("#nextStepBtn").click();
   const reference = page.locator("#requestReference");
+  const payment = page.getByTestId("direct-payment-step");
+  await reference.or(payment).first().waitFor({ timeout: 30_000 });
+  if (await payment.isVisible()) await page.locator("#paymentLaterBtn").click();
   await expect(reference).toBeVisible({ timeout: 30_000 });
   return (await reference.innerText()).trim();
 }

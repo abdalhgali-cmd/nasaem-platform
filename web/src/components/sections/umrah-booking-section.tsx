@@ -2,13 +2,17 @@
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { SimpleUmrahRequest } from "@/components/sections/simple-umrah-request";
+import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
 
+// Umrah has its own section (not a visa type in the visa lists). The request
+// runs through the shared intake wizard on the Umrah packages: package →
+// applicant → trip → pilgrims → documents (from the admin requirements) →
+// summary with the final price → payment → confirmation.
 function UmrahBookingContent() {
   const searchParams = useSearchParams();
   const packageCode = searchParams.get("package") || undefined;
 
-  return <SimpleUmrahRequest initialServiceCode={packageCode} />;
+  return <ServiceIntakeWizard service="package" initialServiceCode={packageCode} />;
 }
 
 export function UmrahBookingSection() {

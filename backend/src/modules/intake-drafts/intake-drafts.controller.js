@@ -13,6 +13,7 @@ import {
   updateDraft,
 } from "./intake-drafts.service.js";
 import { validateEgyptClearanceDraft } from "./egypt-clearance-draft.js";
+import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
 
 // Smart Case Operations — Release B. Every draft error maps to a clean
 // status here rather than leaking through as a 500, mirroring how the
@@ -164,7 +165,10 @@ export async function submitDraftController(req, res, next) {
     const errorResponse = respondToDraftError(res, result);
     if (errorResponse) return errorResponse;
 
-    return res.status(201).json({ success: true, data: { id: result.contactRequest.id } });
+    // Same as POST /contact-requests: an accepted fixed price goes straight
+    // to its payment step (contact-request-payment-access).
+    const paymentAccess = await issuePaymentAccess(result.contactRequest.id);
+    return res.status(201).json({ success: true, data: { id: result.contactRequest.id, ...(paymentAccess ? { paymentAccess } : {}) } });
   } catch (error) {
     next(error);
   }

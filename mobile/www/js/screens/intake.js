@@ -431,6 +431,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       <section class="form-section review total-review" id="fixedTotalReview" aria-labelledby="fixedTotalTitle">
         <h3 id="fixedTotalTitle">الإجمالي النهائي</h3>
         <div class="review-row"><span>${esc(summary.breakdown)}</span><b id="fixedTotalAmount"><bdi>${esc(summary.totalText)}</bdi></b></div>
+        ${summary.sdgText ? `<p class="field-hint" id="fixedTotalSdg">${esc(summary.sdgText)}</p>` : ""}
         <p class="field-hint">${esc(summary.payment)}</p>
         <label class="confirm-check"><input type="checkbox" id="confirmTotal"> <span>أؤكد طلبي بإجمالي <bdi>${esc(summary.totalText)}</bdi>.</span></label>
       </section>`;
@@ -518,7 +519,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       });
       // Only now - with the server's confirmation in hand - is the draft dropped.
       clearDraft(storageKey);
-      showSubmitted(outcome, { serviceName: item.name, phone: v.phone, travelerCount: travelers.length });
+      showSubmitted(outcome, { serviceName: item.name, phone: v.phone, travelerCount: travelers.length, payNow: Boolean(fixed && !pricing()?.paymentAfterDocumentReview) });
     } catch (error) {
       setLoading(submitBtn, false);
       if (progressWrap) progressWrap.hidden = true;
@@ -549,6 +550,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
 // tracking needs the phone + WhatsApp code (or the signed-in account).
 export function renderRequestSubmittedScreen({ bodyEl, params }) {
   const reference = params.id || "";
+  const payment = params.paymentSummary;
   bodyEl.innerHTML = `
     <div class="success-card">
       <div class="success-icon">${icon("check-circle", { size: 40 })}</div>
@@ -559,6 +561,10 @@ export function renderRequestSubmittedScreen({ bodyEl, params }) {
         <code id="requestReference" dir="ltr">${esc(reference)}</code>
         <button type="button" class="chip-btn" id="copyReferenceBtn">${icon("document", { size: 16 })}<span>نسخ الرقم</span></button>
       </div>
+      ${payment ? `
+        <div class="review-row"><span>حالة الطلب</span><b id="submittedRequestStatus">${esc(payment.statusLabel || "")}</b></div>
+        <div class="review-row"><span>حالة الدفع</span><b id="submittedPaymentStatus">${esc(payment.paymentStatusLabel || "")}</b></div>
+        ${payment.paymentStatus === "UNDER_REVIEW" ? `<p class="field-hint">يراجع موظف مختص التحويل ويؤكد السداد، ويصلك إشعار عند تغيّر الحالة.</p>` : ""}` : ""}
       <p class="field-hint confirmation-notice" id="confirmationNotice">${esc(confirmationNotice(params.customerConfirmation))}</p>
       <button class="primary" id="trackRequestBtn">${icon("requests", { size: 18 })}<span>تتبع الطلب</span></button>
       <button class="secondary" id="goToHomeBtn">العودة للرئيسية</button>

@@ -1,6 +1,7 @@
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { getCurrencyRates } from "../flights/flights.service.js";
+import { ensureUmrahGuarantorRequirement, isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
 
 async function withSdgEquivalent(items) {
   const rates = await getCurrencyRates();
@@ -125,25 +126,33 @@ export async function listPublicCatalog({ visaCategory } = {}) {
 }
 
 export async function createService(data) {
-  return prisma.service.create({
-    data: {
-      code: data.code,
-      name: data.name,
-      category: data.category,
-      description: data.description || null,
-      basePrice: data.basePrice,
-      currency: data.currency || "SAR",
-      active: typeof data.active === "boolean" ? data.active : true,
-      sortOrder: data.sortOrder ?? 0,
-      iconKey: data.iconKey || null,
-      motionEnabled: typeof data.motionEnabled === "boolean" ? data.motionEnabled : false,
-      features: data.features ?? undefined,
-      processingTime: data.processingTime || null,
-      pricingMode: data.pricingMode || "QUOTE",
-      priceUnit: data.priceUnit || "PER_REQUEST",
-      paymentAfterDocumentReview: Boolean(data.paymentAfterDocumentReview),
-    },
+  // An Umrah package inherits the guarantor-residence requirement in the
+  // same transaction (requirements/umrah-guarantor.js).
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.service.create({ data: serviceCreateData(data) });
+    if (isUmrahServiceCategory(created.category)) await ensureUmrahGuarantorRequirement(tx, created.id);
+    return created;
   });
+}
+
+function serviceCreateData(data) {
+  return {
+    code: data.code,
+    name: data.name,
+    category: data.category,
+    description: data.description || null,
+    basePrice: data.basePrice,
+    currency: data.currency || "SAR",
+    active: typeof data.active === "boolean" ? data.active : true,
+    sortOrder: data.sortOrder ?? 0,
+    iconKey: data.iconKey || null,
+    motionEnabled: typeof data.motionEnabled === "boolean" ? data.motionEnabled : false,
+    features: data.features ?? undefined,
+    processingTime: data.processingTime || null,
+    pricingMode: data.pricingMode || "QUOTE",
+    priceUnit: data.priceUnit || "PER_REQUEST",
+    paymentAfterDocumentReview: Boolean(data.paymentAfterDocumentReview),
+  };
 }
 
 export async function updateService(id, data) {
@@ -153,9 +162,13 @@ export async function updateService(id, data) {
     return null;
   }
 
-  return prisma.service.update({
-    where: { id },
-    data,
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.service.update({ where: { id }, data });
+    // Moved into an Umrah category: inherit the guarantor residence too.
+    if (isUmrahServiceCategory(updated.category) && !isUmrahServiceCategory(existing.category)) {
+      await ensureUmrahGuarantorRequirement(tx, id);
+    }
+    return updated;
   });
 }
 

@@ -737,14 +737,13 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       await createPackage(firstCode, firstName, 10);
       await createPackage(secondCode, secondName, 20);
 
-      // /umrah now renders SimpleUmrahRequest's selectable button-cards
-      // (feat(web): simplify umrah request flow), not the old
-      // <article><h3> package-grid — each card's name lives in a
-      // <p class="pe-8 ..."> inside a <button>, not a heading.
+      // /umrah renders the shared intake wizard on the Umrah packages: each
+      // package is a selectable button whose name carries
+      // data-testid="intake-option-name".
       await page.goto("/umrah", { waitUntil: "networkidle" });
       await expect(page.locator("button").filter({ hasText: firstName })).toBeVisible({ timeout: 15_000 });
       await expect(page.locator("button").filter({ hasText: secondName })).toBeVisible({ timeout: 15_000 });
-      const initialCards = await page.locator("button p.pe-8").allTextContents();
+      const initialCards = await page.getByTestId("intake-option-name").allTextContents();
       expect(initialCards.indexOf(firstName)).toBeGreaterThanOrEqual(0);
       expect(initialCards.indexOf(firstName)).toBeLessThan(initialCards.indexOf(secondName));
 
@@ -760,7 +759,7 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       await page.reload({ waitUntil: "networkidle" });
       await expect(page.locator("button").filter({ hasText: updatedName })).toBeVisible({ timeout: 15_000 });
       await expect(page.locator("button").filter({ hasText: firstName })).toHaveCount(0);
-      const updatedCards = await page.locator("button p.pe-8").allTextContents();
+      const updatedCards = await page.getByTestId("intake-option-name").allTextContents();
       expect(updatedCards.indexOf(updatedName)).toBeLessThan(updatedCards.indexOf(secondName));
 
       const deactivateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, { data: { active: false } });
@@ -1029,17 +1028,16 @@ test.describe("Every named service opens its own page — no generic-catalog dea
     });
   }
 
-  test("VISA-UMRAH (Umrah's visa-type card, e.g. from the /visas catalog) routes to Umrah's own dedicated page", async ({ page }) => {
+  test("Umrah is its own section: no VISA-UMRAH card in /visas, and the main menu links to /umrah", async ({ page }) => {
     const servicesRes = await page.request.get(`${BACKEND_URL}/api/services/public`);
     const payload = await servicesRes.json();
     const umrahVisaType = payload.data.visaTypes.find((v: { code: string }) => v.code === "VISA-UMRAH");
     expect(umrahVisaType, "VISA-UMRAH must be seeded").toBeTruthy();
 
     await page.goto("/visas", { waitUntil: "networkidle" });
-    const card = page.locator("article").filter({ hasText: umrahVisaType.name }).first();
-    await card.scrollIntoViewIfNeeded();
-    const href = await card.getByRole("link", { name: "قدّم الآن" }).getAttribute("href");
-    expect(href).toBe("/umrah");
+    await expect(page.locator("article").filter({ hasText: "تأشيرة" }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("article").filter({ hasText: umrahVisaType.name })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "العمرة", exact: true }).first()).toHaveAttribute("href", "/umrah");
   });
 
   test("homepage Services grid sends International Visa, Work Visa, and Tasheel to their own pages, not a shared catalog", async ({ page }) => {

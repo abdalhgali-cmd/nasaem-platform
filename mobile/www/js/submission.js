@@ -45,11 +45,15 @@ export function submitFailureMessage(error) {
   return error?.message || "تعذر إرسال الطلب، حاول مرة أخرى.";
 }
 
-// The confirmation screen (screens/intake.js renderRequestSubmittedScreen).
-export function showSubmitted(outcome, { serviceName, phone, travelerCount }) {
-  go(
-    "requestSubmitted",
-    { id: outcome.id, customerConfirmation: outcome.customerConfirmation, serviceName, phone, travelerCount },
-    { title: "تم استلام طلبك" }
-  );
+// A fixed-price request whose payment is open goes straight to its payment
+// step (screens/request-payment.js), then to the confirmation; any other
+// request goes to the confirmation (screens/intake.js
+// renderRequestSubmittedScreen).
+export function showSubmitted(outcome, { serviceName, phone, travelerCount, payNow = false }) {
+  const params = { id: outcome.id, customerConfirmation: outcome.customerConfirmation, serviceName, phone, travelerCount };
+  if (payNow && outcome.paymentAccess) {
+    go("requestPayment", { ...params, paymentAccess: outcome.paymentAccess }, { title: "الدفع" });
+    return;
+  }
+  go("requestSubmitted", params, { title: "تم استلام طلبك" });
 }

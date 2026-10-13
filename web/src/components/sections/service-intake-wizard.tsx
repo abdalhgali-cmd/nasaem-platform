@@ -17,6 +17,22 @@ import {
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
+import {
+  RequestPaymentStep,
+  clearPendingPayment,
+  readPendingPayment,
+  savePendingPayment,
+  type PaymentAccess,
+  type PaymentSummary,
+} from "@/components/sections/request-payment-step";
+
+// One key per form session, sent on every attempt: a repeated tap or a retry
+// after a lost response returns the request already created (backend
+// findExistingSubmission) instead of a duplicate.
+function newSubmissionKey() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 export type IntakeServiceKind = "umrah" | "visa" | "package";
 
@@ -318,7 +334,14 @@ export function ServiceIntakeWizard({
   const [result, setResult] = React.useState<{
     id: string;
     fixed?: { total: number; currency: string; afterDocuments: boolean } | null;
+    // Fixed price with payment open now: the payment step comes next
+    // (request-payment-step.tsx), then the confirmation.
+    paymentAccess?: PaymentAccess | null;
   } | null>(null);
+  const [payment, setPayment] = React.useState<{ summary: PaymentSummary | null; outcome: "RECEIPT_SENT" | "LATER" } | null>(null);
+  const submissionKeyRef = React.useRef<string>("");
+  const [resumedPayment, setResumedPayment] = React.useState(false);
+  const submittingRef = React.useRef(false);
   const [copiedRequestNumber, setCopiedRequestNumber] = React.useState(false);
 
   // Draft save/resume (per-browser, via localStorage — no account or
@@ -615,10 +638,22 @@ export function ServiceIntakeWizard({
     if (!result) return;
     try {
       window.localStorage.removeItem(draftKey);
+      // The server draft too: otherwise a refresh would offer to resume
+      // (and resend) a request that already exists.
+      window.localStorage.removeItem(serverDraftKey);
     } catch {
       // ignore
     }
-  }, [result, draftKey]);
+    serverDraftTokenRef.current = null;
+  }, [result, draftKey, serverDraftKey]);
+
+  // A refresh during the payment step: back to that step, never the form.
+  React.useEffect(() => {
+    const pending = readPendingPayment(draftKey);
+    if (!pending) return;
+    setResult({ id: pending.requestId, fixed: null, paymentAccess: pending.access });
+    setResumedPayment(true);
+  }, [draftKey]);
 
   React.useEffect(() => {
     let ignore = false;
@@ -637,7 +672,10 @@ export function ServiceIntakeWizard({
           setVisaTypes([]);
         } else {
           setServices(payload?.data?.services ?? []);
-          setVisaTypes(payload?.data?.visaTypes ?? []);
+          // Umrah has its own section: never offered as a visa type here
+          // (an explicit ?visaCategory=UMRAH request still gets it).
+          const allVisaTypes: PublicVisaType[] = payload?.data?.visaTypes ?? [];
+          setVisaTypes(visaCategory ? allVisaTypes : allVisaTypes.filter((visa) => visa.category !== "UMRAH"));
         }
       })
       .catch(() => {
@@ -709,6 +747,12 @@ export function ServiceIntakeWizard({
           }
       : null;
   const estimateUnits = selectedPriceItem?.priceUnit === "PER_REQUEST" ? 1 : travelerCount;
+  // SDG equivalent of the fixed total, only from the agency's active exchange
+  // rate (fxRateToSdg is null without one — never a default rate).
+  const fixedSdg =
+    fixedPrice && selectedPriceItem && fixedPrice.currency !== "SDG" && Number(selectedPriceItem.fxRateToSdg) > 0 && fixedPrice.currency === selectedPriceItem.currency
+      ? `${Math.round(fixedPrice.total * Number(selectedPriceItem.fxRateToSdg)).toLocaleString("en-US")} SDG`
+      : "";
 
   // Umrah and Package are Services; Visa uses the selected VisaType — each
   // has its own Requirements Engine endpoint (both backed by the same
@@ -901,7 +945,7 @@ export function ServiceIntakeWizard({
   const steps = service === "umrah"
     ? ["customer", "details", "documents", "review"]
     : service === "package"
-      ? ["select", "trip", "customer", "details", "documents", "review"]
+      ? ["select", "customer", "trip", "details", "documents", "review"]
       : ["select", "customer", "details", "documents", "review"];
 
   function updateTravelerCount(count: number) {
@@ -1064,8 +1108,12 @@ export function ServiceIntakeWizard({
   }
 
   async function handleSubmit() {
+    // A second tap while the first submission is in flight sends nothing.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmitError("");
+    if (!submissionKeyRef.current) submissionKeyRef.current = newSubmissionKey();
 
     try {
       const formData = new FormData();
@@ -1094,6 +1142,7 @@ export function ServiceIntakeWizard({
       }
 
       formData.append("travelerCount", String(travelerCount));
+      formData.append("submissionKey", submissionKeyRef.current);
       if (fixedPrice && priceConfirmed) {
         formData.append("acceptedTotal", fixedPrice.total.toFixed(2));
         formData.append("acceptedCurrency", fixedPrice.currency);
@@ -1173,21 +1222,41 @@ export function ServiceIntakeWizard({
         throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
       }
 
+      const paymentAccess: PaymentAccess | null =
+        payload.data.paymentAccess?.token && !selectedPriceItem?.paymentAfterDocumentReview ? payload.data.paymentAccess : null;
+      if (paymentAccess) savePendingPayment(draftKey, { requestId: payload.data.id, access: paymentAccess });
       setResult({
         id: payload.data.id,
         fixed:
           fixedPrice && priceConfirmed
             ? { ...fixedPrice, afterDocuments: Boolean(selectedPriceItem?.paymentAfterDocumentReview) }
             : null,
+        paymentAccess,
       });
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى");
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
+  if (result && result.paymentAccess && !payment) {
+    return (
+      <RequestPaymentStep
+        requestId={result.id}
+        access={result.paymentAccess}
+        resumed={resumedPayment}
+        onFinished={(summary, outcome) => {
+          clearPendingPayment(draftKey);
+          setPayment({ summary, outcome });
+        }}
+      />
+    );
+  }
+
   if (result) {
+    const paidNow = payment?.outcome === "RECEIPT_SENT";
     return (
       <div className="mx-auto max-w-lg rounded-3xl border border-success/30 bg-success/5 p-10 text-center">
         <CheckCircle2 className="mx-auto size-14 text-success" />
@@ -1215,10 +1284,28 @@ export function ServiceIntakeWizard({
               </button>
             </div>
           </div>
+          {payment?.summary ? (
+            <>
+              <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">حالة الطلب</span>
+                <span className="font-semibold text-foreground" data-testid="request-status">{payment.summary.statusLabel}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">حالة الدفع</span>
+                <span className="font-semibold text-foreground" data-testid="payment-status">{payment.summary.paymentStatusLabel}</span>
+              </div>
+            </>
+          ) : null}
         </div>
         <div className="mt-4 rounded-2xl border border-border bg-background p-5 text-start">
           <h3 className="text-sm font-bold text-foreground">ماذا سيحدث الآن؟</h3>
-          {result.fixed ? (
+          {paidNow ? (
+            <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+              <li><span className="font-semibold text-foreground">1.</span> وصل إشعار التحويل، وحالة الدفع الآن «بانتظار مراجعة التحويل».</li>
+              <li><span className="font-semibold text-foreground">2.</span> يراجع موظف مختص التحويل ويؤكد السداد، ويصلك إشعار عند تغيّر الحالة.</li>
+              <li><span className="font-semibold text-foreground">3.</span> بعد تأكيد السداد يبدأ التنفيذ، وتتابع كل مرحلة برقم الطلب.</li>
+            </ol>
+          ) : result.fixed ? (
             <>
               <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
                 <li>
@@ -1232,7 +1319,7 @@ export function ServiceIntakeWizard({
                   <span className="font-semibold text-foreground">2.</span>{" "}
                   {result.fixed.afterDocuments
                     ? "سنراجع مستنداتك أولًا، وبعد اعتمادها تُفتح خطوة الدفع بالسعر نفسه."
-                    : "خطوة الدفع مفتوحة الآن: حوّل المبلغ إلى أحد حسابات الوكالة الظاهرة في صفحة التتبع، ثم اضغط «تم تحويل المبلغ»."}
+                    : "خطوة الدفع مفتوحة: حوّل المبلغ إلى أحد حسابات الوكالة، ثم ارفع إشعار التحويل من صفحة التتبع."}
                 </li>
                 <li><span className="font-semibold text-foreground">3.</span> يبدأ التنفيذ بعد تأكيد الوكالة لاستلام المبلغ، وتتابع كل مرحلة برقم الطلب.</li>
               </ol>
@@ -1342,7 +1429,7 @@ export function ServiceIntakeWizard({
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-bold text-foreground">{item.name}</span>
+                    <span className="font-bold text-foreground" data-testid="intake-option-name">{item.name}</span>
                     {service !== "package" ? (
                       <span className="text-xs text-muted-foreground">{(item as PublicVisaType).country}</span>
                     ) : null}
@@ -1689,11 +1776,19 @@ export function ServiceIntakeWizard({
                         {fixedPrice.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {fixedPrice.currency}
                       </span>
                     </div>
+                    {fixedSdg ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground" data-testid="fixed-total-sdg">
+                        <span>ما يعادل بالجنيه السوداني</span>
+                        <span dir="ltr">{fixedSdg}</span>
+                      </div>
+                    ) : fixedPrice.currency !== "SDG" ? (
+                      <p className="text-[11px] text-muted-foreground">المقابل بالجنيه السوداني غير متاح حاليًا؛ الدفع بالعملة الظاهرة.</p>
+                    ) : null}
                     <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                      سعر ثابت معتمد من الإدارة، بلا عرض سعر لاحق. تُفتح خطوة الدفع في متابعة الطلب
+                      سعر ثابت معتمد من الإدارة، بلا عرض سعر لاحق.
                       {selectedPriceItem.paymentAfterDocumentReview
-                        ? " بعد اعتماد مستنداتك."
-                        : "."}
+                        ? " تُفتح خطوة الدفع بعد اعتماد مستنداتك، بالسعر نفسه."
+                        : " بعد التأكيد تنتقل مباشرة إلى الدفع: بيانات الحساب ورفع إشعار التحويل."}
                     </p>
                     <label className="mt-2 flex items-start gap-2 text-sm font-semibold text-foreground">
                       <input
@@ -1778,7 +1873,7 @@ export function ServiceIntakeWizard({
             </Button>
             <Button type="button" variant="gold" onClick={handleSubmit} disabled={submitting || Boolean(fixedPrice && !priceConfirmed)}>
               {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-              {submitting ? "جارٍ الإرسال..." : "إرسال الطلب"}
+              {submitting ? "جارٍ الإرسال..." : fixedPrice && !selectedPriceItem?.paymentAfterDocumentReview ? "تأكيد ومتابعة إلى الدفع" : "إرسال الطلب"}
             </Button>
           </div>
         </StepShell>

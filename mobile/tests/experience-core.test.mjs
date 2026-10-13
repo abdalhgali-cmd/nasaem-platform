@@ -88,7 +88,13 @@ test("agency links", () => {
 });
 
 test("submission: success only with a real stored id", () => {
-  assert.deepEqual(submissionOutcome({ success: true, data: { id: "cm123", customerConfirmation: "QUEUED" } }), { ok: true, id: "cm123", duplicate: false, customerConfirmation: "QUEUED" });
+  assert.deepEqual(submissionOutcome({ success: true, data: { id: "cm123", customerConfirmation: "QUEUED" } }), { ok: true, id: "cm123", duplicate: false, customerConfirmation: "QUEUED", paymentAccess: null });
+  assert.deepEqual(
+    submissionOutcome({ success: true, data: { id: "cm123", paymentAccess: { token: "t".repeat(43), expiresAt: "2026-10-16T00:00:00.000Z" } } }).paymentAccess,
+    { token: "t".repeat(43), expiresAt: "2026-10-16T00:00:00.000Z" },
+    "a fixed-price request carries its payment access to the payment screen"
+  );
+  assert.equal(submissionOutcome({ success: true, data: { id: "cm123", paymentAccess: { token: 5 } } }).paymentAccess, null);
   assert.equal(submissionOutcome({ success: true, data: { id: "cm123", duplicate: true } }).duplicate, true);
   // spam-trap answer: 201 without an id is NOT a success
   assert.deepEqual(submissionOutcome({ success: true, message: "Request received" }), { ok: false });
@@ -154,4 +160,20 @@ test("OTP: undeliverable codes are reported plainly with a support path; other e
   for (const notice of [unavailable, otpFailureNotice({ code: "OTP_DELIVERY_FAILED" })]) {
     assert.doesNotMatch(notice.message, /تم إرسال|سيصلك/);
   }
+});
+
+test("an unfinished payment is kept on the device until finished or expired", async () => {
+  const { savePendingPayment, readPendingPayment, clearPendingPayment } = await import("../www/js/experience-core.js");
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  const pending = { id: "cm1", paymentAccess: { token: "t".repeat(43), expiresAt: "2026-10-16T00:00:00.000Z" }, serviceName: "عمرة" };
+  savePendingPayment(storage, pending);
+  assert.deepEqual(readPendingPayment(storage, Date.parse("2026-10-15T00:00:00Z")), pending);
+  assert.equal(readPendingPayment(storage, Date.parse("2026-10-17T00:00:00Z")), null, "an expired token is dropped");
+  assert.equal(store.size, 0);
+  savePendingPayment(storage, pending);
+  clearPendingPayment(storage);
+  assert.equal(readPendingPayment(storage), null);
+  storage.setItem("nasaem.pendingPayment.v1", "{broken");
+  assert.equal(readPendingPayment(storage), null);
 });

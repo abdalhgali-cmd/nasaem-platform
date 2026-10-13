@@ -897,3 +897,17 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 .faq-collapsed > summary h3 { display: inline; font-size: 15px; }
 .variant-prices { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
 .variant-card.variant-unavailable { opacity: .6; cursor: not-allowed; }
+
+/* Unfinished payment of a request already saved (home screen). */
+.pending-payment-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: calc(100% - 32px);
+  margin: 12px 16px 0;
+  text-align: start;
+  border: 1px solid var(--gold, #d6aa4b);
+  cursor: pointer;
+}
+.pending-payment-card span { display: flex; flex-direction: column; gap: 2px; }
+.pending-payment-card small { color: var(--muted, #6b7280); }

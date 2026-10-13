@@ -163,6 +163,8 @@
   "POST /api/auth/logout": "STAFF_ANY",
   "POST /api/branches": ["SUPER_ADMIN"],
   "POST /api/contact-requests": "PUBLIC",
+  "GET /api/contact-requests/:id/payment-access": "PUBLIC",
+  "POST /api/contact-requests/:id/payment-access/receipt": "PUBLIC",
   "POST /api/contact-requests/:id/confirm-payment": ["ACCOUNTANT", "ADMIN", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/customer-messages/confirmation": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/deliverables": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
