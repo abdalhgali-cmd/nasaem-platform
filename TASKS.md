@@ -112,7 +112,9 @@ Follow-up on owner review (2026-10-13):
 
 Local results on `23e96be` (disposable PostgreSQL 16): backend full **891/891**; mobile unit **84/84**; Playwright, all four CI projects in one run (`mobile-web`, `mobile-frontend`, `platform3`, `mobile-app`) **96/96** — includes the «homepage Services grid: Family Visit card» test that failed once earlier (73/74), now green in the full run; web tsc/eslint ok.
 
-GitHub Actions on `23e96be` (PR #94): Backend tests ✅, Frontend typecheck + build ✅, PostgreSQL backup + restore drill ✅, build-apk ✅, Playwright E2E ⏳ at the time of writing — final result recorded on the PR.
+GitHub Actions (PR #94):
+- `23e96be` and `b81ec67`: Backend ✅, Frontend ✅, backup/restore drill ✅, build-apk ✅, **Playwright ❌ 95/96** — the new `umrah-payment-journey.spec.ts` used a non-exact heading locator («اختر الباقة» also matched the page h1 «اختر الباقة وأرسل طلبك»; strict-mode violation in CI, passed locally only because the h1 rendered alone first). Fixed in `3cd1a01` (exact locators, also for «تم استلام طلبك»).
+- **`3cd1a01`: Backend tests ✅, Frontend typecheck + build ✅, Playwright E2E ✅, PostgreSQL backup + restore drill ✅, build-apk ✅.** Vercel ❌ «Account is blocked» (account issue, not code; same on #91/#92).
 
 NOT TESTED: real Android device, live staging/production (no access, no approval). A page reload during the website payment step drops the token (customer continues from /track). Umrah packages created later get no «إقامة الضامن» automatically — add it from the requirements screen.
 
