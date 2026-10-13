@@ -99,6 +99,8 @@ Not merged, nothing deployed, no live data touched. Two **additive** migrations:
 | Egypt form | VERIFIED (most was already done on `claude/release-next`: variants, `[object Object]`, entry method, FAQ) | Website form now shows a review of the data before sending and goes straight to payment |
 | Admin: Umrah / Egypt queues, receipt, statuses | VERIFIED | `GET /contact-requests?serviceKind=UMRAH|EGYPT_CLEARANCE` + case-workspace filter, service and payment chips; payment-review queue links the latest receipt (`staffServiceQueues.test.js` 2/2) |
 
+Local results (disposable PostgreSQL 16, this branch): backend full **885/885** (fresh DB, no `.env`); a first full run was 882/885 — 2 RBAC/route-inventory tests flagged the two new public routes (added to the baselines on purpose) and 1 rate-limit test failed only because a local e2e `backend/.env` raised `PUBLIC_CONTACT_RATE_LIMIT` (8/8 without it). Mobile unit 83/83, `npm run check` ok. Playwright: `mobile-app` 22/22; `platform3` + `mobile-web` + `mobile-frontend` 73/74 — the failure («homepage Services grid: Family Visit card», click with no navigation, code not touched here) passed 3/3 on rerun. Web tsc/eslint ok, `next build` ok. GitHub Actions on this branch: NOT RUN yet (no PR).
+
 NOT TESTED: real Android device, live staging/production (no access, no approval). A page reload during the website payment step drops the token (customer continues from /track). Umrah packages created later get no «إقامة الضامن» automatically — add it from the requirements screen.
 
 ## BLOCKED (needs owner / infrastructure)
