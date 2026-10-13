@@ -13,12 +13,17 @@ async function blockApiCookies(context: BrowserContext) {
   // session cookie is removed after every API response: the browser never
   // holds it, exactly like a browser that blocks third-party cookies.
   await context.route(`${BACKEND}/api/**`, async (route) => {
-    const response = await route.fetch();
-    const headers = { ...response.headers() };
-    delete headers["set-cookie"];
-    const body = await response.body();
-    await context.clearCookies({ name: "customerAccessToken" });
-    await route.fulfill({ status: response.status(), headers, body });
+    try {
+      const response = await route.fetch();
+      const headers = { ...response.headers() };
+      delete headers["set-cookie"];
+      const body = await response.body();
+      await context.clearCookies({ name: "customerAccessToken" });
+      await route.fulfill({ status: response.status(), headers, body });
+    } catch {
+      // The test already finished while the account page was still loading
+      // its panels in the background; nothing left to answer.
+    }
   });
 }
 
@@ -34,7 +39,13 @@ async function register(page: import("@playwright/test").Page, name: string, pho
 }
 
 test.describe("website registration signs the customer in", () => {
-  test("register → straight into the account, without the API cookie; one request for a double click; logout ends it", async ({ page, context }) => {
+  // Background requests of the account page can outlive a test: stop routing
+  // them before the context closes.
+  test.afterEach(async ({ context }) => {
+    await context.unrouteAll({ behavior: "ignoreErrors" });
+  });
+
+  test("register → straight into the account, without the API cookie; one request for a double click; network failure keeps the session; logout ends it", async ({ page, context }) => {
     await blockApiCookies(context);
     const phone = uniquePhone();
     const name = `عميل تسجيل ${phone.slice(-6)}`;
@@ -53,6 +64,16 @@ test.describe("website registration signs the customer in", () => {
 
     // A reload keeps the customer signed in.
     await page.reload();
+    await expect(page.getByRole("heading", { name })).toBeVisible({ timeout: 15_000 });
+
+    // Network failure on the account page: the customer stays, with a retry
+    // (only a 401 means «sign in again»).
+    await context.route(`${BACKEND}/api/customer-auth/me`, (route) => route.abort("internetdisconnected"));
+    await page.reload();
+    await expect(page.getByTestId("account-load-error")).toBeVisible({ timeout: 20_000 });
+    await expect(page).toHaveURL(/\/account$/);
+    await context.unroute(`${BACKEND}/api/customer-auth/me`);
+    await page.getByRole("button", { name: "إعادة المحاولة" }).click();
     await expect(page.getByRole("heading", { name })).toBeVisible({ timeout: 15_000 });
 
     await page.getByRole("button", { name: "تسجيل الخروج" }).click();
@@ -78,23 +99,6 @@ test.describe("website registration signs the customer in", () => {
     await page.locator("#password").fill("Test@12345");
     await page.getByRole("button", { name: "تسجيل الدخول" }).click();
     await expect(page.getByRole("heading", { name: "عميل موجود" })).toBeVisible({ timeout: 15_000 });
-  });
-
-  test("the account page keeps the customer on a network failure and offers a retry", async ({ page, context }) => {
-    await blockApiCookies(context);
-    const phone = uniquePhone();
-    const name = `عميل شبكة ${phone.slice(-6)}`;
-    await register(page, name, phone);
-    await page.getByRole("button", { name: "إنشاء الحساب" }).click();
-    await expect(page.getByRole("heading", { name })).toBeVisible({ timeout: 15_000 });
-
-    await context.route(`${BACKEND}/api/customer-auth/me`, (route) => route.abort("internetdisconnected"));
-    await page.reload();
-    await expect(page.getByTestId("account-load-error")).toBeVisible({ timeout: 20_000 });
-    await expect(page).toHaveURL(/\/account$/);
-    await context.unroute(`${BACKEND}/api/customer-auth/me`);
-    await page.getByRole("button", { name: "إعادة المحاولة" }).click();
-    await expect(page.getByRole("heading", { name })).toBeVisible({ timeout: 15_000 });
   });
 
   test("a session the server no longer accepts goes to sign-in with a notice", async ({ page }) => {
