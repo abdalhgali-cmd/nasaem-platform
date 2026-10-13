@@ -197,10 +197,15 @@ async function seedHomepageSections() {
 const ATTACHMENT_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // matches upload.middleware.js's global limit
 
-const UMRAH_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
+// Umrah no longer asks for a personal photo; it asks for the guarantor's
+// residence permit, once per request (migration
+// 20261015100000_umrah_guarantor_residence applies the same change to
+// existing databases without deleting anything).
+const UMRAH_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول"];
+const UMRAH_CASE_REQUIREMENT_NAMES = ["إقامة الضامن"];
 const PACKAGE_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
 const VISA_REQUIREMENT_NAMES_BY_CODE = {
-  "VISA-UMRAH": ["صورة الجواز", "الصورة الشخصية", "صورة إقامة الضامن", "رقم الضامن (أبشر)"],
+  "VISA-UMRAH": ["صورة الجواز", "صورة إقامة الضامن", "رقم الضامن (أبشر)"],
   "VISA-FAMILY-VISIT": [
     "صورة الجواز والصورة الشخصية",
     "مستند الزيارة (الدعوة)",
@@ -277,16 +282,21 @@ async function seedVisaRequirements() {
       UMRAH_REQUIREMENT_NAMES,
       { requirementScope: "TRAVELER" }
     );
+    created += await seedRequirementsForScope({ serviceId: umrahService.id }, UMRAH_CASE_REQUIREMENT_NAMES, { requirementScope: "CASE" });
   }
 
   for (const pkg of PACKAGE_SERVICES) {
     const service = await prisma.service.findUnique({ where: { code: pkg.code } });
     if (service) {
+      const umrah = pkg.category === "UMRAH_PACKAGE";
       created += await seedRequirementsForScope(
         { serviceId: service.id },
-        PACKAGE_REQUIREMENT_NAMES,
+        umrah ? UMRAH_REQUIREMENT_NAMES : PACKAGE_REQUIREMENT_NAMES,
         { requirementScope: "TRAVELER" }
       );
+      if (umrah) {
+        created += await seedRequirementsForScope({ serviceId: service.id }, UMRAH_CASE_REQUIREMENT_NAMES, { requirementScope: "CASE" });
+      }
     }
   }
 
