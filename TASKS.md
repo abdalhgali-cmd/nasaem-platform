@@ -116,7 +116,25 @@ GitHub Actions (PR #94):
 - `23e96be` and `b81ec67`: Backend ✅, Frontend ✅, backup/restore drill ✅, build-apk ✅, **Playwright ❌ 95/96** — the new `umrah-payment-journey.spec.ts` used a non-exact heading locator («اختر الباقة» also matched the page h1 «اختر الباقة وأرسل طلبك»; strict-mode violation in CI, passed locally only because the h1 rendered alone first). Fixed in `3cd1a01` (exact locators, also for «تم استلام طلبك»).
 - **`3cd1a01`: Backend tests ✅, Frontend typecheck + build ✅, Playwright E2E ✅, PostgreSQL backup + restore drill ✅, build-apk ✅.** Vercel ❌ «Account is blocked» (account issue, not code; same on #91/#92).
 
-NOT TESTED: real Android device, live staging/production (no access, no approval). A page reload during the website payment step drops the token (customer continues from /track). Umrah packages created later get no «إقامة الضامن» automatically — add it from the requirements screen.
+NOT TESTED: real Android device, live staging/production (no access, no approval). (The earlier gaps — reload during the website payment step, new Umrah packages without «إقامة الضامن» — are fixed above.)
+
+## Registration signs the customer in straight away (2026-10-13, `claude/release-next`, PR #92 merged into `claude/release-integration` as `4c32651`)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Root cause | VERIFIED | Website (`nasaem-alharamain.com`) and API (`*.up.railway.app`) are different sites, so the `customerAccessToken` cookie is third-party and often blocked: registration succeeded but the account page then got 401 and asked to sign in. Reproduced in e2e by stripping `Set-Cookie`; fails without the fix |
+| Website | VERIFIED | Token from register/login kept in `localStorage` (`customer-session.ts`, `exp` checked) and sent as `Authorization: Bearer`; 401 forgets it and returns to login with «انتهت جلستك…»; existing phone (409) offers sign-in with the number prefilled; network loss shows a clear message; double clicks send one request; logout revokes and clears. No OTP exists on registration today — nothing bypassed. `account-registration.spec.ts` 3/3 |
+| App | VERIFIED | `startSession` stores the token and loads the customer, goes to the account; existing phone routes to sign-in prefilled. `mobile-app.spec.ts` registration test |
+| Backend | VERIFIED | Token-only session from the website Origin works for profile/logout; logout revokes; duplicate phone 409 returns no data. `customerRegistrationSession.test.js` 2/2 |
+| CI on `1384019` | VERIFIED | Backend, Frontend, Playwright, backup/restore, build-apk ✅; Vercel ❌ account blocked |
+
+## PR #94 merged with `claude/release-next` (2026-10-13, merge `b37ccee`)
+
+Owner chose: include PR #94 in `claude/release-next` before opening `claude/release-next` → `claude/release-integration`. Only conflict: `web/playwright.config.ts` `testMatch` (kept both `account-registration` and `umrah-payment-journey`). No new migrations from `release-next`; with PR #94 the release carries **13** additive migrations vs `main` (11 + `20261015090000_request_payment_access`, `20261015100000_umrah_guarantor_residence`).
+
+Local on `b37ccee` (fresh PostgreSQL, migrate + seed as CI): backend **893/893**; mobile unit **84/84** + syntax check; web tsc/eslint ok; `next build` ok; Playwright, all four CI projects in one run, **100/100**.
+
+Production gate NOT passed: no production backup yet (owner, 2026-10-13), production branch/Vercel project not verified, Vercel account blocked. No merge into `main`, no deploy, no DB change, no Android distribution.
 
 ## BLOCKED (needs owner / infrastructure)
 
