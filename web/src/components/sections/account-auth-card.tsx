@@ -6,9 +6,12 @@ import { useRouter } from "next/navigation";
 import { Loader2, LogIn, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { customerApi, CustomerApiError } from "@/lib/customer-api";
+import { saveCustomerToken } from "@/lib/customer-session";
 
 const inputClass =
   "h-12 rounded-xl border border-border bg-background px-4 text-end text-sm outline-none transition focus:border-primary";
+
+type AuthResult = { token?: string; customer?: unknown };
 
 export function AccountAuthCard({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -19,37 +22,79 @@ export function AccountAuthCard({ mode }: { mode: "login" | "register" }) {
   const [password, setPassword] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [existingAccount, setExistingAccount] = React.useState(false);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  // One request at a time: a second tap never sends a second registration.
+  const inFlight = React.useRef(false);
+
+  // Coming from «الحساب موجود» or an ended session (?identifier= / ?expired=1).
+  React.useEffect(() => {
+    if (mode !== "login" || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const known = params.get("identifier");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time read of the query string on mount.
+    if (known) setIdentifier(known);
+    if (params.get("expired") === "1") setNotice("انتهت جلستك، يرجى تسجيل الدخول مرة أخرى.");
+  }, [mode]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (inFlight.current) return;
+    inFlight.current = true;
     setError(null);
+    setExistingAccount(false);
     setSubmitting(true);
+    let signedIn = false;
     try {
-      if (mode === "register") {
-        await customerApi("/customer-auth/register", {
-          method: "POST",
-          body: { fullName, phone, email: email || undefined, password },
-        });
-      } else {
-        await customerApi("/customer-auth/login", {
-          method: "POST",
-          body: { identifier, password },
-        });
-      }
-      router.push("/account");
+      const result =
+        mode === "register"
+          ? await customerApi<AuthResult>("/customer-auth/register", {
+              method: "POST",
+              body: { fullName, phone, email: email || undefined, password },
+            })
+          : await customerApi<AuthResult>("/customer-auth/login", {
+              method: "POST",
+              body: { identifier, password },
+            });
+      // The account exists and the server opened its session: keep the token
+      // (the cross-site cookie may be blocked) and go straight to the account.
+      saveCustomerToken(result?.token);
+      signedIn = true;
+      router.replace("/account");
       router.refresh();
     } catch (err) {
+      if (err instanceof CustomerApiError && err.status === 409 && mode === "register") {
+        setExistingAccount(/الهاتف/.test(err.message));
+      }
       setError(err instanceof CustomerApiError ? err.message : "حدث خطأ غير متوقع، حاول مرة أخرى");
     } finally {
-      setSubmitting(false);
+      // Stay disabled while navigating to the account after success.
+      if (!signedIn) {
+        inFlight.current = false;
+        setSubmitting(false);
+      }
     }
   }
 
   return (
     <div className="mx-auto max-w-md rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-8">
+      {notice ? (
+        <div className="mb-5 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground" role="status">
+          {notice}
+        </div>
+      ) : null}
       {error ? (
-        <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+        <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400" role="alert" data-testid="auth-error">
           {error}
+          {existingAccount ? (
+            <Link
+              href={`/account/login?identifier=${encodeURIComponent(phone)}`}
+              className="mt-2 block font-semibold text-primary hover:underline"
+              data-testid="existing-account-login"
+            >
+              تسجيل الدخول بهذا الرقم
+            </Link>
+          ) : null}
         </div>
       ) : null}
 
