@@ -1,4 +1,5 @@
-import { EGYPT_CLEARANCE_CODE, completionBlockers, egyptTravelBlockers, evaluateDelivery, evaluateReadiness, executionBlockers, isFixedPrice, paymentLockReasons, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { completionBlockers, egyptTravelBlockers, evaluateDelivery, evaluateReadiness, executionBlockers, isFixedPrice, paymentLockReasons, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 
 // One service-aware description of where a request stands, shared by the
 // staff back-office, the customer app (account and phone tracking) and the
@@ -79,7 +80,7 @@ export function deriveServiceKind(request) {
   if (visaType) {
     const code = String(visaType.code || "").toUpperCase();
     const category = String(visaType.category || "").toUpperCase();
-    if (code === "VISA-EGYPT-CLEARANCE") return "EGYPT_CLEARANCE";
+    if (isEgyptClearanceCode(code)) return "EGYPT_CLEARANCE";
     if (category === "UMRAH" || code === "VISA-UMRAH") return "UMRAH";
     if (category === "FAMILY_VISIT" || code === "VISA-FAMILY-VISIT") return "FAMILY_VISIT";
     return "VISA";
@@ -184,7 +185,7 @@ export function deriveRequestProgress(request) {
     { key: "DELIVERY", label: copy.deliveryStep },
     // Egypt clearance only: the customer's travel plan and the agency's
     // booking/circular tasks it opens, required before completion.
-    ...(request.visaType?.code === EGYPT_CLEARANCE_CODE ? [{ key: "TRAVEL_PLAN", label: "بيانات السفر والتعميم" }] : []),
+    ...(isEgyptClearanceCode(request.visaType?.code) ? [{ key: "TRAVEL_PLAN", label: "بيانات السفر والتعميم" }] : []),
   ];
   const currentIndex = status === "CLOSED" ? -1 : steps.findIndex((step) => !doneFlags[step.key]);
   const money = (amount, currency) => `${Number(amount).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;

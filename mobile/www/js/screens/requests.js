@@ -10,6 +10,7 @@ import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable,
 import { bindProgressTrack, progressBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
+import { isEgyptClearanceItem } from "../egypt-view.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
 // these three values — everything a customer actually cares about day to
@@ -379,7 +380,8 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     // The server says what is possible now (allowedActions); a closed request
     // offers nothing, even without that list.
     const mayDo = (action) => request.status !== "CLOSED" && (!Array.isArray(request.allowedActions) || request.allowedActions.includes(action));
-    const isEgyptClearance = request.visaType?.code === "VISA-EGYPT-CLEARANCE" && mayDo("SAVE_TRAVEL_PLAN");
+    // The original item and its entry-method variants share the travel plan.
+    const isEgyptClearance = isEgyptClearanceItem(request.visaType) && mayDo("SAVE_TRAVEL_PLAN");
 
     bodyEl.innerHTML = `
       <div class="request-summary">
@@ -451,8 +453,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     bodyEl.querySelector("#rejectBtn")?.addEventListener("click", () => {
       ensureTrackingAndRun(panel, () => tracking.rejectInvoice(request.id, request.invoice?.version), { onDone: () => { toast("تم رفض العرض"); load(); } });
     });
-    bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", () => showPaymentAccounts(panel, pricing.currency));
-    bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", () => showReceiptUpload(panel, request.id, load));
+    // Both open the same payment step: amount, accounts and receipt upload together.
+    const openPaymentStep = () => showPaymentStep(panel, { requestId: request.id, currency: pricing?.currency, price, onUploaded: load });
+    bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", openPaymentStep);
+    bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", openPaymentStep);
     bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load));
     bodyEl.querySelectorAll("[data-upload-item]").forEach((input) => {
       input.addEventListener("change", () => {
@@ -541,50 +545,72 @@ async function uploadChecklistDocument({ panel, request, item, file, viaTracking
   }
 }
 
-async function showPaymentAccounts(panel, currency) {
+// The payment step in one place: the amount and currency, the agency's
+// accounts for that currency (bank, holder, number with a copy button) and
+// the receipt upload. A receipt only puts the payment under review; it is
+// never "paid" until staff confirm it (backend uploadPaymentReceipt).
+async function showPaymentStep(panel, { requestId, currency, price, onUploaded }) {
   panel.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
+  let accountsHtml;
   try {
     const res = await tracking.getPaymentAccounts(currency);
     const accounts = res.data || [];
-    panel.innerHTML = accounts.length
-      ? `<div class="detail-block">${accounts.map((account) => `
+    accountsHtml = accounts.length
+      ? accounts.map((account) => `
           <div class="payment-card">
-            <strong>${esc(account.name || account.bankName || "حساب الدفع")}</strong>
-            ${account.accountName ? `<span>${esc(account.accountName)}</span>` : ""}
-            ${account.accountNumber ? `<code>${esc(account.accountNumber)}</code>` : ""}
-            ${account.iban ? `<code>${esc(account.iban)}</code>` : ""}
+            <strong>${esc(account.bankName || account.name || "حساب الدفع")}</strong>
+            ${account.accountName ? `<span>صاحب الحساب: ${esc(account.accountName)}</span>` : ""}
+            ${account.accountNumber ? `<div class="copy-row"><code>${esc(account.accountNumber)}</code><button type="button" class="chip-btn" data-copy="${esc(account.accountNumber)}">نسخ رقم الحساب</button></div>` : ""}
+            ${account.iban ? `<div class="copy-row"><code>${esc(account.iban)}</code><button type="button" class="chip-btn" data-copy="${esc(account.iban)}">نسخ IBAN</button></div>` : ""}
             <small>${esc(account.currency || currency)}</small>
-          </div>`).join("")}</div>`
-      : emptyState({ icon: "wallet", title: "بيانات الدفع غير متاحة حالياً", hint: "تواصل مع الوكالة بعد اعتماد السعر." });
+          </div>`).join("")
+      : emptyState({ icon: "wallet", title: "بيانات الدفع غير متاحة حالياً", hint: "تواصل مع الوكالة قبل التحويل." });
   } catch (error) {
-    panel.innerHTML = errorState(error.message);
+    accountsHtml = errorState(error.message);
   }
-}
-
-function showReceiptUpload(panel, requestId, onUploaded) {
   panel.innerHTML = `
-    <form id="receiptForm" class="form detail-block">
-      <h4>رفع إثبات الدفع</h4>
-      <label class="field">
-        <span>إشعار التحويل (صورة أو PDF) *</span>
-        <input name="file" type="file" accept="image/*,.pdf" required>
-      </label>
-      <div class="upload-progress-wrap" id="receiptProgressWrap" hidden>
-        <div class="upload-progress-bar"><div class="upload-progress-fill" id="receiptProgressFill"></div></div>
-      </div>
-      <button type="submit" class="primary">رفع الإثبات</button>
-    </form>`;
+    <div class="detail-block payment-step">
+      <h4>الدفع بالتحويل البنكي</h4>
+      ${price ? `<p class="payment-amount">المبلغ المطلوب: <strong>${esc(price)}</strong></p>` : ""}
+      ${accountsHtml}
+      <form id="receiptForm" class="form">
+        <label class="field">
+          <span>إيصال التحويل (صورة أو PDF) *</span>
+          <input name="file" type="file" accept="image/*,.pdf" required>
+        </label>
+        <div class="upload-progress-wrap" id="receiptProgressWrap" hidden>
+          <div class="upload-progress-bar"><div class="upload-progress-fill" id="receiptProgressFill"></div></div>
+        </div>
+        <button type="submit" class="primary">رفع الإيصال للمراجعة</button>
+        <small>بعد الرفع يصبح الدفع «قيد المراجعة» حتى تؤكد الوكالة استلام المبلغ.</small>
+      </form>
+    </div>`;
+  panel.querySelectorAll("[data-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy);
+        toast("تم النسخ");
+      } catch {
+        toast("انسخ الرقم يدويًا", { tone: "error" });
+      }
+    });
+  });
   const form = panel.querySelector("#receiptForm");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const file = new FormData(form).get("file");
-    const submitBtn = form.querySelector("button");
+    const problem = validateFile(file, null);
+    if (problem) {
+      toast(problem, { tone: "error" });
+      return;
+    }
+    const submitBtn = form.querySelector("button[type=submit]");
     setLoading(submitBtn, true, "جارٍ الرفع…");
     const progressWrap = panel.querySelector("#receiptProgressWrap");
     const progressFill = panel.querySelector("#receiptProgressFill");
     progressWrap.hidden = false;
     await ensureTrackingAndRun(panel, () => tracking.uploadPaymentReceipt(requestId, file, (percent) => { progressFill.style.width = `${percent}%`; }), {
-      onDone: () => { toast("تم رفع إثبات الدفع للمراجعة"); onUploaded(); },
+      onDone: () => { toast("تم رفع الإيصال، والدفع الآن قيد المراجعة"); onUploaded(); },
     });
   });
 }

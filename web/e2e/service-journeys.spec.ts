@@ -32,6 +32,8 @@ type Journey = {
   // Egypt clearance continues after the approval file: travel plan, then
   // staff complete the request.
   travelPlan?: boolean;
+  // Fixed catalog price confirmed at submission: no staff quote, no approval.
+  fixedPrice?: { total: string; currency: string };
 };
 
 const visaName = `تأشيرة سياحية تركيا ${unique()}`;
@@ -105,7 +107,12 @@ const JOURNEYS: Journey[] = [
     name: "Egypt clearance",
     execution: "جارٍ استخراج الموافقة الأمنية",
     travelPlan: true,
-    start: async (app) => shortcut(app, "egypt"),
+    // The air variant, priced for this run in beforeAll (test fixture price).
+    fixedPrice: { total: "240", currency: "USD" },
+    start: async (app) => {
+      await shortcut(app, "egypt");
+      await app.locator('.variant-card[data-code="VISA-EGYPT-CLEARANCE-AIR"]').click();
+    },
   },
   {
     name: "visa configured in the back-office",
@@ -125,6 +132,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   let app: Page;
   let office: Page;
   const testRequirementIds: string[] = [];
+  let egyptAirId = "";
 
   test.beforeAll(async ({ browser }) => {
     // One customer device for all journeys: the phone is verified once (the
@@ -135,6 +143,14 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     app = await appContext.newPage();
     office = await (await browser.newContext({ locale: "ar" })).newPage();
     await loginAsSeededAdmin(office);
+
+    // Egypt clearance is booked per entry-method variant at its fixed price;
+    // the seed creates the variants inactive and unpriced. Test fixture price.
+    const visaList = (await (await office.request.get(`${BACKEND}/api/visa-types?limit=200`)).json()).data as Array<{ id: string; code: string }>;
+    egyptAirId = visaList.find((v) => v.code === "VISA-EGYPT-CLEARANCE-AIR")?.id || "";
+    expect(egyptAirId, "seeded Egypt air variant").toBeTruthy();
+    const priced = await office.request.patch(`${BACKEND}/api/visa-types/${egyptAirId}`, { data: { pricingMode: "FIXED", basePrice: 120, currency: "USD", priceUnit: "PER_TRAVELER", active: true } });
+    expect(priced.ok(), await priced.text()).toBeTruthy();
 
     // A visa type the back-office configures now, with a per-traveler document.
     const created = await office.request.post(`${BACKEND}/api/visa-types`, {
@@ -160,6 +176,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   });
 
   test.afterAll(async () => {
+    if (egyptAirId) await office?.request.patch(`${BACKEND}/api/visa-types/${egyptAirId}`, { data: { pricingMode: "QUOTE", active: false } }).catch(() => undefined);
     for (const id of testRequirementIds) await office?.request.delete(`${BACKEND}/api/services/requirements/${id}`).catch(() => undefined);
     await appContext?.close();
     await office?.context().close();
@@ -217,6 +234,8 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await nextStep();
     }
     await expect(review).toBeVisible();
+    // A fixed price is confirmed once, here, before sending.
+    if (await app.locator("#confirmTotal").count()) await app.locator("#confirmTotal").check();
     await nextStep();
     const reference = app.locator("#requestReference");
     await expect(reference).toBeVisible({ timeout: 30_000 });
@@ -296,17 +315,26 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         await expect(detail.locator("[data-doc-accept]")).toHaveCount(before - 1, { timeout: 15_000 });
       }
 
-      // ---- staff: price
-      const kind = detail.locator("#cr-price-kind");
-      if (await kind.count()) await kind.selectOption("invoice");
-      await office.fill("#cr-amount", "350");
-      await office.locator("#cr-currency").selectOption("USD");
-      await staffAct(detail.locator('[data-cr-form="invoice"] button[type="submit"], [data-cr-form="offer"] button[type="submit"]').first(), "تم حفظ السعر");
+      if (journey.fixedPrice) {
+        // ---- fixed price: confirmed at submission; no staff quote, no approval
+        await openCustomerRequest(id);
+        await expect(app.locator(".quote-amount")).toContainText(journey.fixedPrice.total);
+        await expect(app.locator(".quote-amount")).toContainText(journey.fixedPrice.currency);
+        await expect(app.locator("#approveBtn")).toHaveCount(0);
+      } else {
+        // ---- staff: price
+        const kind = detail.locator("#cr-price-kind");
+        if (await kind.count()) await kind.selectOption("invoice");
+        await office.fill("#cr-amount", "350");
+        await office.locator("#cr-currency").selectOption("USD");
+        await staffAct(detail.locator('[data-cr-form="invoice"] button[type="submit"], [data-cr-form="offer"] button[type="submit"]').first(), "تم حفظ السعر");
 
-      // ---- customer: approve, receipt
-      await openCustomerRequest(id);
-      await expect(app.locator(".quote-amount")).toContainText("USD");
-      await app.locator("#approveBtn").click();
+        // ---- customer: approve
+        await openCustomerRequest(id);
+        await expect(app.locator(".quote-amount")).toContainText("USD");
+        await app.locator("#approveBtn").click();
+      }
+      // ---- customer: payment details and receipt (one panel)
       await expect(app.locator("#uploadReceiptBtn")).toBeVisible({ timeout: 15_000 });
       await app.locator("#uploadReceiptBtn").click();
       await app.locator('#receiptForm input[name="file"]').setInputFiles({ name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });

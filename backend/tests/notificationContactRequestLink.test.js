@@ -25,3 +25,21 @@ describe("customer notifications link back to the ContactRequest they're about",
     assert.equal(notification.contactRequestId, requestId);
   });
 });
+
+describe("staff notifications link to the request they are about", () => {
+  test("assigning a request notifies the assignee with that request's id", async () => {
+    const { default: prisma } = await import("../src/config/database.js");
+    const { createStaffUser, staffClient } = await import("./helpers/staff.js");
+    const { app, request } = await import("./helpers/api.js");
+    const admin = staffClient(await createStaffUser({ role: "ADMIN" }));
+    const employee = await createStaffUser({ role: "EMPLOYEE" });
+    const created = await request(app).post("/api/contact-requests").send({ name: "TEST-WF إسناد", phone: `091${uniqueSuffix().slice(-7)}`, message: "TEST-WF" });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const id = created.body.data.id;
+    const res = await admin.patch(`/api/contact-requests/${id}/assign`).send({ assignedUserId: employee.id });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const notification = await prisma.notification.findFirst({ where: { userId: employee.id, type: "CASE_ASSIGNED" } });
+    assert.ok(notification, "the assignee is notified");
+    assert.equal(notification.contactRequestId, id);
+  });
+});

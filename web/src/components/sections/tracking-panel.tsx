@@ -130,12 +130,20 @@ type TrackedRequest = {
   // What the customer may do now (the server's workflow policy). A closed
   // request is read-only whatever this says.
   allowedActions?: string[];
-  progress?: { stage: string; label: string; pricingMode?: "FIXED" | "QUOTE"; steps: { key: string; label: string; state: TimelineStepState }[] };
+  progress?: {
+    stage: string;
+    label: string;
+    pricingMode?: "FIXED" | "QUOTE";
+    steps: { key: string; label: string; state: TimelineStepState; status?: string; started?: boolean }[];
+  };
   createdAt: string;
   invoice: TrackedInvoice | null;
   offers: TrackedOffer[];
   selectedOfferId: string | null;
   paymentStatus: PaymentStatus;
+  // Set when staff rejected the last receipt (the request is back to
+  // AWAITING_TRANSFER): the customer sends a correct one.
+  paymentRejection?: { reason: string; at: string | null } | null;
   documents: TrackedDocument[];
   checklist?: ChecklistItem[];
   nextActions?: NextAction[];
@@ -319,6 +327,144 @@ function RequestTimeline({ req }: { req: TrackedRequest }) {
   );
 }
 
+const PROGRESS_STATE_LABEL: Record<TimelineStepState, string> = {
+  done: "مكتملة",
+  current: "المرحلة الحالية",
+  upcoming: "لم تبدأ بعد",
+};
+
+// Where a stage's own section is on this page, and what the customer can do
+// there now (only actions the server allows). Mirrors the app
+// (mobile/www/js/progress-view.js stepAction).
+function progressStepAction(stepKey: string, req: TrackedRequest): { label: string; section: string } | null {
+  const checklistTodo = (req.checklist ?? []).some((item) => item.required && (item.state === "MISSING" || item.state === "REJECTED"));
+  switch (stepKey) {
+    case "DOCUMENTS":
+      if (mayDo(req, "UPLOAD_DOCUMENT") && checklistTodo) return { label: "رفع المستندات المطلوبة", section: "documents" };
+      return (req.checklist?.length || req.documents.length) ? { label: "عرض المستندات", section: "documents" } : null;
+    case "QUOTE":
+      if (mayDo(req, "APPROVE_QUOTE")) return { label: "مراجعة السعر والموافقة عليه", section: "pricing" };
+      if (mayDo(req, "SELECT_OFFER")) return { label: "اختيار أحد العروض", section: "pricing" };
+      return null;
+    case "PAYMENT":
+    case "PAYMENT_REVIEW":
+      if (req.paymentStatus === "AWAITING_TRANSFER" && (mayDo(req, "UPLOAD_RECEIPT") || mayDo(req, "DECLARE_TRANSFER"))) {
+        return { label: req.paymentRejection ? "رفع إيصال بديل" : "بيانات التحويل ورفع الإيصال", section: "payment" };
+      }
+      return null;
+    case "DELIVERY":
+      return req.deliverables.length ? { label: "تحميل الملفات النهائية", section: "deliverables" } : null;
+    default:
+      return null;
+  }
+}
+
+function progressStateText(step: { key: string; state: TimelineStepState; started?: boolean }) {
+  return step.key === "EXECUTION" && step.state === "current" && step.started ? "قيد التنفيذ، لم تكتمل بعد" : PROGRESS_STATE_LABEL[step.state];
+}
+
+// The server's service-aware progress (backend request-progress.js), the
+// same stages staff and the app show: connected, tappable circles
+// (done / current / upcoming). Selecting one shows that stage's status line
+// and, when the customer can act there now, a button to that section.
+// A tab list: one tab stop, arrow keys (mirrored in RTL), Home/End.
+function RequestProgress({ req }: { req: TrackedRequest }) {
+  const steps = (req.progress?.steps ?? []).filter((step) => step && step.label);
+  const initial = steps.find((step) => step.state === "current")?.key ?? [...steps].reverse().find((step) => step.state === "done")?.key ?? steps[0]?.key;
+  const [selectedKey, setSelectedKey] = React.useState(initial);
+  const tabRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
+  if (steps.length === 0) return <RequestTimeline req={req} />;
+
+  const selected = steps.find((step) => step.key === selectedKey) ?? steps[0];
+  const action = progressStepAction(selected.key, req);
+  const panelId = `progress-panel-${req.id}`;
+
+  function move(index: number) {
+    const next = steps[(index + steps.length) % steps.length];
+    setSelectedKey(next.key);
+    tabRefs.current[next.key]?.focus();
+  }
+
+  function onKeyDown(event: React.KeyboardEvent, index: number) {
+    const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
+    if (event.key === "ArrowLeft") move(index + (rtl ? 1 : -1));
+    else if (event.key === "ArrowRight") move(index + (rtl ? -1 : 1));
+    else if (event.key === "Home") move(0);
+    else if (event.key === "End") move(steps.length - 1);
+    else return;
+    event.preventDefault();
+  }
+
+  return (
+    <div className="mt-3" data-testid="request-progress">
+      <ol role="tablist" aria-label="مراحل الطلب" className="flex items-start overflow-x-auto pb-1">
+        {steps.map((step, index) => {
+          const isSelected = step.key === selected.key;
+          return (
+            <li key={step.key} role="presentation" className="flex min-w-16 flex-1 flex-col items-center">
+              <div className="flex w-full items-center">
+                <span className={`h-px flex-1 ${index === 0 ? "opacity-0" : steps[index - 1].state === "done" ? "bg-emerald-500/50" : "bg-border"}`} />
+                <button
+                  type="button"
+                  role="tab"
+                  ref={(el) => {
+                    tabRefs.current[step.key] = el;
+                  }}
+                  id={`progress-tab-${req.id}-${step.key}`}
+                  data-step={step.key}
+                  data-state={step.state}
+                  aria-selected={isSelected}
+                  aria-controls={panelId}
+                  aria-current={step.state === "current" ? "step" : undefined}
+                  aria-label={`${index + 1} من ${steps.length}: ${step.label} — ${progressStateText(step)}`}
+                  tabIndex={isSelected ? 0 : -1}
+                  onClick={() => setSelectedKey(step.key)}
+                  onKeyDown={(event) => onKeyDown(event, index)}
+                  className={`flex size-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold outline-none transition focus-visible:ring-2 focus-visible:ring-primary ${
+                    step.state === "done"
+                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      : step.state === "current"
+                        ? "border-primary bg-primary/10 text-primary dark:border-secondary dark:text-secondary"
+                        : "border-border bg-background text-muted-foreground"
+                  } ${isSelected ? "ring-2 ring-accent ring-offset-1" : ""}`}
+                >
+                  {step.state === "done" ? <Check className="size-4" /> : index + 1}
+                </button>
+                <span className={`h-px flex-1 ${index === steps.length - 1 ? "opacity-0" : step.state === "done" ? "bg-emerald-500/50" : "bg-border"}`} />
+              </div>
+              <span className={`mt-1 px-1 text-center text-[10px] leading-tight ${step.state === "upcoming" ? "text-muted-foreground/70" : "text-foreground"}`}>
+                {step.label}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <div id={panelId} role="tabpanel" aria-labelledby={`progress-tab-${req.id}-${selected.key}`} className="mt-2 rounded-xl border border-border bg-background p-3 text-sm" data-testid="progress-panel">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-bold text-foreground">{selected.label}</span>
+          <span className="text-xs text-muted-foreground" data-testid="progress-panel-state">{progressStateText(selected)}</span>
+        </div>
+        {selected.status ? <p className="mt-1 text-xs text-muted-foreground">{selected.status}</p> : null}
+        {action ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="gold"
+            className="mt-2"
+            onClick={() => {
+              const target = document.getElementById(`${action.section}-${req.id}`);
+              target?.scrollIntoView({ behavior: "smooth", block: "start" });
+              target?.querySelector<HTMLElement>("button, input, a")?.focus({ preventScroll: true });
+            }}
+          >
+            {action.label}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function mayDo(req: TrackedRequest, action: string) {
   return req.status !== "CLOSED" && (!req.allowedActions || req.allowedActions.includes(action));
 }
@@ -478,10 +624,58 @@ function RequestOffersPanel({
   );
 }
 
-// Shown once per request, regardless of which pricing mechanism (Invoice or
-// multi-carrier offers) got it to AWAITING_TRANSFER — both feed the same
-// paymentStatus state machine from that point on.
-function RequestTransferAction({
+type TrackingPaymentAccount = {
+  id: string;
+  name: string;
+  bankName: string;
+  accountName: string;
+  accountNumber: string | null;
+  iban: string | null;
+  currency: string;
+};
+
+// The amount the customer pays: the selected offer, else the approved price.
+function amountDue(req: TrackedRequest): { amount: string; currency: string } | null {
+  const offer = req.selectedOfferId ? req.offers.find((o) => o.id === req.selectedOfferId) : null;
+  if (offer) return { amount: offer.amount, currency: offer.currency };
+  if (req.invoice?.status === "APPROVED") return { amount: req.invoice.amount, currency: req.invoice.currency };
+  return null;
+}
+
+function CopyValue({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <div className="flex items-center gap-1">
+      <span dir="ltr" className="break-all font-bold">{value}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        aria-label={`نسخ ${label}`}
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(value);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 2000);
+          } catch {
+            // Clipboard is a convenience; the value stays visible to copy by hand.
+          }
+        }}
+      >
+        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+        <span className="text-xs">{copied ? "تم النسخ" : "نسخ"}</span>
+      </Button>
+    </div>
+  );
+}
+
+// The payment step, all in one place: the amount and currency, the agency's
+// accounts for that currency (bank, holder, number with copy) and the
+// receipt upload. Shown once per request, whichever pricing mechanism
+// (invoice or offers) got it to AWAITING_TRANSFER. A receipt only puts the
+// payment under review (backend uploadPaymentReceipt); it is never "paid"
+// until staff confirm it.
+function RequestPaymentStep({
   req,
   onActionComplete,
 }: {
@@ -489,29 +683,152 @@ function RequestTransferAction({
   onActionComplete: () => Promise<void>;
 }) {
   const { acting, actionError, postAction } = useTrackingAction(onActionComplete);
+  const due = amountDue(req);
+  const open = req.status !== "CLOSED" && req.paymentStatus === "AWAITING_TRANSFER" && (mayDo(req, "UPLOAD_RECEIPT") || mayDo(req, "DECLARE_TRANSFER"));
+  const [accounts, setAccounts] = React.useState<TrackingPaymentAccount[] | null>(null);
+  const [accountsError, setAccountsError] = React.useState("");
+  const [file, setFile] = React.useState<File | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState("");
 
-  if (req.paymentStatus !== "AWAITING_TRANSFER" || !mayDo(req, "DECLARE_TRANSFER")) {
-    return null;
+  React.useEffect(() => {
+    if (!open || !due) return;
+    let active = true;
+    fetch(`${API_URL}/tracking/payment-accounts?currency=${encodeURIComponent(due.currency)}`, { credentials: "include" })
+      .then(async (res) => {
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(payload?.message || "تعذر تحميل حسابات الدفع");
+        if (active) setAccounts(Array.isArray(payload?.data) ? payload.data : []);
+      })
+      .catch((err) => {
+        if (active) setAccountsError(err instanceof Error ? err.message : "تعذر تحميل حسابات الدفع");
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, due?.currency]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (req.status !== "CLOSED" && req.paymentStatus === "UNDER_REVIEW") {
+    return (
+      <div className="mt-4 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 text-sm" role="status" data-testid="payment-under-review">
+        <span className="font-bold text-foreground">الدفع قيد المراجعة</span>
+        <p className="mt-1 text-xs text-muted-foreground">
+          وصلنا إثبات التحويل وهو قيد المراجعة لدى المحاسب. لا يُعتبر الطلب مدفوعًا حتى يؤكد فريقنا استلام المبلغ.
+        </p>
+      </div>
+    );
+  }
+  if (!open) return null;
+
+  async function uploadReceipt() {
+    if (!file) return;
+    if (!/^image\//.test(file.type) && file.type !== "application/pdf") {
+      setUploadError("ارفع صورة أو ملف PDF فقط.");
+      return;
+    }
+    setUploading(true);
+    setUploadError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_URL}/tracking/requests/${req.id}/payment-receipt`, { method: "POST", body: form, credentials: "include" });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.message || "تعذّر رفع الإيصال، حاول مرة أخرى");
+      setFile(null);
+      await onActionComplete();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "تعذّر رفع الإيصال، حاول مرة أخرى");
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-border bg-background p-4">
-      <p className="text-xs text-muted-foreground">
-        بعد تحويل المبلغ، اضغط الزر التالي لإعلام فريقنا بذلك.
-      </p>
-      {actionError ? (
-        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{actionError}</p>
+    <div className="mt-4 rounded-xl border border-accent/40 bg-accent/5 p-4" data-testid="payment-step">
+      <span className="text-sm font-bold text-foreground">الدفع بالتحويل البنكي</span>
+      {req.paymentRejection ? (
+        <p className="mt-2 rounded-lg border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400">
+          لم يُقبل الإيصال السابق: {req.paymentRejection.reason}. أرسل إيصالًا صحيحًا.
+        </p>
       ) : null}
-      <Button
-        type="button"
-        size="sm"
-        variant="gold"
-        className="mt-2"
-        disabled={acting}
-        onClick={() => postAction(`/tracking/requests/${req.id}/mark-transfer-sent`)}
-      >
-        تم تحويل المبلغ
-      </Button>
+      {due ? (
+        <div className="mt-3 flex items-center justify-between rounded-lg bg-background p-3 text-sm">
+          <span className="text-muted-foreground">المبلغ المطلوب</span>
+          <span className="font-black text-foreground" dir="ltr" data-testid="payment-amount">{formatMoney(due.amount, due.currency)}</span>
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex flex-col gap-2">
+        {accountsError ? <p className="text-xs text-red-600 dark:text-red-400">{accountsError}</p> : null}
+        {accounts === null && !accountsError && due ? (
+          <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" /> جارٍ تحميل حسابات الدفع...</p>
+        ) : null}
+        {accounts?.length === 0 ? (
+          <p className="text-xs text-muted-foreground">لا يوجد حساب بعملة {due?.currency} حاليًا؛ تواصل معنا قبل التحويل.</p>
+        ) : null}
+        {accounts?.map((account) => (
+          <div key={account.id} className="rounded-lg border border-border bg-background p-3 text-sm" data-testid="payment-account">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">البنك</span>
+              <span className="font-bold">{account.bankName}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">صاحب الحساب</span>
+              <span className="font-bold text-end">{account.accountName}</span>
+            </div>
+            {account.accountNumber ? (
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">رقم الحساب</span>
+                <CopyValue value={account.accountNumber} label="رقم الحساب" />
+              </div>
+            ) : null}
+            {account.iban ? (
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">IBAN</span>
+                <CopyValue value={account.iban} label="IBAN" />
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      {mayDo(req, "UPLOAD_RECEIPT") ? (
+        <div className="mt-3 rounded-lg border border-border bg-background p-3">
+          <label className="text-sm font-semibold text-foreground" htmlFor={`receipt-${req.id}`}>
+            إيصال التحويل (صورة أو PDF)
+          </label>
+          <input
+            id={`receipt-${req.id}`}
+            type="file"
+            accept="image/*,application/pdf"
+            className="mt-2 block w-full text-xs"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+          {uploadError ? <p className="mt-2 text-xs text-red-600 dark:text-red-400">{uploadError}</p> : null}
+          <Button type="button" size="sm" variant="gold" className="mt-2" disabled={!file || uploading} onClick={uploadReceipt}>
+            {uploading ? <Loader2 className="size-4 animate-spin" /> : null}
+            رفع الإيصال للمراجعة
+          </Button>
+          <p className="mt-2 text-[11px] text-muted-foreground">بعد الرفع يصبح الدفع «قيد المراجعة» حتى يؤكد فريقنا استلام المبلغ.</p>
+        </div>
+      ) : null}
+
+      {mayDo(req, "DECLARE_TRANSFER") ? (
+        <div className="mt-3">
+          <p className="text-xs text-muted-foreground">لا يوجد إيصال؟ بعد التحويل اضغط الزر لإعلام فريقنا، وسيراجع المبلغ قبل تأكيده.</p>
+          {actionError ? <p className="mt-2 text-xs text-red-600 dark:text-red-400">{actionError}</p> : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-2"
+            disabled={acting}
+            onClick={() => postAction(`/tracking/requests/${req.id}/mark-transfer-sent`)}
+          >
+            تم تحويل المبلغ
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1141,19 +1458,27 @@ export function TrackingPanel() {
                   </span>
                 </div>
                 <RequestReference requestId={req.id} />
-                <RequestTimeline req={req} />
+                <RequestProgress req={req} />
                 <RequestActionPanel req={req} />
                 <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
                 {req.status === "CLOSED" && req.outcomeNote ? (
                   <p className="mt-1 text-sm text-muted-foreground">{req.outcomeNote}</p>
                 ) : null}
                 <RequestIntakeSummaryPanel req={req} />
-                <RequestDeliverablesPanel req={req} />
-                <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
-                <RequestOffersPanel req={req} onActionComplete={refreshRequests} />
-                <RequestTransferAction req={req} onActionComplete={refreshRequests} />
-                <RequestChecklistPanel req={req} />
-                <RequestDocumentsPanel req={req} onActionComplete={refreshRequests} />
+                <div id={`deliverables-${req.id}`} className="scroll-mt-24">
+                  <RequestDeliverablesPanel req={req} />
+                </div>
+                <div id={`pricing-${req.id}`} className="scroll-mt-24">
+                  <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />
+                  <RequestOffersPanel req={req} onActionComplete={refreshRequests} />
+                </div>
+                <div id={`payment-${req.id}`} className="scroll-mt-24">
+                  <RequestPaymentStep req={req} onActionComplete={refreshRequests} />
+                </div>
+                <div id={`documents-${req.id}`} className="scroll-mt-24">
+                  <RequestChecklistPanel req={req} />
+                  <RequestDocumentsPanel req={req} onActionComplete={refreshRequests} />
+                </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground" dir="ltr">
                     {formatTrackedDate(req.createdAt)}

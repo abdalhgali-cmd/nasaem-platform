@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { isEgyptClearanceItem } from "./egypt-view.js";
 
 const CATALOG_CACHE_KEY = "nasaem.catalog.cache.v3";
 
@@ -96,7 +97,7 @@ export function resolveServiceScreen(item) {
   const code = (item.code || "").toUpperCase();
   const category = (item.category || "").toLowerCase();
 
-  if (code === "SVC-EGYPT-CLEARANCE" || code === "VISA-EGYPT-CLEARANCE") return "egyptClearance";
+  if (isEgyptClearanceItem(item)) return "egyptClearance";
   if (code === "SVC-FAMILY-VISIT" || code === "VISA-FAMILY-VISIT") return "saudiFamilyVisit";
   if (code === "VISA-UMRAH" || category === "umrah") return "umrah";
   if (category.includes("ferry")) return "ferries";

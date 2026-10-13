@@ -1,3 +1,4 @@
+import { SUPPORTED_CURRENCIES } from "../../utils/enums.js";
 import { z } from "zod";
 
 // Smart Case Operations — Release B. Mirrors createContactRequestSchema's
@@ -45,6 +46,13 @@ export const addDraftDocumentSchema = z.object({
   travelerIndex: z.coerce.number().int().min(0).max(19).optional(),
 });
 
+const emptyToUndefined = (value) => (value === "" || value === null ? undefined : value);
+
 export const submitDraftSchema = z.object({
   message: z.string().trim().max(2000).optional().or(z.literal("")),
+  // Fixed-price items: the total and currency the customer confirmed on the
+  // review step; recomputed and compared server-side
+  // (contact-request-pricing/fixed-price.js).
+  acceptedTotal: z.preprocess(emptyToUndefined, z.coerce.number().nonnegative().max(1_000_000_000).optional()),
+  acceptedCurrency: z.preprocess(emptyToUndefined, z.enum(SUPPORTED_CURRENCIES).optional()),
 });

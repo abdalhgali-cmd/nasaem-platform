@@ -7,7 +7,8 @@ import { api } from "../api.js";
 import { esc, errorState } from "../ui.js";
 import { icon, iconForService } from "../icons.js";
 import { go } from "../router.js";
-import { resolveServiceScreen } from "../catalog.js";
+import { cachedCatalog, resolveServiceScreen } from "../catalog.js";
+import { egyptVariantOptions, isEgyptClearanceItem } from "../egypt-view.js";
 import {
   startingPrice,
   priceText,
@@ -55,7 +56,10 @@ function requirementsBlock(groups) {
 export async function renderServiceInfoScreen({ bodyEl, setTitle, params }) {
   const { item } = params;
   setTitle?.(item.name);
-  const price = startingPrice(item);
+  // Egypt clearance with published variants: each variant's own price, never
+  // the original item's single price (it applies to neither variant).
+  const variants = isEgyptClearanceItem(item) ? egyptVariantOptions(cachedCatalog()) : [];
+  const price = variants.length ? null : startingPrice(item);
   const duration = durationOf(item);
   const features = Array.isArray(item.features) ? item.features.filter((feature) => typeof feature === "string" && feature.trim()) : [];
 
@@ -71,7 +75,7 @@ export async function renderServiceInfoScreen({ bodyEl, setTitle, params }) {
       <section class="info-facts">
         <div class="info-fact">
           <small>السعر المعلن</small>
-          ${price ? `<strong>من <bdi>${esc(priceText(price))}</bdi></strong>${sdgText(price) ? `<span><bdi>${esc(sdgText(price))}</bdi></span>` : sdgUnavailable(price) ? `<span>${esc(SDG_UNAVAILABLE_NOTICE)}</span>` : ""}` : `<strong>يُحدد بعد مراجعة طلبك</strong>`}
+          ${variants.length ? `<ul class="variant-prices" id="egyptVariantPrices">${variants.map((variant) => `<li><span>${esc(variant.name)}</span> <strong><bdi>${esc(variant.priceText)}</bdi></strong></li>`).join("")}</ul>` : price ? `<strong>من <bdi>${esc(priceText(price))}</bdi></strong>${sdgText(price) ? `<span><bdi>${esc(sdgText(price))}</bdi></span>` : sdgUnavailable(price) ? `<span>${esc(SDG_UNAVAILABLE_NOTICE)}</span>` : ""}` : `<strong>يُحدد بعد مراجعة طلبك</strong>`}
         </div>
         <div class="info-fact">
           <small>مدة الإنجاز</small>

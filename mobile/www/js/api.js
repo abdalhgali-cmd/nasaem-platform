@@ -53,8 +53,17 @@ export function isOnline() {
   return typeof navigator === "undefined" || navigator.onLine !== false;
 }
 
-function buildHeaders(extra, isFormData) {
-  const headers = { Accept: "application/json", ...extra };
+// Provenance header for the API's CSRF protection (backend
+// csrf.middleware.js). The app's requests go through CapacitorHttp's native
+// stack: no Origin, Referer or Sec-Fetch-Site, and a native cookie jar that
+// replays any session cookie the API set. Such a cookie-carrying write
+// without a Bearer token (registration, sign-in, tracking code) is accepted
+// only with a custom header no cross-site page can send without a CORS
+// preflight. Without it the API answers CSRF_REJECTED.
+export const APP_REQUEST_HEADER = Object.freeze({ name: "X-Requested-With", value: "com.nasaemalharamain.app" });
+
+export function buildHeaders(extra, isFormData) {
+  const headers = { Accept: "application/json", [APP_REQUEST_HEADER.name]: APP_REQUEST_HEADER.value, ...extra };
   if (!isFormData) headers["Content-Type"] = "application/json";
   // A caller that passes an Authorization key (tracking.js's phone-OTP
   // session) decides it alone: its own token, or none at all. The customer
@@ -145,6 +154,7 @@ export function apiUpload(path, formData, onProgress, authOverride) {
       reject(new ApiError("انتهت مهلة رفع الطلب. تحقق من الاتصال وحاول مرة أخرى.", { status: 0, code: "TIMEOUT" }));
     };
     xhr.setRequestHeader("Accept", "application/json");
+    xhr.setRequestHeader(APP_REQUEST_HEADER.name, APP_REQUEST_HEADER.value);
 
     // authOverride given (tracking): only its token, never the account's.
     Promise.resolve(authOverride ? null : sessionToken).then((token) => {

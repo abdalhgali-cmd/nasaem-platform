@@ -194,6 +194,48 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await expect(page.locator("#cr-detail")).toContainText(family.travelers[0], { timeout: 15_000 });
   });
 
+  test("registration signs the customer in straight away; the same number again goes to sign-in, prefilled", async ({ page }) => {
+    const phone = localPhone();
+    const name = `عميل تسجيل ${phone.slice(-5)}`;
+    await skipOnboarding(page);
+    await page.locator('#bottomNav [data-tab="account"]').click();
+    await page.locator("#guestRegisterBtn").click();
+    const form = page.locator("#registerForm");
+    await form.locator('[name="fullName"]').fill(name);
+    await form.locator('[name="phone"]').fill(phone);
+    await form.locator('[name="password"]').fill("E2e@Pass12345");
+    const consent = form.locator('input[type="checkbox"]');
+    for (let i = 0; i < (await consent.count()); i += 1) await consent.nth(i).check();
+    let registrations = 0;
+    page.on("request", (req) => {
+      if (req.url().endsWith("/api/customer-auth/register") && req.method() === "POST") registrations += 1;
+    });
+    await page.locator("#registerSubmit").dblclick();
+    // Straight into the signed-in account screen, with the new customer's name.
+    await expect(page.locator("h2", { hasText: name })).toBeVisible({ timeout: 15_000 });
+    expect(registrations, "a double tap sends one registration").toBe(1);
+
+    // App restarted: still signed in (the token was kept).
+    await page.reload();
+    await page.locator('#bottomNav [data-tab="account"]').click();
+    await expect(page.locator("h2", { hasText: name })).toBeVisible({ timeout: 15_000 });
+
+    // Signed out, then the same number registered again: no second account,
+    // the sign-in screen opens with the number filled in.
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#logoutBtn").click();
+    await expect(page.locator(".home-hero")).toBeVisible({ timeout: 15_000 });
+    await page.locator('#bottomNav [data-tab="account"]').click();
+    await page.locator("#guestRegisterBtn").click();
+    await form.locator('[name="fullName"]').fill(name);
+    await form.locator('[name="phone"]').fill(phone);
+    await form.locator('[name="password"]').fill("E2e@Pass12345");
+    for (let i = 0; i < (await consent.count()); i += 1) await consent.nth(i).check();
+    await page.locator("#registerSubmit").click();
+    await expect(page.locator("#loginNotice")).toContainText("لديه حساب بالفعل", { timeout: 15_000 });
+    await expect(page.locator('#loginForm [name="identifier"]')).toHaveValue(phone);
+  });
+
   test("customer with an account: the notification about a price opens that request", async ({ page }) => {
     const phone = localPhone();
     const password = "E2e@Pass12345";
@@ -224,18 +266,78 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await expect(page.locator(".quote-amount")).toContainText(String(amount), { timeout: 15_000 });
   });
 
-  test("Egypt security approval: traveler data, passport and the agency's question", async ({ page }) => {
+  test("Egypt, unconfigured catalog: both variants shown as unavailable, no form, no fallback to the original item", async ({ page }) => {
     await skipOnboarding(page);
-    await startFromShortcut(page, "egypt");
-    await fillData(page, { name: "علي حسن", phone: localPhone(), travelers: ["علي حسن"] });
-    await uploadAllSlots(page);
-    await page.locator("#nextStepBtn").click();
-    const reference = await submitFromReview(page);
+    await page.locator('.shortcut[data-key="egypt"]').click();
+    await expect(page.locator("#egyptVariantPrices")).toContainText("غير متاحة للحجز حاليًا");
+    await page.locator("#startRequestBtn").click();
+    const cards = page.locator(".variant-card");
+    await expect(cards).toHaveCount(2);
+    await expect(cards.nth(0)).toContainText("موافقة حربي — دخول بالطيران");
+    await expect(cards.nth(1)).toContainText("موافقة حربي — دخول عبر المعبر");
+    for (const index of [0, 1]) {
+      await expect(cards.nth(index)).toContainText("غير متاحة للحجز حاليًا");
+      await expect(cards.nth(index)).toBeDisabled();
+    }
+    await expect(page.locator("#egyptUnavailable")).toBeVisible();
+    await expect(page.locator('[name="name"]')).toHaveCount(0);
+  });
+
+  test("Egypt variants: entry method with its own configured price first, then traveler, documents, confirmed total; entry method stored", async ({ page }) => {
+    test.setTimeout(180_000);
     const api = await staff(page);
-    const request = await staffRequest(api, reference);
-    expect(request.travelers).toHaveLength(1);
-    expect(request.documents.length).toBeGreaterThan(0);
-    expect(request.documents.every((d: { travelerId: string | null }) => d.travelerId === request.travelers[0].id)).toBeTruthy();
+    const list = (await (await api.get(`${BACKEND}/api/visa-types?limit=200`)).json()).data as Array<{ id: string; code: string }>;
+    const idOf = (code: string) => list.find((v) => v.code === code)?.id as string;
+    const airId = idOf("VISA-EGYPT-CLEARANCE-AIR");
+    const borderId = idOf("VISA-EGYPT-CLEARANCE-BORDER");
+    expect(airId && borderId, "variants are created by the seed (inactive, unpriced)").toBeTruthy();
+    // Test fixture prices (the agency sets the real ones in the back-office).
+    expect((await api.patch(`${BACKEND}/api/visa-types/${airId}`, { data: { pricingMode: "FIXED", basePrice: 120, currency: "USD", priceUnit: "PER_TRAVELER", active: true } })).ok()).toBeTruthy();
+    expect((await api.patch(`${BACKEND}/api/visa-types/${borderId}`, { data: { pricingMode: "FIXED", basePrice: 45000, currency: "SDG", priceUnit: "PER_REQUEST", active: true } })).ok()).toBeTruthy();
+    try {
+      await skipOnboarding(page);
+      await page.locator('.shortcut[data-key="egypt"]').click();
+      const infoPrices = page.locator("#egyptVariantPrices");
+      await expect(infoPrices).toContainText("120");
+      await expect(infoPrices).toContainText("45");
+      await expect(page.locator(".info-fact").first()).not.toContainText("50 ");
+      await page.locator("#startRequestBtn").click();
+
+      for (const [code, travelers, totalDigits, currency, mode] of [
+        ["VISA-EGYPT-CLEARANCE-AIR", ["مسافر جوي"], "120", "USD", "AIR"],
+        ["VISA-EGYPT-CLEARANCE-BORDER", ["مسافر بري", "مرافق بري"], "45", "SDG", "BORDER"],
+      ] as const) {
+        const cards = page.locator(".variant-card");
+        await expect(cards).toHaveCount(2);
+        await expect(cards.nth(0)).toContainText("موافقة حربي — دخول بالطيران");
+        await expect(cards.nth(1)).toContainText("موافقة حربي — دخول عبر المعبر");
+        await page.locator(`.variant-card[data-code="${code}"]`).click();
+        await expect(page.locator(`.variant-card[data-code="${code}"]`)).toHaveAttribute("aria-checked", "true");
+        await expect(page.locator("#egyptFaqHelp")).not.toHaveAttribute("open", "");
+        await fillData(page, { name: "عميل مصر", phone: localPhone(), travelers: [...travelers] });
+        await uploadAllSlots(page);
+        await page.locator("#nextStepBtn").click();
+        await expect(page.locator("#fixedTotalAmount")).toContainText(totalDigits);
+        await expect(page.locator("#fixedTotalAmount")).toContainText(currency);
+        await page.locator("#confirmTotal").check();
+        const reference = await submitFromReview(page);
+        const stored = await staffRequest(api, reference);
+        expect(stored.visaType.code).toBe(code);
+        expect(stored.pricingMode).toBe("FIXED");
+        expect(stored.invoice.status).toBe("APPROVED");
+        expect(stored.invoice.currency).toBe(currency);
+        expect(stored.intakeData.egyptEntryMode).toBe(mode);
+        expect(stored.allowedActions).not.toContain("ISSUE_QUOTE");
+        if (mode === "AIR") {
+          await page.goto("/index.html");
+          await page.locator('.shortcut[data-key="egypt"]').click();
+          await page.locator("#startRequestBtn").click();
+        }
+      }
+    } finally {
+      await api.patch(`${BACKEND}/api/visa-types/${airId}`, { data: { pricingMode: "QUOTE", active: false } });
+      await api.patch(`${BACKEND}/api/visa-types/${borderId}`, { data: { pricingMode: "QUOTE", active: false } });
+    }
   });
 
   test("Umrah: choose a package, then each pilgrim's own documents", async ({ page }) => {
@@ -299,9 +401,16 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await page.locator("#approveBtn").click();
     await expect(page.locator("#paymentInfoBtn")).toBeVisible({ timeout: 15_000 });
     await page.locator("#paymentInfoBtn").click();
-    await expect(page.locator(".payment-card", { hasText: accountNumber })).toBeVisible();
+    // One payment step: amount + currency, bank, holder, number with copy, and the receipt field together.
+    const step = page.locator(".payment-step");
+    await expect(step.locator(".payment-amount")).toContainText("1,000");
+    await expect(step.locator(".payment-amount")).toContainText("SAR");
+    const card = step.locator(".payment-card", { hasText: accountNumber });
+    await expect(card).toContainText("E2E Bank");
+    await expect(card).toContainText("صاحب الحساب: Nasaem");
+    await expect(card.locator(`[data-copy="${accountNumber}"]`)).toBeVisible();
+    await expect(step.locator('#receiptForm input[name="file"]')).toHaveAttribute("accept", "image/*,.pdf");
 
-    await page.locator("#uploadReceiptBtn").click();
     await page.locator('#receiptForm input[name="file"]').setInputFiles(file("receipt.png"));
     await page.locator("#receiptForm button").click();
     await expect(page.locator(".pay-state")).toContainText("قيد المراجعة", { timeout: 15_000 });

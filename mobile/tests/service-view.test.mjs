@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveShortcuts, startingPrice, priceText, sdgText, durationOf, shortDescription, featuredServices, groupRequirements, FINAL_PRICE_NOTE } from "../www/js/service-view.js";
+import { resolveShortcuts, startingPrice, priceText, sdgText, durationOf, shortDescription, featuredServices, homeFeaturedServices, serviceDirectoryItems, groupRequirements, FINAL_PRICE_NOTE } from "../www/js/service-view.js";
 
 const catalog = {
   services: [
@@ -34,6 +34,22 @@ test("prices come from the catalog, keep the original currency and show SDG only
 test("featured services are the priced ones only", () => {
   assert.deepEqual(featuredServices(catalog).map((i) => i.id), ["s2", "s3", "v1"]);
   assert.equal(featuredServices(catalog, 1).length, 1);
+});
+
+test("service directory shows one visas hub and never repeats VisaTypes beside their Services", () => {
+  const items = serviceDirectoryItems(catalog);
+  assert.deepEqual(items.map((item) => item.id), ["HUB-VISAS", "s1", "s2", "s3"]);
+  assert.equal(items.filter((item) => item.id === "HUB-VISAS").length, 1);
+  assert.ok(!items.some((item) => item.isVisaType), "visa types belong inside the visas hub");
+  assert.deepEqual(serviceDirectoryItems({ services: catalog.services, visaTypes: [] }).map((item) => item.id), ["s1", "s2", "s3"]);
+});
+
+test("home featured list excludes shortcut services and individual visa types", () => {
+  const withOtherPricedService = {
+    ...catalog,
+    services: [...catalog.services, { id: "s4", code: "SVC-OTHER", name: "خدمة أخرى", basePrice: "75", currency: "USD" }],
+  };
+  assert.deepEqual(homeFeaturedServices(withOtherPricedService).map((item) => item.id), ["s4"]);
 });
 
 test("duration, description and requirement grouping", () => {

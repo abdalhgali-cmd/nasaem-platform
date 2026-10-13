@@ -21,7 +21,7 @@ import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-che
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
-const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
+import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
 
 // Sends a one-time tracking code over WhatsApp, the only channel that proves
 // possession of the phone. Never reports success for a code nobody can
@@ -158,7 +158,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
     const storedEgyptTravel = request.intakeData?.egyptTravel || null;
     let liveEgyptTravel = storedEgyptTravel;
     if (
-      request.visaType?.code === EGYPT_CLEARANCE_CODE &&
+      isEgyptClearanceCode(request.visaType?.code) &&
       storedEgyptTravel?.entryDate &&
       storedEgyptTravel?.bookingStatus
     ) {

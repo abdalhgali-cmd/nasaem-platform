@@ -11,6 +11,7 @@ import {
 } from "../intake-core.js";
 import { setTrackingPrefill } from "../tracking.js";
 import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-view.js";
+import { selectOptions } from "../egypt-view.js";
 
 const ALLOWED_DOC_ACCEPT = "image/*,.pdf";
 const STEP_TITLES = { data: "البيانات", docs: "المستندات", review: "المراجعة" };
@@ -49,11 +50,12 @@ function answerInput(requirement, value) {
   const label = esc(requirement.name) + (requirement.required ? " *" : "");
   const hint = requirement.description ? `<span class="field-hint">${esc(requirement.description)}</span>` : "";
   if (requirement.type === "SELECT") {
-    const options = Array.isArray(requirement.options) ? requirement.options : Object.keys(requirement.options || {});
+    // Each option's Arabic label is shown and its stable value is submitted.
+    const options = selectOptions(requirement.options);
     return `
       <label class="field" data-req="${esc(requirement.id)}">
         <span>${label}</span>
-        <select name="${name}"><option value="">اختر</option>${options.map((option) => `<option value="${esc(option)}" ${String(value) === String(option) ? "selected" : ""}>${esc(option)}</option>`).join("")}</select>
+        <select name="${name}"><option value="">اختر</option>${options.map((option) => `<option value="${esc(option.value)}" ${String(value) === option.value ? "selected" : ""}>${esc(option.label)}</option>`).join("")}</select>
         ${hint}
       </label>`;
   }

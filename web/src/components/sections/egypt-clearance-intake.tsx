@@ -3,14 +3,12 @@
 import * as React from "react";
 import Link from "next/link";
 import {
-  BusFront,
   CheckCircle2,
   File,
   FileCheck2,
   Loader2,
   Mail,
   Phone,
-  Plane,
   UploadCloud,
   UserRound,
 } from "lucide-react";
@@ -33,13 +31,25 @@ export type EgyptClearanceRequirement = {
   options: { value: string; label: string }[] | null;
 };
 
+type EntryMode = "AIR" | "BORDER" | "";
+
+// The agency's fixed price of the chosen variant (catalog item): the customer
+// confirms the total once before sending; the server recomputes it.
+export type EgyptFixedPrice = {
+  unitPrice: number;
+  currency: string;
+  priceUnit: "PER_REQUEST" | "PER_TRAVELER";
+  paymentAfterDocumentReview: boolean;
+};
+
 type Props = {
   visaTypeId: string;
   serviceId: string | null;
   requirements: EgyptClearanceRequirement[];
+  // The variant (موافقة حربي — air / border crossing) fixes the entry method.
+  fixedEntryMode: "AIR" | "BORDER";
+  fixedPrice: EgyptFixedPrice;
 };
-
-type EntryMode = "AIR" | "BORDER" | "";
 type LocalSnapshot = {
   name: string;
   phone: string;
@@ -62,7 +72,9 @@ function formatBytes(bytes: number | null) {
     : `${Math.round(bytes / 1024)} KB`;
 }
 
-export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Props) {
+export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixedEntryMode, fixedPrice }: Props) {
+  // A draft belongs to one variant (its visa type and requirements).
+  const tokenKey = `${TOKEN_KEY}:${visaTypeId}`;
   const passportRequirement = React.useMemo(
     () =>
       requirements.find((item) => item.attachmentType === "passport_copy") ??
@@ -81,7 +93,10 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
   const [email, setEmail] = React.useState("");
   const [passportNo, setPassportNo] = React.useState("");
   const [birthDate, setBirthDate] = React.useState("");
-  const [entryMode, setEntryMode] = React.useState<EntryMode>("");
+  const [entryMode, setEntryMode] = React.useState<EntryMode>(fixedEntryMode);
+  // One traveler per request here: per-traveler and per-request totals match.
+  const [total, setTotal] = React.useState({ amount: Math.round(fixedPrice.unitPrice * 100) / 100, currency: fixedPrice.currency });
+  const [totalConfirmed, setTotalConfirmed] = React.useState(false);
   const [passportDocumentId, setPassportDocumentId] = React.useState<string | null>(null);
   const [passportFileName, setPassportFileName] = React.useState("");
   const [passportFileSize, setPassportFileSize] = React.useState<number | null>(null);
@@ -118,7 +133,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       const token = payload.data.token as string;
       draftTokenRef.current = token;
       try {
-        window.localStorage.setItem(TOKEN_KEY, token);
+        window.localStorage.setItem(tokenKey, token);
       } catch {
         // Server draft remains usable in this tab.
       }
@@ -175,10 +190,10 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
           setEmail(local.email ?? "");
           setPassportNo(local.passportNo ?? "");
           setBirthDate(local.birthDate ?? "");
-          setEntryMode(local.entryMode ?? "");
+          setEntryMode(fixedEntryMode);
         });
       }
-      token = window.localStorage.getItem(TOKEN_KEY);
+      token = window.localStorage.getItem(tokenKey);
       if (token) draftTokenRef.current = token;
     } catch {
       // Local persistence is optional.
@@ -201,9 +216,6 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
         }
         setPhone((value) => value || draft.phone || "");
         setEmail((value) => value || draft.email || "");
-        if (entryRequirement?.id && draft.answers?.[entryRequirement.id]) {
-          setEntryMode((value) => value || draft.answers[entryRequirement.id]);
-        }
         const passportDoc = Array.isArray(draft.documents)
           ? draft.documents.find(
               (doc: { requirementId?: string | null }) => doc.requirementId === passportRequirement?.id
@@ -220,7 +232,9 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       }
     })();
     return () => { cancelled = true; };
-  }, [entryRequirement?.id, passportRequirement]);
+    // Runs once per mount (one variant).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [passportRequirement]);
 
   React.useEffect(() => {
     if (!hydratedRef.current || resultId) return;
@@ -312,7 +326,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
     if (!birthDate) return "تاريخ الميلاد مطلوب";
     if (!entryMode) return "اختر طريقة الدخول إلى مصر";
     if (!passportDocumentId) return "صورة جواز السفر مطلوبة";
-    if (!entryRequirement) return "إعداد طريقة الدخول غير مكتمل في الخدمة";
+    if (!totalConfirmed) return "أكّد الإجمالي النهائي وعملته قبل الإرسال";
     return null;
   }
 
@@ -328,16 +342,28 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
       const response = await fetch(`${API_URL}/intake-drafts/${token}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "طلب الموافقة الأمنية لمصر — مرحلة الموافقة الأساسية" }),
+        body: JSON.stringify({
+          message: "طلب الموافقة الأمنية لمصر — مرحلة الموافقة الأساسية",
+          acceptedTotal: total.amount.toFixed(2),
+          acceptedCurrency: total.currency,
+        }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.message || "تعذّر إرسال الطلب");
+      if (!response.ok) {
+        // The agency changed the price since it was shown: show the new total
+        // and ask for a fresh confirmation (nothing was created).
+        if (response.status === 409 && payload?.code === "PRICE_CHANGED" && payload.details) {
+          setTotal({ amount: Number(payload.details.total), currency: String(payload.details.currency) });
+          setTotalConfirmed(false);
+        }
+        throw new Error(payload?.message || "تعذّر إرسال الطلب");
+      }
       const id = payload?.data?.id as string | undefined;
       if (!id) throw new Error("تم الإرسال لكن تعذّر قراءة رقم الطلب");
       setResultId(id);
       try {
         window.localStorage.removeItem(LOCAL_KEY);
-        window.localStorage.removeItem(TOKEN_KEY);
+        window.localStorage.removeItem(tokenKey);
       } catch {
         // Submission already succeeded.
       }
@@ -358,7 +384,13 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
         </p>
         <div className="mt-6 rounded-2xl border border-border bg-card p-5 text-start text-sm">
           <p className="font-bold text-foreground">ماذا بعد؟</p>
-          <p className="mt-2 text-muted-foreground">سنراجع بيانات الموافقة والجواز أولًا. عندما تحدد رحلتك ستكمل بيانات الحجز والتعميم من نفس الطلب.</p>
+          <p className="mt-2 text-muted-foreground" data-testid="egypt-next-step">
+            اعتمدت السعر الثابت <span dir="ltr" className="font-bold text-foreground">{total.amount.toLocaleString("en-US")} {total.currency}</span>؛ لن يصلك عرض سعر آخر.{" "}
+            {fixedPrice.paymentAfterDocumentReview
+              ? "بعد اعتماد مستنداتك تُفتح خطوة الدفع في صفحة التتبع بهذا الإجمالي."
+              : "خطوة الدفع مفتوحة الآن في صفحة التتبع: بيانات الحساب ورفع إيصال التحويل."}{" "}
+            عندما تحدد رحلتك ستكمل بيانات الحجز والتعميم من نفس الطلب.
+          </p>
         </div>
         <Button asChild variant="gold" size="lg" className="mt-6 w-full sm:w-auto">
           <Link href="/track">متابعة الطلب</Link>
@@ -398,21 +430,6 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
           <span className="flex items-center gap-2 text-sm font-bold text-foreground"><Mail className="size-4" /> البريد الإلكتروني <span className="font-normal text-muted-foreground">(اختياري)</span></span>
           <input value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} placeholder="name@example.com" type="email" autoComplete="email" />
         </label>
-      </div>
-
-      <div className="mt-7">
-        <p className="text-sm font-bold text-foreground">كيف ستدخل إلى مصر؟ *</p>
-        <p className="mt-1 text-xs text-muted-foreground">حدد طريقة الدخول المتوقعة. تاريخ الرحلة نفسه يمكن إضافته لاحقًا.</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <button type="button" onClick={() => setEntryMode("AIR")} className={`flex min-h-24 items-center gap-4 rounded-2xl border p-4 text-start transition ${entryMode === "AIR" ? "border-accent bg-accent/5 ring-2 ring-accent/10" : "border-border hover:border-primary/40"}`}>
-            <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary dark:text-secondary"><Plane className="size-5" /></span>
-            <span><span className="block font-bold text-foreground">منفذ جوي</span><span className="mt-1 block text-xs text-muted-foreground">الدخول عبر المطار</span></span>
-          </button>
-          <button type="button" onClick={() => setEntryMode("BORDER")} className={`flex min-h-24 items-center gap-4 rounded-2xl border p-4 text-start transition ${entryMode === "BORDER" ? "border-accent bg-accent/5 ring-2 ring-accent/10" : "border-border hover:border-primary/40"}`}>
-            <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary dark:text-secondary"><BusFront className="size-5" /></span>
-            <span><span className="block font-bold text-foreground">منفذ بري</span><span className="mt-1 block text-xs text-muted-foreground">الدخول عبر المعبر البري</span></span>
-          </button>
-        </div>
       </div>
 
       <div className="mt-7 rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
@@ -497,11 +514,23 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements }: Pr
         <p className="mt-1 leading-relaxed text-muted-foreground">التعميم ليس شرطًا لتقديم الموافقة الآن. عندما تحدد موعد السفر سنطلب الحجز وتاريخ الدخول، ويجب تجهيز التعميم قبل الرحلة بمدة لا تقل عن 72 ساعة.</p>
       </div>
 
+      <div className="mt-7 rounded-2xl border border-accent/40 bg-accent/5 p-4" data-testid="egypt-total">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-bold text-foreground">الإجمالي النهائي</span>
+          <span className="text-lg font-black text-foreground" dir="ltr" data-testid="egypt-total-amount">{total.amount.toLocaleString("en-US")} {total.currency}</span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">سعر ثابت من الوكالة، بلا عرض سعر لاحق.</p>
+        <label className="mt-3 flex items-start gap-2 text-sm font-semibold text-foreground">
+          <input type="checkbox" className="mt-1 size-4 accent-primary" checked={totalConfirmed} onChange={(event) => setTotalConfirmed(event.target.checked)} data-testid="egypt-confirm-total" />
+          <span>أؤكد الإجمالي النهائي وعملته</span>
+        </label>
+      </div>
+
       {error ? <div className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm font-semibold text-destructive">{error}</div> : null}
 
       <div className="mt-7 flex flex-col-reverse items-stretch justify-between gap-3 sm:flex-row sm:items-center">
         <span className="text-xs text-muted-foreground">{saving ? "جارٍ حفظ تقدمك تلقائيًا…" : hasProgress ? "يتم حفظ تقدمك تلقائيًا." : ""}</span>
-        <Button type="button" variant="gold" size="lg" onClick={() => void submit()} disabled={submitting || uploading}>
+        <Button type="button" variant="gold" size="lg" onClick={() => void submit()} disabled={submitting || uploading || !totalConfirmed}>
           {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
           إرسال طلب الموافقة
         </Button>

@@ -1,7 +1,5 @@
 import prisma from "../../config/database.js";
-
-const EGYPT_CLEARANCE_VISA_CODE = "VISA-EGYPT-CLEARANCE";
-const ENTRY_VALUES = new Set(["AIR", "BORDER"]);
+import { isEgyptClearanceCode, resolveEgyptEntryMode } from "../egypt-clearance/egypt-clearance-variants.js";
 
 // The public Egypt intake is intentionally stricter than a generic contact
 // request. These are the facts required to start the security approval
@@ -14,7 +12,7 @@ export async function validateEgyptClearanceDraft(draft) {
     where: { id: draft.visaTypeId },
     select: { code: true },
   });
-  if (visaType?.code !== EGYPT_CLEARANCE_VISA_CODE) return null;
+  if (!isEgyptClearanceCode(visaType?.code)) return null;
 
   const [passportRequirement, entryRequirement] = await Promise.all([
     prisma.visaRequirement.findFirst({
@@ -43,8 +41,11 @@ export async function validateEgyptClearanceDraft(draft) {
   if (!traveler?.passportNo?.trim()) missing.push("passportNo");
   if (!traveler?.birthDate) missing.push("birthDate");
 
-  const entryMode = entryRequirement ? draft.answers?.[entryRequirement.id] : null;
-  if (!entryRequirement || !ENTRY_VALUES.has(entryMode)) missing.push("entryMode");
+  // A variant (air / border) fixes the entry method; the original item needs
+  // the answer. A contradicting answer is refused on submission.
+  const entry = resolveEgyptEntryMode(visaType.code, entryRequirement ? draft.answers?.[entryRequirement.id] : undefined);
+  if (entry.error) return entry;
+  if (!entry.entryMode) missing.push("entryMode");
 
   const hasPassport = Boolean(
     passportRequirement &&
