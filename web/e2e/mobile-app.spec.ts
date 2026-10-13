@@ -197,6 +197,48 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await expect(page.locator("#cr-detail")).toContainText(family.travelers[0], { timeout: 15_000 });
   });
 
+  test("registration signs the customer in straight away; the same number again goes to sign-in, prefilled", async ({ page }) => {
+    const phone = localPhone();
+    const name = `عميل تسجيل ${phone.slice(-5)}`;
+    await skipOnboarding(page);
+    await page.locator('#bottomNav [data-tab="account"]').click();
+    await page.locator("#guestRegisterBtn").click();
+    const form = page.locator("#registerForm");
+    await form.locator('[name="fullName"]').fill(name);
+    await form.locator('[name="phone"]').fill(phone);
+    await form.locator('[name="password"]').fill("E2e@Pass12345");
+    const consent = form.locator('input[type="checkbox"]');
+    for (let i = 0; i < (await consent.count()); i += 1) await consent.nth(i).check();
+    let registrations = 0;
+    page.on("request", (req) => {
+      if (req.url().endsWith("/api/customer-auth/register") && req.method() === "POST") registrations += 1;
+    });
+    await page.locator("#registerSubmit").dblclick();
+    // Straight into the signed-in account screen, with the new customer's name.
+    await expect(page.locator("h2", { hasText: name })).toBeVisible({ timeout: 15_000 });
+    expect(registrations, "a double tap sends one registration").toBe(1);
+
+    // App restarted: still signed in (the token was kept).
+    await page.reload();
+    await page.locator('#bottomNav [data-tab="account"]').click();
+    await expect(page.locator("h2", { hasText: name })).toBeVisible({ timeout: 15_000 });
+
+    // Signed out, then the same number registered again: no second account,
+    // the sign-in screen opens with the number filled in.
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#logoutBtn").click();
+    await expect(page.locator(".home-hero")).toBeVisible({ timeout: 15_000 });
+    await page.locator('#bottomNav [data-tab="account"]').click();
+    await page.locator("#guestRegisterBtn").click();
+    await form.locator('[name="fullName"]').fill(name);
+    await form.locator('[name="phone"]').fill(phone);
+    await form.locator('[name="password"]').fill("E2e@Pass12345");
+    for (let i = 0; i < (await consent.count()); i += 1) await consent.nth(i).check();
+    await page.locator("#registerSubmit").click();
+    await expect(page.locator("#loginNotice")).toContainText("لديه حساب بالفعل", { timeout: 15_000 });
+    await expect(page.locator('#loginForm [name="identifier"]')).toHaveValue(phone);
+  });
+
   test("customer with an account: the notification about a price opens that request", async ({ page }) => {
     const phone = localPhone();
     const password = "E2e@Pass12345";

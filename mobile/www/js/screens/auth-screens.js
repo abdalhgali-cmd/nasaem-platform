@@ -50,13 +50,14 @@ export function renderWelcomeScreen({ bodyEl, params = {} }) {
   bodyEl.querySelector("#welcomeAbout").addEventListener("click", () => go("about", {}, { title: "من نحن" }));
 }
 
-export function renderLoginScreen({ bodyEl }) {
+export function renderLoginScreen({ bodyEl, params = {} }) {
   bodyEl.innerHTML = `
     <form id="loginForm" class="form auth-form" novalidate>
+      ${params.notice ? `<p class="session-notice" role="status" id="loginNotice">${esc(params.notice)}</p>` : ""}
       <p class="auth-intro">سجّل الدخول لمتابعة طلباتك وإرسال طلبات جديدة.</p>
       <label class="field">
         <span>رقم الهاتف أو البريد الإلكتروني *</span>
-        <input name="identifier" required autocomplete="username">
+        <input name="identifier" required autocomplete="username" value="${esc(params.identifier || "")}">
       </label>
       <label class="field">
         <span>كلمة المرور *</span>
@@ -143,6 +144,12 @@ export function renderRegisterScreen({ bodyEl }) {
       onAuthenticated();
     } catch (error) {
       setLoading(submitBtn, false);
+      // The phone already has an account (also when a lost response hid a
+      // registration that did succeed): straight to sign-in with the number.
+      if (error instanceof ApiError && error.status === 409 && /الهاتف/.test(error.message || "")) {
+        go("login", { identifier: data.phone, notice: "هذا الرقم لديه حساب بالفعل. سجّل الدخول بكلمة المرور." }, { title: "تسجيل الدخول" });
+        return;
+      }
       if (error instanceof ApiError && error.errors) applyFieldErrors(form, error.errors);
       toast(error.message, { tone: "error" });
     }

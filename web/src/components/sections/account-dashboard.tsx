@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { customerApi, customerUpload, CustomerApiError } from "@/lib/customer-api";
 import { API_URL } from "@/lib/api-url";
+import { clearCustomerToken } from "@/lib/customer-session";
 import { siteConfig } from "@/lib/site-config";
 import { LegalDisclosure } from "@/components/legal-disclosure";
 
@@ -157,13 +158,22 @@ export function AccountDashboard() {
   const [profile, setProfile] = React.useState<CustomerProfile | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [tab, setTab] = React.useState<TabKey>("overview");
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
+  // Only a rejected session (401) means «sign in again»; a network or server
+  // failure keeps the customer here with a retry instead of logging them out.
   const loadProfile = React.useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       const data = await customerApi<CustomerProfile>("/customer-auth/me");
       setProfile(data);
-    } catch {
-      router.replace("/account/login");
+    } catch (err) {
+      if (err instanceof CustomerApiError && err.status === 401) {
+        router.replace("/account/login?expired=1");
+        return;
+      }
+      setLoadError(err instanceof CustomerApiError ? err.message : "تعذر تحميل حسابك، حاول مرة أخرى");
     } finally {
       setLoading(false);
     }
@@ -179,6 +189,8 @@ export function AccountDashboard() {
     } catch {
       // best-effort — still leave the page
     }
+    // Signed out on this browser even if the server call failed.
+    clearCustomerToken();
     router.replace("/account/login");
   }
 
@@ -190,7 +202,16 @@ export function AccountDashboard() {
     );
   }
 
-  if (!profile) return null;
+  if (!profile) {
+    return loadError ? (
+      <div className="mx-auto max-w-md rounded-2xl border border-border bg-card p-6 text-center" role="alert" data-testid="account-load-error">
+        <p className="text-sm text-foreground">{loadError}</p>
+        <Button type="button" variant="outline" className="mt-4" onClick={() => void loadProfile()}>
+          إعادة المحاولة
+        </Button>
+      </div>
+    ) : null;
+  }
 
   return (
     <div className="flex flex-col gap-6">

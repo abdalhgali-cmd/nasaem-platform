@@ -189,10 +189,22 @@ async function confirmSessionAfterRejection(error) {
 }
 setSessionRejectedHandler(confirmSessionAfterRejection);
 
+// The server has created the account (or accepted the login) and returned
+// its session: the customer is signed in from here on. Saving the token on
+// the device is best effort — if secure storage fails, this run keeps the
+// session in memory instead of reporting a failure for an account that
+// exists (a retry would only answer «الرقم مستخدم»).
 async function startSession(res) {
-  await persistToken(res.data.token);
+  const token = res?.data?.token;
+  if (!token) throw new ApiError("لم نتمكن من بدء الجلسة. سجّل الدخول بكلمة المرور.", { status: 0, code: "NO_SESSION_TOKEN" });
+  setSessionToken(token);
   currentCustomer = res.data.customer;
   setState(SessionState.VALID);
+  try {
+    await persistToken(token);
+  } catch (error) {
+    console.warn("Session token not saved on the device:", error?.message || error);
+  }
   return currentCustomer;
 }
 
