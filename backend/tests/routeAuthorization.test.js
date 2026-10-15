@@ -20,6 +20,10 @@ const PUBLIC_ROUTES = new Set([
   "POST /api/auth/login",
   "POST /api/auth/logout",
   "POST /api/contact-requests",
+  // Request-scoped payment step: no session, but a per-request token
+  // (X-Payment-Access) is required — paymentAccess.test.js.
+  "GET /api/contact-requests/:id/payment-access",
+  "POST /api/contact-requests/:id/payment-access/receipt",
   "POST /api/tracking/request-code",
   "POST /api/tracking/verify-code",
   "POST /api/tracking/logout",

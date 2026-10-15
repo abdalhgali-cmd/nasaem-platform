@@ -6,7 +6,7 @@ import { loadCatalog, loadHomepage } from "../catalog.js";
 import { go, goToTab } from "../router.js";
 import { openServiceById, openServiceItem, VISAS_HUB_CODE } from "./services.js";
 import { resolveShortcuts, homeFeaturedServices, startingPrice, priceText, sdgText, durationOf } from "../service-view.js";
-import { firstName, greeting, buildBannerSlides, nextSlide } from "../experience-core.js";
+import { firstName, greeting, buildBannerSlides, nextSlide, readPendingPayment } from "../experience-core.js";
 import { prefersReducedMotion, stagger, watchSnapIndex, scrollToSlide, tapFeedback } from "../motion.js";
 import { loadAgency, whatsappLink } from "../agency.js";
 
@@ -76,6 +76,8 @@ export async function renderHomeScreen({ bodyEl }) {
       <button class="hero-cta" id="startNowBtn">${icon("plane", { size: 20 })}<span>ابدأ طلبك الآن</span></button>
     </section>
 
+    <div id="pendingPaymentMount"></div>
+
     <section class="shortcuts" aria-label="اختصارات سريعة">
       <div class="shortcut-rail" id="shortcutRail">${skeletonGrid(4)}</div>
     </section>
@@ -117,6 +119,7 @@ export async function renderHomeScreen({ bodyEl }) {
       </a>
     </section>
   `;
+  showPendingPayment(bodyEl.querySelector("#pendingPaymentMount"));
 
   bodyEl.querySelector("#seeAllServices").addEventListener("click", () => goToTab("services", "services", { title: "الخدمات" }));
   bodyEl.querySelector("#startNowBtn").addEventListener("click", () => {
@@ -345,4 +348,19 @@ async function loadActivitySection(bodyEl) {
   } catch {
     // Activity is a convenience: never block the rest of Home on it.
   }
+}
+
+// A fixed-price request whose payment step was left unfinished (app closed or
+// restarted): one tap goes back to it. The request already exists.
+function showPendingPayment(mount) {
+  const pending = readPendingPayment(localStorage);
+  if (!mount || !pending) return;
+  mount.innerHTML = `
+    <button type="button" class="pending-payment-card detail-block" id="resumePaymentBtn">
+      ${icon("wallet", { size: 20 })}
+      <span><b>طلب بانتظار الدفع</b><small>${esc(pending.serviceName || "")} · أكمل الدفع ورفع إشعار التحويل</small></span>
+    </button>`;
+  mount.querySelector("#resumePaymentBtn").addEventListener("click", () => {
+    go("requestPayment", { ...pending, resumed: true }, { title: "الدفع" });
+  });
 }

@@ -44,6 +44,7 @@ import {
   getContactRequestDeliverableFile,
 } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { parsePagination } from "../../utils/pagination.js";
+import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
 
 // Platform 3.0 Phase 6: mirrors contact-request-tracking.controller.js's
 // UPLOAD_ERROR_MESSAGES for the same error codes, raised here by
@@ -110,11 +111,17 @@ export async function storeContactRequest(req, res, next) {
       });
     }
 
+    // A request created at an accepted fixed price goes straight to its
+    // payment step: a request-scoped token (payment-access.service.js). A
+    // retried submission (same submissionKey, same phone) gets a fresh one,
+    // since the first response may never have reached the client.
+    const paymentAccess = await issuePaymentAccess(contactRequest.id);
+
     if (contactRequest?.duplicate) {
       return res.status(200).json({
         success: true,
         message: "Request already received",
-        data: { id: contactRequest.id, duplicate: true, customerConfirmation: confirmationOutlook() },
+        data: { id: contactRequest.id, duplicate: true, customerConfirmation: confirmationOutlook(), ...(paymentAccess ? { paymentAccess } : {}) },
       });
     }
 
@@ -123,7 +130,7 @@ export async function storeContactRequest(req, res, next) {
       message: "Request received",
       // customerConfirmation: QUEUED (a WhatsApp confirmation is being sent;
       // not yet delivered) or NOT_AVAILABLE (no channel configured).
-      data: { id: contactRequest.id, customerConfirmation: confirmationOutlook() },
+      data: { id: contactRequest.id, customerConfirmation: confirmationOutlook(), ...(paymentAccess ? { paymentAccess } : {}) },
     });
   } catch (error) {
     next(error);
@@ -162,6 +169,7 @@ export async function getContactRequests(req, res, next) {
       paymentStatus: req.query.paymentStatus,
       serviceId: req.query.serviceId,
       category: req.query.category,
+      serviceKind: req.query.serviceKind,
       createdFrom: req.query.createdFrom,
       createdTo: req.query.createdTo,
     });

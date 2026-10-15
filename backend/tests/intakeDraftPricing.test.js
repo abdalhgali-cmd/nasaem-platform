@@ -77,6 +77,11 @@ describe("intake drafts — fixed-price confirmation", () => {
     assert.equal(stored.invoice.status, "APPROVED");
     assert.equal(Number(stored.invoice.amount), 300);
     assert.equal(stored.invoice.currency, "USD");
+    // Straight to the payment step, as on POST /contact-requests.
+    assert.ok(ok.body.data.paymentAccess?.token, "a fixed-price draft submission returns its payment access");
+    const step = await request(app).get(`/api/contact-requests/${ok.body.data.id}/payment-access`).set("X-Payment-Access", ok.body.data.paymentAccess.token);
+    assert.equal(step.status, 200, JSON.stringify(step.body));
+    assert.equal(step.body.data.currency, "USD");
   });
 
   test("a fixed item submitted without a confirmed total stays a quote request", async () => {
@@ -87,6 +92,7 @@ describe("intake drafts — fixed-price confirmation", () => {
     assert.equal(stored.pricingMode, "QUOTE");
     assert.equal(stored.pricingSnapshot.reason, "FIXED_PRICE_NOT_CONFIRMED");
     assert.equal(stored.invoice, null);
+    assert.equal(res.body.data.paymentAccess, undefined, "nothing to pay before the quote");
   });
 
   test("a total confirmed for an item that is now quoted is refused", async () => {

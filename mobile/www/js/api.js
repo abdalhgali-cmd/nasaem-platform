@@ -135,8 +135,8 @@ export async function apiHealth() {
 // XHR instead of fetch specifically for the `upload.onprogress` event —
 // fetch's streaming request body has no portable progress callback in the
 // Android WebView runtime this app ships on.
-// `authOverride` lets a caller (tracking.js) send a different bearer token
-// than the signed-in customer's own — the /api/tracking actions authenticate
+// `authOverride` lets a caller (tracking.js, request-payment.js) send a different bearer token
+// or credential header than the signed-in customer's own — the /api/tracking actions authenticate
 // with a separate phone-OTP session token, not the customer-account one.
 export function apiUpload(path, formData, onProgress, authOverride) {
   return new Promise((resolve, reject) => {
@@ -160,6 +160,11 @@ export function apiUpload(path, formData, onProgress, authOverride) {
     Promise.resolve(authOverride ? null : sessionToken).then((token) => {
       const authHeader = authOverride ? authOverride.Authorization || null : token ? `Bearer ${token}` : null;
       if (authHeader) xhr.setRequestHeader("Authorization", authHeader);
+      // Other credentials in the override (the request-scoped payment access,
+      // X-Payment-Access) travel alongside it.
+      for (const [name, value] of Object.entries(authOverride || {})) {
+        if (name !== "Authorization" && value) xhr.setRequestHeader(name, value);
+      }
 
       xhr.upload.onprogress = (event) => {
         if (onProgress && event.lengthComputable) {

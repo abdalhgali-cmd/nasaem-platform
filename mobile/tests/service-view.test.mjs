@@ -69,3 +69,17 @@ test("duration, description and requirement grouping", () => {
 test("the final-price note says the final price follows the agency's review", () => {
   assert.match(FINAL_PRICE_NOTE, /بعد أن تراجع الوكالة/);
 });
+
+test("Umrah is its own section: never listed among the visas", async () => {
+  const { hubVisaTypes } = await import("../www/js/service-view.js");
+  const catalog = {
+    services: [{ id: "s1", code: "SVC-UMRAH", category: "umrah" }],
+    visaTypes: [
+      { id: "v1", code: "VISA-UMRAH", category: "UMRAH" },
+      { id: "v2", code: "VISA-EGYPT-CLEARANCE", category: "OTHER" },
+    ],
+  };
+  assert.deepEqual(hubVisaTypes(catalog).map((visa) => visa.id), ["v2"]);
+  assert.equal(serviceDirectoryItems({ services: [], visaTypes: [catalog.visaTypes[0]] }).length, 0, "no visas hub for Umrah alone");
+  assert.equal(resolveShortcuts({ services: [], visaTypes: [catalog.visaTypes[0]] }).some((shortcut) => shortcut.key === "visas"), false);
+});

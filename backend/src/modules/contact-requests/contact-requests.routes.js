@@ -49,6 +49,8 @@ import {
 } from "../case-tasks/case-tasks.controller.js";
 import { getCaseNotes, storeCaseNote } from "../case-notes/case-notes.controller.js";
 import { resolvePublicContactLimit } from "./public-contact-limit.js";
+import { uploadContactRequestDocument } from "../../middleware/upload.middleware.js";
+import { getPaymentAccess, postPaymentAccessReceipt } from "../contact-request-payment-access/payment-access.controller.js";
 
 const router = Router();
 
@@ -92,6 +94,25 @@ const publicContactLimiter = rateLimit({
 });
 
 router.post("/", publicContactLimiter, attachOptionalCustomer, handleIntakeDocumentsUpload, storeContactRequest);
+
+// The payment step right after submission (request-scoped token from the
+// creation response, header X-Payment-Access): amount, the agency's account
+// in that currency, and the transfer receipt. See payment-access.service.js.
+const paymentAccessLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many requests. Please try again later." },
+});
+function handleReceiptUpload(req, res, next) {
+  uploadContactRequestDocument(req, res, (error) => {
+    if (error) return res.status(400).json({ success: false, message: error.message || "File upload failed" });
+    next();
+  });
+}
+router.get("/:id/payment-access", paymentAccessLimiter, getPaymentAccess);
+router.post("/:id/payment-access/receipt", paymentAccessLimiter, requireFeatureEnabled("CUSTOMER_UPLOAD"), handleReceiptUpload, postPaymentAccessReceipt);
 
 // Staff: customer message delivery records for a case + manual retry.
 router.get("/:id/customer-messages", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), getCustomerMessages);

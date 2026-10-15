@@ -22,7 +22,7 @@ import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
-import { applyEgyptEntryMode, egyptVariantBookingError } from "../egypt-clearance/egypt-clearance-variants.js";
+import { applyEgyptEntryMode, egyptVariantBookingError, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 
@@ -507,7 +507,25 @@ function parseDay(value, endOfDay) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId, search, paymentStatus, serviceId, category, createdFrom, createdTo }) {
+// Staff filter by what a request is for, matching deriveServiceKind
+// (request-progress.js): a visa type decides, else the service category.
+const UMRAH_SERVICE_CATEGORIES = ["umrah", "UMRAH_PACKAGE", "umrah_package"];
+export const SERVICE_KIND_FILTERS = Object.freeze({
+  UMRAH: {
+    OR: [
+      { visaType: { OR: [{ category: "UMRAH" }, { code: "VISA-UMRAH" }] } },
+      { visaTypeId: null, serviceRef: { category: { in: UMRAH_SERVICE_CATEGORIES } } },
+    ],
+  },
+  EGYPT_CLEARANCE: {
+    OR: [
+      { visaType: { code: { in: [EGYPT_CLEARANCE_CODE, ...EGYPT_CLEARANCE_VARIANTS.map((variant) => variant.code)] } } },
+      { visaTypeId: null, serviceRef: { category: "egypt_clearance" } },
+    ],
+  },
+});
+
+export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId, search, paymentStatus, serviceId, category, serviceKind, createdFrom, createdTo }) {
   const from = parseDay(createdFrom, false);
   const to = parseDay(createdTo, true);
   const where = {
@@ -517,6 +535,8 @@ export async function listContactRequests({ page, limit, skip, status, organizat
     ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     ...(serviceId ? { serviceId } : {}),
     ...(category ? { serviceRef: { category } } : {}),
+    // AND-wrapped so it never collides with the search's own OR.
+    ...(SERVICE_KIND_FILTERS[serviceKind] ? { AND: [SERVICE_KIND_FILTERS[serviceKind]] } : {}),
     ...(assignedUserId === "unassigned"
       ? { assignedUserId: null }
       : assignedUserId
