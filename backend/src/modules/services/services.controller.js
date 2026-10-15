@@ -22,6 +22,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { VISA_TYPE_CATEGORIES } from "../../utils/enums.js";
 import prisma from "../../config/database.js";
+import { pricingConfigError } from "../contact-request-pricing/fixed-price.js";
 
 export async function getPublicPackages(req, res, next) {
   try {
@@ -97,6 +98,8 @@ export async function storeService(req, res, next) {
       });
     }
 
+    const pricingError = pricingConfigError(parsed.data);
+    if (pricingError) return res.status(400).json({ success: false, code: "INVALID_PRICING", message: pricingError });
     const service = await createService(parsed.data);
     logActivity({ userId: req.user?.id, action: "SERVICE_CREATED", entity: "Service", entityId: service.id, req, newValue: service });
 
@@ -124,6 +127,8 @@ export async function patchService(req, res, next) {
     }
 
     const before = await getServiceById(id);
+    const pricingError = before && pricingConfigError({ ...before, ...parsed.data });
+    if (pricingError) return res.status(400).json({ success: false, code: "INVALID_PRICING", message: pricingError });
     const service = await updateService(id, parsed.data);
 
     if (!service) {

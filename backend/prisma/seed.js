@@ -3,6 +3,7 @@ import prisma from "../src/config/database.js";
 import { nextSequence } from "../src/utils/sequence.js";
 import { FEATURE_FLAG_DESCRIPTIONS, FEATURE_FLAG_KEYS } from "../src/modules/feature-flags/feature-flags.constants.js";
 import { reconcileEgyptClearanceRequirements } from "./seed-egypt-clearance.js";
+import { ensureEgyptClearanceVariants } from "./setup-egypt-clearance-variants.js";
 
 const SERVICE_CATEGORIES = [
   { code: "SVC-FLIGHT", name: "تذاكر الطيران", category: "flight" },
@@ -196,10 +197,15 @@ async function seedHomepageSections() {
 const ATTACHMENT_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // matches upload.middleware.js's global limit
 
-const UMRAH_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
+// Umrah no longer asks for a personal photo; it asks for the guarantor's
+// residence permit, once per request (migration
+// 20261015100000_umrah_guarantor_residence applies the same change to
+// existing databases without deleting anything).
+const UMRAH_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول"];
+const UMRAH_CASE_REQUIREMENT_NAMES = ["إقامة الضامن"];
 const PACKAGE_REQUIREMENT_NAMES = ["صورة الجواز ساري المفعول", "الصورة الشخصية الحديثة"];
 const VISA_REQUIREMENT_NAMES_BY_CODE = {
-  "VISA-UMRAH": ["صورة الجواز", "الصورة الشخصية", "صورة إقامة الضامن", "رقم الضامن (أبشر)"],
+  "VISA-UMRAH": ["صورة الجواز", "صورة إقامة الضامن", "رقم الضامن (أبشر)"],
   "VISA-FAMILY-VISIT": [
     "صورة الجواز والصورة الشخصية",
     "مستند الزيارة (الدعوة)",
@@ -276,16 +282,21 @@ async function seedVisaRequirements() {
       UMRAH_REQUIREMENT_NAMES,
       { requirementScope: "TRAVELER" }
     );
+    created += await seedRequirementsForScope({ serviceId: umrahService.id }, UMRAH_CASE_REQUIREMENT_NAMES, { requirementScope: "CASE" });
   }
 
   for (const pkg of PACKAGE_SERVICES) {
     const service = await prisma.service.findUnique({ where: { code: pkg.code } });
     if (service) {
+      const umrah = pkg.category === "UMRAH_PACKAGE";
       created += await seedRequirementsForScope(
         { serviceId: service.id },
-        PACKAGE_REQUIREMENT_NAMES,
+        umrah ? UMRAH_REQUIREMENT_NAMES : PACKAGE_REQUIREMENT_NAMES,
         { requirementScope: "TRAVELER" }
       );
+      if (umrah) {
+        created += await seedRequirementsForScope({ serviceId: service.id }, UMRAH_CASE_REQUIREMENT_NAMES, { requirementScope: "CASE" });
+      }
     }
   }
 
@@ -497,23 +508,35 @@ async function seedDefaultPaymentAccount() {
   console.log("Seeded default local-dev payment accounts (placeholder — replace from Admin before real use).");
 }
 
+// Demonstration data (sample package prices, placeholder exchange rates, a fake
+// bank account) exists only so a local/CI database is usable. In production the
+// agency enters its own prices, rates and bank accounts from the back-office: a
+// seeded sample must never become a price or a payment destination a customer
+// sees, and a placeholder exchange rate would be frozen onto real quotes.
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
 async function main() {
   await seedDefaultOrganization();
   await seedSuperAdmin();
   await seedServiceCategories();
-  await seedPackageServices();
+  if (!IS_PRODUCTION) await seedPackageServices();
   await seedVisaTypes();
   await seedVisaRequirements();
   await seedHomepageSections();
   await seedFeatureFlags();
   await seedEgyptClearanceFaq();
   await seedSaudiFamilyVisitFaq();
-  await seedDefaultExchangeRates();
-  await seedDefaultPaymentAccount();
+  if (!IS_PRODUCTION) {
+    await seedDefaultExchangeRates();
+    await seedDefaultPaymentAccount();
+  } else {
+    console.log("Production: skipped sample packages, placeholder exchange rates and sample payment accounts.");
+  }
   // Must run last: seedVisaRequirements() writes the historical Egypt checklist
   // (a plain case-scoped passport document plus the legacy ticket), and this
   // reconciles it into the structured approval-first shape the journey needs.
   await reconcileEgyptClearanceRequirements();
+  await ensureEgyptClearanceVariants();
 }
 
 main()

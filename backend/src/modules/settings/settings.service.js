@@ -14,7 +14,7 @@ export const PUBLIC_SETTING_KEYS = [
   // JSON string of [{ question, answer }, ...]. Reuses the existing
   // Setting/public-settings infrastructure instead of a new FAQ module;
   // editable today via the staff back-office's free-form Settings editor
-  // (frontend/admin-dashboard.html) with no code change needed to update
+  // (backend/public/admin-dashboard.html) with no code change needed to update
   // its content.
   "EGYPT_CLEARANCE_FAQ",
   // Same admin-editable-FAQ pattern for the Saudi Family Visit landing page.

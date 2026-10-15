@@ -29,7 +29,7 @@ export function readTrackingLoginCode(phoneNormalized: string): string {
 }
 
 // Logs in against the backend directly and reuses the resulting cookie in
-// the browser context — frontend/web run on different ports but the same
+// the browser context — the backend-served back-office and web/ run on different ports but the same
 // "site" (only the port differs), so a SameSite=Lax auth cookie set via one
 // still gets sent on requests from the other. Never guesses a password:
 // requires SEED_ADMIN_PASSWORD, the same env var backend/tests already

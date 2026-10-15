@@ -1,7 +1,7 @@
 import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { app, request, loginAsSuperAdmin, uniqueSuffix, quoteVersion } from "./helpers/api.js";
 
 // Only one fresh ContactRequest is created in this whole file — the public
 // POST /api/contact-requests endpoint enforces a hard 5-per-window rate
@@ -77,51 +77,6 @@ describe("contact request deliverables (staff delivery + customer download)", ()
     assert.equal(res.status, 404);
   });
 
-  test("full flow: staff delivers a file, customer sees and downloads it", async () => {
-    // Before any deliverable exists, the status label is unaffected.
-    let tracked = (await customerAgent.get("/api/tracking/requests")).body.data.find(
-      (r) => r.id === contactRequestId
-    );
-    assert.equal(tracked.deliverables.length, 0);
-    assert.notEqual(tracked.statusLabel, "ملفاتك النهائية جاهزة للتحميل");
-
-    const uploadRes = await attachPdf(
-      superAdminAgent
-        .post(`/api/contact-requests/${contactRequestId}/deliverables`)
-        .field("label", "التأشيرة الصادرة")
-    );
-    assert.equal(uploadRes.status, 201, JSON.stringify(uploadRes.body));
-    assert.equal(uploadRes.body.data.label, "التأشيرة الصادرة");
-    const deliverableId = uploadRes.body.data.id;
-
-    // Staff can download what they just uploaded.
-    const staffFileRes = await superAdminAgent.get(
-      `/api/contact-requests/${contactRequestId}/deliverables/${deliverableId}/file`
-    );
-    assert.equal(staffFileRes.status, 200);
-    assert.equal(staffFileRes.headers["content-type"], "application/pdf");
-
-    // It shows up in the staff list too.
-    const listRes = await superAdminAgent.get("/api/contact-requests?limit=50");
-    const found = listRes.body.data.find((r) => r.id === contactRequestId);
-    assert.equal(found.deliverables.length, 1);
-    assert.equal(found.deliverables[0].label, "التأشيرة الصادرة");
-
-    // The customer sees it and the status label now reflects delivery.
-    tracked = (await customerAgent.get("/api/tracking/requests")).body.data.find(
-      (r) => r.id === contactRequestId
-    );
-    assert.equal(tracked.deliverables.length, 1);
-    assert.equal(tracked.statusLabel, "ملفاتك النهائية جاهزة للتحميل");
-
-    // The customer can download their own deliverable.
-    const customerFileRes = await customerAgent.get(
-      `/api/tracking/requests/${contactRequestId}/deliverables/${deliverableId}/file`
-    );
-    assert.equal(customerFileRes.status, 200);
-    assert.equal(customerFileRes.headers["content-type"], "application/pdf");
-  });
-
   test("an unrelated customer can't download someone else's deliverable", async () => {
     const uploadRes = await attachPdf(
       superAdminAgent
@@ -169,5 +124,56 @@ describe("contact request deliverables (staff delivery + customer download)", ()
       `/api/contact-requests/${contactRequestId}/deliverables/does-not-exist/file`
     );
     assert.equal(missingRes.status, 404);
+  });
+  // Runs last: publishing completes (and closes) the request.
+  test("full flow: a prepared file stays hidden; published after payment and execution, the customer sees and downloads it", async () => {
+    let tracked = (await customerAgent.get("/api/tracking/requests")).body.data.find((r) => r.id === contactRequestId);
+    const draftsBefore = (await superAdminAgent.get(`/api/contact-requests/${contactRequestId}`)).body.data.deliverables.length;
+    assert.equal(tracked.deliverables.length, 0, "earlier uploads in this file are drafts: never shown");
+    assert.notEqual(tracked.statusLabel, "ملفاتك النهائية جاهزة للتحميل");
+
+    const uploadRes = await attachPdf(
+      superAdminAgent
+        .post(`/api/contact-requests/${contactRequestId}/deliverables`)
+        .field("label", "التأشيرة الصادرة")
+    );
+    assert.equal(uploadRes.status, 201, JSON.stringify(uploadRes.body));
+    assert.equal(uploadRes.body.data.label, "التأشيرة الصادرة");
+    assert.equal(uploadRes.body.data.publishedAt, null);
+    const deliverableId = uploadRes.body.data.id;
+
+    // Staff can download what they just uploaded; it shows in the staff detail.
+    const staffFileRes = await superAdminAgent.get(`/api/contact-requests/${contactRequestId}/deliverables/${deliverableId}/file`);
+    assert.equal(staffFileRes.status, 200);
+    assert.equal(staffFileRes.headers["content-type"], "application/pdf");
+    const detail = (await superAdminAgent.get(`/api/contact-requests/${contactRequestId}`)).body.data;
+    assert.equal(detail.deliverables.length, draftsBefore + 1);
+
+    // The customer neither sees nor downloads a draft.
+    tracked = (await customerAgent.get("/api/tracking/requests")).body.data.find((r) => r.id === contactRequestId);
+    assert.equal(tracked.deliverables.length, 0);
+    assert.equal((await customerAgent.get(`/api/tracking/requests/${contactRequestId}/deliverables/${deliverableId}/file`)).status, 404);
+
+    // Price -> approval -> transfer -> payment accepted -> execution -> publish.
+    assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/invoice`).send({ amount: 100, currency: "SAR" })).status, 200);
+    assert.equal((await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) })).status, 200);
+    assert.equal((await customerAgent.post(`/api/tracking/requests/${contactRequestId}/mark-transfer-sent`)).status, 200);
+    assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`)).status, 200);
+    assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/start-execution`).send({})).status, 200);
+    const published = await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/deliverables/${deliverableId}/publish`).send({});
+    assert.equal(published.status, 200, JSON.stringify(published.body));
+
+    tracked = (await customerAgent.get("/api/tracking/requests")).body.data.find((r) => r.id === contactRequestId);
+    assert.equal(tracked.deliverables.length, 1, "only the published file is listed");
+    assert.equal(tracked.deliverables[0].id, deliverableId);
+    assert.equal(tracked.statusLabel, "تم إنجاز طلبك بنجاح");
+
+    const customerFileRes = await customerAgent.get(`/api/tracking/requests/${contactRequestId}/deliverables/${deliverableId}/file`);
+    assert.equal(customerFileRes.status, 200);
+    assert.equal(customerFileRes.headers["content-type"], "application/pdf");
+
+    // A different phone still cannot download the published file.
+    const attackerAgent = await loginTrackingAgent(`0933${uniqueSuffix()}`);
+    assert.equal((await attackerAgent.get(`/api/tracking/requests/${contactRequestId}/deliverables/${deliverableId}/file`)).status, 404);
   });
 });

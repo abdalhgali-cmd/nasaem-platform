@@ -52,6 +52,15 @@ enum PaymentStatus {
   REFUNDED
 }
 
+// A Payment row is either money received from the customer (PAYMENT) or
+// money returned to them (REFUND, linked to the confirmed payment it
+// reverses). For either kind, status PAID means the movement is confirmed;
+// UNPAID with reviewStatus PENDING means it still awaits review.
+enum PaymentKind {
+  PAYMENT
+  REFUND
+}
+
 // Optional review lifecycle for an individual Payment record, layered on top
 // of the existing `status` field without changing its values (flight-booking
 // payment confirmation and other existing writers keep working unchanged).
@@ -287,6 +296,11 @@ model CaseTask {
   title             String
   status            CaseTaskStatus @default(OPEN)
   source            CaseTaskSource @default(SYSTEM)
+  // Stable identifier of a specific system task, independent of its
+  // (translatable) title — e.g. "EGYPT_TRAVEL_BOOKING_AIR",
+  // "EGYPT_TRAVEL_BOOKING_BORDER", "EGYPT_TRAVEL_CIRCULAR". Null for manual
+  // tasks and for the generic per-type system tasks.
+  systemKey         String?
   assignedUserId    String?
   dueAt             DateTime?
   completedAt       DateTime?
@@ -307,6 +321,7 @@ model CaseTask {
   @@index([assignedUserId])
   @@index([status])
   @@index([dueAt])
+  @@index([systemKey])
 }
 
 // Internal staff-only notes on a case — never shown to the customer, never
@@ -373,18 +388,21 @@ model ProviderSubmissionDocument {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  employeeNo   String     @unique
-  fullName     String
-  email        String     @unique
-  phone        String?    @unique
-  passwordHash String
-  role         UserRole   @default(EMPLOYEE)
-  status       UserStatus @default(ACTIVE)
-  branchId     String?
-  lastLogin    DateTime?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id             String     @id @default(cuid())
+  employeeNo     String     @unique
+  fullName       String
+  email          String     @unique
+  phone          String?    @unique
+  passwordHash   String
+  role           UserRole   @default(EMPLOYEE)
+  status         UserStatus @default(ACTIVE)
+  branchId       String?
+  lastLogin      DateTime?
+  // Bumped when the account is deactivated or its password changes; staff
+  // tokens carry it as `sv` and stop working once it moves on.
+  sessionVersion Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   organizationId String @default("org_nasaem_default")
 
@@ -398,6 +416,7 @@ model User {
   notifications                      Notification[]              @relation("UserNotifications")
   statusChangedLogs                  OrderStatusHistory[]        @relation("StatusChangedBy")
   paymentsReviewed                   Payment[]                   @relation("PaymentReviewedBy")
+  paymentsCreated                    Payment[]                   @relation("PaymentCreatedBy")
   invoicesCreated                    Invoice[]                   @relation("InvoiceCreatedBy")
   reviewedContactRequestDocuments    ContactRequestDocument[]    @relation("ContactRequestDocumentReviewedBy")
   contactRequestOffersCreated        ContactRequestOffer[]       @relation("ContactRequestOfferCreatedBy")
@@ -408,6 +427,7 @@ model User {
   caseTasksCompleted                 CaseTask[]                  @relation("CaseTaskCompletedBy")
   caseTasksCreated                   CaseTask[]                  @relation("CaseTaskCreatedBy")
   caseNotesAuthored                  CaseNote[]                  @relation("CaseNoteAuthor")
+  revokedTokens                      RevokedStaffToken[]
 
   @@index([role])
   @@index([status])
@@ -451,19 +471,24 @@ model Customer {
   passwordResetExpiresAt DateTime?
   passwordResetAttempts  Int       @default(0)
   lastLoginAt            DateTime?
+  // Customer tokens carry the version they were issued under (claim "sv");
+  // bumping it (password change/reset, re-registration) ends every older
+  // session at once. See customer-auth.middleware.js.
+  sessionVersion         Int       @default(0)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
   organizationId String @default("org_nasaem_default")
 
-  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   orders           Order[]
   contactRequests  ContactRequest[]
   notifications    Notification[]
   documents        Document[]
   umrahGroupMember UmrahGroupMember[]
-  coupons          Coupon[]           @relation("CouponCustomerRestriction")
+  coupons          Coupon[]               @relation("CouponCustomerRestriction")
   couponUsages     CouponUsage[]
+  revokedTokens    RevokedCustomerToken[]
 
   @@index([customerNo])
   @@index([passportNo])
@@ -508,6 +533,18 @@ model Service {
   // as VisaType.processingTime: wording varies too much ("same day",
   // "3-5 working days", ...) to force a fixed shape.
   processingTime     String?
+  // How the final price is decided, set explicitly by the agency (never
+  // inferred from basePrice): "QUOTE" (default) — the agency issues a quote
+  // after reviewing the request and the customer approves that exact
+  // version; "FIXED" — basePrice is the final price, shown to the customer
+  // as a total before submission and accepted there (no second approval).
+  // priceUnit: "PER_REQUEST" or "PER_TRAVELER" (basePrice × travelers).
+  // paymentAfterDocumentReview: for FIXED, payment opens only once the
+  // documents are approved, at the same accepted price.
+  // Plain strings validated in code (services/visa-types validators).
+  pricingMode                String  @default("QUOTE")
+  priceUnit                  String  @default("PER_REQUEST")
+  paymentAfterDocumentReview Boolean @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -557,6 +594,12 @@ model VisaType {
   // the authoritative classification the public API filters on — it must
   // never be inferred/hidden in the frontend.
   category       String   @default("OTHER")
+  // Same explicit pricing configuration as Service (see there); a visa
+  // type's own setting applies to requests for it.
+  // Plain strings validated in code (services/visa-types validators).
+  pricingMode                String  @default("QUOTE")
+  priceUnit                  String  @default("PER_REQUEST")
+  paymentAfterDocumentReview Boolean @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -834,24 +877,38 @@ model Document {
 }
 
 model Payment {
-  id               String               @id @default(cuid())
-  orderId          String
-  amount           Decimal              @db.Decimal(12, 2)
-  currency         String               @default("SAR")
-  paymentMethod    String
-  referenceNumber  String?
-  status           PaymentStatus        @default(UNPAID)
-  paidAt           DateTime?
-  reviewStatus     PaymentReviewStatus?
-  rejectionReason  String?
-  reviewedByUserId String?
-  reviewedAt       DateTime?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  id                String               @id @default(cuid())
+  orderId           String
+  amount            Decimal              @db.Decimal(12, 2)
+  currency          String               @default("SAR")
+  paymentMethod     String
+  referenceNumber   String?
+  status            PaymentStatus        @default(UNPAID)
+  paidAt            DateTime?
+  reviewStatus      PaymentReviewStatus?
+  rejectionReason   String?
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  kind              PaymentKind          @default(PAYMENT)
+  refundOfPaymentId String?
+  refundReason      String?
+  createdByUserId   String?
+  // Client-generated key for one submission; a replay with the same key
+  // returns the stored payment instead of recording it twice. requestHash
+  // detects the same key reused for a different payment.
+  idempotencyKey    String?              @unique
+  requestHash       String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
-  order      Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  reviewedBy User? @relation("PaymentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reviewedBy User?     @relation("PaymentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  createdBy  User?     @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  refundOf   Payment?  @relation("PaymentRefunds", fields: [refundOfPaymentId], references: [id], onDelete: Restrict)
+  refunds    Payment[] @relation("PaymentRefunds")
 
+  @@index([refundOfPaymentId])
+  @@index([kind])
   @@index([orderId])
   @@index([status])
   @@index([reviewStatus])
@@ -889,20 +946,20 @@ model OrderStatusHistory {
 }
 
 model Notification {
-  id         String    @id @default(cuid())
-  title      String
-  message    String
-  type       String
-  userId     String?
-  customerId String?
+  id               String    @id @default(cuid())
+  title            String
+  message          String
+  type             String
+  userId           String?
+  customerId       String?
   orderId          String?
   contactRequestId String?
   readAt           DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  user     User?     @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  user           User?           @relation("UserNotifications", fields: [userId], references: [id], onDelete: SetNull)
+  customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
   order          Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
   contactRequest ContactRequest? @relation(fields: [contactRequestId], references: [id], onDelete: SetNull)
 
@@ -1203,6 +1260,18 @@ enum ContactRequestPaymentStatus {
 
 model ContactRequest {
   id                   String                      @id @default(cuid())
+  // Client-generated key for one submission (the mobile app keeps it across
+  // retries): a retried POST returns the request already created instead of
+  // a duplicate. Null for every submission that doesn't send one.
+  submissionKey        String?                     @unique
+  // Request-scoped payment access issued once the request is created with an
+  // accepted fixed price: lets the same customer see the agency's account for
+  // this request's currency and upload the transfer receipt straight after
+  // submitting, without a separate phone-code sign-in. Only the SHA-256 hash
+  // of the token is stored; it expires and opens nothing but this request's
+  // payment step.
+  paymentAccessTokenHash String?                   @unique
+  paymentAccessExpiresAt DateTime?
   name                 String
   phone                String
   phoneNormalized      String                      @default("")
@@ -1224,6 +1293,34 @@ model ContactRequest {
   closedAt             DateTime?
   paymentStatus        ContactRequestPaymentStatus @default(NOT_REQUIRED)
   paymentConfirmedAt   DateTime?
+  // Set when staff reject the transfer receipt: the request goes back to
+  // AWAITING_TRANSFER and the customer sees the reason until a new receipt
+  // is uploaded (which clears both fields).
+  paymentRejectionReason String?
+  paymentRejectedAt      DateTime?
+  // Recorded by staff when work on the paid request actually starts
+  // (ticket issuance, visa processing, hotel confirmation, ...). Customers
+  // see the service-specific execution stage only once this is set.
+  // What the customer submitted, recorded at submission and never
+  // re-derived: "SERVICE_APPLICATION" (a service or visa was chosen, or
+  // travelers, documents or a requirement checklist came with it) or
+  // "INQUIRY" (a plain question). Null for every request created before
+  // this field existed; see docs/WORKFLOW-POLICY.md for how those are
+  // treated. Plain string + validation in code, like `category` on Service.
+  requestKind              String?
+  // The pricing mode in force for this request, decided at submission from
+  // the catalog's explicit configuration: "FIXED" (the customer confirmed
+  // the server-computed total; an approved Invoice was created with it) or
+  // "QUOTE". Null on requests created before this field: treated as QUOTE.
+  // pricingSnapshot records what was computed and accepted (item, unit
+  // price, unit, travelers counted, total, currency, payment rule), or why
+  // a FIXED item was taken as a quote request (client did not confirm the
+  // total, e.g. an older app).
+  pricingMode              String?
+  pricingSnapshot          Json?
+  executionStartedAt       DateTime?
+  executionStartedByUserId String?
+  executionNote            String?
   createdAt            DateTime                    @default(now())
   updatedAt            DateTime                    @updatedAt
 
@@ -1256,6 +1353,7 @@ model ContactRequest {
   tasks               CaseTask[]
   notes               CaseNote[]
   notifications       Notification[]
+  customerMessages    CustomerMessageDelivery[]
 
   @@index([status])
   @@index([createdAt])
@@ -1442,6 +1540,17 @@ model ContactRequestDeliverable {
   mimeType         String
   sizeBytes        Int
   uploadedByUserId String
+  // Null while the file is only prepared (a draft): drafts are never listed,
+  // announced or downloadable for the customer. Set once, when staff publish
+  // it (after payment and the recorded start of execution).
+  publishedAt       DateTime?
+  publishedByUserId String?
+  // Which travelers of the request this file is the final output for. A
+  // combined file lists every traveler it covers; the request is complete
+  // only when every traveler is covered by a published file. Empty means
+  // "the request as a whole" and counts only for a request with at most one
+  // traveler (legacy files keep their empty list; see the migration).
+  travelerIds       String[] @default([])
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -1459,6 +1568,13 @@ model ContactRequestOffer {
   description      String?
   amount           Decimal  @db.Decimal(12, 2)
   currency         String   @default("SAR")
+  // Exchange rate frozen when the price was issued (1 unit of `currency` in
+  // SDG) and the resulting Sudanese-pound equivalent. Null when no rate was
+  // configured at that moment; never recomputed afterwards, so the price the
+  // customer approved never changes under them.
+  exchangeRateToSdg Decimal?  @db.Decimal(18, 6)
+  amountSdg         Decimal?  @db.Decimal(14, 2)
+  rateFixedAt       DateTime?
   createdByUserId  String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -1482,15 +1598,28 @@ model Invoice {
   contactRequestId String        @unique
   amount           Decimal       @db.Decimal(12, 2)
   currency         String        @default("SAR")
+  // Exchange rate frozen when the price was issued (1 unit of `currency` in
+  // SDG) and the resulting Sudanese-pound equivalent. Null when no rate was
+  // configured at that moment; never recomputed afterwards, so the price the
+  // customer approved never changes under them.
+  exchangeRateToSdg Decimal?  @db.Decimal(18, 6)
+  amountSdg         Decimal?  @db.Decimal(14, 2)
+  rateFixedAt       DateTime?
   description      String?
   status           InvoiceStatus @default(PENDING)
-  createdByUserId  String
+  // Incremented on every revision of the price. A customer approves or
+  // rejects one exact version (the one displayed to them); a decision on
+  // any other version is refused.
+  version          Int           @default(1)
+  // Null for a fixed catalog price accepted by the customer at submission
+  // (no staff member issued it).
+  createdByUserId  String?
   decidedAt        DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
-  createdBy      User           @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdBy      User?          @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
 
   @@index([status])
   @@index([createdByUserId])
@@ -1506,4 +1635,63 @@ model ContactRequestLoginCode {
   createdAt  DateTime  @default(now())
 
   @@index([phone])
+}
+
+// A single customer session ended by logout. Customer tokens carry a random
+// `jti`; logging out records it here until the token would have expired
+// anyway, so logging out on one device does not end the customer's other
+// sessions (web, a second phone).
+model RevokedCustomerToken {
+  jti        String   @id
+  customerId String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([expiresAt])
+}
+
+// One outbound message to a customer (e.g. the "we received your request"
+// confirmation) and what the provider said about it. One row per
+// (request, kind, channel): retries update it instead of sending twice.
+// status: PENDING | SENDING | ACCEPTED (provider accepted the message;
+// not proof of delivery to the handset) | FAILED | SKIPPED (channel not
+// configured). The message text itself is not stored.
+model CustomerMessageDelivery {
+  id                String    @id @default(cuid())
+  contactRequestId  String
+  kind              String
+  channel           String
+  recipient         String
+  status            String    @default("PENDING")
+  attempts          Int       @default(0)
+  providerMessageId String?
+  lastError         String?
+  lastAttemptAt     DateTime?
+  nextAttemptAt     DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([contactRequestId, kind, channel])
+  @@index([status])
+  @@index([status, nextAttemptAt])
+}
+
+// Staff tokens revoked by logout. Keyed by the token's jti (or a SHA-256 of
+// the token for legacy tokens issued before jti existed). Rows past
+// expiresAt are harmless and can be pruned.
+model RevokedStaffToken {
+  tokenId   String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }

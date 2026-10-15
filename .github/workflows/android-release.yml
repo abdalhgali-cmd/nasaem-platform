@@ -1,0 +1,161 @@
+name: Android Release (signed APK + AAB)
+
+# Manual only. Builds the FINAL, permanently-signed APK (direct install) and AAB
+# (Google Play) from the chosen ref. Needs the repository secrets/variables
+# described in docs/ANDROID-RELEASE.md; without them it stops before building.
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Version name shown to users (e.g. 1.0.0)"
+        required: true
+        default: "1.0.0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      API_BASE_URL: ${{ vars.MOBILE_API_BASE_URL }}
+      EXPECTED_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+      VERSION_CODE_BASE: ${{ vars.ANDROID_VERSION_CODE_BASE }}
+      # Read from the environment in scripts, never interpolated into them.
+      VERSION_NAME: ${{ inputs.version_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require the release configuration
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$KEYSTORE" ] && missing="$missing ANDROID_KEYSTORE_BASE64"
+          [ -z "$STORE_PASS" ] && missing="$missing ANDROID_KEYSTORE_PASSWORD"
+          [ -z "$KEY_ALIAS" ] && missing="$missing ANDROID_KEY_ALIAS"
+          [ -z "$KEY_PASS" ] && missing="$missing ANDROID_KEY_PASSWORD"
+          [ -z "$API_BASE_URL" ] && missing="$missing MOBILE_API_BASE_URL(variable)"
+          [ -z "$EXPECTED_CERT_SHA256" ] && missing="$missing ANDROID_RELEASE_CERT_SHA256(variable)"
+          if [ -n "$missing" ]; then echo "::error::Missing:$missing (see docs/ANDROID-RELEASE.md)"; exit 1; fi
+          if ! [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "::error::version_name must look like 1.2.3"; exit 1; fi
+          # Mandatory: a release whose certificate is not pinned could not be
+          # trusted to update installed apps. Fails on a malformed value or
+          # the public QA debug certificate, before anything is built.
+          ./scripts/verify-release-cert.sh "$EXPECTED_CERT_SHA256" >/dev/null
+          case "$API_BASE_URL" in
+            https://*/api) ;;
+            *) echo "::error::MOBILE_API_BASE_URL must be an https URL ending in /api"; exit 1;;
+          esac
+          case "$API_BASE_URL" in
+            *staging*|*localhost*) echo "::error::MOBILE_API_BASE_URL points at a non-production host: $API_BASE_URL"; exit 1;;
+          esac
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install, check, test
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+          npm test
+
+      - name: Point the app at the production API
+        run: |
+          node -e '
+            const fs = require("fs");
+            const file = "www/js/config.js";
+            let source = fs.readFileSync(file, "utf8");
+            source = source.replace(/apiBaseUrl: "[^"]*"/, `apiBaseUrl: ${JSON.stringify(process.env.API_BASE_URL)}`)
+              .replace(/environment: "[^"]*"/, "environment: \"production\"")
+              .replace(/appVersion: "[^"]*"/, `appVersion: ${JSON.stringify(process.env.VERSION_NAME)}`);
+            fs.writeFileSync(file, source);
+          '
+          grep -n "apiBaseUrl\|environment" www/js/config.js
+          # The customer build must identify as production (no test badge).
+          grep -q 'environment: "production"' www/js/config.js
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore the release keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          chmod 600 "$RUNNER_TEMP/release.keystore"
+
+      - name: Build signed APK and AAB
+        working-directory: mobile/android
+        env:
+          NASAEM_RELEASE_KEYSTORE: ${{ runner.temp }}/release.keystore
+          NASAEM_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          NASAEM_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          NASAEM_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          BASE="${VERSION_CODE_BASE:-100}"
+          CODE=$((BASE + ${{ github.run_number }}))
+          echo "versionCode=$CODE versionName=$VERSION_NAME"
+          ./gradlew assembleRelease bundleRelease -PrequireReleaseKey=true \
+            -Pandroid.injected.version.code=$CODE \
+            -Pandroid.injected.version.name="$VERSION_NAME"
+          echo "VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+
+      - name: Verify package, version and signature
+        working-directory: mobile/android
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$TOOLS/aapt" dump badging "$APK" | grep -E "^package:" | tee /tmp/badging.txt
+          grep -q "name='com.nasaemalharamain.app'" /tmp/badging.txt
+          grep -q "versionCode='$VERSION_CODE'" /tmp/badging.txt
+          SIGNING="$("$TOOLS/apksigner" verify --print-certs "$APK")"
+          echo "$SIGNING"
+          ACTUAL="$(echo "$SIGNING" | grep -oE '[0-9a-f]{64}' | head -1)"
+          # Fails when the APK is not signed with exactly the pinned certificate
+          # (missing pin, debug key, or any other key).
+          ../scripts/verify-release-cert.sh "$EXPECTED_CERT_SHA256" "$ACTUAL"
+          # The AAB is checked the same way (jarsigner signature, read by keytool).
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          AAB_CERT="$(keytool -printcert -jarfile "$AAB" | grep -E 'SHA256:' | head -1 | sed 's/.*SHA256: *//')"
+          ../scripts/verify-release-cert.sh "$EXPECTED_CERT_SHA256" "$AAB_CERT"
+          echo "CERT_SHA256=$ACTUAL" >> "$GITHUB_ENV"
+
+      - name: Collect
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/Nasaem-AlHaramain-$VERSION_NAME.apk"
+          cp android/app/build/outputs/bundle/release/app-release.aab "dist/Nasaem-AlHaramain-$VERSION_NAME.aab"
+          (cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          echo "versionCode: $VERSION_CODE" > dist/BUILD-INFO.txt
+          echo "certificate sha256: $CERT_SHA256" >> dist/BUILD-INFO.txt
+          echo "api: $API_BASE_URL" >> dist/BUILD-INFO.txt
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nasaem-AlHaramain-release-${{ inputs.version_name }}
+          path: mobile/dist/*
+          if-no-files-found: error

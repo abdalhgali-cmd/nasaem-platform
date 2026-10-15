@@ -1,10 +1,12 @@
 import "./env.js";
 import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { app, request, loginAsSuperAdmin, uniqueSuffix, quoteVersion } from "./helpers/api.js";
+import prisma from "../src/config/database.js";
 
-// Phase 1.5 — "close the loop": auto-completion (payment CONFIRMED + at
-// least one deliverable → CLOSED/COMPLETED) and the customer-facing
+// Phase 1.5 — "close the loop": auto-completion (now: payment CONFIRMED +
+// recorded execution + the final file PUBLISHED → CLOSED/COMPLETED; see
+// workflow-policy.js completionBlockers) and the customer-facing
 // WhatsApp notifications added alongside it. Uses the same fetch-mocking
 // technique as whatsapp.test.js so no real Meta API call is ever made.
 //
@@ -46,7 +48,20 @@ async function submitContactRequest(phone, extra = {}) {
     });
 
   assert.equal(res.status, 201, JSON.stringify(res.body));
+  // Submission now also sends the customer a "request received" WhatsApp
+  // confirmation in the background (customer-messages). Let it settle so
+  // the per-step message counts below only see the step under test.
+  await waitForConfirmation(res.body.data.id);
   return res.body.data.id;
+}
+
+async function waitForConfirmation(contactRequestId) {
+  for (let i = 0; i < 50; i += 1) {
+    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId } });
+    if (row && row.status !== "PENDING" && row.status !== "SENDING") return row;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("request confirmation did not settle");
 }
 
 async function loginTrackingAgent(phone) {
@@ -83,9 +98,7 @@ async function advanceToAwaitingConfirmation(superAdminAgent, customerAgent, con
     .send({ amount: 500, currency: "SAR" });
   assert.equal(invoiceRes.status, 200, JSON.stringify(invoiceRes.body));
 
-  const approveRes = await customerAgent.post(
-    `/api/tracking/requests/${contactRequestId}/invoice/approve`
-  );
+  const approveRes = await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) });
   assert.equal(approveRes.status, 200, JSON.stringify(approveRes.body));
 
   const markSentRes = await customerAgent.post(
@@ -118,78 +131,79 @@ describe("auto-completion + customer WhatsApp notifications", () => {
     whatsapp.restore();
   });
 
-  // Covers: (1) payment CONFIRMED + no deliverable -> NOT CLOSED,
-  // (3)+(5) deliverable exists first, then payment confirmation -> auto
-  // CLOSED/COMPLETED, (4) a second deliverable afterward has no duplicate
-  // completion side effects.
-  test("deliverable first, then payment confirmed: closes exactly once, on the payment-confirm step", async () => {
+  // Completion policy (workflow-policy.js): payment accepted, execution
+  // recorded and the final file PUBLISHED. A file uploaded earlier is only a
+  // draft: never announced, never completing anything. Covers: (1) payment
+  // CONFIRMED + draft -> NOT CLOSED, (3)+(5) publishing the prepared file
+  // after execution -> auto CLOSED/COMPLETED exactly once, (4) a closed
+  // request takes no further final file and sends nothing more.
+  test("draft first, then payment, execution and publish: closes exactly once, on the publish step", async () => {
     const phone = `0940${uniqueSuffix()}`;
     const contactRequestId = await submitContactRequest(phone);
     const customerAgent = await loginTrackingAgent(phone);
 
     await advanceToAwaitingConfirmation(superAdminAgent, customerAgent, contactRequestId);
 
-    // A deliverable already exists, but payment isn't CONFIRMED yet.
-    const deliverableRes = await attachPdf(
+    // The file is prepared before payment: a draft, not announced.
+    let beforeCalls = whatsapp.calls.length;
+    const draftRes = await attachPdf(
       superAdminAgent
         .post(`/api/contact-requests/${contactRequestId}/deliverables`)
         .field("label", "التأشيرة الصادرة")
     );
-    assert.equal(deliverableRes.status, 201, JSON.stringify(deliverableRes.body));
+    assert.equal(draftRes.status, 201, JSON.stringify(draftRes.body));
+    assert.equal(draftRes.body.data.publishedAt, null);
+    assert.equal(whatsapp.calls.length - beforeCalls, 0, "a draft is never announced");
 
     let found = await getContactRequest(superAdminAgent, contactRequestId);
     assert.notEqual(found.status, "CLOSED", "must not close before payment is confirmed (item 1)");
 
-    // Now confirm payment — this is the action that should trigger the
-    // auto-close, since the deliverable already exists (item 5).
-    const beforeConfirmCalls = whatsapp.calls.length;
-    const confirmRes = await superAdminAgent.post(
-      `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    // Payment confirmed: still open (execution not recorded, file not published).
+    beforeCalls = whatsapp.calls.length;
+    const confirmRes = await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`);
     assert.equal(confirmRes.status, 200, JSON.stringify(confirmRes.body));
-    assert.equal(confirmRes.body.data.status, "CLOSED");
-    assert.equal(confirmRes.body.data.outcome, "COMPLETED");
-    assert.ok(confirmRes.body.data.closedAt);
+    assert.notEqual(confirmRes.body.data.status, "CLOSED", "payment + draft is not completion");
+    let newCalls = whatsapp.calls.slice(beforeCalls);
+    assert.equal(newCalls.length, 1, JSON.stringify(newCalls));
+    assert.ok(newCalls[0].body.text.body.includes("تم تأكيد استلام تحويلك"));
 
-    const newCalls = whatsapp.calls.slice(beforeConfirmCalls);
-    // "payment confirmed" + "your request is complete" — two distinct real
+    assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/start-execution`).send({})).status, 200);
+
+    // Publishing the prepared file is the step that completes the request.
+    beforeCalls = whatsapp.calls.length;
+    const publishRes = await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/deliverables/${draftRes.body.data.id}/publish`).send({});
+    assert.equal(publishRes.status, 200, JSON.stringify(publishRes.body));
+    assert.equal(publishRes.body.completed, true);
+    newCalls = whatsapp.calls.slice(beforeCalls);
+    // "your file is ready" + "your request is complete" — two distinct real
     // events, not a duplicate of the same one.
     assert.equal(newCalls.length, 2, JSON.stringify(newCalls));
-    assert.ok(newCalls[0].body.text.body.includes("تم تأكيد استلام تحويلك"));
+    assert.ok(newCalls[0].body.text.body.includes("أصبح الملف"));
     assert.ok(newCalls[1].body.text.body.includes("تم إنجاز طلبك بنجاح"));
 
     found = await getContactRequest(superAdminAgent, contactRequestId);
+    assert.equal(found.status, "CLOSED");
+    assert.equal(found.outcome, "COMPLETED");
     const closedAtFirst = found.closedAt;
 
-    // Item 4: a second deliverable on an already-CLOSED/COMPLETED request
-    // must not re-close it, re-set closedAt, or send a second completion
-    // notification.
-    const beforeSecondDeliverable = whatsapp.calls.length;
+    // Item 4: the closed request is read-only: a further final file is
+    // refused, closedAt does not move, nothing is sent.
+    beforeCalls = whatsapp.calls.length;
     const secondDeliverableRes = await attachPdf(
       superAdminAgent
         .post(`/api/contact-requests/${contactRequestId}/deliverables`)
         .field("label", "تذكرة الطيران"),
       "second.pdf"
     );
-    assert.equal(secondDeliverableRes.status, 201);
-
+    assert.equal(secondDeliverableRes.status, 409);
     found = await getContactRequest(superAdminAgent, contactRequestId);
-    assert.equal(found.status, "CLOSED");
-    assert.equal(found.outcome, "COMPLETED");
-    assert.equal(found.closedAt, closedAtFirst, "closedAt must not change on a second deliverable");
-
-    const secondDeliverableCalls = whatsapp.calls.slice(beforeSecondDeliverable);
-    // Only the plain "a new file is ready" notification for the second
-    // upload — no second completion message.
-    assert.equal(secondDeliverableCalls.length, 1, JSON.stringify(secondDeliverableCalls));
-    assert.ok(secondDeliverableCalls[0].body.text.body.includes("أصبح الملف"));
-    assert.ok(!secondDeliverableCalls[0].body.text.body.includes("تم إنجاز طلبك بنجاح"));
+    assert.equal(found.closedAt, closedAtFirst, "closedAt must not change");
+    assert.equal(whatsapp.calls.length - beforeCalls, 0);
   });
 
-  // Covers: (2) a deliverable with no payment confirmed at all -> NOT
-  // CLOSED, and (11) the deliverable upload itself still sends its own
-  // "a file is ready" notification regardless of payment state.
-  test("deliverable with no payment confirmation: stays open, still notifies", async () => {
+  // Covers: (2) a file with no payment confirmed at all -> NOT CLOSED, and
+  // (11) a prepared file is not announced: nothing is ready for the customer.
+  test("deliverable with no payment confirmation: stays open as a draft, not announced", async () => {
     const phone = `0941${uniqueSuffix()}`;
     const contactRequestId = await submitContactRequest(phone);
 
@@ -204,33 +218,46 @@ describe("auto-completion + customer WhatsApp notifications", () => {
     const found = await getContactRequest(superAdminAgent, contactRequestId);
     assert.notEqual(found.status, "CLOSED");
     assert.equal(found.paymentStatus, "NOT_REQUIRED");
+    assert.equal(whatsapp.calls.length - beforeCalls, 0, "a draft is never announced");
 
-    const newCalls = whatsapp.calls.slice(beforeCalls);
-    assert.equal(newCalls.length, 1);
-    assert.ok(newCalls[0].body.text.body.includes("أصبح الملف"));
+    const published = await attachPdf(
+      superAdminAgent
+        .post(`/api/contact-requests/${contactRequestId}/deliverables`)
+        .field("label", "مستند أولي")
+        .field("publish", "true")
+    );
+    assert.equal(published.status, 409, "publishing needs an accepted payment and a recorded execution");
   });
 
-  // Covers: (6) payment already CONFIRMED, then a deliverable is uploaded
-  // -> auto close fires on the deliverable-upload step this time (the
-  // reverse order from the first test above).
-  test("payment confirmed first, then deliverable: closes exactly once, on the deliverable-upload step", async () => {
+  // Covers: (6) payment already CONFIRMED, then a file uploaded and published
+  // in one step -> refused until execution is recorded, then the auto close
+  // fires on that upload exactly once.
+  test("payment confirmed first, then execution, then a published file: closes exactly once, on the upload step", async () => {
     const phone = `0942${uniqueSuffix()}`;
     const contactRequestId = await submitContactRequest(phone);
     const customerAgent = await loginTrackingAgent(phone);
 
     await advanceToAwaitingConfirmation(superAdminAgent, customerAgent, contactRequestId);
 
-    const confirmRes = await superAdminAgent.post(
-      `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    const confirmRes = await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`);
     assert.equal(confirmRes.status, 200);
     assert.notEqual(confirmRes.body.data.status, "CLOSED", "no deliverable yet — must not close here");
+
+    const early = await attachPdf(
+      superAdminAgent
+        .post(`/api/contact-requests/${contactRequestId}/deliverables`)
+        .field("label", "التأشيرة الصادرة")
+        .field("publish", "true")
+    );
+    assert.equal(early.status, 409, "publishing before the recorded start of execution is refused");
+    assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/start-execution`).send({})).status, 200);
 
     const beforeDeliverableCalls = whatsapp.calls.length;
     const deliverableRes = await attachPdf(
       superAdminAgent
         .post(`/api/contact-requests/${contactRequestId}/deliverables`)
         .field("label", "التأشيرة الصادرة")
+        .field("publish", "true")
     );
     assert.equal(deliverableRes.status, 201);
 
@@ -248,7 +275,8 @@ describe("auto-completion + customer WhatsApp notifications", () => {
   // no-op status update (same value resubmitted) fires zero, and (12) a
   // WhatsApp send failure never breaks the underlying operation. Also
   // covers (9)+(10): document accepted/rejected each fire one notification
-  // attempt, folded into this same request rather than a separate one.
+  // attempt — done while the request is open (a closed request takes no
+  // new documents or reviews).
   test("status change dedup, WhatsApp-failure isolation, and document review notifications", async () => {
     const phone = `0943${uniqueSuffix()}`;
     const contactRequestId = await submitContactRequest(phone);
@@ -272,21 +300,6 @@ describe("auto-completion + customer WhatsApp notifications", () => {
     assert.equal(noopRes.status, 200);
     newCalls = whatsapp.calls.slice(beforeCalls);
     assert.equal(newCalls.length, 0, JSON.stringify(newCalls));
-
-    // (12) A genuine change, but the WhatsApp API itself fails — the
-    // status-change request must still succeed.
-    globalThis.fetch = async () => {
-      throw new Error("simulated WhatsApp outage");
-    };
-    const duringOutageRes = await superAdminAgent
-      .patch(`/api/contact-requests/${contactRequestId}/status`)
-      .send({ status: "NEW" });
-    assert.equal(duringOutageRes.status, 200, "the status change itself must not fail");
-    assert.equal(duringOutageRes.body.data.status, "NEW");
-
-    // Restore the recording mock for the document-review checks below.
-    whatsapp.restore();
-    whatsapp = mockWhatsApp();
 
     const uploadRes = await attachPng(
       customerAgent
@@ -324,6 +337,18 @@ describe("auto-completion + customer WhatsApp notifications", () => {
     assert.equal(newCalls.length, 1, JSON.stringify(newCalls));
     assert.ok(newCalls[0].body.text.body.includes("تم رفض المستند"));
     assert.ok(newCalls[0].body.text.body.includes("الصورة غير واضحة"));
+
+    // (12) A genuine change, but the WhatsApp API itself fails — the
+    // status-change request must still succeed.
+    globalThis.fetch = async () => {
+      throw new Error("simulated WhatsApp outage");
+    };
+    // (CONTACTED -> NEW is not an allowed transition; closing is.)
+    const duringOutageRes = await superAdminAgent
+      .patch(`/api/contact-requests/${contactRequestId}/status`)
+      .send({ status: "CLOSED", outcome: "CANCELLED" });
+    assert.equal(duringOutageRes.status, 200, "the status change itself must not fail");
+    assert.equal(duringOutageRes.body.data.status, "CLOSED");
   });
 
   // Covers: (13) the customer's own tracking view carries serviceRef,

@@ -4,10 +4,8 @@ import { Clock3, FileCheck2, MessageCircle, Phone, ShieldCheck, Wallet } from "l
 import { Container } from "@/components/container";
 import { SectionHeading } from "@/components/section-heading";
 import { EgyptClearanceHero } from "@/components/sections/egypt-clearance-hero";
-import {
-  EgyptClearanceIntake,
-  type EgyptClearanceRequirement,
-} from "@/components/sections/egypt-clearance-intake";
+import { type EgyptClearanceRequirement } from "@/components/sections/egypt-clearance-intake";
+import { EGYPT_UNAVAILABLE, EgyptClearanceBooking, type EgyptVariantOption } from "@/components/sections/egypt-clearance-booking";
 import { Faq, type FaqItem } from "@/components/sections/faq";
 import { RelatedServices } from "@/components/sections/related-services";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
@@ -37,13 +35,25 @@ type PublicVisaType = {
   validity: string | null;
   entryType: string | null;
   serviceId: string | null;
+  pricingMode?: "QUOTE" | "FIXED" | null;
+  priceUnit?: "PER_REQUEST" | "PER_TRAVELER" | null;
+  paymentAfterDocumentReview?: boolean | null;
 };
+
+// Egypt clearance is booked per entry-method variant at the agency's fixed
+// price (backend egypt-clearance-variants.js). Both are always listed; one
+// without a published fixed price is shown as not bookable.
+const VARIANTS = [
+  { code: "VISA-EGYPT-CLEARANCE-AIR", entryMode: "AIR", name: "موافقة حربي — دخول بالطيران" },
+  { code: "VISA-EGYPT-CLEARANCE-BORDER", entryMode: "BORDER", name: "موافقة حربي — دخول عبر المعبر" },
+] as const;
 
 type PublicService = { id: string } & ServiceHeroMedia;
 
 async function getCatalog(): Promise<{ services: PublicService[]; visaTypes: PublicVisaType[] }> {
   try {
-    const response = await fetch(`${API_URL}/services/public`, { next: { revalidate: 60 } });
+    // Not cached: the variants' availability and prices are the agency's current ones.
+    const response = await fetch(`${API_URL}/services/public`, { cache: "no-store" });
     if (!response.ok) return { services: [], visaTypes: [] };
     const payload = (await response.json()) as {
       data?: { services?: PublicService[]; visaTypes?: PublicVisaType[] };
@@ -124,21 +134,39 @@ export default async function EgyptSecurityApprovalPage() {
   const relatedVisaTypes = visaTypes.filter((visa) => visa.code !== VISA_CODE).slice(0, 3);
   const linkedService = visaType?.serviceId ? (services.find((service) => service.id === visaType.serviceId) ?? null) : null;
   const heroMedia = resolveServiceHeroMedia(linkedService, API_URL);
-  const [requirements, faqItems] = await Promise.all([
-    visaType ? getRequirements(visaType.id) : Promise.resolve<EgyptClearanceRequirement[]>([]),
-    getEgyptClearanceFaq(),
-  ]);
-
-  const numericPrice = visaType ? Number(visaType.basePrice) : NaN;
-  const hasPublishedPrice = Number.isFinite(numericPrice) && numericPrice > 0;
-  const heroPriceLabel =
-    hasPublishedPrice && visaType
-      ? `${numericPrice.toLocaleString("en-US")} ${visaType.currency}`
-      : "يتم تحديد التكلفة بعد مراجعة الطلب";
-  const heroPriceSubLabel =
-    hasPublishedPrice && visaType && visaType.currency !== "SDG" && visaType.priceSdg != null
-      ? `يعادل ${Math.round(visaType.priceSdg).toLocaleString("en-US")} جنيه سوداني`
-      : null;
+  const variantOptions: EgyptVariantOption[] = await Promise.all(
+    VARIANTS.map(async (variant) => {
+      const item = visaTypes.find((visa) => visa.code === variant.code) ?? null;
+      const unitPrice = item ? Number(item.basePrice) : NaN;
+      const fixed = Boolean(item && item.pricingMode === "FIXED" && Number.isFinite(unitPrice) && unitPrice > 0 && item.currency);
+      return {
+        code: variant.code,
+        entryMode: variant.entryMode,
+        name: item?.name || variant.name,
+        visaTypeId: fixed && item ? item.id : null,
+        serviceId: item?.serviceId ?? null,
+        price:
+          fixed && item
+            ? {
+                unitPrice,
+                currency: item.currency,
+                priceUnit: item.priceUnit === "PER_TRAVELER" ? "PER_TRAVELER" : "PER_REQUEST",
+                paymentAfterDocumentReview: Boolean(item.paymentAfterDocumentReview),
+              }
+            : null,
+        requirements: fixed && item ? await getRequirements(item.id) : [],
+      };
+    })
+  );
+  const faqItems = await getEgyptClearanceFaq();
+  // Informational list: a bookable variant's requirements (they are copied
+  // from the original item), else the original item's.
+  const requirements: EgyptClearanceRequirement[] =
+    variantOptions.find((option) => option.price)?.requirements ?? (visaType ? await getRequirements(visaType.id) : []);
+  const anyBookable = variantOptions.some((option) => option.price);
+  // The original item's single price applies to neither variant: never shown.
+  const heroPriceLabel = anyBookable ? "حسب نوع الموافقة وطريقة الدخول" : EGYPT_UNAVAILABLE;
+  const heroPriceSubLabel = null;
 
   return (
     <>
@@ -147,7 +175,7 @@ export default async function EgyptSecurityApprovalPage() {
         description={visaType?.description || FALLBACK_DESCRIPTION}
         priceLabel={heroPriceLabel}
         priceSubLabel={heroPriceSubLabel}
-        isAccepting={Boolean(visaType)}
+        isAccepting={anyBookable}
         heroImageUrl={heroMedia.heroImageUrl}
         heroImageMobileUrl={heroMedia.heroImageMobileUrl}
         motionEnabled={heroMedia.motionEnabled}
@@ -162,17 +190,7 @@ export default async function EgyptSecurityApprovalPage() {
             description="الموافقة لا تتطلب وجود حجز سفر الآن. أدخل بيانات المسافر وارفع الجواز، ثم تابع بقية الرحلة من نفس الطلب لاحقًا."
           />
           <div className="mt-9">
-            {visaType ? (
-              <EgyptClearanceIntake
-                visaTypeId={visaType.id}
-                serviceId={visaType.serviceId}
-                requirements={requirements}
-              />
-            ) : (
-              <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-                استقبال طلبات هذه الخدمة متوقف مؤقتًا. يرجى التواصل معنا للمساعدة.
-              </div>
-            )}
+            <EgyptClearanceBooking options={variantOptions} />
           </div>
         </Container>
       </section>

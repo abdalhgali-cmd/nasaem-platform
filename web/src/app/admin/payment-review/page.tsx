@@ -3,7 +3,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CheckCircle2, CreditCard, ExternalLink, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, CreditCard, ExternalLink, FileText, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { API_URL } from "@/lib/api-url";
@@ -21,6 +21,7 @@ type Item = {
   currency: string | null;
   updatedAt: string;
   pendingPayment?: { id: string; amount: string | number; currency: string | null } | null;
+  receiptDocumentId?: string | null;
 };
 
 type Payload = { items: Item[] };
@@ -81,7 +82,8 @@ export default function PaymentReviewPage() {
   }
 
   async function rejectPayment(item: Item) {
-    if (!item.pendingPayment) return;
+    const isContactRequest = item.source === "contact_request";
+    if (!isContactRequest && !item.pendingPayment) return;
     if (!rejectReason.trim()) {
       setError("يرجى كتابة سبب الرفض");
       return;
@@ -90,7 +92,12 @@ export default function PaymentReviewPage() {
     setMessage("");
     setError("");
     try {
-      const response = await fetch(`${API_URL}/payments/${encodeURIComponent(item.pendingPayment.id)}/reject`, {
+      // A customer request's receipt is rejected on the request itself (it
+      // returns to "awaiting transfer" and the customer sees the reason).
+      const endpoint = isContactRequest
+        ? `${API_URL}/contact-requests/${encodeURIComponent(item.id)}/reject-payment`
+        : `${API_URL}/payments/${encodeURIComponent(item.pendingPayment!.id)}/reject`;
+      const response = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -149,9 +156,21 @@ export default function PaymentReviewPage() {
                     <Button type="button" variant="gold" onClick={() => void confirmPayment(item)} disabled={workingId === item.id}>
                       <CheckCircle2 className="size-4" />{workingId === item.id ? "جارٍ التأكيد..." : "تأكيد الدفع"}
                     </Button>
-                    {item.pendingPayment ? (
+                    {item.pendingPayment || item.source === "contact_request" ? (
                       <Button type="button" variant="outline" className="text-destructive" onClick={() => { setRejectingId(rejectingId === item.id ? null : item.id); setRejectReason(""); }}>
                         <XCircle className="size-4" />رفض
+                      </Button>
+                    ) : null}
+                    {item.source === "contact_request" && item.receiptDocumentId ? (
+                      <Button asChild type="button" variant="outline">
+                        <a
+                          href={`${API_URL}/contact-requests/${encodeURIComponent(item.id)}/documents/${encodeURIComponent(item.receiptDocumentId)}/file`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-testid="payment-receipt-link"
+                        >
+                          <FileText className="size-4" />إشعار التحويل
+                        </a>
                       </Button>
                     ) : null}
                     <Button asChild type="button" variant="outline">

@@ -4,6 +4,7 @@ import { makeRequirementsController } from "../requirements/requirements.control
 import { logActivity } from "../../utils/activityLog.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { VISA_TYPE_CATEGORIES } from "../../utils/enums.js";
+import { pricingConfigError } from "../contact-request-pricing/fixed-price.js";
 
 export async function getVisaTypes(req, res, next) {
   try {
@@ -33,6 +34,8 @@ export async function storeVisaType(req, res, next) {
     const parsed = createVisaTypeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
+    const pricingError = pricingConfigError(parsed.data);
+    if (pricingError) return res.status(400).json({ success: false, code: "INVALID_PRICING", message: pricingError });
     const visaType = await createVisaType(parsed.data);
     logActivity({ userId: req.user?.id, action: "VISA_TYPE_CREATED", entity: "VisaType", entityId: visaType.id, req, newValue: visaType });
     return res.status(201).json({ success: true, message: "Visa type created successfully", data: visaType });
@@ -47,6 +50,8 @@ export async function patchVisaType(req, res, next) {
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
     const before = await getVisaTypeById(req.params.id);
+    const pricingError = before && pricingConfigError({ ...before, ...parsed.data });
+    if (pricingError) return res.status(400).json({ success: false, code: "INVALID_PRICING", message: pricingError });
     const visaType = await updateVisaType(req.params.id, parsed.data);
     if (!visaType) return res.status(404).json({ success: false, message: "Visa type not found" });
 

@@ -32,7 +32,8 @@ type TrackingRequest = {
   intakeData?: { egyptTravel?: EgyptTravelPlan | null } | null;
 };
 
-const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
+// The original item and its entry-method variants (backend egypt-clearance-variants.js).
+const EGYPT_CLEARANCE_CODES = new Set(["VISA-EGYPT-CLEARANCE", "VISA-EGYPT-CLEARANCE-AIR", "VISA-EGYPT-CLEARANCE-BORDER"]);
 const FILE_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
 
 function statusCopy(plan: EgyptTravelPlan | null | undefined) {
@@ -308,7 +309,7 @@ export function EgyptClearanceTravelFollowup() {
   }, [authenticated, load]);
 
   const egyptRequests = requests.filter(
-    (request) => request.visaType?.code === EGYPT_CLEARANCE_CODE && request.status !== "CLOSED"
+    (request) => EGYPT_CLEARANCE_CODES.has(request.visaType?.code ?? "") && request.status !== "CLOSED"
   );
 
   if (!authenticated || egyptRequests.length === 0) return null;

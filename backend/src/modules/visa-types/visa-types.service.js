@@ -40,6 +40,9 @@ export async function createVisaType(data) {
       entryType: data.entryType || null,
       category: data.category || "OTHER",
       sortOrder: data.sortOrder ?? 0,
+      pricingMode: data.pricingMode || "QUOTE",
+      priceUnit: data.priceUnit || "PER_REQUEST",
+      paymentAfterDocumentReview: Boolean(data.paymentAfterDocumentReview),
     },
   });
 }

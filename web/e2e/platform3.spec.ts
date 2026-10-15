@@ -623,7 +623,11 @@ test.describe("Security approvals — full lifecycle through the real customer-f
       const docLabelInput = page.locator("input[placeholder='مثال: جواز السفر']");
       await docLabelInput.fill("جواز السفر");
       await page.setInputFiles("input[type='file']", path.join(__dirname, "fixtures", "sample-document.png"));
+      // Wait for the upload itself: the page already shows «قيد المراجعة»
+      // in the request status line before any file is sent.
+      const uploaded = page.waitForResponse((res) => res.request().method() === "POST" && /\/documents(\?|$)/.test(new URL(res.url()).pathname) && res.status() === 201);
       await page.getByRole("button", { name: "رفع" }).click();
+      await uploaded;
       await expect(page.getByText("قيد المراجعة").first()).toBeVisible({ timeout: 15_000 });
 
       // Staff reviews the document (admin API — the review UI itself was
@@ -659,20 +663,27 @@ test.describe("Security approvals — full lifecycle through the real customer-f
       const confirmRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/confirm-payment`, { data: {} });
       expect(confirmRes.ok(), await confirmRes.text()).toBeTruthy();
 
-      // 5. Delivery — staff uploads the finished clearance letter (admin API).
+      // 5. Processing — staff record the start of execution (admin API);
+      // the customer's page now shows the service stage, not "completed".
+      const startRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/start-execution`, { data: {} });
+      expect(startRes.ok(), await startRes.text()).toBeTruthy();
+      await page.reload();
+      await expect(page.getByText("جارٍ استخراج الموافقة الأمنية").first()).toBeVisible({ timeout: 15_000 });
+
+      // 6. Delivery — staff upload and publish the finished clearance letter
+      // (admin API). Publishing the last required output completes the
+      // request (a prepared, unpublished file would not).
       const deliverableRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/deliverables`, {
         multipart: {
           label: "خطاب الموافقة الأمنية",
+          publish: "true",
           file: { name: "clearance.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") },
         },
       });
       expect(deliverableRes.ok(), await deliverableRes.text()).toBeTruthy();
-
-      // 6. Completion — staff closes the request as COMPLETED.
-      const closeRes = await admin.patch(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/status`, {
-        data: { status: "CLOSED", outcome: "COMPLETED" },
-      });
-      expect(closeRes.ok(), await closeRes.text()).toBeTruthy();
+      const closed = await (await admin.get(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}`)).json();
+      expect(closed.data.status).toBe("CLOSED");
+      expect(closed.data.outcome).toBe("COMPLETED");
 
       // The real customer, in the real browser, sees the finished result:
       // completion status and a downloadable deliverable.
@@ -726,14 +737,13 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       await createPackage(firstCode, firstName, 10);
       await createPackage(secondCode, secondName, 20);
 
-      // /umrah now renders SimpleUmrahRequest's selectable button-cards
-      // (feat(web): simplify umrah request flow), not the old
-      // <article><h3> package-grid — each card's name lives in a
-      // <p class="pe-8 ..."> inside a <button>, not a heading.
+      // /umrah renders the shared intake wizard on the Umrah packages: each
+      // package is a selectable button whose name carries
+      // data-testid="intake-option-name".
       await page.goto("/umrah", { waitUntil: "networkidle" });
       await expect(page.locator("button").filter({ hasText: firstName })).toBeVisible({ timeout: 15_000 });
       await expect(page.locator("button").filter({ hasText: secondName })).toBeVisible({ timeout: 15_000 });
-      const initialCards = await page.locator("button p.pe-8").allTextContents();
+      const initialCards = await page.getByTestId("intake-option-name").allTextContents();
       expect(initialCards.indexOf(firstName)).toBeGreaterThanOrEqual(0);
       expect(initialCards.indexOf(firstName)).toBeLessThan(initialCards.indexOf(secondName));
 
@@ -749,7 +759,7 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       await page.reload({ waitUntil: "networkidle" });
       await expect(page.locator("button").filter({ hasText: updatedName })).toBeVisible({ timeout: 15_000 });
       await expect(page.locator("button").filter({ hasText: firstName })).toHaveCount(0);
-      const updatedCards = await page.locator("button p.pe-8").allTextContents();
+      const updatedCards = await page.getByTestId("intake-option-name").allTextContents();
       expect(updatedCards.indexOf(updatedName)).toBeLessThan(updatedCards.indexOf(secondName));
 
       const deactivateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, { data: { active: false } });
@@ -1018,17 +1028,16 @@ test.describe("Every named service opens its own page — no generic-catalog dea
     });
   }
 
-  test("VISA-UMRAH (Umrah's visa-type card, e.g. from the /visas catalog) routes to Umrah's own dedicated page", async ({ page }) => {
+  test("Umrah is its own section: no VISA-UMRAH card in /visas, and the main menu links to /umrah", async ({ page }) => {
     const servicesRes = await page.request.get(`${BACKEND_URL}/api/services/public`);
     const payload = await servicesRes.json();
     const umrahVisaType = payload.data.visaTypes.find((v: { code: string }) => v.code === "VISA-UMRAH");
     expect(umrahVisaType, "VISA-UMRAH must be seeded").toBeTruthy();
 
     await page.goto("/visas", { waitUntil: "networkidle" });
-    const card = page.locator("article").filter({ hasText: umrahVisaType.name }).first();
-    await card.scrollIntoViewIfNeeded();
-    const href = await card.getByRole("link", { name: "قدّم الآن" }).getAttribute("href");
-    expect(href).toBe("/umrah");
+    await expect(page.locator("article").filter({ hasText: "تأشيرة" }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("article").filter({ hasText: umrahVisaType.name })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "العمرة", exact: true }).first()).toHaveAttribute("href", "/umrah");
   });
 
   test("homepage Services grid sends International Visa, Work Visa, and Tasheel to their own pages, not a shared catalog", async ({ page }) => {

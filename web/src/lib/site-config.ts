@@ -8,7 +8,7 @@ export const siteConfig = {
   phone: "+249 91 103 4372",
   whatsapp: "249911034372",
   email: "Nasaem.alHaramain2024@gmail.com",
-  address: "كسلا، شرق الموقف العام، مقابل مخابز باتسري، بجوار استديو جميل",
+  address: "كسلا، شرق الموقف العام، مقابل حلويات باتيسري، بجوار استديو جميل",
   branches: ["كسلا"],
   social: {
     facebook: "",

@@ -17,6 +17,22 @@ import {
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
+import {
+  RequestPaymentStep,
+  clearPendingPayment,
+  readPendingPayment,
+  savePendingPayment,
+  type PaymentAccess,
+  type PaymentSummary,
+} from "@/components/sections/request-payment-step";
+
+// One key per form session, sent on every attempt: a repeated tap or a retry
+// after a lost response returns the request already created (backend
+// findExistingSubmission) instead of a duplicate.
+function newSubmissionKey() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 export type IntakeServiceKind = "umrah" | "visa" | "package";
 
@@ -30,6 +46,9 @@ type PublicService = {
   currency: string;
   fxRateToSdg: number | null;
   priceSdg: number | null;
+  pricingMode?: "QUOTE" | "FIXED" | null;
+  priceUnit?: "PER_REQUEST" | "PER_TRAVELER" | null;
+  paymentAfterDocumentReview?: boolean | null;
 };
 
 type PublicVisaType = {
@@ -42,6 +61,9 @@ type PublicVisaType = {
   currency: string;
   fxRateToSdg: number | null;
   priceSdg: number | null;
+  pricingMode?: "QUOTE" | "FIXED" | null;
+  priceUnit?: "PER_REQUEST" | "PER_TRAVELER" | null;
+  paymentAfterDocumentReview?: boolean | null;
   serviceId: string | null;
   category: string;
 };
@@ -139,10 +161,10 @@ const DEFAULT_ATTACHMENT_ACCEPT = "image/jpeg,image/png,image/webp,application/p
 
 // Matches createContactRequestSchema's `documents`/documentLabels/
 // documentRequirementIds arrays (backend/src/modules/contact-requests/
-// contact-requests.validators.js), each capped at 6 — enforced here too so
+// contact-requests.validators.js; upload.middleware.js's MAX_INTAKE_DOCUMENTS) — enforced here too so
 // the wizard never lets a customer assemble a submission the API would
 // reject outright.
-const MAX_TOTAL_DOCUMENTS = 6;
+const MAX_TOTAL_DOCUMENTS = 16;
 
 // `attachmentType` is free text set per-requirement by staff (see the
 // Requirements Engine) and is usually left empty, so passport-specific
@@ -300,7 +322,26 @@ export function ServiceIntakeWizard({
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState("");
-  const [result, setResult] = React.useState<{ id: string } | null>(null);
+  // Fixed-price confirmation (backend contact-request-pricing/fixed-price.js):
+  // the customer ticks the exact total + currency; the server recomputes it
+  // and answers 409 PRICE_CHANGED (new total in `details`) or
+  // PRICING_MODE_CHANGED (the item is now quoted) instead of creating.
+  const [priceConfirmed, setPriceConfirmed] = React.useState(false);
+  const [serverPrice, setServerPrice] = React.useState<{ itemId: string; total: number; currency: string } | null>(null);
+  const [quotedNow, setQuotedNow] = React.useState<string | null>(null);
+  // `fixed` is set only when a confirmed total was sent and accepted (the
+  // server records such a request as FIXED or refuses it with 409).
+  const [result, setResult] = React.useState<{
+    id: string;
+    fixed?: { total: number; currency: string; afterDocuments: boolean } | null;
+    // Fixed price with payment open now: the payment step comes next
+    // (request-payment-step.tsx), then the confirmation.
+    paymentAccess?: PaymentAccess | null;
+  } | null>(null);
+  const [payment, setPayment] = React.useState<{ summary: PaymentSummary | null; outcome: "RECEIPT_SENT" | "LATER" } | null>(null);
+  const submissionKeyRef = React.useRef<string>("");
+  const [resumedPayment, setResumedPayment] = React.useState(false);
+  const submittingRef = React.useRef(false);
   const [copiedRequestNumber, setCopiedRequestNumber] = React.useState(false);
 
   // Draft save/resume (per-browser, via localStorage — no account or
@@ -597,10 +638,22 @@ export function ServiceIntakeWizard({
     if (!result) return;
     try {
       window.localStorage.removeItem(draftKey);
+      // The server draft too: otherwise a refresh would offer to resume
+      // (and resend) a request that already exists.
+      window.localStorage.removeItem(serverDraftKey);
     } catch {
       // ignore
     }
-  }, [result, draftKey]);
+    serverDraftTokenRef.current = null;
+  }, [result, draftKey, serverDraftKey]);
+
+  // A refresh during the payment step: back to that step, never the form.
+  React.useEffect(() => {
+    const pending = readPendingPayment(draftKey);
+    if (!pending) return;
+    setResult({ id: pending.requestId, fixed: null, paymentAccess: pending.access });
+    setResumedPayment(true);
+  }, [draftKey]);
 
   React.useEffect(() => {
     let ignore = false;
@@ -619,7 +672,10 @@ export function ServiceIntakeWizard({
           setVisaTypes([]);
         } else {
           setServices(payload?.data?.services ?? []);
-          setVisaTypes(payload?.data?.visaTypes ?? []);
+          // Umrah has its own section: never offered as a visa type here
+          // (an explicit ?visaCategory=UMRAH request still gets it).
+          const allVisaTypes: PublicVisaType[] = payload?.data?.visaTypes ?? [];
+          setVisaTypes(visaCategory ? allVisaTypes : allVisaTypes.filter((visa) => visa.category !== "UMRAH"));
         }
       })
       .catch(() => {
@@ -673,6 +729,30 @@ export function ServiceIntakeWizard({
   const selectedPriceItem: PublicService | PublicVisaType | undefined =
     service === "umrah" ? umrahService : service === "package" ? selectedPackage : selectedVisaType;
   const hasPublishedPrice = Boolean(selectedPriceItem && Number(selectedPriceItem.basePrice) > 0);
+
+  // Same arithmetic as the server (fixed-price.js billableUnits/fixedTotal):
+  // per-traveler items count max(named travelers, declared count, 1).
+  const priceUnits =
+    selectedPriceItem?.priceUnit === "PER_TRAVELER" ? Math.max(filledTravelers.length, travelerCount, 1) : 1;
+  const isFixedPrice = Boolean(
+    hasPublishedPrice && selectedPriceItem?.pricingMode === "FIXED" && quotedNow !== selectedPriceItem?.id
+  );
+  const fixedPrice =
+    isFixedPrice && selectedPriceItem
+      ? serverPrice && serverPrice.itemId === selectedPriceItem.id
+        ? { total: serverPrice.total, currency: serverPrice.currency }
+        : {
+            total: Math.round(Number(selectedPriceItem.basePrice) * priceUnits * 100) / 100,
+            currency: selectedPriceItem.currency || "SAR",
+          }
+      : null;
+  const estimateUnits = selectedPriceItem?.priceUnit === "PER_REQUEST" ? 1 : travelerCount;
+  // SDG equivalent of the fixed total, only from the agency's active exchange
+  // rate (fxRateToSdg is null without one — never a default rate).
+  const fixedSdg =
+    fixedPrice && selectedPriceItem && fixedPrice.currency !== "SDG" && Number(selectedPriceItem.fxRateToSdg) > 0 && fixedPrice.currency === selectedPriceItem.currency
+      ? `${Math.round(fixedPrice.total * Number(selectedPriceItem.fxRateToSdg)).toLocaleString("en-US")} SDG`
+      : "";
 
   // Umrah and Package are Services; Visa uses the selected VisaType — each
   // has its own Requirements Engine endpoint (both backed by the same
@@ -865,7 +945,7 @@ export function ServiceIntakeWizard({
   const steps = service === "umrah"
     ? ["customer", "details", "documents", "review"]
     : service === "package"
-      ? ["select", "trip", "customer", "details", "documents", "review"]
+      ? ["select", "customer", "trip", "details", "documents", "review"]
       : ["select", "customer", "details", "documents", "review"];
 
   function updateTravelerCount(count: number) {
@@ -994,6 +1074,10 @@ export function ServiceIntakeWizard({
     setTravelers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
   }
 
+  React.useEffect(() => {
+    setPriceConfirmed(false);
+  }, [fixedPrice?.total, fixedPrice?.currency]);
+
   function canGoNext() {
     const current = steps[step];
 
@@ -1024,8 +1108,12 @@ export function ServiceIntakeWizard({
   }
 
   async function handleSubmit() {
+    // A second tap while the first submission is in flight sends nothing.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmitError("");
+    if (!submissionKeyRef.current) submissionKeyRef.current = newSubmissionKey();
 
     try {
       const formData = new FormData();
@@ -1054,6 +1142,11 @@ export function ServiceIntakeWizard({
       }
 
       formData.append("travelerCount", String(travelerCount));
+      formData.append("submissionKey", submissionKeyRef.current);
+      if (fixedPrice && priceConfirmed) {
+        formData.append("acceptedTotal", fixedPrice.total.toFixed(2));
+        formData.append("acceptedCurrency", fixedPrice.currency);
+      }
 
       formData.append(
         "intakeData",
@@ -1115,18 +1208,55 @@ export function ServiceIntakeWizard({
       const payload = await response.json().catch(() => null);
 
       if (!response.ok) {
+        if (response.status === 409 && payload?.code === "PRICE_CHANGED" && payload.details && selectedPriceItem) {
+          setServerPrice({
+            itemId: selectedPriceItem.id,
+            total: Number(payload.details.total),
+            currency: String(payload.details.currency),
+          });
+          setPriceConfirmed(false);
+        } else if (response.status === 409 && payload?.code === "PRICING_MODE_CHANGED" && selectedPriceItem) {
+          setQuotedNow(selectedPriceItem.id);
+          setPriceConfirmed(false);
+        }
         throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
       }
 
-      setResult({ id: payload.data.id });
+      const paymentAccess: PaymentAccess | null =
+        payload.data.paymentAccess?.token && !selectedPriceItem?.paymentAfterDocumentReview ? payload.data.paymentAccess : null;
+      if (paymentAccess) savePendingPayment(draftKey, { requestId: payload.data.id, access: paymentAccess });
+      setResult({
+        id: payload.data.id,
+        fixed:
+          fixedPrice && priceConfirmed
+            ? { ...fixedPrice, afterDocuments: Boolean(selectedPriceItem?.paymentAfterDocumentReview) }
+            : null,
+        paymentAccess,
+      });
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى");
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
+  if (result && result.paymentAccess && !payment) {
+    return (
+      <RequestPaymentStep
+        requestId={result.id}
+        access={result.paymentAccess}
+        resumed={resumedPayment}
+        onFinished={(summary, outcome) => {
+          clearPendingPayment(draftKey);
+          setPayment({ summary, outcome });
+        }}
+      />
+    );
+  }
+
   if (result) {
+    const paidNow = payment?.outcome === "RECEIPT_SENT";
     return (
       <div className="mx-auto max-w-lg rounded-3xl border border-success/30 bg-success/5 p-10 text-center">
         <CheckCircle2 className="mx-auto size-14 text-success" />
@@ -1154,15 +1284,57 @@ export function ServiceIntakeWizard({
               </button>
             </div>
           </div>
+          {payment?.summary ? (
+            <>
+              <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">حالة الطلب</span>
+                <span className="font-semibold text-foreground" data-testid="request-status">{payment.summary.statusLabel}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">حالة الدفع</span>
+                <span className="font-semibold text-foreground" data-testid="payment-status">{payment.summary.paymentStatusLabel}</span>
+              </div>
+            </>
+          ) : null}
         </div>
         <div className="mt-4 rounded-2xl border border-border bg-background p-5 text-start">
           <h3 className="text-sm font-bold text-foreground">ماذا سيحدث الآن؟</h3>
-          <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
-            <li><span className="font-semibold text-foreground">1.</span> سنراجع بيانات طلبك والمستندات المرفقة.</li>
-            <li><span className="font-semibold text-foreground">2.</span> سيتواصل معك فريقنا عند الحاجة إلى معلومة أو مستند إضافي.</li>
-            <li><span className="font-semibold text-foreground">3.</span> يمكنك متابعة الحالة باستخدام رقم الطلب من صفحة التتبع.</li>
-          </ol>
-          <p className="mt-3 text-xs text-muted-foreground">هذا طلب خدمة أولي، وليس عملية دفع أو طلبًا مؤكدًا داخل حساب العميل.</p>
+          {paidNow ? (
+            <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+              <li><span className="font-semibold text-foreground">1.</span> وصل إشعار التحويل، وحالة الدفع الآن «بانتظار مراجعة التحويل».</li>
+              <li><span className="font-semibold text-foreground">2.</span> يراجع موظف مختص التحويل ويؤكد السداد، ويصلك إشعار عند تغيّر الحالة.</li>
+              <li><span className="font-semibold text-foreground">3.</span> بعد تأكيد السداد يبدأ التنفيذ، وتتابع كل مرحلة برقم الطلب.</li>
+            </ol>
+          ) : result.fixed ? (
+            <>
+              <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>
+                  <span className="font-semibold text-foreground">1.</span> اعتمدت السعر الثابت{" "}
+                  <span dir="ltr" className="font-semibold text-foreground">
+                    {result.fixed.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {result.fixed.currency}
+                  </span>
+                  ؛ لن يصلك عرض سعر آخر.
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">2.</span>{" "}
+                  {result.fixed.afterDocuments
+                    ? "سنراجع مستنداتك أولًا، وبعد اعتمادها تُفتح خطوة الدفع بالسعر نفسه."
+                    : "خطوة الدفع مفتوحة: حوّل المبلغ إلى أحد حسابات الوكالة، ثم ارفع إشعار التحويل من صفحة التتبع."}
+                </li>
+                <li><span className="font-semibold text-foreground">3.</span> يبدأ التنفيذ بعد تأكيد الوكالة لاستلام المبلغ، وتتابع كل مرحلة برقم الطلب.</li>
+              </ol>
+              <p className="mt-3 text-xs text-muted-foreground">لا تحوّل أي مبلغ إلا إلى حسابات الوكالة الظاهرة في صفحة التتبع.</p>
+            </>
+          ) : (
+            <>
+              <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+                <li><span className="font-semibold text-foreground">1.</span> سنراجع بيانات طلبك والمستندات المرفقة.</li>
+                <li><span className="font-semibold text-foreground">2.</span> سيتواصل معك فريقنا عند الحاجة إلى معلومة أو مستند إضافي.</li>
+                <li><span className="font-semibold text-foreground">3.</span> يمكنك متابعة الحالة باستخدام رقم الطلب من صفحة التتبع.</li>
+              </ol>
+              <p className="mt-3 text-xs text-muted-foreground">هذا طلب خدمة أولي، وليس عملية دفع أو طلبًا مؤكدًا داخل حساب العميل.</p>
+            </>
+          )}
         </div>
         <Button asChild variant="gold" size="lg" className="mt-6 w-full">
           <Link href="/track">تابع طلبك من هنا</Link>
@@ -1257,7 +1429,7 @@ export function ServiceIntakeWizard({
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-bold text-foreground">{item.name}</span>
+                    <span className="font-bold text-foreground" data-testid="intake-option-name">{item.name}</span>
                     {service !== "package" ? (
                       <span className="text-xs text-muted-foreground">{(item as PublicVisaType).country}</span>
                     ) : null}
@@ -1588,9 +1760,56 @@ export function ServiceIntakeWizard({
             <div className="rounded-xl border border-accent/40 bg-accent/5 p-4">
               <span className="font-bold text-foreground">التكلفة</span>
               <div className="mt-2 flex flex-col gap-1.5">
-                {hasPublishedPrice && selectedPriceItem ? (
+                {fixedPrice && selectedPriceItem ? (
                   <>
-                    {travelerCount > 1 ? (
+                    {priceUnits > 1 ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>سعر الفرد × {priceUnits}</span>
+                        <span dir="ltr">
+                          {Number(selectedPriceItem.basePrice).toLocaleString("en-US")} {selectedPriceItem.currency}
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">الإجمالي النهائي</span>
+                      <span className="font-bold text-foreground" dir="ltr" data-testid="fixed-total">
+                        {fixedPrice.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {fixedPrice.currency}
+                      </span>
+                    </div>
+                    {fixedSdg ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground" data-testid="fixed-total-sdg">
+                        <span>ما يعادل بالجنيه السوداني</span>
+                        <span dir="ltr">{fixedSdg}</span>
+                      </div>
+                    ) : fixedPrice.currency !== "SDG" ? (
+                      <p className="text-[11px] text-muted-foreground">المقابل بالجنيه السوداني غير متاح حاليًا؛ الدفع بالعملة الظاهرة.</p>
+                    ) : null}
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      سعر ثابت معتمد من الإدارة، بلا عرض سعر لاحق.
+                      {selectedPriceItem.paymentAfterDocumentReview
+                        ? " تُفتح خطوة الدفع بعد اعتماد مستنداتك، بالسعر نفسه."
+                        : " بعد التأكيد تنتقل مباشرة إلى الدفع: بيانات الحساب ورفع إشعار التحويل."}
+                    </p>
+                    <label className="mt-2 flex items-start gap-2 text-sm font-semibold text-foreground">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-4 accent-primary"
+                        checked={priceConfirmed}
+                        onChange={(e) => setPriceConfirmed(e.target.checked)}
+                        data-testid="confirm-fixed-total"
+                      />
+                      <span>
+                        أؤكد الإجمالي النهائي{" "}
+                        <span dir="ltr">
+                          {fixedPrice.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {fixedPrice.currency}
+                        </span>{" "}
+                        وعملته
+                      </span>
+                    </label>
+                  </>
+                ) : hasPublishedPrice && selectedPriceItem ? (
+                  <>
+                    {estimateUnits > 1 ? (
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>سعر الفرد</span>
                         <span dir="ltr">
@@ -1599,9 +1818,9 @@ export function ServiceIntakeWizard({
                       </div>
                     ) : null}
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">{travelerCount > 1 ? "الإجمالي" : "السعر"}</span>
+                      <span className="text-xs text-muted-foreground">{estimateUnits > 1 ? "الإجمالي التقديري" : "السعر"}</span>
                       <span className="font-bold text-foreground" dir="ltr">
-                        {(Number(selectedPriceItem.basePrice) * travelerCount).toLocaleString("en-US")}{" "}
+                        {(Number(selectedPriceItem.basePrice) * estimateUnits).toLocaleString("en-US")}{" "}
                         {selectedPriceItem.currency}
                       </span>
                     </div>
@@ -1609,12 +1828,12 @@ export function ServiceIntakeWizard({
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>السعر التقريبي بالجنيه</span>
                         <span dir="ltr">
-                          يعادل تقريبًا {Math.round(selectedPriceItem.priceSdg * travelerCount).toLocaleString("en-US")} ج.س
+                          يعادل تقريبًا {Math.round(selectedPriceItem.priceSdg * estimateUnits).toLocaleString("en-US")} ج.س
                         </span>
                       </div>
                     ) : null}
                     <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                      السعر المعروض من تسعير الإدارة الحالي، والمبلغ النهائي يُعتمد بعد مراجعة طلبك.
+                      السعر المعروض تقديري من تسعير الإدارة الحالي، والمبلغ النهائي يصلك في عرض سعر بعد مراجعة طلبك.
                     </p>
                   </>
                 ) : (
@@ -1652,9 +1871,9 @@ export function ServiceIntakeWizard({
               <ChevronRight className="size-4" />
               السابق
             </Button>
-            <Button type="button" variant="gold" onClick={handleSubmit} disabled={submitting}>
+            <Button type="button" variant="gold" onClick={handleSubmit} disabled={submitting || Boolean(fixedPrice && !priceConfirmed)}>
               {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-              {submitting ? "جارٍ الإرسال..." : "إرسال الطلب"}
+              {submitting ? "جارٍ الإرسال..." : fixedPrice && !selectedPriceItem?.paymentAfterDocumentReview ? "تأكيد ومتابعة إلى الدفع" : "إرسال الطلب"}
             </Button>
           </div>
         </StepShell>

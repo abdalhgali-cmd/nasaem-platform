@@ -4,7 +4,7 @@ import { logActivity } from "../../utils/activityLog.js";
 
 export async function getUsers(req, res, next) {
   try {
-    const users = await listUsers();
+    const users = await listUsers(req.user.organizationId);
 
     return res.status(200).json({
       success: true,
@@ -18,7 +18,7 @@ export async function getUsers(req, res, next) {
 export async function getUser(req, res, next) {
   try {
     const { id } = req.params;
-    const user = await getUserById(id);
+    const user = await getUserById(id, req.user.organizationId);
 
     if (!user) {
       return res.status(404).json({
@@ -48,13 +48,14 @@ export async function storeUser(req, res, next) {
       });
     }
 
-    const user = await createUser(parsed.data);
+    const user = await createUser(parsed.data, req.user.organizationId);
 
     logActivity({
       userId: req.user?.id,
       action: "USER_CREATED",
       entity: "User",
       entityId: user.id,
+      newValue: { role: user.role, status: user.status, branchId: user.branchId },
       req,
     });
 
@@ -81,9 +82,9 @@ export async function updateRole(req, res, next) {
       });
     }
 
-    const user = await changeUserRole({ id, role: parsed.data.role, actorId: req.user.id });
+    const result = await changeUserRole({ id, role: parsed.data.role, actor: req.user });
 
-    if (!user) {
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: "User not found",
@@ -95,14 +96,15 @@ export async function updateRole(req, res, next) {
       action: "USER_ROLE_CHANGED",
       entity: "User",
       entityId: id,
-      newValue: { role: user.role },
+      oldValue: result.before,
+      newValue: result.after,
       req,
     });
 
     return res.status(200).json({
       success: true,
       message: "User role updated successfully",
-      data: user,
+      data: result.user,
     });
   } catch (error) {
     next(error);
@@ -122,20 +124,29 @@ export async function updateStatus(req, res, next) {
       });
     }
 
-    const user = await changeUserStatus(id, parsed.data.status);
+    const result = await changeUserStatus({ id, status: parsed.data.status, actor: req.user });
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
 
     logActivity({
       userId: req.user?.id,
       action: "USER_STATUS_CHANGED",
       entity: "User",
       entityId: id,
+      oldValue: result.before,
+      newValue: result.after,
       req,
     });
 
     return res.status(200).json({
       success: true,
       message: "User status updated successfully",
-      data: user,
+      data: result.user,
     });
   } catch (error) {
     next(error);

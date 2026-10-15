@@ -45,7 +45,8 @@ export function DynamicVisaCatalog({ selectedVisaCode, selectedCategory }: { sel
       const response = await fetch(`${API_URL}/services/public`, { cache: "no-store" });
       const payload = (await response.json()) as { success?: boolean; data?: { visaTypes?: PublicVisaType[] }; message?: string };
       if (!response.ok || !payload.success) throw new Error(payload.message || "تعذر تحميل أنواع التأشيرات");
-      setVisas((payload.data?.visaTypes ?? []).filter((item) => item.category !== "UMRAH_PACKAGE"));
+      // Umrah is its own section (/umrah), never a card in the visa list.
+      setVisas((payload.data?.visaTypes ?? []).filter((item) => item.category !== "UMRAH_PACKAGE" && item.category !== "UMRAH"));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "تعذر تحميل أنواع التأشيرات، حاول تحديث الصفحة");
     } finally {

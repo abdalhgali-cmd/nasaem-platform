@@ -151,3 +151,40 @@ describe("comparePassportDataToCustomer", () => {
     assert.equal(byField.dateOfBirth, "not_comparable");
   });
 });
+
+describe("passport OCR resource limits", async () => {
+  const { readImageDimensions, assertOcrImageWithinLimits, OcrRejectedError, OCR_MAX_PIXELS } = await import(
+    "../src/modules/passport-ocr/passport-ocr.service.js"
+  );
+
+  function png(width, height) {
+    const buffer = Buffer.alloc(33);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buffer, 0);
+    buffer.writeUInt32BE(13, 8);
+    buffer.write("IHDR", 12, "ascii");
+    buffer.writeUInt32BE(width, 16);
+    buffer.writeUInt32BE(height, 20);
+    return buffer;
+  }
+
+  function jpeg(width, height) {
+    const buffer = Buffer.alloc(40);
+    buffer[0] = 0xff; buffer[1] = 0xd8;
+    buffer[2] = 0xff; buffer[3] = 0xc0; buffer.writeUInt16BE(17, 4); buffer[6] = 8;
+    buffer.writeUInt16BE(height, 7); buffer.writeUInt16BE(width, 9);
+    return buffer;
+  }
+
+  test("reads dimensions from PNG and JPEG headers", () => {
+    assert.deepEqual(readImageDimensions(png(1200, 800)), { width: 1200, height: 800 });
+    assert.deepEqual(readImageDimensions(jpeg(4000, 3000)), { width: 4000, height: 3000 });
+    assert.equal(readImageDimensions(Buffer.from("not an image at all, just text")), null);
+  });
+
+  test("refuses an image whose decoded size would exhaust memory, before decoding it", () => {
+    assert.doesNotThrow(() => assertOcrImageWithinLimits(jpeg(4000, 3000)));
+    assert.ok(Math.floor(Math.sqrt(OCR_MAX_PIXELS)) < 6000);
+    assert.throws(() => assertOcrImageWithinLimits(png(20000, 20000)), (error) => error instanceof OcrRejectedError && error.status === 413);
+    assert.throws(() => assertOcrImageWithinLimits(Buffer.alloc(50)), (error) => error instanceof OcrRejectedError && error.status === 422);
+  });
+});

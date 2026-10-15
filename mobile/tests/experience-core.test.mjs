@@ -1,0 +1,179 @@
+// Unit tests for www/js/experience-core.js and the pure parts of agency.js.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import { launchRoute, firstName, greeting, buildBannerSlides, nextSlide, ONBOARDING_KEY, submissionOutcome, confirmationNotice, newSubmissionKey, countSelectedDocuments, parseRequirementsResponse, otpFailureNotice } from "../www/js/experience-core.js";
+import { AGENCY, mergeAgencySettings, whatsappLink, telLink } from "../www/js/agency.js";
+
+test("launch: intro only on a first launch with nothing stored; otherwise the public home", () => {
+  assert.equal(launchRoute({ storedKind: "none", onboardingDone: false }), "onboarding");
+  assert.equal(launchRoute({ storedKind: "none", onboardingDone: true }), "home");
+});
+
+test("launch: a stored account (token or biometric-locked) never blocks the home screen", () => {
+  for (const onboardingDone of [true, false]) {
+    assert.equal(launchRoute({ storedKind: "token", onboardingDone }), "home");
+    assert.equal(launchRoute({ storedKind: "biometric", onboardingDone }), "home");
+  }
+});
+
+test("onboarding flag is separate from authentication keys", () => {
+  assert.equal(ONBOARDING_KEY, "nasaem.onboarding.v1");
+  assert.ok(!/token|session|auth/i.test(ONBOARDING_KEY));
+});
+
+test("firstName / greeting", () => {
+  assert.equal(firstName("أحمد محمد علي"), "أحمد");
+  assert.equal(firstName("  سارة  "), "سارة");
+  assert.equal(firstName(""), "");
+  assert.equal(firstName(null), "");
+  assert.equal(greeting(new Date(2026, 0, 1, 9)), "صباح الخير");
+  assert.equal(greeting(new Date(2026, 0, 1, 20)), "مساء الخير");
+  assert.equal(greeting(new Date(2026, 0, 1, 2)), "مساء الخير");
+});
+
+test("banner: only published content, in order hero → sections → coupons", () => {
+  const slides = buildBannerSlides({
+    hero: { title: "عمرة رمضان", subtitle: "المقاعد محدودة", ctaLabel: "اطلب الآن", ctaTarget: "/umrah" },
+    sections: [{ title: "تأشيرات الزيارة", description: "", iconKey: "visa" }, { title: "" }],
+    coupons: [{ code: "WELCOME10", discountType: "PERCENTAGE", discountValue: 10 }, { code: "" }],
+  });
+  assert.deepEqual(slides.map((s) => s.kind), ["hero", "section", "coupon"]);
+  assert.equal(slides[0].title, "عمرة رمضان");
+  assert.equal(slides[0].action, "اطلب الآن");
+  assert.equal(slides[1].title, "تأشيرات الزيارة");
+  assert.equal(slides[2].title, "WELCOME10");
+  assert.equal(slides[2].text, "خصم 10%");
+});
+
+test("banner: no invented offers — empty content gives one non-promotional brand slide", () => {
+  for (const input of [undefined, {}, { hero: null, sections: [], coupons: [] }, { hero: { title: "" } }]) {
+    const slides = buildBannerSlides(input);
+    assert.equal(slides.length, 1);
+    assert.equal(slides[0].kind, "brand");
+    assert.doesNotMatch(slides[0].text + slides[0].title, /\d/, "the fallback never contains prices or numbers");
+  }
+});
+
+test("banner: coupon text uses the coupon's own description or its real discount", () => {
+  assert.equal(buildBannerSlides({ coupons: [{ code: "A", description: "خصم للعائلات" }] })[0].text, "خصم للعائلات");
+  assert.equal(buildBannerSlides({ coupons: [{ code: "B", discountType: "FIXED", discountValue: 50, currency: "SDG" }] })[0].text, "خصم 50 SDG");
+  assert.equal(buildBannerSlides({ coupons: [{ code: "C", discountType: "FIXED", discountValue: 0 }] })[0].text, "");
+});
+
+test("banner: capped at 6 slides; carousel index wraps", () => {
+  const sections = Array.from({ length: 10 }, (_, i) => ({ title: `S${i}` }));
+  assert.equal(buildBannerSlides({ sections }).length, 6);
+  assert.equal(nextSlide(0, 3), 1);
+  assert.equal(nextSlide(2, 3), 0);
+  assert.equal(nextSlide(0, 1), 0);
+  assert.equal(nextSlide(0, 0), 0);
+});
+
+test("agency: published defaults, back-office overrides for contact fields only", () => {
+  assert.equal(AGENCY.name, "نسائم الحرمين للسفر والسياحة");
+  assert.equal(AGENCY.tagline, "رحلتك تبدأ معنا بثقة");
+  const merged = mergeAgencySettings({ CONTACT_PHONE: " +249 12 345 6789 ", WHATSAPP_NUMBER: "+249 12-345-6789", CONTACT_EMAIL: "", SEO_TITLE: "x" });
+  assert.equal(merged.phone, "+249 12 345 6789");
+  assert.equal(merged.whatsapp, "249123456789");
+  assert.equal(merged.email, AGENCY.email, "blank setting keeps the published value");
+  assert.equal(merged.name, AGENCY.name, "identity is not overridable from contact settings");
+  assert.equal(mergeAgencySettings().whatsapp, AGENCY.whatsapp);
+});
+
+test("agency links", () => {
+  assert.equal(whatsappLink("+249 91 103 4372"), "https://wa.me/249911034372");
+  assert.match(whatsappLink("249911034372", "مرحبا"), /^https:\/\/wa\.me\/249911034372\?text=%D9%85/);
+  assert.equal(telLink("+249 91 103 4372"), "tel:+249911034372");
+});
+
+test("submission: success only with a real stored id", () => {
+  assert.deepEqual(submissionOutcome({ success: true, data: { id: "cm123", customerConfirmation: "QUEUED" } }), { ok: true, id: "cm123", duplicate: false, customerConfirmation: "QUEUED", paymentAccess: null });
+  assert.deepEqual(
+    submissionOutcome({ success: true, data: { id: "cm123", paymentAccess: { token: "t".repeat(43), expiresAt: "2026-10-16T00:00:00.000Z" } } }).paymentAccess,
+    { token: "t".repeat(43), expiresAt: "2026-10-16T00:00:00.000Z" },
+    "a fixed-price request carries its payment access to the payment screen"
+  );
+  assert.equal(submissionOutcome({ success: true, data: { id: "cm123", paymentAccess: { token: 5 } } }).paymentAccess, null);
+  assert.equal(submissionOutcome({ success: true, data: { id: "cm123", duplicate: true } }).duplicate, true);
+  // spam-trap answer: 201 without an id is NOT a success
+  assert.deepEqual(submissionOutcome({ success: true, message: "Request received" }), { ok: false });
+  assert.deepEqual(submissionOutcome({}), { ok: false });
+  assert.deepEqual(submissionOutcome(null), { ok: false });
+  assert.deepEqual(submissionOutcome({ data: { id: 42 } }), { ok: false });
+  assert.equal(submissionOutcome({ data: { id: "x", customerConfirmation: "DELIVERED" } }).customerConfirmation, "NOT_AVAILABLE", "unknown statuses never read as sent");
+});
+
+test("confirmation wording never claims delivery", () => {
+  for (const status of ["QUEUED", "NOT_AVAILABLE", undefined]) {
+    const text = confirmationNotice(status);
+    assert.ok(text.length > 20);
+    assert.doesNotMatch(text, /تم إرسال|وصلت|تم التسليم/);
+  }
+  assert.match(confirmationNotice("QUEUED"), /نحاول/);
+});
+
+test("submission keys are random, server-valid and stable per call", () => {
+  const a = newSubmissionKey();
+  const b = newSubmissionKey();
+  assert.notEqual(a, b);
+  for (const key of [a, newSubmissionKey({ getRandomValues: (arr) => arr.fill(7) })]) {
+    assert.match(key, /^[A-Za-z0-9-]{16,64}$/);
+  }
+});
+
+test("documents: empty optional passport inputs take no slot", () => {
+  // 6 travelers, no passport photos, one required service document → 1 file.
+  assert.equal(countSelectedDocuments({ travelerFiles: [false, false, false, false, false, false], requirementFiles: [{ applies: true, selected: true }] }), 1);
+  assert.equal(countSelectedDocuments({ travelerFiles: Array(6).fill(false), requirementFiles: [] }), 0);
+  assert.equal(countSelectedDocuments(), 0);
+});
+
+test("documents: multi-traveler with some passports and required service documents", () => {
+  const requirementFiles = [{ applies: true, selected: true }, { applies: true, selected: false }, { applies: true, selected: true }];
+  assert.equal(countSelectedDocuments({ travelerFiles: [true, false, true], requirementFiles }), 4);
+  // every traveler + every document selected → over the 6-file limit, as it should be
+  assert.equal(countSelectedDocuments({ travelerFiles: Array(5).fill(true), requirementFiles }), 7);
+});
+
+test("documents: a hidden conditional document is not counted (it is not sent)", () => {
+  assert.equal(countSelectedDocuments({ travelerFiles: [true], requirementFiles: [{ applies: false, selected: true }] }), 1);
+});
+
+test("requirements: confirmed-empty differs from an unusable response", () => {
+  assert.deepEqual(parseRequirementsResponse({ success: true, data: [] }), []);
+  const list = [{ id: "r1" }];
+  assert.equal(parseRequirementsResponse({ data: list }), list);
+  for (const bad of [undefined, null, {}, { data: null }, { data: "x" }, { success: false }]) {
+    assert.equal(parseRequirementsResponse(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("OTP: undeliverable codes are reported plainly with a support path; other errors pass through", () => {
+  const unavailable = otpFailureNotice({ code: "OTP_CHANNEL_UNAVAILABLE", status: 503, message: "" });
+  assert.equal(unavailable.retry, false);
+  assert.match(unavailable.message, /غير متاح/);
+  assert.equal(otpFailureNotice({ code: "OTP_DELIVERY_FAILED", status: 503, message: "x" }).retry, true);
+  assert.match(otpFailureNotice({ status: 0, code: "TIMEOUT" }).message, /لم يُرسل أي رمز/);
+  assert.equal(otpFailureNotice({ status: 400, message: "Validation failed" }), null);
+  assert.equal(otpFailureNotice({ status: 429 }), null);
+  for (const notice of [unavailable, otpFailureNotice({ code: "OTP_DELIVERY_FAILED" })]) {
+    assert.doesNotMatch(notice.message, /تم إرسال|سيصلك/);
+  }
+});
+
+test("an unfinished payment is kept on the device until finished or expired", async () => {
+  const { savePendingPayment, readPendingPayment, clearPendingPayment } = await import("../www/js/experience-core.js");
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  const pending = { id: "cm1", paymentAccess: { token: "t".repeat(43), expiresAt: "2026-10-16T00:00:00.000Z" }, serviceName: "عمرة" };
+  savePendingPayment(storage, pending);
+  assert.deepEqual(readPendingPayment(storage, Date.parse("2026-10-15T00:00:00Z")), pending);
+  assert.equal(readPendingPayment(storage, Date.parse("2026-10-17T00:00:00Z")), null, "an expired token is dropped");
+  assert.equal(store.size, 0);
+  savePendingPayment(storage, pending);
+  clearPendingPayment(storage);
+  assert.equal(readPendingPayment(storage), null);
+  storage.setItem("nasaem.pendingPayment.v1", "{broken");
+  assert.equal(readPendingPayment(storage), null);
+});

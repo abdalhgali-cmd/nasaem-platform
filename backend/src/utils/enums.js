@@ -15,7 +15,7 @@ export const VISA_ENTRY_TYPES = ["SINGLE", "MULTIPLE"];
 export const VISA_TYPE_CATEGORIES = ["INTERNATIONAL", "UMRAH", "FAMILY_VISIT", "OTHER"];
 
 // Currencies relevant to the routes this platform actually serves (Saudi
-// Arabia / Egypt / Sudan travel services, per frontend/assets/services-data.js).
+// Arabia / Egypt / Sudan travel services, per backend/public/assets/services-data.js).
 export const SUPPORTED_CURRENCIES = ["SAR", "USD", "EUR", "EGP", "SDG", "AED", "GBP", "QAR"];
 
 // Fixed icon set for anything admin-configurable that shows a small

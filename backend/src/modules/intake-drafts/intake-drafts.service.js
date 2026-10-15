@@ -5,8 +5,10 @@ import { logActivity } from "../../utils/activityLog.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
+import { applyEgyptEntryMode, egyptVariantBookingError } from "../egypt-clearance/egypt-clearance-variants.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
+import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
 
 // Smart Case Operations — Release B (server-side intake drafts). The
 // authoritative pre-submission state for an in-progress intake, so a weak
@@ -265,7 +267,7 @@ export async function removeDraftDocument(token, documentId) {
 // Everything runs in one transaction: either the request exists with all
 // its travelers and documents attached, or nothing changed and the
 // customer's draft is still intact to retry.
-export async function submitDraft(token, { message }) {
+export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency } = {}) {
   const found = await findMutableDraft(token);
   if (found.error) return found;
 
@@ -285,6 +287,31 @@ export async function submitDraft(token, { message }) {
   const travelers = Array.isArray(draft.travelers) ? draft.travelers : [];
   const travelerRefs = draft.documentTravelerRefs || {};
 
+  // Egypt clearance: the variant fixes the entry method (recorded as the
+  // answer); a draft claiming the other one is refused.
+  let answers = draft.answers;
+  let egyptEntryMode = null;
+  if (draft.visaTypeId) {
+    const visaType = await prisma.visaType.findUnique({ where: { id: draft.visaTypeId }, select: { code: true, active: true, pricingMode: true, basePrice: true, currency: true } });
+    const unavailable = egyptVariantBookingError(visaType, { acceptedTotal });
+    if (unavailable) return unavailable;
+    const egypt = applyEgyptEntryMode(visaType?.code, requirementsSnapshot, answers);
+    if (egypt.error) return egypt;
+    answers = egypt.answers;
+    egyptEntryMode = egypt.entryMode || null;
+  }
+
+  // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
+  // a fixed-price item is recorded as FIXED only when the customer confirmed
+  // the total and currency the server recomputes; without a confirmation it
+  // is a quote request (reason kept); a mismatch creates nothing (409).
+  const namedTravelers = travelers.filter((traveler) => traveler?.fullName).length;
+  const pricing = await resolveSubmissionPricing(
+    { serviceId: draft.serviceId, visaTypeId: draft.visaTypeId, travelerCount: draft.travelerCount, acceptedTotal, acceptedCurrency },
+    { travelers: namedTravelers }
+  );
+  if (pricing.error) return pricing;
+
   const contactRequest = await prisma.$transaction(async (tx) => {
     const created = await tx.contactRequest.create({
       data: {
@@ -296,10 +323,16 @@ export async function submitDraft(token, { message }) {
         serviceId: draft.serviceId || null,
         visaTypeId: draft.visaTypeId || null,
         travelerCount: draft.travelerCount ?? null,
+        // The guided intake is always an application for a service.
+        requestKind: "SERVICE_APPLICATION",
+        pricingMode: pricing.mode,
+        pricingSnapshot: pricing.snapshot ?? undefined,
+        ...(pricing.mode === "FIXED" ? { invoice: { create: pricing.invoice }, paymentStatus: "AWAITING_TRANSFER" } : {}),
         intakeData: {
           ...(travelers.length ? { travelers } : {}),
           ...(draft.notes ? { notes: draft.notes } : {}),
-          ...(draft.answers ? { answers: draft.answers } : {}),
+          ...(answers ? { answers } : {}),
+          ...(egyptEntryMode ? { egyptEntryMode } : {}),
         },
         requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
         message: message || draft.notes || "طلب خدمة عبر نموذج الحجز الإلكتروني",

@@ -3,6 +3,12 @@ import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, loginAsSuperAdmin, request, uniqueSuffix } from "./helpers/api.js";
 
+// Ticket/receipt uploads are type-checked by their bytes: fixtures are
+// minimal real PDFs carrying the given text.
+// PDF responses are binary to supertest; read them back as text.
+const asText = (res, cb) => { let data = ""; res.setEncoding("utf8"); res.on("data", (c) => { data += c; }); res.on("end", () => cb(null, data)); };
+const pdfBuffer = (text) => Buffer.from(`%PDF-1.4\n% ${text}\n%%EOF\n`);
+
 describe("flight booking workflow", () => {
   let admin;
   let flightId;
@@ -24,7 +30,7 @@ describe("flight booking workflow", () => {
     booking = createRes.body.booking;
     assert.equal(booking.status, "REQUESTED");
 
-    const provisionalRes = await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", Buffer.from("provisional ticket"), "provisional.txt");
+    const provisionalRes = await admin.post(`/api/flight-bookings/${booking.id}/provisional-ticket`).attach("file", pdfBuffer("provisional ticket"), "provisional.pdf");
     assert.equal(provisionalRes.status, 200);
     assert.equal(provisionalRes.body.booking.status, "PAYMENT_PENDING");
 
@@ -33,7 +39,7 @@ describe("flight booking workflow", () => {
     assert.equal(publicRes.body.booking.status, "PAYMENT_PENDING");
     assert.ok(publicRes.body.booking.bankAccounts.length > 0);
 
-    const receiptRes = await request(app).post(`/api/flight-bookings/${booking.booking_number}/payment-receipt`).field("phone", phone).attach("file", Buffer.from("payment receipt"), "receipt.txt");
+    const receiptRes = await request(app).post(`/api/flight-bookings/${booking.booking_number}/payment-receipt`).field("phone", phone).attach("file", pdfBuffer("payment receipt"), "receipt.pdf");
     assert.equal(receiptRes.status, 200);
     assert.equal(receiptRes.body.booking.status, "PAYMENT_UNDER_REVIEW");
 
@@ -63,7 +69,7 @@ describe("flight booking workflow", () => {
     assert.ok(filteredListRes.body.bookings.every((b) => b.status === "PAYMENT_CONFIRMED"));
     assert.ok(filteredListRes.body.bookings.some((b) => b.id === booking.id));
 
-    const finalRes = await admin.post(`/api/flight-bookings/${booking.id}/final-ticket`).attach("file", Buffer.from("final ticket"), "final.txt");
+    const finalRes = await admin.post(`/api/flight-bookings/${booking.id}/final-ticket`).attach("file", pdfBuffer("final ticket"), "final.pdf");
     assert.equal(finalRes.status, 200);
     assert.equal(finalRes.body.booking.status, "FINAL_TICKET_ISSUED");
 
@@ -77,7 +83,7 @@ describe("flight booking workflow", () => {
     const testPhone = `24992${uniqueSuffix().slice(-7)}`;
     const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "Early Receipt Test", phone: testPhone }, passengers: [{ firstName: "EARLY", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }] });
     assert.equal(createRes.status, 201);
-    const res = await request(app).post(`/api/flight-bookings/${createRes.body.booking.booking_number}/payment-receipt`).field("phone", testPhone).attach("file", Buffer.from("receipt"), "receipt.txt");
+    const res = await request(app).post(`/api/flight-bookings/${createRes.body.booking.booking_number}/payment-receipt`).field("phone", testPhone).attach("file", pdfBuffer("receipt"), "receipt.pdf");
     assert.equal(res.status, 400);
   });
 
@@ -94,7 +100,7 @@ describe("flight booking workflow", () => {
       ownerPhone = `24993${uniqueSuffix().slice(-7)}`;
       const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "File Isolation Test", phone: ownerPhone }, passengers: [{ firstName: "FILE", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }] });
       ownedBooking = createRes.body.booking;
-      const provisionalRes = await admin.post(`/api/flight-bookings/${ownedBooking.id}/provisional-ticket`).attach("file", Buffer.from("provisional ticket contents"), "provisional.txt");
+      const provisionalRes = await admin.post(`/api/flight-bookings/${ownedBooking.id}/provisional-ticket`).attach("file", pdfBuffer("provisional ticket contents"), "provisional.pdf");
       assert.equal(provisionalRes.status, 200);
     });
 
@@ -112,9 +118,9 @@ describe("flight booking workflow", () => {
     });
 
     test("allows the document download with the matching phone number", async () => {
-      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).query({ phone: ownerPhone });
+      const res = await request(app).get(`/api/flight-bookings/${ownedBooking.id}/file/provisional`).query({ phone: ownerPhone }).buffer(true).parse(asText);
       assert.equal(res.status, 200);
-      assert.equal(res.text, "provisional ticket contents");
+      assert.equal(res.body, pdfBuffer("provisional ticket contents").toString());
     });
 
     // Regression: GET /:id used to return full booking details (name,

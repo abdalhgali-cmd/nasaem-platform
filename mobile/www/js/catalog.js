@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { isEgyptClearanceItem } from "./egypt-view.js";
 
 const CATALOG_CACHE_KEY = "nasaem.catalog.cache.v3";
 
@@ -31,7 +32,16 @@ export async function loadCatalog({ fresh = false } = {}) {
     if (cached) memoryCatalog = cached;
   }
 
-  const res = await api("/services/public");
+  let res;
+  try {
+    res = await api("/services/public");
+  } catch (error) {
+    // Offline / server down: the last saved catalog, marked as possibly
+    // outdated (screens say so). Without a saved copy, the error stands.
+    const saved = memoryCatalog || readCache();
+    if (saved) return { ...saved, stale: true };
+    throw error;
+  }
   // Tagged once, here, at the source — every downstream screen (intake.js's
   // requirement-scope lookup especially) reads `isVisaType` instead of
   // re-guessing it from `category`, which is NOT a reliable discriminator:
@@ -87,7 +97,7 @@ export function resolveServiceScreen(item) {
   const code = (item.code || "").toUpperCase();
   const category = (item.category || "").toLowerCase();
 
-  if (code === "SVC-EGYPT-CLEARANCE" || code === "VISA-EGYPT-CLEARANCE") return "egyptClearance";
+  if (isEgyptClearanceItem(item)) return "egyptClearance";
   if (code === "SVC-FAMILY-VISIT" || code === "VISA-FAMILY-VISIT") return "saudiFamilyVisit";
   if (code === "VISA-UMRAH" || category === "umrah") return "umrah";
   if (category.includes("ferry")) return "ferries";

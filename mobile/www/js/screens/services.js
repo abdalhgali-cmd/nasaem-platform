@@ -1,10 +1,12 @@
-import { esc, skeletonGrid, errorState, emptyState } from "../ui.js";
+import { esc, skeletonGrid, skeletonList, errorState, emptyState } from "../ui.js";
+import { startingPrice, priceText, sdgText, durationOf, shortDescription, serviceDirectoryItems, hubVisaTypes, VISAS_HUB_ITEM } from "../service-view.js";
+import { stagger } from "../motion.js";
 import { icon, iconForService } from "../icons.js";
 import { loadCatalog, resolveServiceScreen } from "../catalog.js";
 import { go } from "../router.js";
 import { renderIntakeScreen } from "./intake.js";
 
-export const VISAS_HUB_CODE = "HUB-VISAS";
+export const VISAS_HUB_CODE = VISAS_HUB_ITEM.id;
 
 function findItemById(catalog, id) {
   return catalog.services.find((s) => s.id === id) || catalog.visaTypes.find((v) => v.id === id);
@@ -30,57 +32,68 @@ export async function openServiceById(id, catalogHint) {
   openServiceItem(item);
 }
 
+// Opening a service shows its details first (price, duration, what is
+// needed, steps) with a fixed "start the request" button; the request form
+// itself is the dedicated screen resolveServiceScreen() picks.
 export function openServiceItem(item) {
-  const screen = resolveServiceScreen(item);
-  const titleMap = {
-    umrah: "العمرة",
-    flights: "تذاكر الطيران",
-    ferries: "حجوزات البواخر",
-    hotels: "حجز الفنادق",
-    egyptClearance: "الموافقة الأمنية لمصر",
-    saudiFamilyVisit: "الزيارة العائلية",
-    serviceDetail: item.name,
-  };
-  go(screen, { item }, { title: titleMap[screen] || item.name, tab: "home" });
+  go("serviceInfo", { item }, { title: item.name, tab: "services" });
 }
 
 export async function renderServicesScreen({ bodyEl }) {
-  bodyEl.innerHTML = `<div class="services-grid">${skeletonGrid(9)}</div>`;
+  bodyEl.innerHTML = `<div class="svc-flow">${skeletonList(5)}</div>`;
   try {
     const catalog = await loadCatalog();
-    const items = [...catalog.services, ...catalog.visaTypes];
+    const items = serviceDirectoryItems(catalog);
     if (!items.length) {
       bodyEl.innerHTML = emptyState({ icon: "inbox", title: "لا توجد خدمات منشورة حالياً" });
       return;
     }
     bodyEl.innerHTML = `
-      <div class="services-grid services-grid-full">
-        ${items.map((item) => `
-          <button class="service-card" data-id="${esc(item.id)}">
-            <span class="service-card-icon">${icon(iconForService(item), { size: 24 })}</span>
-            <strong>${esc(item.name)}</strong>
-          </button>`).join("")}
-      </div>`;
-    bodyEl.querySelectorAll(".service-card").forEach((card) => {
-      card.addEventListener("click", () => openServiceById(card.dataset.id, catalog));
+      ${catalog.stale ? `<p class="field-hint stale-note">${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>` : ""}
+      <ol class="svc-flow">
+        ${items.map((item, index) => serviceRow(item, index)).join("")}
+      </ol>`;
+    bodyEl.querySelectorAll("[data-id]").forEach((row) => {
+      row.addEventListener("click", () => openServiceById(row.dataset.id, catalog));
     });
+    stagger(bodyEl.querySelector(".svc-flow"));
   } catch (error) {
     bodyEl.innerHTML = errorState(error.message, { onRetry: () => renderServicesScreen({ bodyEl }) });
   }
+}
+
+function serviceRow(item, index) {
+  const price = startingPrice(item);
+  const duration = durationOf(item);
+  const description = shortDescription(item);
+  return `
+    <li class="svc-step">
+      <span class="svc-node">${icon(iconForService(item), { size: 20 })}</span>
+      <button class="svc-card" data-id="${esc(item.id)}" aria-label="عرض تفاصيل ${esc(item.name)}">
+        <span class="svc-head"><strong>${esc(item.name)}</strong>${item.country ? `<small>${esc(item.country)}</small>` : ""}</span>
+        ${description ? `<span class="svc-desc">${esc(description)}</span>` : ""}
+        <span class="svc-meta">
+          ${price ? `<span class="chip chip-price">من <bdi>${esc(priceText(price))}</bdi>${sdgText(price) ? ` <i><bdi>${esc(sdgText(price))}</bdi></i>` : ""}</span>` : ""}
+          ${duration ? `<span class="chip">${icon("clock", { size: 13 })} ${esc(duration)}</span>` : ""}
+        </span>
+        <span class="svc-cta">عرض التفاصيل ${icon("chevron-start", { size: 15 })}</span>
+      </button>
+    </li>`;
 }
 
 export async function renderVisasHubScreen({ bodyEl }) {
   bodyEl.innerHTML = `<div class="services-grid">${skeletonGrid(6)}</div>`;
   try {
     const catalog = await loadCatalog();
-    if (!catalog.visaTypes.length) {
+    const visaTypes = hubVisaTypes(catalog);
+    if (!visaTypes.length) {
       bodyEl.innerHTML = emptyState({ icon: "inbox", title: "لا توجد أنواع تأشيرات منشورة حالياً" });
       return;
     }
     bodyEl.innerHTML = `
       <p class="field-hint section-intro">اختر نوع التأشيرة لعرض المتطلبات والسعر وبدء الطلب.</p>
       <div class="package-list">
-        ${catalog.visaTypes.map((visaType) => `
+        ${visaTypes.map((visaType) => `
           <button class="package-card" data-id="${esc(visaType.id)}">
             <span class="service-card-icon">${icon(iconForService(visaType), { size: 22 })}</span>
             <div>
@@ -92,7 +105,7 @@ export async function renderVisasHubScreen({ bodyEl }) {
       </div>`;
     bodyEl.querySelectorAll(".package-card").forEach((card) => {
       card.addEventListener("click", () => {
-        const visaType = catalog.visaTypes.find((v) => v.id === card.dataset.id);
+        const visaType = visaTypes.find((v) => v.id === card.dataset.id);
         if (visaType) openServiceItem(visaType);
       });
     });

@@ -6,7 +6,15 @@ import { Bell, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { adminRequest } from "@/lib/admin-api";
 
-type NotificationRow = { id: string; title: string; message: string; type: string; readAt: string | null; createdAt: string };
+type NotificationRow = { id: string; title: string; message: string; type: string; contactRequestId?: string | null; orderId?: string | null; readAt: string | null; createdAt: string };
+
+// A notification about a request or an order opens that record directly in the
+// back-office dashboard (which reads these deep-link parameters).
+function notificationHref(row: NotificationRow): string | null {
+  if (row.contactRequestId) return `/admin-dashboard.html?customerRequest=${encodeURIComponent(row.contactRequestId)}`;
+  if (row.orderId) return `/admin-dashboard.html?order=${encodeURIComponent(row.orderId)}`;
+  return null;
+}
 
 export function NotificationsManager() {
   const [rows, setRows] = React.useState<NotificationRow[]>([]);
@@ -62,7 +70,11 @@ export function NotificationsManager() {
           <button
             key={row.id}
             type="button"
-            onClick={() => (row.readAt ? undefined : void markRead(row.id))}
+            onClick={async () => {
+              if (!row.readAt) await markRead(row.id);
+              const href = notificationHref(row);
+              if (href) window.location.assign(href);
+            }}
             className={`rounded-2xl border p-4 text-start transition ${row.readAt ? "border-border bg-card" : "border-primary/30 bg-primary/5"}`}
           >
             <div className="flex items-center justify-between gap-2">
@@ -70,6 +82,7 @@ export function NotificationsManager() {
               {!row.readAt ? <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">جديد</span> : null}
             </div>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">{row.message}</p>
+            {notificationHref(row) ? <p className="mt-2 text-xs font-bold text-primary">فتح الطلب ←</p> : null}
             <p className="mt-2 text-xs text-muted-foreground" dir="ltr">{new Date(row.createdAt).toLocaleString("ar-SA", { calendar: "gregory" })}</p>
           </button>
         ))}

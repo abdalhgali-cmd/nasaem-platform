@@ -21,7 +21,9 @@ export async function getDashboardStats(organizationId) {
   ]);
   const [salesByCurrency, paidByCurrency, serviceSales, latestOrders] = await Promise.all([
     prisma.order.groupBy({ by: ["currency"], where: orgWhere, _sum: { totalAmount: true }, _count: { _all: true } }),
-    prisma.payment.groupBy({ by: ["currency", "status"], where: { status: { not: "REFUNDED" }, ...orderOrgWhere }, _sum: { amount: true }, _count: { _all: true } }),
+    // Confirmed money in, per currency (refunds and pending reviews excluded;
+    // refundsByCurrency below is the money returned).
+    prisma.payment.groupBy({ by: ["currency", "status"], where: { status: "PAID", kind: "PAYMENT", ...orderOrgWhere }, _sum: { amount: true }, _count: { _all: true } }),
     prisma.orderItem.groupBy({ by: ["serviceId"], where: orderOrgWhere, _sum: { total: true }, _count: { _all: true } }),
     prisma.order.findMany({ where: orgWhere, orderBy: { createdAt: "desc" }, take: 5, include: { customer: { select: safeCustomerSelect } } }),
   ]);
@@ -37,7 +39,8 @@ function contactNextAction(request) {
   if (request.paymentStatus === "AWAITING_TRANSFER") return { key: "FOLLOW_PAYMENT", label: "متابعة الدفع" };
   if (!request.invoice && request.offers.length === 0) return { key: "QUOTE", label: "إضافة سعر" };
   if (request.invoice?.status === "PENDING" && request.documents.some((doc) => doc.status === "PENDING")) return { key: "DOCUMENTS_OR_QUOTE", label: "مراجعة المستندات" };
-  if (request.invoice?.status === "PENDING" || request.offers.length > 0) return { key: "CUSTOMER_DECISION", label: "بانتظار العميل" };
+  if (request.invoice?.status === "PENDING" || (request.offers.length > 0 && !request.selectedOfferId)) return { key: "CUSTOMER_DECISION", label: "بانتظار العميل" };
+  if (request.paymentStatus === "CONFIRMED" && !request.executionStartedAt && request.deliverables.length === 0) return { key: "START_EXECUTION", label: "بدء التنفيذ" };
   if (request.paymentStatus === "CONFIRMED" && request.deliverables.length === 0) return { key: "DELIVER", label: "إصدار وتسليم" };
   return { key: "PROCESS", label: "معالجة الطلب" };
 }
@@ -53,25 +56,51 @@ function orderNextAction(order) {
   return { key: "REVIEW", label: "مراجعة الطلب" };
 }
 
+// Draft (unpublished) final files are not delivery.
+const CONTACT_OPERATIONS_INCLUDE = {
+  invoice: { select: { status: true, amount: true, currency: true } },
+  offers: { select: { id: true, carrier: true, amount: true, currency: true } },
+  documents: { select: { id: true, label: true, status: true, classification: true, createdAt: true } },
+  deliverables: { where: { publishedAt: { not: null } }, select: { id: true }, take: 1 },
+};
+
+// The transfer receipt staff are reviewing: the latest financial document.
+function latestReceiptId(request) {
+  const receipts = (request.documents || []).filter((document) => document.classification === "FINANCIAL_DOCUMENT");
+  receipts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return receipts[0]?.id ?? null;
+}
+
 export async function getOperationsCenter(organizationId) {
   const orgFilter = organizationId ? { organizationId } : {};
   const orderOrgFilter = organizationId ? { order: { organizationId } } : {};
   const [contactRequests, orders, pendingContactPayments, pendingOrderPayments, unassignedOrders, waitingDocs] = await Promise.all([
-    prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: { invoice: { select: { status: true, amount: true, currency: true } }, offers: { select: { id: true, carrier: true, amount: true, currency: true } }, documents: { select: { id: true, label: true, status: true } }, deliverables: { select: { id: true }, take: 1 } } }),
+    prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: CONTACT_OPERATIONS_INCLUDE }),
     prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: { customer: { select: { fullName: true, phone: true, passportNo: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
     prisma.contactRequest.count({ where: { paymentStatus: "UNDER_REVIEW", ...orgFilter } }),
     prisma.payment.count({ where: { reviewStatus: "PENDING", ...orderOrgFilter } }),
     prisma.order.count({ where: { assignedUserId: null, status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, ...orgFilter } }),
     prisma.order.count({ where: { status: "WAITING_DOCUMENTS", ...orgFilter } }),
   ]);
+  // Every payment waiting for review is listed, however recent: the 50
+  // stalest open records above would otherwise hide a fresh receipt from
+  // the payment-review screen on a busy day.
+  const [reviewRequests, reviewOrders] = await Promise.all([
+    prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" }, paymentStatus: "UNDER_REVIEW", ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 200, include: CONTACT_OPERATIONS_INCLUDE }),
+    prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, payments: { some: { reviewStatus: "PENDING" } }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 200, include: { customer: { select: { fullName: true, phone: true, passportNo: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
+  ]);
+  for (const request of reviewRequests) if (!contactRequests.some((r) => r.id === request.id)) contactRequests.push(request);
+  for (const order of reviewOrders) if (!orders.some((o) => o.id === order.id)) orders.push(order);
 
   const now = Date.now();
   const stalledHours = 24;
-  const contactItems = contactRequests.map((request) => ({ source: "contact_request", id: request.id, reference: request.id, customerName: request.name, phone: request.phone, service: request.service || "استفسار", status: request.status, paymentStatus: request.paymentStatus, amount: request.invoice?.amount ?? null, currency: request.invoice?.currency ?? null, updatedAt: request.updatedAt, ageHours: Math.floor((now - new Date(request.updatedAt).getTime()) / 3600000), nextAction: contactNextAction(request), hasPaymentUnderReview: request.paymentStatus === "UNDER_REVIEW" }));
+  const contactItems = contactRequests.map((request) => ({ source: "contact_request", id: request.id, reference: request.id, customerName: request.name, phone: request.phone, service: request.service || "استفسار", status: request.status, paymentStatus: request.paymentStatus, amount: request.invoice?.amount ?? null, currency: request.invoice?.currency ?? null, updatedAt: request.updatedAt, ageHours: Math.floor((now - new Date(request.updatedAt).getTime()) / 3600000), nextAction: contactNextAction(request), hasPaymentUnderReview: request.paymentStatus === "UNDER_REVIEW", receiptDocumentId: request.paymentStatus === "UNDER_REVIEW" ? latestReceiptId(request) : null }));
   const orderItems = orders.map((order) => ({ source: "order", id: order.id, reference: order.orderNumber, customerName: order.customer?.fullName || "بدون اسم", phone: order.customer?.phone || "", passportNo: order.customer?.passportNo || "", service: order.items?.[0]?.service?.name || "طلب", serviceId: order.items?.[0]?.service?.id || null, status: order.status, paymentStatus: order.paymentStatus, amount: order.totalAmount, currency: order.currency, updatedAt: order.updatedAt, assignedUser: order.assignedUser?.fullName || null, assignedUserId: order.assignedUserId || null, ageHours: Math.floor((now - new Date(order.updatedAt).getTime()) / 3600000), nextAction: orderNextAction(order), hasPaymentUnderReview: order.payments.length > 0, pendingPayment: order.payments[0] ? { id: order.payments[0].id, amount: order.payments[0].amount, currency: order.payments[0].currency } : null }));
   const items = [...contactItems, ...orderItems].sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
   const stalled = items.filter((item) => item.ageHours >= stalledHours).length;
-  return { queues: { newRequests: contactRequests.filter((r) => r.status === "NEW").length, waitingPaymentReview: pendingContactPayments + pendingOrderPayments, unassignedOrders, waitingDocuments: waitingDocs, waitingCustomer: contactRequests.filter((r) => contactNextAction(r).key === "CUSTOMER_DECISION").length, readyToDeliver: contactRequests.filter((r) => contactNextAction(r).key === "DELIVER").length, stalled }, items: items.slice(0, 80) };
+  const reviewItems = items.filter((item) => item.hasPaymentUnderReview);
+  const otherItems = items.filter((item) => !item.hasPaymentUnderReview).slice(0, 80);
+  return { queues: { newRequests: contactRequests.filter((r) => r.status === "NEW").length, waitingPaymentReview: pendingContactPayments + pendingOrderPayments, unassignedOrders, waitingDocuments: waitingDocs, waitingCustomer: contactRequests.filter((r) => contactNextAction(r).key === "CUSTOMER_DECISION").length, readyToDeliver: contactRequests.filter((r) => ["START_EXECUTION", "DELIVER"].includes(contactNextAction(r).key)).length, stalled }, items: [...reviewItems, ...otherItems] };
 }
 
 export async function getDashboardSummary(organizationId) {
@@ -89,10 +118,24 @@ export async function getDashboardSummary(organizationId) {
         // review (status stays UNPAID until confirmed, see
         // payments.service.js) must not inflate "paid" before staff have
         // actually confirmed it, same fix as recalculateOrderPaymentStatus.
-        prisma.payment.aggregate({ where: { createdAt: { gte: startToday }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startWeek }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
-        prisma.payment.aggregate({ where: { createdAt: { gte: startMonth }, status: "PAID", ...orderOrgFilter }, _sum: { amount: true } }),
+        // Grouped by currency: amounts in different currencies are never
+        // added together. Refunds (kind REFUND) are not money collected.
+        prisma.payment.groupBy({ by: ["currency"], where: { createdAt: { gte: startToday }, status: "PAID", kind: "PAYMENT", ...orderOrgFilter }, _sum: { amount: true } }),
+        prisma.payment.groupBy({ by: ["currency"], where: { createdAt: { gte: startWeek }, status: "PAID", kind: "PAYMENT", ...orderOrgFilter }, _sum: { amount: true } }),
+        prisma.payment.groupBy({ by: ["currency"], where: { createdAt: { gte: startMonth }, status: "PAID", kind: "PAYMENT", ...orderOrgFilter }, _sum: { amount: true } }),
     prisma.contactRequest.count({ where: { status: { not: "CLOSED" }, ...orgFilter } }),
   ]);
-  return { periods: { today: { orders: todayOrders, paid: todayPayments._sum.amount || 0 }, last7Days: { orders: weekOrders, paid: weekPayments._sum.amount || 0 }, month: { orders: monthOrders, paid: monthPayments._sum.amount || 0 } }, openContactRequests: openRequests, profit: null, profitNote: "لا يتم احتساب الربح حتى تتوفر تكلفة المورد الفعلية للطلب." };
+  // `paid` stays a single number only when one currency is involved (its
+  // currency in `paidCurrency`); with several it is null and `paidByCurrency`
+  // carries the amounts.
+  const period = (orders, groups) => {
+    const paidByCurrency = groups.map((g) => ({ currency: g.currency, amount: g._sum.amount || 0 }));
+    return {
+      orders,
+      paid: paidByCurrency.length > 1 ? null : paidByCurrency[0]?.amount || 0,
+      paidCurrency: paidByCurrency.length === 1 ? paidByCurrency[0].currency : null,
+      paidByCurrency,
+    };
+  };
+  return { periods: { today: period(todayOrders, todayPayments), last7Days: period(weekOrders, weekPayments), month: period(monthOrders, monthPayments) }, openContactRequests: openRequests, profit: null, profitNote: "لا يتم احتساب الربح حتى تتوفر تكلفة المورد الفعلية للطلب." };
 }

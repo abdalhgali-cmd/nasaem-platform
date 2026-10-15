@@ -13,6 +13,7 @@ import {
   updateDraft,
 } from "./intake-drafts.service.js";
 import { validateEgyptClearanceDraft } from "./egypt-clearance-draft.js";
+import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
 
 // Smart Case Operations — Release B. Every draft error maps to a clean
 // status here rather than leaking through as a 500, mirroring how the
@@ -27,6 +28,10 @@ const DRAFT_ERROR_RESPONSES = {
     status: 400,
     message: "يرجى إكمال بيانات الموافقة الأساسية ورفع صورة الجواز قبل إرسال الطلب",
   },
+  EGYPT_VARIANT_UNAVAILABLE: { status: 409, message: "هذا النوع من الموافقة غير متاح للحجز حاليًا." },
+  FIXED_TOTAL_REQUIRED: { status: 400, message: "أكّد الإجمالي النهائي قبل إرسال الطلب." },
+  ENTRY_MODE_MISMATCH: { status: 400, message: "طريقة الدخول المرسلة لا تطابق نوع الموافقة المختار. اختر النوع الصحيح ثم أعد الإرسال." },
+  ENTRY_MODE_INVALID: { status: 400, message: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر." },
   DOCUMENT_NOT_FOUND: { status: 404, message: "المستند غير موجود في هذا الطلب" },
   REQUIREMENT_NOT_FOUND: { status: 400, message: "هذا المتطلب لا ينتمي إلى الخدمة المحددة" },
   INVALID_MIME: { status: 400, message: "نوع هذا الملف غير مسموح به لهذا المتطلب" },
@@ -35,9 +40,20 @@ const DRAFT_ERROR_RESPONSES = {
 };
 
 function respondToDraftError(res, result) {
+  if (result.error === "PRICE_CHANGED" || result.error === "PRICING_MODE_CHANGED") {
+    return res.status(409).json({
+      success: false,
+      code: result.error,
+      message:
+        result.error === "PRICE_CHANGED"
+          ? "تغيّر سعر الخدمة منذ أن راجعته. راجع الإجمالي الجديد ثم أكّد الطلب."
+          : "أصبح سعر هذه الخدمة يُحدَّد بعرض سعر من الوكالة. حدّث الصفحة ثم أرسل الطلب.",
+      details: result.details,
+    });
+  }
   const mapped = DRAFT_ERROR_RESPONSES[result.error];
   if (!mapped) return null;
-  return res.status(mapped.status).json({ success: false, message: mapped.message, details: result.details });
+  return res.status(mapped.status).json({ success: false, code: result.error, message: mapped.message, details: result.details });
 }
 
 export async function storeDraft(req, res, next) {
@@ -145,11 +161,14 @@ export async function submitDraftController(req, res, next) {
       if (errorResponse) return errorResponse;
     }
 
-    const result = await submitDraft(req.params.token, { message: parsed.data.message });
+    const result = await submitDraft(req.params.token, { message: parsed.data.message, acceptedTotal: parsed.data.acceptedTotal, acceptedCurrency: parsed.data.acceptedCurrency });
     const errorResponse = respondToDraftError(res, result);
     if (errorResponse) return errorResponse;
 
-    return res.status(201).json({ success: true, data: { id: result.contactRequest.id } });
+    // Same as POST /contact-requests: an accepted fixed price goes straight
+    // to its payment step (contact-request-payment-access).
+    const paymentAccess = await issuePaymentAccess(result.contactRequest.id);
+    return res.status(201).json({ success: true, data: { id: result.contactRequest.id, ...(paymentAccess ? { paymentAccess } : {}) } });
   } catch (error) {
     next(error);
   }
