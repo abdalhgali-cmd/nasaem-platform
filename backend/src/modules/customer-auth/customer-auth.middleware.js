@@ -10,24 +10,103 @@ function extractCustomerToken(req) {
   return bearerToken || req.cookies?.customerAccessToken || null;
 }
 
-// Mirrors requireAuth (staff) / requireTrackingAuth (phone tracking): its
-// own cookie, its own token scope, and — critically — it always re-fetches
-// the Customer row rather than trusting the JWT payload alone, so a
-// password change or an account that gets deleted takes effect immediately
-// instead of only once the token expires.
+const SESSION_SELECT = {
+  id: true,
+  customerNo: true,
+  fullName: true,
+  phone: true,
+  email: true,
+  passportNo: true,
+  nationality: true,
+  country: true,
+  city: true,
+  address: true,
+  passwordHash: true,
+  sessionVersion: true,
+  createdAt: true,
+  organizationId: true,
+  organization: { select: { active: true } },
+};
+
+// Machine-readable reasons sent with every customer-session 401, so a client
+// (the Android app) can tell "this session is over" apart from "the server
+// could not check it right now" (503 below) without parsing Arabic text.
+export const SESSION_ERROR = {
+  AUTH_REQUIRED: "AUTH_REQUIRED",
+  SESSION_EXPIRED: "SESSION_EXPIRED",
+  SESSION_INVALID: "SESSION_INVALID",
+  SESSION_REVOKED: "SESSION_REVOKED",
+  SESSION_CHECK_UNAVAILABLE: "SESSION_CHECK_UNAVAILABLE",
+};
+
+class SessionRejected extends Error {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+}
+
+const JWT_ERROR_NAMES = new Set(["JsonWebTokenError", "NotBeforeError"]);
+
+function decodeToken(token) {
+  try {
+    return verifyCustomerToken(token);
+  } catch (error) {
+    if (error?.name === "TokenExpiredError") throw new SessionRejected(SESSION_ERROR.SESSION_EXPIRED);
+    if (JWT_ERROR_NAMES.has(error?.name) || error?.message === "Invalid token scope") {
+      throw new SessionRejected(SESSION_ERROR.SESSION_INVALID);
+    }
+    // e.g. JWT_SECRET missing: a server fault, not proof the session is bad.
+    throw error;
+  }
+}
+
+// Resolves a token to its live Customer, or throws SessionRejected when the
+// backend can positively say the session is over. Any other error (database
+// unreachable, misconfiguration) propagates unchanged: it says nothing about
+// the session, and must never be reported to a client as "logged out".
+export async function resolveCustomerSession(token) {
+  const payload = decodeToken(token);
+
+  const customer = await prisma.customer.findUnique({ where: { id: payload.sub }, select: SESSION_SELECT });
+
+  // passwordHash === null means this Customer row was never turned into an
+  // account (or had its account removed); an inactive organization is
+  // suspended. Either way the signed token no longer grants access.
+  if (!customer || !customer.passwordHash || !customer.organization.active) {
+    throw new SessionRejected(SESSION_ERROR.SESSION_REVOKED);
+  }
+
+  // Password change/reset bumps sessionVersion, ending every older session.
+  // Tokens from before this claim existed count as version 0.
+  if ((payload.sv ?? 0) !== customer.sessionVersion) {
+    throw new SessionRejected(SESSION_ERROR.SESSION_REVOKED);
+  }
+
+  // Tokens issued before jti existed cannot be revoked one at a time; they
+  // still expire, and password change/reset still ends them.
+  if (payload.jti) {
+    const revoked = await prisma.revokedCustomerToken.findUnique({ where: { jti: payload.jti }, select: { jti: true } });
+    if (revoked) throw new SessionRejected(SESSION_ERROR.SESSION_REVOKED);
+  }
+
+  const { passwordHash, sessionVersion, organization, ...safeCustomer } = customer;
+  return { customer: safeCustomer, payload, sessionVersion };
+}
+
+const REJECTION_MESSAGES = {
+  [SESSION_ERROR.SESSION_EXPIRED]: "الجلسة منتهية، يرجى تسجيل الدخول مجددًا",
+  [SESSION_ERROR.SESSION_INVALID]: "الجلسة غير صالحة، يرجى تسجيل الدخول مجددًا",
+  [SESSION_ERROR.SESSION_REVOKED]: "تم إنهاء الجلسة، يرجى تسجيل الدخول مجددًا",
+};
+
 export async function attachOptionalCustomer(req, res, next) {
   try {
     const token = extractCustomerToken(req);
     if (!token) return next();
-    const payload = verifyCustomerToken(token);
-    const customer = await prisma.customer.findUnique({
-      where: { id: payload.sub },
-      select: { id: true, organizationId: true, passwordHash: true, organization: { select: { active: true } } },
-    });
-    if (customer?.passwordHash && customer.organization.active) {
-      req.customer = { id: customer.id, organizationId: customer.organizationId };
-      req.organizationId = customer.organizationId;
-    }
+    const { customer } = await resolveCustomerSession(token);
+    req.customer = { id: customer.id, organizationId: customer.organizationId };
+    req.organizationId = customer.organizationId;
   } catch {
     // Anonymous public submissions remain valid when an optional cookie is invalid.
   }
@@ -35,48 +114,29 @@ export async function attachOptionalCustomer(req, res, next) {
 }
 
 export async function requireCustomerAuth(req, res, next) {
-  try {
-    const token = extractCustomerToken(req);
+  const token = extractCustomerToken(req);
 
-    if (!token) {
-      return res.status(401).json({ success: false, message: "تسجيل الدخول مطلوب" });
-    }
-
-    const payload = verifyCustomerToken(token);
-    const customerId = payload.sub;
-
-    const customer = await prisma.customer.findUnique({
-      where: { id: customerId },
-      select: {
-        id: true,
-        customerNo: true,
-        fullName: true,
-        phone: true,
-        email: true,
-        passportNo: true,
-        nationality: true,
-        country: true,
-        city: true,
-        address: true,
-        passwordHash: true,
-        createdAt: true,
-        organizationId: true,
-        organization: { select: { active: true } },
-      },
-    });
-
-    // passwordHash === null means this Customer row was never turned into
-    // an account (or had its account removed) — the session must not
-    // survive that, even though the token itself is still validly signed.
-    if (!customer || !customer.passwordHash || !customer.organization.active) {
-      return res.status(401).json({ success: false, message: "الجلسة غير صالحة" });
-    }
-
-    const { passwordHash, organization, ...safeCustomer } = customer;
-    req.customer = safeCustomer;
-    req.organizationId = customer.organizationId;
-    next();
-  } catch (error) {
-    return res.status(401).json({ success: false, message: "الجلسة منتهية، يرجى تسجيل الدخول مجددًا" });
+  if (!token) {
+    return res.status(401).json({ success: false, message: "تسجيل الدخول مطلوب", code: SESSION_ERROR.AUTH_REQUIRED });
   }
+
+  let session;
+  try {
+    session = await resolveCustomerSession(token);
+  } catch (error) {
+    if (error instanceof SessionRejected) {
+      return res.status(401).json({ success: false, message: REJECTION_MESSAGES[error.code], code: error.code });
+    }
+    console.error("[customer-auth] session check failed", error);
+    return res.status(503).json({
+      success: false,
+      message: "تعذر التحقق من الجلسة حاليًا، حاول مرة أخرى بعد قليل",
+      code: SESSION_ERROR.SESSION_CHECK_UNAVAILABLE,
+    });
+  }
+
+  req.customer = session.customer;
+  req.customerToken = { jti: session.payload.jti || null, exp: session.payload.exp, sessionVersion: session.sessionVersion };
+  req.organizationId = session.customer.organizationId;
+  return next();
 }

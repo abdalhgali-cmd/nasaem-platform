@@ -29,8 +29,10 @@ mobile/
     js/
       config.js                 apiBaseUrl — the one place the backend URL lives
       api.js                    fetch wrapper: Bearer auth, offline detection, upload progress
-      storage.js                Capacitor Preferences wrapper (persistent session)
-      auth.js                   Customer account session (register/login/forgot-password/logout)
+      storage.js                Capacitor Preferences wrapper (non-secret settings only)
+      secure-store.js           Keystore-backed token storage + biometrics (SecureSession plugin)
+      session-core.js           Pure session rules (unit-tested: npm test)
+      auth.js                   Customer session: launch check, login/logout, biometrics
       tracking.js                Phone-OTP session for price-approval/payment actions (/api/tracking)
       catalog.js                 Public service/visa-type catalog, cached
       router.js                   Tiny stack router (no framework)
@@ -44,19 +46,61 @@ mobile/
 ## Authentication model
 
 Every screen beyond Welcome/Login/Register/Forgot-Password requires a
-signed-in customer account — see `js/auth.js` and `js/app.js`'s boot
-sequence. The session token is stored via `@capacitor/preferences`
-(`js/storage.js`) and sent as `Authorization: Bearer <token>`, not relied on
-as a browser cookie, because a Capacitor WebView cannot be assumed to
-persist a cross-origin cookie as reliably as a desktop browser across an
-app restart. The backend (`customer-auth.middleware.js`,
-`tracking-auth.middleware.js`) accepts either a cookie or this header —
-nothing about the web account pages changed.
+signed-in customer account (`js/auth.js`, `js/app.js`).
+
+**Where the session lives.** The customer token (and the separate tracking
+token, see below) is stored by the app's own native plugin,
+`android/app/src/main/java/com/nasaemalharamain/app/SecureSessionPlugin.java`
+(exposed to JS as `Capacitor.Plugins.SecureSession`, wrapped by
+`js/secure-store.js`): AES-256-GCM with a non-exportable Android Keystore key,
+ciphertext in the app's private storage. It is never written to
+localStorage or Capacitor Preferences; JS keeps it in memory only and sends
+it as `Authorization: Bearer`. Tokens left in Preferences by older versions
+are moved into secure storage on first launch and deleted.
+
+**Launch sequence** (`app.js` → `auth.js`, rules in `js/session-core.js`):
+
+| Stored on device | Server answer to `GET /customer-auth/me` | Result |
+|---|---|---|
+| nothing | — (no request) | Welcome / login |
+| token | 200 | Signed in |
+| token | 401 (`SESSION_EXPIRED` / `SESSION_INVALID` / `SESSION_REVOKED`) | Local session wiped, login with a notice |
+| token | no network, timeout (15 s), 5xx, 429 | "تعذر التحقق من الجلسة" screen with **Retry**; token kept; retried automatically when the device comes back online |
+
+Only a 401 from the server ends a session. The backend returns **503**
+(`SESSION_CHECK_UNAVAILABLE`), never 401, when it cannot check a session
+(e.g. database unreachable). A 401 on any other request made with the
+customer token triggers one `/me` re-check before anything is cleared, so a
+"wrong current password" 401 never logs anyone out. Tokens are renewed
+(`POST /customer-auth/refresh`) once a week of their 30 days is used, so an
+active customer is not asked to log in again.
+
+**Biometric login** (Account → الأمان والدخول بالبصمة) is optional and
+off by default. Enabling it re-encrypts the stored token with a second
+Keystore key that requires a strong biometric for every use and is
+invalidated by Android when fingerprints change. At launch the system
+fingerprint prompt decrypts the token (BiometricPrompt + CryptoObject, via
+AndroidX Biometric); the server check above still runs afterwards, so a
+fingerprint never revives a revoked session. If the fingerprints change, the
+protected copy is dropped and the customer signs in with their password
+(and can re-enable biometrics). Cancel, lockout or an unsupported sensor
+always leave "الدخول بكلمة المرور" available; a password login turns
+biometrics off until re-enabled. No biometric data is ever seen or stored
+by the app.
+
+**Logout** revokes the token on the server (`POST /customer-auth/logout`,
+other devices stay signed in) and wipes everything locally: secure storage,
+the biometric key, the tracking session and memory. A password change ends
+every other session and gives this device a fresh token; a password reset
+ends all sessions.
 
 A second, independent session (`js/tracking.js`) covers price-approval and
 payment-receipt actions, which live under the backend's separate phone-OTP
 `/api/tracking/*` routes. The UI only asks for this once per device, inline,
 the first time a customer uses one of those actions.
+
+In a plain browser (developing `www/` without Android) there is no Keystore:
+tokens go to sessionStorage and biometrics show as unavailable.
 
 ## Local development
 

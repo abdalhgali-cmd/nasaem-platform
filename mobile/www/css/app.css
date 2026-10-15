@@ -425,3 +425,23 @@ button, input, select, textarea { font-family: inherit; font-size: 16px; }
   .field-row { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .form-section { padding: 20px; }
 }
+
+/* Session check / offline / biometric lock (screens/session-screens.js) */
+.session-screen { display: flex; flex-direction: column; align-items: stretch; gap: 12px; text-align: center; padding: 18vh 20px 24px; }
+.session-screen h2 { margin: 0; font-size: 19px; color: var(--text); }
+.session-screen p { margin: 0; font-size: 14px; line-height: 1.7; color: var(--text-muted); }
+.session-screen .primary { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; }
+.session-screen .link-btn { text-align: center; }
+.session-icon { width: 64px; height: 64px; border-radius: 20px; background: #edf4fc; color: var(--navy-light); display: grid; place-items: center; margin: 0 auto 4px; }
+.session-icon-warn { background: var(--warn-bg); color: var(--warn-text); }
+.session-hint { font-size: 13px !important; }
+.session-message:empty { display: none; }
+.session-notice { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; line-height: 1.6; margin: 0 0 12px; }
+
+/* Account → Security */
+.security-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; margin: 16px; display: flex; flex-direction: column; gap: 12px; }
+.security-card-head { display: flex; align-items: center; gap: 12px; color: var(--navy-light); }
+.security-card-head h2 { margin: 0 0 6px; font-size: 16px; color: var(--text); }
+.security-card .secondary { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.security-card .danger-btn { margin-top: 0; }
+.status-pill.status-on { background: var(--success-bg); color: var(--success); }

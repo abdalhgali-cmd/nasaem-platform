@@ -16,6 +16,8 @@ import { renderRequestSubmittedScreen } from "./screens/intake.js";
 import { renderMyRequestsScreen, renderRequestDetailScreen, renderOrderDetailScreen } from "./screens/requests.js";
 import { renderNotificationsScreen } from "./screens/notifications.js";
 import { renderAccountScreen, renderEditProfileScreen, renderChangePasswordScreen, renderMyDocumentsScreen, setOnLoggedOut } from "./screens/account.js";
+import { renderSecurityScreen } from "./screens/security.js";
+import { renderSessionCheckScreen, renderSessionOfflineScreen, renderBiometricLockScreen } from "./screens/session-screens.js";
 
 const screenEl = document.getElementById("screen");
 const navEl = document.getElementById("bottomNav");
@@ -49,6 +51,11 @@ function registerAllScreens() {
   registerScreen("editProfile", renderEditProfileScreen);
   registerScreen("changePassword", renderChangePasswordScreen);
   registerScreen("myDocuments", renderMyDocumentsScreen);
+  registerScreen("security", renderSecurityScreen);
+
+  registerScreen("sessionCheck", renderSessionCheckScreen);
+  registerScreen("sessionOffline", renderSessionOfflineScreen);
+  registerScreen("biometricLock", renderBiometricLockScreen);
 }
 
 async function enterAuthenticatedShell() {
@@ -56,9 +63,58 @@ async function enterAuthenticatedShell() {
   await goToTab("home", "home", { title: "" });
 }
 
-async function enterAuthFlow() {
+async function enterAuthFlow({ notice = "" } = {}) {
   navEl.hidden = true;
-  await go("welcome", {}, { root: true });
+  await go("welcome", { notice }, { root: true });
+}
+
+const SESSION_ENDED_NOTICE = "انتهت جلستك أو تم إنهاؤها. يرجى تسجيل الدخول مجددًا.";
+
+// Launch: what is stored → (fingerprint, if enabled) → server check.
+// Only a server "session over" (401) leads to the login screen; anything
+// temporary leads to the offline screen with the session kept.
+async function verifyAndEnter() {
+  navEl.hidden = true;
+  await go("sessionCheck", {}, { root: true });
+  const result = await auth.verifySession();
+  if (result.state === auth.SessionState.VALID) {
+    await enterAuthenticatedShell();
+  } else if (result.state === auth.SessionState.EXPIRED) {
+    await enterAuthFlow({ notice: SESSION_ENDED_NOTICE });
+  } else if (result.state === auth.SessionState.OFFLINE) {
+    await go("sessionOffline", {
+      message: result.error?.message,
+      onRetry: verifyAndEnter,
+      onUsePassword: switchAccount,
+    }, { root: true });
+  } else {
+    await enterAuthFlow();
+  }
+}
+
+async function switchAccount() {
+  if (!confirmDialog("سيتم تسجيل الخروج من الحساب المحفوظ على هذا الجهاز. هل تريد المتابعة؟")) return;
+  await auth.logout();
+  await enterAuthFlow();
+}
+
+async function showBiometricLock() {
+  navEl.hidden = true;
+  await go("biometricLock", {
+    unlock: auth.unlockWithBiometric,
+    onUnlocked: verifyAndEnter,
+    // Password fallback: the stored biometric session stays until a password
+    // login replaces it (auth.login turns biometrics off then), unless the
+    // key is gone for good (enrollment changed), which already wiped it.
+    onUsePassword: () => go("login", {}, { title: "تسجيل الدخول" }),
+  }, { root: true });
+}
+
+async function startFromStoredSession() {
+  const stored = await auth.loadStoredSession();
+  if (stored.kind === "biometric") return showBiometricLock();
+  if (stored.kind === "token") return verifyAndEnter();
+  return enterAuthFlow();
 }
 
 function wireBottomNav() {
@@ -105,15 +161,10 @@ async function boot() {
   wireConnectivity();
 
   setOnAuthenticated(enterAuthenticatedShell);
-  setOnLoggedOut(enterAuthFlow);
+  setOnLoggedOut(() => enterAuthFlow());
+  auth.setOnSessionEnded(() => enterAuthFlow({ notice: SESSION_ENDED_NOTICE }));
 
-  await auth.resolveSession();
-
-  if (auth.isAuthenticated()) {
-    await enterAuthenticatedShell();
-  } else {
-    await enterAuthFlow();
-  }
+  await startFromStoredSession();
 
   window.Capacitor?.Plugins?.SplashScreen?.hide();
 }

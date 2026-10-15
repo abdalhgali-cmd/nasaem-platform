@@ -1,7 +1,7 @@
 import { api, ApiError } from "../api.js";
 import { esc, toast, fieldError, setLoading, confirmDialog } from "../ui.js";
 import { icon } from "../icons.js";
-import { getCustomer, refreshProfile, logout } from "../auth.js";
+import { getCustomer, refreshProfile, logout, changePassword } from "../auth.js";
 import { go } from "../router.js";
 
 function applyFieldErrors(form, errors) {
@@ -37,6 +37,7 @@ export async function renderAccountScreen({ bodyEl }) {
 
     <div class="account-menu">
       <button class="account-menu-item" id="editProfileBtn">${icon("user", { size: 18 })}<span>تعديل البيانات الشخصية</span>${icon("chevron-start", { size: 16 })}</button>
+      <button class="account-menu-item" id="securityBtn">${icon("shield-check", { size: 18 })}<span>الأمان والدخول بالبصمة</span>${icon("chevron-start", { size: 16 })}</button>
       <button class="account-menu-item" id="changePasswordBtn">${icon("lock", { size: 18 })}<span>تغيير كلمة المرور</span>${icon("chevron-start", { size: 16 })}</button>
       <button class="account-menu-item" id="myDocumentsBtn">${icon("document", { size: 18 })}<span>مستنداتي</span>${icon("chevron-start", { size: 16 })}</button>
     </div>
@@ -45,6 +46,7 @@ export async function renderAccountScreen({ bodyEl }) {
   `;
 
   bodyEl.querySelector("#editProfileBtn").addEventListener("click", () => go("editProfile", { customer }, { title: "تعديل البيانات", tab: "account" }));
+  bodyEl.querySelector("#securityBtn").addEventListener("click", () => go("security", {}, { title: "الأمان", tab: "account" }));
   bodyEl.querySelector("#changePasswordBtn").addEventListener("click", () => go("changePassword", {}, { title: "تغيير كلمة المرور", tab: "account" }));
   bodyEl.querySelector("#myDocumentsBtn").addEventListener("click", () => go("myDocuments", {}, { title: "مستنداتي", tab: "account" }));
   bodyEl.querySelector("#logoutBtn").addEventListener("click", async () => {
@@ -106,8 +108,8 @@ export function renderChangePasswordScreen({ bodyEl }) {
     const submitBtn = bodyEl.querySelector("#savePasswordBtn");
     setLoading(submitBtn, true, "جارٍ التحديث…");
     try {
-      await api("/customer-auth/change-password", { method: "POST", body: JSON.stringify(data) });
-      toast("تم تحديث كلمة المرور بنجاح");
+      await changePassword(data);
+      toast("تم تحديث كلمة المرور، وتم تسجيل الخروج من الأجهزة الأخرى");
       go("account", {}, { title: "حسابي", tab: "account", root: true });
     } catch (error) {
       setLoading(submitBtn, false);

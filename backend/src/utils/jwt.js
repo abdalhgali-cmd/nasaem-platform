@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import ms from "ms";
 
@@ -71,12 +72,15 @@ export function getTrackingTokenMaxAgeMs() {
 // the same JWT_SECRET and jsonwebtoken library.
 const CUSTOMER_TOKEN_EXPIRES_IN = "30d";
 
-export function signCustomerToken(customerId) {
+export function signCustomerToken(customerId, sessionVersion = 0) {
   if (!process.env.JWT_SECRET) {
     throw new Error("JWT_SECRET is not configured");
   }
 
-  return jwt.sign({ sub: customerId, scope: "customer" }, process.env.JWT_SECRET, {
+  // jti identifies this one session so logout can revoke it without ending
+  // the customer's other sessions (see RevokedCustomerToken); sv is the
+  // Customer.sessionVersion it was issued under (password change ends it).
+  return jwt.sign({ sub: customerId, scope: "customer", jti: randomUUID(), sv: sessionVersion }, process.env.JWT_SECRET, {
     expiresIn: CUSTOMER_TOKEN_EXPIRES_IN,
   });
 }

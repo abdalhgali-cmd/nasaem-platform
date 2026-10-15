@@ -9,6 +9,10 @@ on:
     paths:
       - "mobile/**"
       - ".github/workflows/android-apk.yml"
+  pull_request:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/android-apk.yml"
 
 permissions:
   contents: read
@@ -39,6 +43,23 @@ jobs:
 
       - name: Validate bundled JavaScript (no syntax errors)
         run: npm run check
+
+      - name: Unit tests (session rules)
+        run: npm test
+
+      # Diagnostic only (never fails the build): is the API this APK points
+      # at reachable from the internet, and do its auth endpoints answer
+      # the way the app expects (401 + code when not signed in)?
+      - name: Probe configured API (informational)
+        continue-on-error: true
+        run: |
+          API="$(node -e 'import("./www/js/config.js").then(m => console.log(m.CONFIG.apiBaseUrl))')"
+          echo "API base: $API"
+          for path in health customer-auth/me; do
+            echo "--- GET $path"
+            curl -sS -m 30 -o /tmp/probe.json -w "HTTP %{http_code} in %{time_total}s\n" "$API/$path" || echo "unreachable"
+            head -c 300 /tmp/probe.json 2>/dev/null; echo
+          done
 
       - name: Sync Capacitor (copy web assets, refresh native config)
         run: npx cap sync android
