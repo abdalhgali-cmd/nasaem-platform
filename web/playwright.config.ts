@@ -71,7 +71,7 @@ export default defineConfig({
       // (no real backend state needed), so it's safe alongside this
       // project's real-backend specs — it never touches the shared dev
       // database or its rate limiters.
-      testMatch: [/platform3\.spec\.ts/, /account-registration\.spec\.ts/, /egypt-passport-upload\.spec\.ts/, /home-service-entry\.spec\.ts/, /header-entry\.spec\.ts/, /p0-request-ux\.spec\.ts/, /website-fixed-price\.spec\.ts/, /website-fixed-price-real\.spec\.ts/, /website-payment-step\.spec\.ts/, /admin-workflow\.spec\.ts/, /umrah-payment-journey\.spec\.ts/],
+      testMatch: [/platform3\.spec\.ts/, /account-registration\.spec\.ts/, /egypt-passport-upload\.spec\.ts/, /home-service-entry\.spec\.ts/, /header-entry\.spec\.ts/, /p0-request-ux\.spec\.ts/, /website-fixed-price\.spec\.ts/, /website-fixed-price-real\.spec\.ts/, /website-payment-step\.spec\.ts/, /admin-workflow\.spec\.ts/, /umrah-payment-journey\.spec\.ts/, /payment-recovery\.spec\.ts/],
       use: { ...devices["Desktop Chrome"], baseURL: "http://localhost:3000" },
     },
     {

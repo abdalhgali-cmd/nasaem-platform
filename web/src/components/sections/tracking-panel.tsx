@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
 import { LegalDisclosure } from "@/components/legal-disclosure";
+import { customerErrorMessage } from "@/lib/network-error";
 
 type TrackedRequestStatus = "NEW" | "CONTACTED" | "CLOSED";
 type InvoiceStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -496,7 +497,7 @@ function useTrackingAction(onActionComplete: () => Promise<void>) {
       await onActionComplete();
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : "تعذّر تنفيذ العملية، حاول مرة أخرى"
+        customerErrorMessage(err, "تعذّر تنفيذ العملية، حاول مرة أخرى")
       );
     } finally {
       setActing(false);
@@ -701,7 +702,7 @@ function RequestPaymentStep({
         if (active) setAccounts(Array.isArray(payload?.data) ? payload.data : []);
       })
       .catch((err) => {
-        if (active) setAccountsError(err instanceof Error ? err.message : "تعذر تحميل حسابات الدفع");
+        if (active) setAccountsError(customerErrorMessage(err, "تعذر تحميل حسابات الدفع"));
       });
     return () => {
       active = false;
@@ -737,7 +738,7 @@ function RequestPaymentStep({
       setFile(null);
       await onActionComplete();
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "تعذّر رفع الإيصال، حاول مرة أخرى");
+      setUploadError(customerErrorMessage(err, "تعذّر رفع الإيصال، حاول مرة أخرى"));
     } finally {
       setUploading(false);
     }
@@ -1021,7 +1022,7 @@ function RequestDocumentsPanel({
       e.currentTarget.reset();
       await onActionComplete();
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "تعذّر رفع الملف، حاول مرة أخرى");
+      setUploadError(customerErrorMessage(err, "تعذّر رفع الملف، حاول مرة أخرى"));
     } finally {
       setUploading(false);
     }
@@ -1355,7 +1356,7 @@ export function TrackingPanel() {
       setStage("code");
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "تعذّر إرسال رمز التحقق، حاول مرة أخرى"
+        customerErrorMessage(err, "تعذّر إرسال رمز التحقق، حاول مرة أخرى")
       );
     } finally {
       setSubmitting(false);
@@ -1387,7 +1388,7 @@ export function TrackingPanel() {
         setStage("requests");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "رمز التحقق غير صحيح");
+      setError(customerErrorMessage(err, "رمز التحقق غير صحيح"));
     } finally {
       setSubmitting(false);
     }
