@@ -229,6 +229,33 @@ Already present before this branch: local tesseract MRZ reading (no external ser
   - a real Android device (camera capture through the browser file picker), and real passport photos (all test images are synthetic);
   - the Android app (`mobile/www`), which has no passport scan; this branch does not add one.
 
+## Integration test: #111 → #115 → #112 → #113 → #116 → #117 → #118 → #114 (branch `claude/integration-111-118`, test only, not for merging)
+
+All local runs below are against fresh, disposable PostgreSQL databases. Nothing was merged into `release-integration` or `main`, nothing was deployed, and no live database was touched.
+
+Conflicts resolved (both sides kept in every case):
+
+| Pair | Files | Resolution |
+|---|---|---|
+| #112 + #113 | `contact-requests` / `intake-drafts` controllers, services and validators; `mobile/www/js/screens/intake.js`; `web/e2e/mobile-app.spec.ts` | Kept both features: Umrah guarantor contacts (`umrahContacts`) and the Egypt route (`egyptRoute`, error `ROUTE_INVALID`). Both are written into `intakeData`, and draft submit accepts both sets of fields. In the app form, both sections, both review rows and both validators are kept. |
+| #116 + #112 | `service-intake-wizard.tsx` | Kept both imports. |
+| #117 + #116, #118 | `web/playwright.config.ts` | Took the union of the `platform3` test lists. |
+| #118 + #112/#116 | `service-intake-wizard.tsx` | Kept all imports. The guarantor check (customer step) and the passport review check (details step) are independent. |
+| all | `TASKS.md` | Kept every section. |
+
+| Suite | Result |
+|---|---|
+| Backend full (`node --test`, fresh DB) | **911/911** |
+| Web `tsc` + `eslint` | clean |
+| Web production build | ok with `next build --webpack`. Turbopack refuses this local worktree's symlinked `node_modules` (setup only); CI builds with a real install. |
+| Mobile `npm run check` + unit tests | ok, **88/88** |
+| Playwright `mobile-web`, `mobile-frontend`, `platform3`, `mobile-app` (CI projects and env, fresh seeded DB) | **111/111** |
+
+NOT TESTED:
+- real Android device;
+- staging backup/restore;
+- the Vercel check, which fails on every PR with "Account is blocked".
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.
