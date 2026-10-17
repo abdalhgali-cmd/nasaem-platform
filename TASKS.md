@@ -6,6 +6,16 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
+## Issue #98 — homepage service selection (2026-10-17)
+
+| Item | Status | Evidence |
+|---|---|---|
+| One mobile-first homepage chooser for Umrah, security approval, visas, flights, ferries, hotels and offers; no duplicate service/package sections | VERIFIED | `BookingSearchWidget`; homepage keeps one `#start-request`; Playwright Android-width/RTL/no-overflow check |
+| Selected type shows the backend catalog price and public required documents; an unpublished FIXED price is never guessed and disables booking | VERIFIED | Browser fetches `/services/public`, `/services/public/packages` and the selected requirements endpoint; mocked API acceptance test covers `1,250 SAR`, per-traveler pricing, passport requirement and unavailable FIXED pricing |
+| Direct guest start; existing dedicated service routes reused | VERIFIED | Family visit, Egypt security approval and ferry link assertions; guest copy shown; no registration gate added |
+
+Local results: web typecheck ✅, ESLint ✅, production build ✅ (`NODE_ENV=production`), targeted homepage Playwright **6/6**. Full CI and deployment NOT TESTED; no merge or deployment performed.
+
 ## DONE (verified)
 
 | Item | Evidence |

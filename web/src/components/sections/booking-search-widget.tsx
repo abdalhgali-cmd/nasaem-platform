@@ -2,254 +2,237 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { Calendar, FileCheck2, Hotel, MapPin, Plane, Search, Ship, Sparkles, Users, type LucideIcon } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
+import {
+  ArrowLeft,
+  BadgePercent,
+  CheckCircle2,
+  FileCheck2,
+  Hotel,
+  LoaderCircle,
+  Plane,
+  Ship,
+  Sparkles,
+  Stamp,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { API_URL } from "@/lib/api-url";
+import { formatPrice, hasPublishedPrice } from "@/lib/price";
+import { resolveServiceHref } from "@/lib/service-routes";
+import type { PublicCatalog, PublicService, PublicVisaType } from "@/lib/services";
 import { cn } from "@/lib/utils";
 
-type Tab = "umrah" | "visas" | "flights" | "ferries" | "hotels";
+type PathKey = "umrah" | "security" | "visas" | "flights" | "ferries" | "hotels" | "offers";
+type CatalogItem = (PublicService | PublicVisaType) & { kind: "service" | "visaType" };
+type PublicRequirement = { id: string; name: string; required: boolean; type?: string };
 
-const tabs: { key: Tab; label: string; icon: LucideIcon }[] = [
+const paths: { key: PathKey; label: string; icon: LucideIcon }[] = [
   { key: "umrah", label: "العمرة", icon: Sparkles },
+  { key: "security", label: "الموافقة الأمنية", icon: Stamp },
   { key: "visas", label: "التأشيرات", icon: FileCheck2 },
   { key: "flights", label: "الطيران", icon: Plane },
   { key: "ferries", label: "البواخر", icon: Ship },
   { key: "hotels", label: "الفنادق", icon: Hotel },
+  { key: "offers", label: "العروض", icon: BadgePercent },
 ];
 
-const visaShortcuts = [
-  { label: "زيارة عائلية للسعودية", description: "ابدأ الطلب وأدخل بيانات الأسرة والمستندات.", href: "/visas/saudi-family-visit" },
-  { label: "الموافقة الأمنية لمصر", description: "قدّم الطلب وارفع صورة الجواز مباشرة.", href: "/visas/egypt-security-approval" },
-  { label: "تأشيرات أخرى", description: "استعرض التأشيرات المتاحة واختر وجهتك.", href: "/visas" },
-];
-
-function FieldShell({
-  label,
-  icon: Icon,
-  children,
-}: {
-  label: string;
-  icon: LucideIcon;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex min-w-0 flex-1 flex-col gap-1.5 px-1">
-      <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-        <Icon className="size-3.5" />
-        {label}
-      </span>
-      {children}
-    </label>
-  );
+function withKinds(catalog: PublicCatalog) {
+  return {
+    services: catalog.services.map((item) => ({ ...item, kind: "service" as const })),
+    visaTypes: catalog.visaTypes.map((item) => ({ ...item, kind: "visaType" as const })),
+    packages: catalog.packages.map((item) => ({ ...item, kind: "service" as const })),
+  };
 }
 
-const inputClass =
-  "h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-sm font-medium text-foreground outline-none transition focus:border-primary";
-
-export function BookingSearchWidget() {
-  const router = useRouter();
-  const [tab, setTab] = React.useState<Tab>("umrah");
-  const [from, setFrom] = React.useState("الخرطوم");
-  const [to, setTo] = React.useState("جدة");
-  const [city, setCity] = React.useState("مكة المكرمة");
-  const [date, setDate] = React.useState("");
-  const [returnDate, setReturnDate] = React.useState("");
-  const [guests, setGuests] = React.useState(1);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const params = new URLSearchParams();
-
-    if (tab === "umrah") {
-      if (date) params.set("date", date);
-      params.set("guests", String(guests));
-      router.push(`/umrah?${params.toString()}`);
-    } else if (tab === "flights") {
-      params.set("from", from);
-      params.set("to", to);
-      if (date) params.set("date", date);
-      params.set("guests", String(guests));
-      router.push(`/flights?${params.toString()}`);
-    } else if (tab === "hotels") {
-      params.set("city", city);
-      if (date) params.set("checkin", date);
-      if (returnDate) params.set("checkout", returnDate);
-      params.set("guests", String(guests));
-      router.push(`/hotels?${params.toString()}`);
-    }
+function itemsForPath(path: PathKey, catalog: PublicCatalog): CatalogItem[] {
+  const { services, visaTypes, packages } = withKinds(catalog);
+  if (path === "umrah") {
+    const umrahPackages = packages.filter((item) => item.category === "UMRAH_PACKAGE" || item.code.startsWith("SVC-UMRAH-"));
+    return umrahPackages.length ? umrahPackages : services.filter((item) => item.code === "SVC-UMRAH");
   }
+  if (path === "security") {
+    const variants = visaTypes.filter((item) => item.code.startsWith("VISA-EGYPT-CLEARANCE-"));
+    return variants.length ? variants : visaTypes.filter((item) => item.code === "VISA-EGYPT-CLEARANCE");
+  }
+  if (path === "visas") {
+    return visaTypes.filter((item) => !item.code.includes("EGYPT-CLEARANCE") && item.code !== "VISA-UMRAH");
+  }
+  if (path === "offers") {
+    return packages.filter((item) => item.category !== "UMRAH_PACKAGE" && !item.code.startsWith("SVC-UMRAH-"));
+  }
+  const category = path === "flights" ? "flight" : path === "ferries" ? "ferry" : "hotel";
+  return services.filter((item) => item.category.toLowerCase().includes(category));
+}
+
+function itemHref(item: CatalogItem, path: PathKey) {
+  if (path === "offers") return `/packages?package=${encodeURIComponent(item.code)}#book`;
+  return resolveServiceHref(item);
+}
+
+export function BookingSearchWidget({ initialCatalog }: { initialCatalog: PublicCatalog }) {
+  const reduceMotion = useReducedMotion();
+  const [catalog, setCatalog] = React.useState(initialCatalog);
+  const [path, setPath] = React.useState<PathKey>("umrah");
+  const [selectedCode, setSelectedCode] = React.useState("");
+  const [requirementResult, setRequirementResult] = React.useState<{ key: string; items: PublicRequirement[] }>({ key: "", items: [] });
+
+  React.useEffect(() => {
+    let active = true;
+    Promise.all([
+      fetch(`${API_URL}/services/public`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null),
+      fetch(`${API_URL}/services/public/packages`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null),
+    ]).then(([catalogPayload, packagesPayload]) => {
+      if (!active || !catalogPayload?.data) return;
+      setCatalog({
+        services: Array.isArray(catalogPayload.data.services) ? catalogPayload.data.services : [],
+        visaTypes: Array.isArray(catalogPayload.data.visaTypes) ? catalogPayload.data.visaTypes : [],
+        packages: Array.isArray(packagesPayload?.data) ? packagesPayload.data : [],
+      });
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  const choices = React.useMemo(() => itemsForPath(path, catalog), [catalog, path]);
+  const selected = choices.find((item) => item.code === selectedCode) ?? choices[0] ?? null;
+  const selectedId = selected?.id;
+  const selectedKind = selected?.kind;
+
+  React.useEffect(() => {
+    if (!selectedId || !selectedKind) return;
+    let active = true;
+    const key = `${selectedKind}:${selectedId}`;
+    const scope = selectedKind === "visaType" ? "visa-types" : "services";
+    fetch(`${API_URL}/${scope}/${selectedId}/requirements/public`, { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => {
+        if (!active) return;
+        const items = Array.isArray(payload?.data) ? payload.data : [];
+        setRequirementResult({
+          key,
+          items: items.filter((item: PublicRequirement) => item.required && (!item.type || item.type === "DOCUMENT")).slice(0, 4),
+        });
+      })
+      .catch(() => active && setRequirementResult({ key, items: [] }));
+    return () => { active = false; };
+  }, [selectedId, selectedKind]);
+
+  const fixedPriceUnavailable = selected?.pricingMode === "FIXED" && !hasPublishedPrice(selected.basePrice);
+  const href = selected ? itemHref(selected, path) : "#";
+  const requirementKey = selected ? `${selected.kind}:${selected.id}` : "";
+  const loadingRequirements = Boolean(selected && requirementResult.key !== requirementKey);
+  const requirements = requirementResult.key === requirementKey ? requirementResult.items : [];
 
   return (
-    <div id="start-request" className="bg-glass w-full max-w-4xl scroll-mt-24 rounded-3xl border border-white/20 p-2.5 shadow-2xl shadow-primary/10 sm:p-3">
-      <div className="px-3 pb-2 pt-1 text-right">
-        <p className="text-sm font-extrabold text-foreground">ما الخدمة التي تحتاجها؟</p>
-        <p className="mt-1 text-xs text-muted-foreground">اختر الخدمة وابدأ مباشرة، أو تابع طلبًا سابقًا من صفحة التتبع.</p>
+    <div id="start-request" className="bg-glass w-full max-w-5xl scroll-mt-24 rounded-[2rem] border border-white/20 p-3 text-right shadow-2xl shadow-primary/20 sm:p-5">
+      <div className="px-2 pb-4 sm:px-3">
+        <p className="text-lg font-extrabold text-foreground">اختر خدمتك</p>
+        <p className="mt-1 text-sm text-muted-foreground">السعر والمستندات من كتالوج نسائم الحرمين مباشرة.</p>
       </div>
 
-      <div className="flex flex-wrap gap-1.5 p-1" role="tablist" aria-label="اختيار الخدمة">
-        {tabs.map(({ key, label, icon: Icon }) => (
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7" role="tablist" aria-label="اختيار مسار الخدمة">
+        {paths.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             type="button"
             role="tab"
-            aria-selected={tab === key}
-            onClick={() => setTab(key)}
+            aria-selected={path === key}
+            aria-controls="service-selection-panel"
+            onClick={() => { setPath(key); setSelectedCode(""); }}
             className={cn(
-              "relative flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition-colors",
-              tab === key
-                ? "text-primary-foreground"
-                : "text-foreground/70 hover:text-foreground"
+              "flex min-h-14 items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-sm font-bold transition",
+              path === key
+                ? "border-primary bg-primary text-primary-foreground shadow-md"
+                : "border-border bg-background text-foreground hover:border-primary/40 hover:bg-primary/5"
             )}
           >
-            {tab === key ? (
-              <motion.span
-                layoutId="search-tab-bg"
-                className="absolute inset-0 rounded-2xl bg-primary"
-                transition={{ type: "spring", bounce: 0.2, duration: 0.5 }}
-              />
-            ) : null}
-            <span className="relative flex items-center gap-2">
-              <Icon className="size-4" />
-              {label}
-            </span>
+            <Icon className="size-4 shrink-0" aria-hidden="true" />
+            <span>{label}</span>
           </button>
         ))}
       </div>
 
-      {tab === "visas" ? (
-        <div className="grid gap-3 rounded-2xl bg-card/80 p-4 sm:grid-cols-3">
-          {visaShortcuts.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="rounded-2xl border border-border bg-background p-4 text-right transition hover:border-primary/40 hover:bg-primary/5"
-            >
-              <FileCheck2 className="size-5 text-primary" aria-hidden="true" />
-              <p className="mt-3 text-sm font-extrabold text-foreground">{item.label}</p>
-              <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{item.description}</p>
-            </Link>
-          ))}
-        </div>
-      ) : tab === "ferries" ? (
-        <div className="flex flex-col items-start gap-4 rounded-2xl bg-card/80 p-4 text-right sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-extrabold text-foreground">حجز البواخر بين السودان والسعودية</p>
-            <p className="mt-1.5 text-xs leading-5 text-muted-foreground">اختر الرحلة والباخرة والتاريخ من صفحة الحجز، ثم أرسل طلبك للمتابعة.</p>
+      <motion.div
+        id="service-selection-panel"
+        role="tabpanel"
+        key={path}
+        initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className="mt-3 rounded-3xl border border-border bg-card p-4 sm:p-6"
+      >
+        {!selected ? (
+          <div className="py-8 text-center">
+            <p className="font-bold text-foreground">لا توجد خيارات منشورة لهذا المسار حاليًا</p>
+            <p className="mt-2 text-sm text-muted-foreground">ستظهر هنا فور تفعيلها من كتالوج الإدارة.</p>
           </div>
-          <Button asChild variant="gold" size="lg" className="w-full shrink-0 sm:w-auto">
-            <Link href="/ferries">
-              <Ship className="size-4" />
-              ابدأ حجز الباخرة
-            </Link>
-          </Button>
-        </div>
-      ) : (
-        <form
-          onSubmit={handleSubmit}
-          className="flex flex-col gap-3 rounded-2xl bg-card/80 p-4 sm:flex-row sm:items-end"
-        >
-          {tab === "umrah" ? (
-            <>
-              <FieldShell label="تاريخ السفر" icon={Calendar}>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className={inputClass}
-                />
-              </FieldShell>
-              <FieldShell label="عدد المعتمرين" icon={Users}>
-                <input
-                  type="number"
-                  min={1}
-                  value={guests}
-                  onChange={(e) => setGuests(Number(e.target.value) || 1)}
-                  className={inputClass}
-                />
-              </FieldShell>
-            </>
-          ) : null}
+        ) : (
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(15rem,0.65fr)] lg:items-start">
+            <div>
+              {choices.length > 1 ? (
+                <label className="block">
+                  <span className="mb-2 block text-xs font-bold text-muted-foreground">النوع</span>
+                  <select
+                    value={selected.code}
+                    onChange={(event) => setSelectedCode(event.target.value)}
+                    className="h-12 w-full rounded-xl border border-border bg-background px-3 font-bold text-foreground outline-none focus:border-primary"
+                  >
+                    {choices.map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}
+                  </select>
+                </label>
+              ) : null}
 
-          {tab === "flights" ? (
-            <>
-              <FieldShell label="من" icon={MapPin}>
-                <input
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className={inputClass}
-                />
-              </FieldShell>
-              <FieldShell label="إلى" icon={MapPin}>
-                <input
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  className={inputClass}
-                />
-              </FieldShell>
-              <FieldShell label="تاريخ المغادرة" icon={Calendar}>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className={inputClass}
-                />
-              </FieldShell>
-              <FieldShell label="المسافرون" icon={Users}>
-                <input
-                  type="number"
-                  min={1}
-                  value={guests}
-                  onChange={(e) => setGuests(Number(e.target.value) || 1)}
-                  className={inputClass}
-                />
-              </FieldShell>
-            </>
-          ) : null}
+              <div className={cn("flex items-start justify-between gap-4", choices.length > 1 && "mt-5")}>
+                <div>
+                  <h2 className="text-xl font-extrabold text-foreground">{selected.name}</h2>
+                  {selected.description ? <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">{selected.description}</p> : null}
+                </div>
+                <div className="shrink-0 rounded-2xl bg-primary/5 px-3 py-2 text-left">
+                  <span className="block text-[11px] font-bold text-muted-foreground">السعر</span>
+                  <strong className={cn("mt-0.5 block text-sm", fixedPriceUnavailable ? "text-destructive" : "text-primary dark:text-secondary")} dir="ltr">
+                    {selected.pricingMode === "FIXED"
+                      ? (fixedPriceUnavailable ? "غير متاح للحجز" : formatPrice(selected.basePrice, selected.currency))
+                      : "بعد مراجعة الطلب"}
+                  </strong>
+                  {selected.pricingMode === "FIXED" && selected.priceUnit === "PER_TRAVELER" ? (
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">لكل مسافر</span>
+                  ) : null}
+                </div>
+              </div>
 
-          {tab === "hotels" ? (
-            <>
-              <FieldShell label="المدينة" icon={MapPin}>
-                <input
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className={inputClass}
-                />
-              </FieldShell>
-              <FieldShell label="تاريخ الدخول" icon={Calendar}>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className={inputClass}
-                />
-              </FieldShell>
-              <FieldShell label="تاريخ الخروج" icon={Calendar}>
-                <input
-                  type="date"
-                  value={returnDate}
-                  onChange={(e) => setReturnDate(e.target.value)}
-                  className={inputClass}
-                />
-              </FieldShell>
-              <FieldShell label="النزلاء" icon={Users}>
-                <input
-                  type="number"
-                  min={1}
-                  value={guests}
-                  onChange={(e) => setGuests(Number(e.target.value) || 1)}
-                  className={inputClass}
-                />
-              </FieldShell>
-            </>
-          ) : null}
+              <Button asChild={!fixedPriceUnavailable} disabled={fixedPriceUnavailable} variant="gold" size="lg" className="mt-6 w-full sm:w-auto">
+                {fixedPriceUnavailable ? (
+                  <span>غير متاح للحجز</span>
+                ) : (
+                  <Link href={href}>
+                    ابدأ الطلب
+                    <ArrowLeft className="size-4" aria-hidden="true" />
+                  </Link>
+                )}
+              </Button>
+              <p className="mt-2 text-xs text-muted-foreground">يمكنك بدء الطلب كزائر دون إنشاء حساب.</p>
+            </div>
 
-          <Button type="submit" variant="gold" size="lg" className="w-full shrink-0 sm:w-auto">
-            <Search className="size-4" />
-            ابدأ الآن
-          </Button>
-        </form>
-      )}
+            <div className="rounded-2xl bg-section p-4" aria-live="polite">
+              <p className="text-sm font-extrabold text-foreground">المستندات الأساسية</p>
+              {loadingRequirements ? (
+                <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" /> جارٍ التحديث…</p>
+              ) : requirements.length ? (
+                <ul className="mt-3 space-y-2" data-testid="homepage-required-documents">
+                  {requirements.map((requirement) => (
+                    <li key={requirement.id} className="flex items-start gap-2 text-sm text-foreground">
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary dark:text-secondary" aria-hidden="true" />
+                      <span>{requirement.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">لا توجد مستندات أساسية منشورة لهذا الخيار.</p>
+              )}
+            </div>
+          </div>
+        )}
+      </motion.div>
     </div>
   );
 }
