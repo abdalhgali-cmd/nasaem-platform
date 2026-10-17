@@ -156,9 +156,9 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
         id="service-selection-panel"
         role="tabpanel"
         key={path}
-        initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2 }}
+        transition={{ duration: reduceMotion ? 0 : 0.2 }}
         className="mt-3 rounded-3xl border border-border bg-card p-4 sm:p-6"
       >
         {!selected ? (
