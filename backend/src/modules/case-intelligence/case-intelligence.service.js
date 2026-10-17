@@ -106,6 +106,28 @@ export function buildOcrMismatchWarnings({ documents = [], travelers = [] }) {
   return warnings;
 }
 
+// Two travelers in the same request with the same passport number — almost
+// always a copy/paste or a second scan of the same passport. The website
+// stops this before submission (issue #103); older app builds do not, so
+// staff still see it here. A warning only: which traveler is wrong is a
+// question for a person.
+export function buildSameRequestDuplicateWarnings({ travelers = [] }) {
+  const byPassport = new Map();
+  for (const traveler of travelers) {
+    const passportNo = normalize(traveler.passportNo);
+    if (!passportNo) continue;
+    byPassport.set(passportNo, [...(byPassport.get(passportNo) || []), traveler]);
+  }
+
+  return [...byPassport.values()]
+    .filter((group) => group.length > 1)
+    .map((group) => ({
+      code: "DUPLICATE_PASSPORT_IN_REQUEST",
+      travelerIds: group.map((t) => t.id),
+      message: `رقم الجواز نفسه مُدخل لأكثر من مسافر في هذا الطلب (${group.map((t) => t.fullName).join("، ")})`,
+    }));
+}
+
 // Another active case for the same traveler passport + same service.
 // Warns only — never merges or closes anything, since a customer
 // legitimately re-applying (e.g. after a rejection) looks identical to a
@@ -161,6 +183,7 @@ export async function buildCaseWarnings(contactRequestId, organizationId) {
     warnings: [
       ...buildExpiryWarnings(contactRequest),
       ...buildOcrMismatchWarnings(contactRequest),
+      ...buildSameRequestDuplicateWarnings(contactRequest),
       ...duplicates,
     ],
   };
