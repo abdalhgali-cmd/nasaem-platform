@@ -122,6 +122,7 @@ export default defineConfig({
       // Turbopack in every environment this was actually tested in).
       command: "npx next dev --webpack",
       cwd: __dirname,
+      env: { PORT: "3000" },
       url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -140,6 +141,7 @@ export default defineConfig({
     {
       command: "npm run start",
       cwd: "../backend",
+      env: { PORT: "5000" },
       url: "http://localhost:5000/api/health",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

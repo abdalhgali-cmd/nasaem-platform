@@ -26,7 +26,10 @@ export async function Services({ limit, showAllLink = false }: { limit?: number;
       service.category !== "UMRAH_PACKAGE" &&
       !service.code.startsWith("SVC-UMRAH-")
   );
-  const displayServices: DisplayService[] = services.slice(0, limit).map((service) => ({
+  const uniqueServices = Array.from(
+    new Map(services.map((service) => [resolveServiceHref(service), service])).values()
+  );
+  const displayServices: DisplayService[] = uniqueServices.slice(0, limit).map((service) => ({
     ...service,
     icon: resolveHomepageIcon(service.iconKey),
     href: resolveServiceHref(service),
@@ -68,7 +71,7 @@ export async function Services({ limit, showAllLink = false }: { limit?: number;
                     )}
                     <h3 className="mt-5 text-lg font-bold text-foreground">{service.name}</h3>
                     <p className="mt-2.5 flex-1 text-sm leading-relaxed text-muted-foreground">{service.description || "تفاصيل الخدمة وخطوات طلبها متاحة عبر فريق NASAEM."}</p>
-                    {hasPublishedPrice(service.basePrice) ? (
+                    {service.pricingMode === "FIXED" && hasPublishedPrice(service.basePrice) ? (
                       <>
                         <p className="mt-3 text-sm font-extrabold text-primary dark:text-secondary" dir="ltr">
                           {formatPrice(service.basePrice, service.currency)}
@@ -77,7 +80,11 @@ export async function Services({ limit, showAllLink = false }: { limit?: number;
                           <p className="text-xs text-muted-foreground">{formatSdgEquivalent(service.priceSdg)}</p>
                         ) : null}
                       </>
-                    ) : null}
+                    ) : service.pricingMode === "FIXED" ? (
+                      <p className="mt-3 text-sm font-extrabold text-destructive">غير متاح للحجز</p>
+                    ) : (
+                      <p className="mt-3 text-sm font-bold text-muted-foreground">السعر بعد مراجعة الطلب</p>
+                    )}
                     <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-bold text-primary dark:text-secondary">
                       اعرف المزيد
                       <ArrowLeft className="size-4 transition-transform duration-300 group-hover:-translate-x-1" />
@@ -89,7 +96,7 @@ export async function Services({ limit, showAllLink = false }: { limit?: number;
           </Stagger>
         )}
 
-        {showAllLink && services.length > displayServices.length ? (
+        {showAllLink && uniqueServices.length > displayServices.length ? (
           <div className="mt-10 text-center">
             <Link
               href="/services"
