@@ -132,8 +132,8 @@ async function createContactRequestOnce(data, req, files) {
     if (flagKey && !(await isFeatureEnabled(flagKey))) {
       return { error: "FEATURE_DISABLED" };
     }
-    // Umrah package (not a visa type): the guarantor's phone is required;
-    // refused before anything is created.
+    // Umrah package (not a visa type): the guarantor's phone and an optional
+    // extra contact (an invalid one is refused before anything is created).
     const umrah = resolveUmrahContacts(data.visaTypeId ? null : service?.category, data);
     if (umrah.error) return umrah;
     umrahContacts = umrah.contacts;

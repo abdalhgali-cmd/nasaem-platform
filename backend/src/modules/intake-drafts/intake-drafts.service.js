@@ -302,7 +302,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
     egyptEntryMode = egypt.entryMode || null;
   }
 
-  // Umrah: the guarantor's phone is required (same rule as POST /contact-requests).
+  // Umrah: the guarantor's phone and extra contact (same rule as POST /contact-requests).
   let umrahContacts = null;
   if (draft.serviceId && !draft.visaTypeId) {
     const service = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { category: true } });

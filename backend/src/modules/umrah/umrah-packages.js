@@ -25,15 +25,21 @@ function cleanPhone(value) {
   return phone && PHONE_PATTERN.test(phone) ? phone : null;
 }
 
-// An Umrah request needs the guarantor's phone number (the guarantor whose
+// An Umrah request carries the guarantor's phone number (the guarantor whose
 // residence permit is uploaded); a second contact person is optional. Any
 // other service ignores these fields. Returns { contacts } to store in
 // intakeData.umrahContacts, or { error } and nothing is created.
+//
+// The current website and app require the guarantor's phone before they
+// submit. An app installed before that cannot send it, so a request without
+// one is still accepted and flagged (guarantorPhoneMissing) for staff to ask
+// the customer; a phone that is sent must be valid.
 export function resolveUmrahContacts(serviceCategory, { guarantorPhone, extraContactName, extraContactPhone } = {}) {
   if (!isUmrahServiceCategory(serviceCategory)) return { contacts: null };
 
-  const guarantor = cleanPhone(guarantorPhone);
-  if (!guarantor) return { error: "GUARANTOR_PHONE_REQUIRED" };
+  const rawGuarantor = typeof guarantorPhone === "string" ? guarantorPhone.trim() : "";
+  const guarantor = cleanPhone(rawGuarantor);
+  if (rawGuarantor && !guarantor) return { error: "GUARANTOR_PHONE_INVALID" };
 
   const name = typeof extraContactName === "string" ? extraContactName.trim() : "";
   const rawExtraPhone = typeof extraContactPhone === "string" ? extraContactPhone.trim() : "";
@@ -43,7 +49,7 @@ export function resolveUmrahContacts(serviceCategory, { guarantorPhone, extraCon
 
   return {
     contacts: {
-      guarantorPhone: guarantor,
+      ...(guarantor ? { guarantorPhone: guarantor } : { guarantorPhoneMissing: true }),
       ...(extraPhone ? { extraContact: { ...(name ? { name } : {}), phone: extraPhone } } : {}),
     },
   };

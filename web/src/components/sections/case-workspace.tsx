@@ -165,7 +165,7 @@ type CaseRow = {
   readiness: Readiness;
   progress?: { serviceKind?: string; serviceKindLabel?: string; pricingMode?: string } | null;
   intakeData?: {
-    umrahContacts?: { guarantorPhone?: string; extraContact?: { name?: string; phone?: string } } | null;
+    umrahContacts?: { guarantorPhone?: string; guarantorPhoneMissing?: boolean; extraContact?: { name?: string; phone?: string } } | null;
   } | null;
 };
 
@@ -570,6 +570,11 @@ function CaseDetail({
           {caseRow.intakeData?.umrahContacts?.guarantorPhone ? (
             <p className="mt-1 text-sm text-muted-foreground" data-testid="case-guarantor-phone">
               هاتف الضامن: <span dir="ltr">{caseRow.intakeData.umrahContacts.guarantorPhone}</span>
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahContacts?.guarantorPhoneMissing ? (
+            <p className="mt-1 text-sm font-bold text-amber-700" data-testid="case-guarantor-phone-missing">
+              رقم هاتف الضامن لم يُرسل (تطبيق قديم) — اطلبه من العميل.
             </p>
           ) : null}
           {caseRow.intakeData?.umrahContacts?.extraContact?.phone ? (
