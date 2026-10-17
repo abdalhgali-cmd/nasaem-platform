@@ -56,7 +56,7 @@ export default defineConfig({
   projects: [
     {
       name: "mobile-web",
-      testMatch: /web\.spec\.ts/,
+      testMatch: [/web\.spec\.ts/, /flight-search-issue-104\.spec\.ts/],
       use: { ...devices["Pixel 5"], baseURL: "http://localhost:3000" },
     },
     {
