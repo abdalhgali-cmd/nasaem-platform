@@ -192,6 +192,7 @@ describe("service intake — extended contact request creation", () => {
       .field("service", "خدمات العمرة")
       .field("message", "طلب عمرة عبر المعالج مع مستندات")
       .field("serviceId", umrahServiceId)
+      .field("guarantorPhone", "+966501234567")
       .field("travelerCount", "1")
       .field("documentLabels", JSON.stringify(["صورة الجواز", "الصورة الشخصية"]))
       .attach("documents", Buffer.from([0x89, 0x50, 0x4e, 0x47]), {

@@ -191,7 +191,7 @@ export async function createSelfOrder(customerId, { serviceId, visaTypeId, quant
 export { COUPON_ERROR_MESSAGES };
 
 const CUSTOMER_REQUEST_INCLUDE = {
-  serviceRef: { select: { id: true, name: true, category: true } },
+  serviceRef: { select: { id: true, name: true, category: true, features: true } },
   visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
   invoice: { select: { id: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, description: true, status: true, version: true, createdAt: true, updatedAt: true, decidedAt: true } },
   offers: { select: { id: true, carrier: true, description: true, amount: true, currency: true, exchangeRateToSdg: true, amountSdg: true, createdAt: true }, orderBy: { createdAt: "desc" } },

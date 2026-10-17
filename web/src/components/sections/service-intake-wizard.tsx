@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
+import { UMRAH_KIND_LABELS, isValidContactPhone, umrahPackageDetails } from "@/lib/umrah-package";
 import {
   RequestPaymentStep,
   clearPendingPayment,
@@ -49,6 +50,7 @@ type PublicService = {
   pricingMode?: "QUOTE" | "FIXED" | null;
   priceUnit?: "PER_REQUEST" | "PER_TRAVELER" | null;
   paymentAfterDocumentReview?: boolean | null;
+  features?: string[] | null;
 };
 
 type PublicVisaType = {
@@ -280,6 +282,11 @@ export function ServiceIntakeWizard({
   const [name, setName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [email, setEmail] = React.useState("");
+  // Umrah only: the guarantor's phone (required) and an optional second
+  // contact person (checked again server-side, umrah/umrah-packages.js).
+  const [guarantorPhone, setGuarantorPhone] = React.useState("");
+  const [extraContactName, setExtraContactName] = React.useState("");
+  const [extraContactPhone, setExtraContactPhone] = React.useState("");
 
   // Service details (step "details")
   const [travelDate, setTravelDate] = React.useState("");
@@ -372,6 +379,9 @@ export function ServiceIntakeWizard({
     travelerCount: number;
     travelers: Traveler[];
     notes: string;
+    guarantorPhone?: string;
+    extraContactName?: string;
+    extraContactPhone?: string;
     // Smart Case Operations — Release A/B. Answer-type requirements are
     // part of what the customer has filled in, so a resumed draft that
     // dropped them would silently lose work.
@@ -445,6 +455,9 @@ export function ServiceIntakeWizard({
       travelerCount,
       travelers,
       notes,
+      guarantorPhone,
+      extraContactName,
+      extraContactPhone,
       answers,
     };
     // A completely untouched form has nothing worth saving yet.
@@ -458,7 +471,7 @@ export function ServiceIntakeWizard({
       // Storage can legitimately be unavailable (private browsing, quota) —
       // the wizard must keep working without persistence either way.
     }
-  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, answers, result]);
+  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, guarantorPhone, extraContactName, extraContactPhone, answers, result]);
 
   // Mirrors the local draft to the server, debounced so typing doesn't
   // produce a request per keystroke. Every failure path here is silent by
@@ -612,6 +625,9 @@ export function ServiceIntakeWizard({
     setTravelerCount(draft.travelerCount || 1);
     setTravelers(draft.travelers?.length ? draft.travelers : [{ fullName: "", passportNo: "", nationality: "" }]);
     setNotes(draft.notes || "");
+    setGuarantorPhone(draft.guarantorPhone || "");
+    setExtraContactName(draft.extraContactName || "");
+    setExtraContactPhone(draft.extraContactPhone || "");
     setAnswers(draft.answers || {});
     setStep(Math.max(0, draft.step || 0));
     setDraftAvailable(false);
@@ -720,6 +736,13 @@ export function ServiceIntakeWizard({
 
   const selectedPackage = packageServices.find((p) => p.id === effectiveServiceId);
   const selectedVisaType = visaTypes.find((v) => v.id === effectiveVisaTypeId);
+  // Same rule as the server: an Umrah service or package request (an Umrah
+  // visa type is not affected).
+  const needsGuarantor =
+    service === "umrah" ||
+    (service === "package" && ["UMRAH_PACKAGE", "umrah", "umrah_package"].includes(selectedPackage?.category ?? ""));
+  const extraContactValid =
+    (!extraContactName.trim() && !extraContactPhone.trim()) || isValidContactPhone(extraContactPhone);
 
   // The single source of truth for the price shown to the customer is
   // whatever Pricing/Admin published against this Service/VisaType — never
@@ -1090,7 +1113,8 @@ export function ServiceIntakeWizard({
     }
 
     if (current === "customer") {
-      return name.trim().length >= 2 && phone.trim().length >= 6;
+      const contactOk = name.trim().length >= 2 && phone.trim().length >= 6;
+      return needsGuarantor ? contactOk && isValidContactPhone(guarantorPhone) && extraContactValid : contactOk;
     }
 
     return true;
@@ -1120,6 +1144,13 @@ export function ServiceIntakeWizard({
       formData.append("name", name);
       formData.append("phone", phone);
       if (email) formData.append("email", email);
+      if (needsGuarantor) {
+        formData.append("guarantorPhone", guarantorPhone.trim());
+        if (extraContactPhone.trim()) {
+          formData.append("extraContactName", extraContactName.trim());
+          formData.append("extraContactPhone", extraContactPhone.trim());
+        }
+      }
 
       const serviceLabel =
         service === "umrah"
@@ -1434,16 +1465,22 @@ export function ServiceIntakeWizard({
                       <span className="text-xs text-muted-foreground">{(item as PublicVisaType).country}</span>
                     ) : null}
                   </div>
-                  {Number(item.basePrice) > 0 ? (
-                    <span className="mt-1 block text-xs text-muted-foreground" dir="ltr">
-                      يبدأ من {Number(item.basePrice).toLocaleString("en-US")} {item.currency}
-                    </span>
-                  ) : null}
-                  {Number(item.basePrice) > 0 && item.currency !== "SDG" && item.priceSdg != null ? (
-                    <span className="mt-1 block text-xs font-bold text-primary">
-                      يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
-                    </span>
-                  ) : null}
+                  {service === "package" ? (
+                    <PackageOptionDetails item={item as PublicService} />
+                  ) : (
+                    <>
+                      {Number(item.basePrice) > 0 ? (
+                        <span className="mt-1 block text-xs text-muted-foreground" dir="ltr">
+                          يبدأ من {Number(item.basePrice).toLocaleString("en-US")} {item.currency}
+                        </span>
+                      ) : null}
+                      {Number(item.basePrice) > 0 && item.currency !== "SDG" && item.priceSdg != null ? (
+                        <span className="mt-1 block text-xs font-bold text-primary">
+                          يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                 </button>
               );
             })}
@@ -1495,10 +1532,13 @@ export function ServiceIntakeWizard({
       ) : null}
 
       {current === "customer" ? (
-        <StepShell title="بيانات العميل" description="سنستخدمها للتواصل معك بخصوص طلبك.">
+        <StepShell
+          title={needsGuarantor ? "بيانات مقدم الطلب والضامن" : "بيانات العميل"}
+          description={needsGuarantor ? "بيانات التواصل معك ومع الضامن المقيم في السعودية." : "سنستخدمها للتواصل معك بخصوص طلبك."}
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <label className={labelClass}>الاسم الكامل</label>
+              <label className={labelClass}>{needsGuarantor ? "اسم مقدم الطلب" : "الاسم الكامل"}</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -1527,6 +1567,55 @@ export function ServiceIntakeWizard({
                 placeholder="example@email.com"
               />
             </div>
+            {needsGuarantor ? (
+              <>
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <label className={labelClass} htmlFor="umrah-guarantor-phone">رقم هاتف الضامن</label>
+                  <input
+                    id="umrah-guarantor-phone"
+                    data-testid="umrah-guarantor-phone"
+                    value={guarantorPhone}
+                    onChange={(e) => setGuarantorPhone(e.target.value)}
+                    type="tel"
+                    dir="ltr"
+                    required
+                    className={`${inputClass} text-end`}
+                    placeholder="+966 5X XXX XXXX"
+                  />
+                  <span className="text-xs text-muted-foreground">مطلوب: صاحب الإقامة التي ترفعها في خطوة المستندات.</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className={labelClass} htmlFor="umrah-extra-name">جهة اتصال إضافية (اختياري)</label>
+                  <input
+                    id="umrah-extra-name"
+                    data-testid="umrah-extra-contact-name"
+                    value={extraContactName}
+                    onChange={(e) => setExtraContactName(e.target.value)}
+                    className={inputClass}
+                    placeholder="الاسم"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className={labelClass} htmlFor="umrah-extra-phone">هاتف جهة الاتصال الإضافية</label>
+                  <input
+                    id="umrah-extra-phone"
+                    data-testid="umrah-extra-contact-phone"
+                    value={extraContactPhone}
+                    onChange={(e) => setExtraContactPhone(e.target.value)}
+                    type="tel"
+                    dir="ltr"
+                    className={`${inputClass} text-end`}
+                    placeholder="رقم الهاتف"
+                  />
+                </div>
+                {guarantorPhone.trim() && !isValidContactPhone(guarantorPhone) ? (
+                  <p className="text-xs font-semibold text-destructive sm:col-span-2">رقم هاتف الضامن غير صحيح.</p>
+                ) : null}
+                {!extraContactValid ? (
+                  <p className="text-xs font-semibold text-destructive sm:col-span-2">أدخل رقم هاتف صحيحًا لجهة الاتصال الإضافية أو اترك الحقلين فارغين.</p>
+                ) : null}
+              </>
+            ) : null}
           </div>
           <StepNav
             onBack={() => setStep((s) => s - 1)}
@@ -1742,6 +1831,17 @@ export function ServiceIntakeWizard({
                 <span>{name}</span>
                 <span dir="ltr">{phone}</span>
                 {email ? <span>{email}</span> : null}
+                {needsGuarantor ? (
+                  <span data-testid="review-guarantor-phone">
+                    هاتف الضامن: <span dir="ltr">{guarantorPhone}</span>
+                  </span>
+                ) : null}
+                {needsGuarantor && extraContactPhone.trim() ? (
+                  <span>
+                    جهة اتصال إضافية: {extraContactName.trim() ? `${extraContactName.trim()} — ` : ""}
+                    <span dir="ltr">{extraContactPhone}</span>
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="rounded-xl border border-border/70 p-4">
@@ -1893,3 +1993,52 @@ export function ServiceIntakeWizard({
   );
 }
 
+
+// A package option on the selection step: its type (visa only / flights /
+// sea), the price (exact for a fixed price, per pilgrim or per request; a
+// "from" figure for a quoted one), the SDG equivalent only from the agency's
+// active exchange rate, and short lists of what is and is not included.
+function PackageOptionDetails({ item }: { item: PublicService }) {
+  const { kind, included, excluded } = umrahPackageDetails(item.features);
+  const price = Number(item.basePrice);
+  const fixed = item.pricingMode === "FIXED" && price > 0;
+  const perTraveler = item.priceUnit === "PER_TRAVELER";
+  return (
+    <div className="mt-2 flex flex-col gap-1.5 text-xs" data-testid="package-option-details">
+      {kind ? (
+        <span className="w-fit rounded-full bg-primary/10 px-2.5 py-0.5 font-bold text-primary" data-testid="package-kind">
+          {UMRAH_KIND_LABELS[kind]}
+        </span>
+      ) : null}
+      {fixed ? (
+        <span className="font-bold text-foreground" data-testid="package-price">
+          السعر: <span dir="ltr">{price.toLocaleString("en-US")} {item.currency}</span>
+          {perTraveler ? " للمعتمر" : " للطلب"}
+        </span>
+      ) : price > 0 ? (
+        <span className="text-muted-foreground" dir="ltr">
+          يبدأ من {price.toLocaleString("en-US")} {item.currency}
+        </span>
+      ) : null}
+      {price > 0 && item.currency !== "SDG" ? (
+        item.priceSdg != null ? (
+          <span className="font-bold text-primary" data-testid="package-price-sdg">
+            يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
+          </span>
+        ) : fixed ? (
+          <span className="text-muted-foreground" data-testid="package-price-sdg">المقابل بالجنيه السوداني غير متاح حاليًا</span>
+        ) : null
+      ) : null}
+      {included.length ? (
+        <span className="text-foreground/80" data-testid="package-included">
+          يشمل: {included.join("، ")}
+        </span>
+      ) : null}
+      {excluded.length ? (
+        <span className="text-muted-foreground" data-testid="package-excluded">
+          لا يشمل: {excluded.join("، ")}
+        </span>
+      ) : null}
+    </div>
+  );
+}

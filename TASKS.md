@@ -136,6 +136,27 @@ Local on `b37ccee` (fresh PostgreSQL, migrate + seed as CI): backend **893/893**
 
 Production gate NOT passed: no production backup yet (owner, 2026-10-13), production branch/Vercel project not verified, Vercel account blocked. No merge into `main`, no deploy, no DB change, no Android distribution.
 
+## Epic #96 — Issue #99 Umrah: three package types, guarantor contacts, direct payment (2026-10-17, branch `claude/umrah-packages-99`, base `claude/release-integration` `821df72`)
+
+Not merged, nothing deployed, no live data touched. **No migration**: the package type is a `KIND: VISA_ONLY|AIR|SEA` entry in `Service.features`, next to the existing `INCLUDED:`/`EXCLUDED:` lines.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| 3 types: visa only / flight services / sea services | VERIFIED (local) | `prisma/setup-umrah-packages.js` (idempotent, called by the seed): sets `KIND: VISA_ONLY` on `SVC-UMRAH-VISA` only if it has no type; creates `SVC-UMRAH-AIR` and `SVC-UMRAH-SEA` **inactive, QUOTE, price 0** (no invented price) with the visa-only checklist + «إقامة الضامن». Other packages and requests untouched. Admin «نوع الباقة» select (`umrah-package-manager.tsx`) |
+| Real price per type, SAR + SDG from the active agency rate only | VERIFIED (local) | Package card on `/umrah` (wizard select step), app Umrah screen and homepage cards: a FIXED package shows «السعر: 1,250 SAR للمعتمر» (not «يبدأ من»); SDG only from `priceSdg` (active FX rate), otherwise «المقابل بالجنيه السوداني غير متاح حاليًا». **Handoff to #98 (Codex, homepage):** `featured-umrah.tsx` still says «التكلفة النهائية يحددها الموظف» and «يبدأ من» for FIXED packages — left untouched here to avoid overlapping files |
+| Short texts, included / not included | VERIFIED (local) | Card shows type badge + «يشمل: …» / «لا يشمل: …» from the package's own lines |
+| Applicant + every pilgrim's passport + guarantor residence + **guarantor phone required** + optional extra contact | VERIFIED (local) | Server: `umrah/umrah-packages.js` `resolveUmrahContacts` on `POST /contact-requests` and draft submit — an Umrah service/package request (not a visa type) without a valid guarantor phone is refused before anything is created (400 `GUARANTOR_PHONE_REQUIRED`); an extra contact needs a valid phone (`EXTRA_CONTACT_PHONE_INVALID`). Stored as `intakeData.umrahContacts`; shown on the review step, in `/admin/cases` and the back-office intake data. Website wizard and app form ask for them |
+| Review → account in the right currency → PDF/image receipt → `UNDER_REVIEW` until finance confirms | VERIFIED (existing flow, re-tested per type) | `umrahPackageTypes.test.js` and e2e: amount = fixed total, accounts only in SAR, receipt → `UNDER_REVIEW`, employee 403 on confirm, accountant confirms |
+| Execution «جارٍ إصدار التأشيرة» / «جارٍ إصدار التذاكر», then delivery | VERIFIED (local) | `request-progress.js`: Umrah visa only → «جارٍ إصدار التأشيرة», delivery «تسليم التأشيرة»; AIR/SEA → «جارٍ إصدار التذاكر», «تسليم التأشيرة والتذاكر» (same label for staff, tracking and app) |
+| No «price decided later» on FIXED packages; server price can't be bypassed | VERIFIED | Existing `resolveSubmissionPricing` (409 `PRICE_CHANGED` re-tested with 2 pilgrims at one pilgrim's price; nothing created) |
+| 3 E2E scenarios package → delivery; several pilgrims; guarantor; 409; no duplicate; receipt review | VERIFIED (local) | Playwright `umrah-payment-journey.spec.ts` 3/3 (VISA_ONLY, AIR, SEA: card type/price/inclusions, «التالي» disabled until the guarantor phone, 2 pilgrims, 3 documents, review shows the guarantor, double-click + reload = 1 request, payment, receipt `UNDER_REVIEW`, staff confirm, execution label, per-pilgrim delivery → `CLOSED/COMPLETED`). Backend `umrahPackageTypes.test.js` 7/7 (seed types, contact rules, refusals create nothing, draft route, 3 journeys incl. retry with the same `submissionKey` → same request) |
+
+Other results (local, fresh DB): backend full suite 891/892 before the one expected fix (`contactRequestIntake` submitted an Umrah request without a guarantor phone → test updated), then the affected suites 39/39; mobile unit 87/87 (`umrah-view.test.mjs` new); web `tsc`/`eslint` clean. Browser suites touching Umrah/intake: see the PR.
+
+Compatibility: an **installed app older than this branch** cannot send the guarantor phone, so its Umrah package requests get a clear 400 «رقم هاتف الضامن مطلوب لطلب العمرة.» until the new app is installed (other services unaffected). NOT TESTED: real Android device, staging/production.
+
+Activation (owner): deploy after approval → `node prisma/setup-umrah-packages.js` on the target DB → in الإدارة → العمرة set each package's FIXED price/currency, check «يشمل/لا يشمل» and requirements, then publish; decide whether the older `SVC-UMRAH-SERVICES` / `SVC-UMRAH-GROUP` stay published.
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.

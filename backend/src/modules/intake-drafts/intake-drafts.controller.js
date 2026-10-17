@@ -32,6 +32,8 @@ const DRAFT_ERROR_RESPONSES = {
   FIXED_TOTAL_REQUIRED: { status: 400, message: "أكّد الإجمالي النهائي قبل إرسال الطلب." },
   ENTRY_MODE_MISMATCH: { status: 400, message: "طريقة الدخول المرسلة لا تطابق نوع الموافقة المختار. اختر النوع الصحيح ثم أعد الإرسال." },
   ENTRY_MODE_INVALID: { status: 400, message: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر." },
+  GUARANTOR_PHONE_REQUIRED: { status: 400, message: "رقم هاتف الضامن مطلوب لطلب العمرة." },
+  EXTRA_CONTACT_PHONE_INVALID: { status: 400, message: "رقم هاتف جهة الاتصال الإضافية غير صحيح." },
   DOCUMENT_NOT_FOUND: { status: 404, message: "المستند غير موجود في هذا الطلب" },
   REQUIREMENT_NOT_FOUND: { status: 400, message: "هذا المتطلب لا ينتمي إلى الخدمة المحددة" },
   INVALID_MIME: { status: 400, message: "نوع هذا الملف غير مسموح به لهذا المتطلب" },
@@ -161,7 +163,7 @@ export async function submitDraftController(req, res, next) {
       if (errorResponse) return errorResponse;
     }
 
-    const result = await submitDraft(req.params.token, { message: parsed.data.message, acceptedTotal: parsed.data.acceptedTotal, acceptedCurrency: parsed.data.acceptedCurrency });
+    const result = await submitDraft(req.params.token, parsed.data);
     const errorResponse = respondToDraftError(res, result);
     if (errorResponse) return errorResponse;
 

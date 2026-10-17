@@ -23,7 +23,7 @@ const JOURNEYS = [
   { name: "flights", service: "SVC-FLIGHT", kind: "FLIGHT", execution: "جارٍ إصدار تذكرة الطيران", testRequirement: true },
   { name: "ferries", service: "SVC-FERRY", kind: "FERRY", execution: "جارٍ إصدار تذكرة العبّارة", testRequirement: true },
   { name: "hotels", service: "SVC-HOTEL", kind: "HOTEL", execution: "جارٍ تأكيد حجز الفندق", testRequirement: true },
-  { name: "Umrah", service: "SVC-UMRAH", kind: "UMRAH", execution: "جارٍ استخراج تأشيرة العمرة" },
+  { name: "Umrah", service: "SVC-UMRAH", kind: "UMRAH", execution: "جارٍ إصدار التأشيرة" },
   { name: "family visit", visaType: "VISA-FAMILY-VISIT", kind: "FAMILY_VISIT", execution: "جارٍ استخراج تأشيرة الزيارة العائلية" },
   { name: "Egypt clearance", visaType: "VISA-EGYPT-CLEARANCE", kind: "EGYPT_CLEARANCE", execution: "جارٍ استخراج الموافقة الأمنية", travelPlan: true },
   { name: "dynamically configured visa", dynamicVisa: true, kind: "VISA", execution: "جارٍ استخراج التأشيرة" },
@@ -151,6 +151,7 @@ describe("service journeys: request -> documents -> quote -> payment -> executio
         .field("documentLabels", JSON.stringify(labels))
         .field("documentRequirementIds", JSON.stringify(requirementIds))
         .field("documentTravelerIndexes", JSON.stringify(travelerIndexes));
+      if (journey.kind === "UMRAH") submit = submit.field("guarantorPhone", "+966 50 000 0000");
       labels.forEach((label, index) => {
         submit = submit.attach("documents", PDF(), { filename: `doc-${index}.pdf`, contentType: "application/pdf" });
       });
