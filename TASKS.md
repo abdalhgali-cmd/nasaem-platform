@@ -150,7 +150,7 @@ Already present before this branch: local tesseract MRZ reading (no external ser
 | Egypt intake: the birth date was never prefilled, because the code read `ocr.birthDate` but OCR returns `dateOfBirth`. | `egypt-clearance-intake.tsx` |
 | Blurry and wrong-checksum test images both return 422. Passport text never reaches console logs. One draft's scan is never visible from another draft. | `passportOcr.test.js` (new fixtures `passport-mrz-blurry.png`, `passport-mrz-bad-checksum.png`) |
 
-- **VERIFIED locally:** passportOcr + caseIntelligence + intakeDrafts, 37/37 on a fresh DB.
+- **VERIFIED locally:** passportOcr + caseIntelligence + intakeDrafts, 37/37 on a fresh DB; Playwright `platform3` project 72/72, including `passport-scan-review.spec.ts`, against the real backend with real OCR.
 - **NOT TESTED:**
   - a real Android device (camera capture through the browser file picker), and real passport photos (all test images are synthetic);
   - the Android app (`mobile/www`), which has no passport scan; this branch does not add one.
