@@ -197,6 +197,19 @@ Not merged, nothing deployed, no live data touched, no migration. Most of #101 a
 Tests (local, fresh DB): backend `paymentAccess` + `paymentReviewFlow` 12/12. Playwright (local) 10/10: `payment-recovery` (new), `website-payment-step`, `website-fixed-price-real`, `umrah-payment-journey`, `egypt-passport-upload`.
 
 NOT TESTED: real Android device, staging/production.
+## Epic #96 — Issue #102 Admin: open the exact request, filters, phone layout (2026-10-17, branch `claude/admin-cases-102`, base `claude/release-integration` `821df72`)
+
+Not merged, nothing deployed, no backend change, no migration. Existing and re-used (not rebuilt): `/admin/cases`, `/admin/payment-review`, `/admin/reports`, `/admin/umrah`; Umrah/Egypt service filter; payment chips; finance-only confirm/reject with reason, audit and customer notification (`paymentReviewFlow.test.js`, `rbacMatrix.test.js`); receipts linked from the payment-review queue; reports per currency (`totalsByCurrency`, `contactRequestPayments`, mixed currencies never summed); staff document isolation (`customerDataIsolation.test.js`); notification links open the exact request in the back-office (`mobile-app.spec.ts` «staff: opening the notification goes to that exact request»).
+
+| Item | Status | Evidence |
+|---|---|---|
+| A link to a request opens it (payment review «فتح الطلب», operations centre, `?requestId=`) | FIXED + VERIFIED (local) | The workspace only showed a linked request when it was among the first 50 loaded and matched the filters; otherwise the detail stayed empty. It now fetches that request on its own (same `GET /contact-requests/:id`, same roles), says it is outside the current list/filters, and shows an error for an unknown id. e2e `admin-cases-filters.spec.ts` |
+| Payment-status and date filters | ADDED + VERIFIED (local) | Server-side (`paymentStatus`, `createdFrom`, `createdTo` already supported by the list API): «كل حالات الدفع» + the payment labels, «من تاريخ» / «إلى تاريخ». e2e: outside the CONFIRMED filter the request leaves the list; tomorrow's date → empty list |
+| Phone layout | FIXED + VERIFIED (local) | The case list overflowed by 83 px at 360 px (heading + two selects on one unwrappable row). Now it wraps; e2e checks no sideways scroll at 360 px with a request open |
+
+Tests (local): Playwright `admin-cases-filters` (new) + `admin-workflow` 4/4; web `tsc`/`eslint` clean.
+
+NOT TESTED: real phone, staging.
 
 ## BLOCKED (needs owner / infrastructure)
 
