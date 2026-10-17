@@ -4,9 +4,14 @@ import { HeroContent } from "@/components/sections/hero-content";
 import { siteConfig } from "@/lib/site-config";
 import { getPublicHomepage } from "@/lib/homepage";
 import { getSiteAssetUrls } from "@/lib/site-assets";
+import { getPublicCatalog } from "@/lib/services";
 
 export async function Hero() {
-  const [{ hero }, assetUrls] = await Promise.all([getPublicHomepage(), getSiteAssetUrls()]);
+  const [{ hero }, assetUrls, catalog] = await Promise.all([
+    getPublicHomepage(),
+    getSiteAssetUrls(),
+    getPublicCatalog(),
+  ]);
   const heroImageUrl = assetUrls["hero-image"];
 
   return (
@@ -29,6 +34,7 @@ export async function Hero() {
           ctaLabel={hero.ctaLabel ?? undefined}
           ctaTarget={hero.ctaTarget ?? undefined}
           whatsapp={siteConfig.whatsapp}
+          catalog={catalog}
           defaultTitleNode={
             <>
               نُنجز رحلتك بثقة —{" "}
