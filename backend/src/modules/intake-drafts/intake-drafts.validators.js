@@ -59,4 +59,9 @@ export const submitDraftSchema = z.object({
   guarantorPhone: z.string().trim().max(30).optional().or(z.literal("")),
   extraContactName: z.string().trim().max(120).optional().or(z.literal("")),
   extraContactPhone: z.string().trim().max(30).optional().or(z.literal("")),
+  // Egypt clearance variants (egypt-clearance-variants.js resolveEgyptRoute):
+  // by air the departure city and arrival airport, over land the entry point.
+  departureCity: z.string().trim().max(120).optional().or(z.literal("")),
+  arrivalAirport: z.string().trim().max(120).optional().or(z.literal("")),
+  entryPort: z.string().trim().max(120).optional().or(z.literal("")),
 });

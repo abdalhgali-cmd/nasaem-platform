@@ -65,6 +65,8 @@ const EGYPT_TRAVEL_ERROR_RESPONSES = {
   INVALID_DATE: { status: 400, message: "تاريخ الدخول غير صالح" },
   ENTRY_DATE_PASSED: { status: 400, message: "تاريخ الدخول لا يمكن أن يكون في الماضي" },
   BOOKING_DOCUMENT_REQUIRED: { status: 400, message: "ارفع صورة أو PDF للتذكرة/الحجز قبل حفظ بيانات التعميم" },
+  ENTRY_MODE_MISMATCH: { status: 400, message: "طريقة الدخول محددة في نوع الموافقة الذي اخترته ولا يمكن تغييرها هنا." },
+  ENTRY_MODE_REQUIRED: { status: 400, message: "اختر طريقة الدخول إلى مصر." },
 };
 
 export async function saveEgyptTravelPlan(req, res, next) {
@@ -77,7 +79,7 @@ export async function saveEgyptTravelPlan(req, res, next) {
     const result = await saveMyEgyptTravelPlan(req.trackingPhone, req.params.id, parsed.data, req.file);
     if (result.refusal) return sendRefusal(res, result.refusal);
     const mapped = EGYPT_TRAVEL_ERROR_RESPONSES[result.error];
-    if (mapped) return res.status(mapped.status).json({ success: false, message: mapped.message, details: result.details });
+    if (mapped) return res.status(mapped.status).json({ success: false, code: result.error, message: mapped.message, details: result.details });
     if (result.error) return res.status(400).json({ success: false, message: "تعذّر حفظ بيانات السفر", details: result.details });
 
     return res.status(200).json({

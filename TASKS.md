@@ -166,6 +166,22 @@ Other results (local, fresh DB): backend full suite 891/892 before the one expec
 Compatibility: an **installed app older than this branch** keeps submitting Umrah requests exactly as before (no new required field server-side; fixed price, payment token and receipt unchanged), verified by `umrahPackageTypes.test.js` «an older app without the guarantor field still submits» and the unmodified `contactRequestIntake.test.js` Umrah submission. NOT TESTED: real Android device, staging/production.
 
 Activation (owner): deploy after approval → `node prisma/setup-umrah-packages.js` on the target DB → in الإدارة → العمرة set each package's FIXED price/currency, check «يشمل/لا يشمل» and requirements, then publish; decide whether the older `SVC-UMRAH-SERVICES` / `SVC-UMRAH-GROUP` stay published.
+## Epic #96 — Issue #100 Egypt security approval: air / land, fixed price, short form (2026-10-17, branch `claude/egypt-approval-100`, base `claude/release-integration` `821df72`)
+
+Not merged, nothing deployed, no live data touched. **No migration.** Builds on the variant work already merged (#92/#95): variant chooser, FIXED-only booking, entry method fixed by the variant, direct payment.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Two types first: «جوي — مطار القاهرة» / «بري — المعبر», with the server's USD/SDG price | VERIFIED (local) | Website cards and app cards show the short type label (by code; the agency's catalog name is not changed). Price = the variant's own FIXED price; SDG equivalent only from the active rate (`priceSdg`). New variants created by `setup-egypt-clearance-variants.js` get «موافقة حربي — جوي — مطار القاهرة» / «… — بري — المعبر»; existing rows untouched |
+| Air: departure «بورتسودان» and arrival «القاهرة», editable; land: «منفذ الدخول» | VERIFIED (local) | Website form and app form; review shows the route. Server `resolveEgyptRoute` (POST /contact-requests and draft submit) stores `intakeData.egyptRoute` (`{entryMode, departureCity, arrivalAirport}` or `{entryMode, entryPort}`); fields of the other method ignored; >80 chars → 400 `ROUTE_INVALID`, nothing created; an older client without the fields gets the air defaults (land: no entry point) |
+| Passports, clear fields, no `[object Object]`, entry method asked once | VERIFIED | `[object Object]` was fixed in round 1 (above; regression test kept). The travel-plan step of a variant request no longer asks the entry method (website `/track` and app show it); the server takes it from the variant and refuses a different one (400 `ENTRY_MODE_MISMATCH`); the original item still requires it (`ENTRY_MODE_REQUIRED`) |
+| No quote after submission; review → direct payment → receipt under review → approval → delivery | VERIFIED (existing flow, re-tested) | `egyptClearanceVariants.test.js` AIR/BORDER journeys; e2e `egypt-passport-upload.spec.ts`, `service-journeys.spec.ts` (Egypt) |
+| Price and entry method protected by the server (409) | VERIFIED (existing) | `egyptClearanceVariants.test.js` tampering test (other variant's price, wrong currency → 409, nothing created) |
+| Unconfigured price / unpublished type not accepted; old requests intact | VERIFIED (existing + new) | Unbookable-variant tests; original-item requests keep their behaviour (travel plan still asks the entry method) |
+
+Tests (local, fresh DB): backend `egyptClearanceVariants.test.js` 12/12 (5 new: route rules, stored route incl. older-client defaults and overlong refusal, draft route, variant travel plan fixed/mismatch, original item still asks). Backend full suite 897/897 (fresh DB). Mobile unit 85/85. Playwright (local) 29/29: `egypt-passport-upload` (labels, air defaults edited, land entry point, stored route, price change), `mobile-app` (labels, route stored), `service-journeys` (Egypt AIR travel plan shows the fixed entry method, no selector), `pricing-progress`.
+
+NOT TESTED: real Android device, staging/production. Activation is unchanged from the variant work: deploy after approval, run `setup-egypt-clearance-variants.js` if the variants do not exist, set each variant's FIXED price/currency and publish it.
 
 ## BLOCKED (needs owner / infrastructure)
 

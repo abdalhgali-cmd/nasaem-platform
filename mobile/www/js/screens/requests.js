@@ -10,7 +10,7 @@ import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable,
 import { bindProgressTrack, progressBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
-import { isEgyptClearanceItem } from "../egypt-view.js";
+import { egyptVariantEntryMode, isEgyptClearanceItem } from "../egypt-view.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
 // these three values — everything a customer actually cares about day to
@@ -457,7 +457,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     const openPaymentStep = () => showPaymentStep(panel, { requestId: request.id, currency: pricing?.currency, price, onUploaded: load });
     bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", openPaymentStep);
     bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", openPaymentStep);
-    bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load));
+    bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load, egyptVariantEntryMode(request.visaType)));
     bodyEl.querySelectorAll("[data-upload-item]").forEach((input) => {
       input.addEventListener("change", () => {
         const item = request.checklist.find((entry) => `${entry.requirementId}::${entry.travelerId || ""}` === input.dataset.uploadItem);
@@ -635,18 +635,21 @@ function egyptTravelSummary(plan) {
     </div>`;
 }
 
-function showEgyptTravelPlan(panel, requestId, onSaved) {
+// A variant request already fixed the entry method when it was booked: it is
+// shown, not asked again (the server refuses a different one).
+function showEgyptTravelPlan(panel, requestId, onSaved, fixedEntryMode = null) {
   const today = new Date().toISOString().slice(0, 10);
   panel.innerHTML = `
     <form id="egyptPlanForm" class="form detail-block">
       <h4>بيانات السفر والتعميم</h4>
+      ${fixedEntryMode ? `<p class="field-hint" id="egyptFixedEntryMode">طريقة الدخول: ${fixedEntryMode === "AIR" ? "جوي — مطار القاهرة" : "بري — المعبر"}</p>` : `
       <label class="field">
         <span>طريقة الدخول</span>
         <select name="entryMode">
           <option value="AIR">منفذ جوي</option>
           <option value="BORDER">منفذ بري</option>
         </select>
-      </label>
+      </label>`}
       <label class="field">
         <span>حالة الحجز</span>
         <select name="bookingStatus">
@@ -674,7 +677,7 @@ function showEgyptTravelPlan(panel, requestId, onSaved) {
     setLoading(submitBtn, true, "جارٍ الحفظ…");
     await ensureTrackingAndRun(
       panel,
-      () => tracking.saveEgyptTravelPlan(requestId, { entryMode: raw.get("entryMode"), bookingStatus: raw.get("bookingStatus"), entryDate: raw.get("entryDate") }, file?.size ? file : null),
+      () => tracking.saveEgyptTravelPlan(requestId, { ...(fixedEntryMode ? {} : { entryMode: raw.get("entryMode") }), bookingStatus: raw.get("bookingStatus"), entryDate: raw.get("entryDate") }, file?.size ? file : null),
       { onDone: () => { toast("تم حفظ بيانات السفر"); onSaved(); } }
     );
   });

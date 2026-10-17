@@ -34,6 +34,7 @@ const DRAFT_ERROR_RESPONSES = {
   ENTRY_MODE_INVALID: { status: 400, message: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر." },
   GUARANTOR_PHONE_INVALID: { status: 400, message: "رقم هاتف الضامن غير صحيح." },
   EXTRA_CONTACT_PHONE_INVALID: { status: 400, message: "رقم هاتف جهة الاتصال الإضافية غير صحيح." },
+  ROUTE_INVALID: { status: 400, message: "بيانات خط السير طويلة جدًا. اختصرها ثم أعد الإرسال." },
   DOCUMENT_NOT_FOUND: { status: 404, message: "المستند غير موجود في هذا الطلب" },
   REQUIREMENT_NOT_FOUND: { status: 400, message: "هذا المتطلب لا ينتمي إلى الخدمة المحددة" },
   INVALID_MIME: { status: 400, message: "نوع هذا الملف غير مسموح به لهذا المتطلب" },

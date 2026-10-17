@@ -12,6 +12,7 @@ import {
 import { setTrackingPrefill } from "../tracking.js";
 import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-view.js";
 import { umrahNeedsGuarantor, validateUmrahContacts } from "../umrah-view.js";
+import { EGYPT_AIR_ROUTE_DEFAULTS, egyptVariantEntryMode, validateEgyptRoute } from "../egypt-view.js";
 import { selectOptions } from "../egypt-view.js";
 
 const ALLOWED_DOC_ACCEPT = "image/*,.pdf";
@@ -161,9 +162,14 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       guarantorPhone: "",
       extraContactName: "",
       extraContactPhone: "",
+      departureCity: EGYPT_AIR_ROUTE_DEFAULTS.departureCity,
+      arrivalAirport: EGYPT_AIR_ROUTE_DEFAULTS.arrivalAirport,
+      entryPort: "",
     },
   };
   const needsGuarantor = umrahNeedsGuarantor(item);
+  // Egypt clearance variant: its entry method decides the route fields.
+  const egyptMode = egyptVariantEntryMode(item);
   const draft = readDraft(storageKey);
   const restored = Boolean(draft);
   if (draft) Object.assign(state.values, draft.values, { travelers: draft.values.travelers?.length ? draft.values.travelers : state.values.travelers });
@@ -224,6 +230,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       state.values.guarantorPhone = read("guarantorPhone").trim();
       state.values.extraContactName = read("extraContactName").trim();
       state.values.extraContactPhone = read("extraContactPhone").trim();
+    }
+    if (egyptMode === "AIR") {
+      state.values.departureCity = read("departureCity").trim();
+      state.values.arrivalAirport = read("arrivalAirport").trim();
+    } else if (egyptMode === "BORDER") {
+      state.values.entryPort = read("entryPort").trim();
     }
     const count = Math.max(1, Math.min(maxTravelers, Number(read("travelerCount")) || state.values.travelers.length));
     const travelers = [];
@@ -287,6 +299,18 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
             <label class="field"><span>جهة اتصال إضافية (اختياري)</span><input name="extraContactName" value="${esc(v.extraContactName || "")}" autocomplete="off"></label>
             <label class="field"><span>هاتفها</span><input name="extraContactPhone" inputmode="tel" dir="ltr" value="${esc(v.extraContactPhone || "")}" autocomplete="off"></label>
           </div>
+        </section>` : ""}
+      ${egyptMode === "AIR" ? `
+        <section class="form-section" id="egyptRouteSection">
+          <h3>خط السير</h3>
+          <div class="field-row">
+            <label class="field"><span>جهة القدوم *</span><input name="departureCity" maxlength="80" value="${esc(v.departureCity || "")}"></label>
+            <label class="field"><span>مطار الوصول *</span><input name="arrivalAirport" maxlength="80" value="${esc(v.arrivalAirport || "")}"></label>
+          </div>
+        </section>` : egyptMode === "BORDER" ? `
+        <section class="form-section" id="egyptRouteSection">
+          <h3>خط السير</h3>
+          <label class="field"><span>منفذ الدخول *</span><input name="entryPort" maxlength="80" value="${esc(v.entryPort || "")}" placeholder="اسم المنفذ البري"></label>
         </section>` : ""}
       <section class="form-section">
         <h3>المسافرون</h3>
@@ -409,6 +433,8 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         ${v.email ? `<div class="review-row"><span>البريد</span><b dir="ltr">${esc(v.email)}</b></div>` : ""}
         ${needsGuarantor ? `<div class="review-row"><span>هاتف الضامن</span><b dir="ltr" id="reviewGuarantorPhone">${esc(v.guarantorPhone)}</b></div>` : ""}
         ${needsGuarantor && v.extraContactPhone ? `<div class="review-row"><span>جهة اتصال إضافية</span><b>${esc(v.extraContactName ? `${v.extraContactName} — ` : "")}<bdi>${esc(v.extraContactPhone)}</bdi></b></div>` : ""}
+        ${egyptMode === "AIR" ? `<div class="review-row"><span>خط السير</span><b id="reviewEgyptRoute">${esc(v.departureCity)} ← ${esc(v.arrivalAirport)}</b></div>` : ""}
+        ${egyptMode === "BORDER" ? `<div class="review-row"><span>منفذ الدخول</span><b id="reviewEgyptRoute">${esc(v.entryPort)}</b></div>` : ""}
       </section>
       ${v.travelers.map((traveler, index) => `
         <section class="form-section review">
@@ -465,6 +491,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       const messages = [
         ...Object.values(validateContact(state.values)),
         ...(needsGuarantor ? validateUmrahContacts(state.values) : []),
+        ...validateEgyptRoute(egyptMode, state.values),
         ...Object.values(validateTravelers(state.values.travelers)),
         ...missingAnswers(requirements, state.values.answers).filter((m) => answerRequirements().some((r) => r.id === m.key)).map((m) => m.message),
       ];
@@ -518,6 +545,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         payload.set("extraContactName", v.extraContactName || "");
         payload.set("extraContactPhone", v.extraContactPhone);
       }
+    }
+    if (egyptMode === "AIR") {
+      payload.set("departureCity", v.departureCity);
+      payload.set("arrivalAirport", v.arrivalAirport);
+    } else if (egyptMode === "BORDER") {
+      payload.set("entryPort", v.entryPort);
     }
     payload.set("service", item.name);
     if (item.id) payload.set(item.isVisaType ? "visaTypeId" : "serviceId", item.id);

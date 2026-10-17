@@ -20,7 +20,9 @@ export const verifyCodeSchema = z.object({
 // therefore uses a conservative 72-hour decision and never claims exact
 // eligibility when the missing time-of-day could change the answer.
 export const egyptTravelPlanSchema = z.object({
-  entryMode: z.enum(["AIR", "BORDER"]),
+  // Optional for a variant request (the variant is the entry method; see
+  // egypt-clearance-travel.service.js); required for the original item.
+  entryMode: z.preprocess((value) => (value === "" || value === null ? undefined : value), z.enum(["AIR", "BORDER"]).optional()),
   bookingStatus: z.enum(["EXISTING", "NEEDS_NASAEM"]),
   entryDate: z
     .string()

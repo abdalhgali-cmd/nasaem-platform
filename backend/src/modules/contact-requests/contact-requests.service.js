@@ -23,7 +23,7 @@ import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
-import { applyEgyptEntryMode, egyptVariantBookingError, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
+import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 
@@ -216,6 +216,7 @@ async function createContactRequestOnce(data, req, files) {
   // method; it is recorded as the answer, and a submission claiming the other
   // one is refused before anything is created.
   let egyptEntryMode = null;
+  let egyptRoute = null;
   if (data.visaTypeId) {
     const visaType = await prisma.visaType.findUnique({ where: { id: data.visaTypeId }, select: { code: true, active: true, pricingMode: true, basePrice: true, currency: true } });
     const unavailable = egyptVariantBookingError(visaType, { acceptedTotal: data.acceptedTotal });
@@ -226,6 +227,9 @@ async function createContactRequestOnce(data, req, files) {
       egyptEntryMode = egypt.entryMode;
       data = { ...data, answers: egypt.answers };
     }
+    const route = resolveEgyptRoute(visaType?.code, data);
+    if (route.error) return route;
+    egyptRoute = route.route;
   }
 
   // Fixed catalog price: recomputed here from the catalog and compared with
@@ -257,12 +261,13 @@ async function createContactRequestOnce(data, req, files) {
     // comment); a submission with neither keeps intakeData exactly as it
     // was before this release.
     intakeData:
-      data.intakeData || data.answers || egyptEntryMode || umrahContacts
+      data.intakeData || data.answers || egyptEntryMode || umrahContacts || egyptRoute
         ? {
             ...(data.intakeData || {}),
             ...(data.answers ? { answers: data.answers } : {}),
             ...(egyptEntryMode ? { egyptEntryMode } : {}),
             ...(umrahContacts ? { umrahContacts } : {}),
+            ...(egyptRoute ? { egyptRoute } : {}),
           }
         : undefined,
     requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,

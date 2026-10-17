@@ -33,8 +33,8 @@ test.describe.serial("Egypt Security Approval on the website", () => {
     await openFresh(page);
     const cards = page.getByTestId("egypt-variant");
     await expect(cards).toHaveCount(2);
-    await expect(cards.nth(0)).toContainText("موافقة حربي — دخول بالطيران");
-    await expect(cards.nth(1)).toContainText("موافقة حربي — دخول عبر المعبر");
+    await expect(cards.nth(0)).toContainText("جوي — مطار القاهرة");
+    await expect(cards.nth(1)).toContainText("بري — المعبر");
     for (const index of [0, 1]) {
       await expect(cards.nth(index)).toContainText("غير متاحة للحجز حاليًا");
       await expect(cards.nth(index)).toBeDisabled();
@@ -110,12 +110,23 @@ test.describe.serial("Egypt Security Approval on the website", () => {
         await page.locator('input[type="date"]').fill("1990-05-01");
         await page.locator('input[type="file"]').setInputFiles(DOCUMENT_FIXTURE);
         await expect(page.getByText("تم رفع الجواز بنجاح", { exact: true })).toBeVisible({ timeout: 60_000 });
+        // Route: by air Port Sudan → Cairo by default, editable; over land the entry point.
+        if (mode === "AIR") {
+          await expect(page.getByTestId("egypt-departure-city")).toHaveValue("بورتسودان");
+          await expect(page.getByTestId("egypt-arrival-airport")).toHaveValue("القاهرة");
+          await page.getByTestId("egypt-departure-city").fill("الخرطوم");
+          await expect(page.getByTestId("egypt-entry-port")).toHaveCount(0);
+        } else {
+          await expect(page.getByTestId("egypt-departure-city")).toHaveCount(0);
+          await page.getByTestId("egypt-entry-port").fill("أرقين");
+        }
+        await expect(page.getByTestId("egypt-review-route")).toContainText(mode === "AIR" ? "الخرطوم" : "أرقين");
 
         await expect(page.getByTestId("egypt-total-amount")).toHaveText(total);
         // A review of what will be sent, editable until sending.
         await expect(page.getByTestId("egypt-review")).toContainText(name);
         await expect(page.getByTestId("egypt-review")).toContainText(`P${stamp}`);
-        await expect(page.getByTestId("egypt-review")).toContainText(mode === "AIR" ? "دخول بالطيران" : "دخول عبر المعبر");
+        await expect(page.getByTestId("egypt-review")).toContainText(mode === "AIR" ? "جوي — مطار القاهرة" : "بري — المعبر");
         const send = page.getByRole("button", { name: "إرسال طلب الموافقة" });
         await expect(send).toBeDisabled();
         await page.getByTestId("egypt-confirm-total").check();
@@ -144,6 +155,7 @@ test.describe.serial("Egypt Security Approval on the website", () => {
         expect(stored.invoice.status).toBe("APPROVED");
         expect(stored.invoice.currency).toBe(currency);
         expect(stored.intakeData.egyptEntryMode).toBe(mode);
+        expect(stored.intakeData.egyptRoute).toEqual(mode === "AIR" ? { entryMode: "AIR", departureCity: "الخرطوم", arrivalAirport: "القاهرة" } : { entryMode: "BORDER", entryPort: "أرقين" });
         expect(stored.allowedActions).not.toContain("ISSUE_QUOTE");
         expect(stored.paymentStatus).toBe(mode === "AIR" ? "AWAITING_TRANSFER" : "UNDER_REVIEW");
 
@@ -176,6 +188,7 @@ test.describe.serial("Egypt Security Approval on the website", () => {
       await page.getByPlaceholder("+249...").fill(`+2499${stamp}`);
       await page.getByPlaceholder("رقم الجواز").fill(`R${stamp}`);
       await page.locator('input[type="date"]').fill("1988-03-03");
+      await page.getByTestId("egypt-entry-port").fill("أرقين");
       await page.locator('input[type="file"]').setInputFiles(DOCUMENT_FIXTURE);
       await expect(page.getByText("تم رفع الجواز بنجاح", { exact: true })).toBeVisible({ timeout: 60_000 });
       await page.getByTestId("egypt-confirm-total").check();
