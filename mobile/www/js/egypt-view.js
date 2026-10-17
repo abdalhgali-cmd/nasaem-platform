@@ -4,9 +4,10 @@
 // reuses another item's price. Pure, unit-tested without a DOM.
 import { fixedPricing, moneyText } from "./pricing-view.js";
 
+// Short type labels (the catalog name of a variant is the agency's own).
 export const EGYPT_VARIANTS = Object.freeze([
-  { code: "VISA-EGYPT-CLEARANCE-AIR", name: "موافقة حربي — دخول بالطيران" },
-  { code: "VISA-EGYPT-CLEARANCE-BORDER", name: "موافقة حربي — دخول عبر المعبر" },
+  { code: "VISA-EGYPT-CLEARANCE-AIR", entryMode: "AIR", name: "جوي — مطار القاهرة" },
+  { code: "VISA-EGYPT-CLEARANCE-BORDER", entryMode: "BORDER", name: "بري — المعبر" },
 ]);
 export const EGYPT_VARIANT_CODES = Object.freeze(EGYPT_VARIANTS.map((variant) => variant.code));
 export const EGYPT_UNAVAILABLE = "غير متاحة للحجز حاليًا";
@@ -32,7 +33,7 @@ export function egyptVariantOptions(catalog) {
   return EGYPT_VARIANTS.map((variant) => {
     const item = published.find((candidate) => String(candidate.code || "").toUpperCase() === variant.code) || null;
     const bookable = Boolean(item && fixedPricing(item));
-    return { ...variant, name: item?.name || variant.name, item: bookable ? item : null, bookable, priceText: bookable ? variantPriceText(item).text : EGYPT_UNAVAILABLE };
+    return { ...variant, item: bookable ? item : null, bookable, priceText: bookable ? variantPriceText(item).text : EGYPT_UNAVAILABLE };
   });
 }
 
@@ -52,4 +53,21 @@ export function selectOptions(options) {
   return list
     .map((option) => (option && typeof option === "object" ? { value: String(option.value ?? ""), label: String(option.label ?? option.value ?? "") } : { value: String(option), label: String(option) }))
     .filter((option) => option.value);
+}
+
+// The entry method a variant stands for (null for the original item).
+export function egyptVariantEntryMode(item) {
+  return EGYPT_VARIANTS.find((variant) => variant.code === String(item?.code || "").toUpperCase())?.entryMode || null;
+}
+
+// The trip route of a variant request, editable (backend resolveEgyptRoute):
+// by air from Port Sudan to Cairo airport by default, over land the entry point.
+export const EGYPT_AIR_ROUTE_DEFAULTS = Object.freeze({ departureCity: "بورتسودان", arrivalAirport: "القاهرة" });
+
+export function validateEgyptRoute(entryMode, { departureCity, arrivalAirport, entryPort } = {}) {
+  if (entryMode === "AIR") {
+    return String(departureCity || "").trim() && String(arrivalAirport || "").trim() ? [] : ["أدخل جهة القدوم ومطار الوصول."];
+  }
+  if (entryMode === "BORDER") return String(entryPort || "").trim() ? [] : ["أدخل منفذ الدخول."];
+  return [];
 }

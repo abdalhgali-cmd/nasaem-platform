@@ -5,7 +5,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { normalizePhone } from "../../utils/phone.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
-import { applyEgyptEntryMode, egyptVariantBookingError } from "../egypt-clearance/egypt-clearance-variants.js";
+import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from "../egypt-clearance/egypt-clearance-variants.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -267,7 +267,7 @@ export async function removeDraftDocument(token, documentId) {
 // Everything runs in one transaction: either the request exists with all
 // its travelers and documents attached, or nothing changed and the
 // customer's draft is still intact to retry.
-export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency } = {}) {
+export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency, departureCity, arrivalAirport, entryPort } = {}) {
   const found = await findMutableDraft(token);
   if (found.error) return found;
 
@@ -291,6 +291,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   // answer); a draft claiming the other one is refused.
   let answers = draft.answers;
   let egyptEntryMode = null;
+  let egyptRoute = null;
   if (draft.visaTypeId) {
     const visaType = await prisma.visaType.findUnique({ where: { id: draft.visaTypeId }, select: { code: true, active: true, pricingMode: true, basePrice: true, currency: true } });
     const unavailable = egyptVariantBookingError(visaType, { acceptedTotal });
@@ -299,6 +300,9 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
     if (egypt.error) return egypt;
     answers = egypt.answers;
     egyptEntryMode = egypt.entryMode || null;
+    const route = resolveEgyptRoute(visaType?.code, { departureCity, arrivalAirport, entryPort });
+    if (route.error) return route;
+    egyptRoute = route.route;
   }
 
   // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
@@ -333,6 +337,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
           ...(draft.notes ? { notes: draft.notes } : {}),
           ...(answers ? { answers } : {}),
           ...(egyptEntryMode ? { egyptEntryMode } : {}),
+          ...(egyptRoute ? { egyptRoute } : {}),
         },
         requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
         message: message || draft.notes || "طلب خدمة عبر نموذج الحجز الإلكتروني",

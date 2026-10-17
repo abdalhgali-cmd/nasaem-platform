@@ -11,6 +11,7 @@ import {
 } from "../intake-core.js";
 import { setTrackingPrefill } from "../tracking.js";
 import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-view.js";
+import { EGYPT_AIR_ROUTE_DEFAULTS, egyptVariantEntryMode, validateEgyptRoute } from "../egypt-view.js";
 import { selectOptions } from "../egypt-view.js";
 
 const ALLOWED_DOC_ACCEPT = "image/*,.pdf";
@@ -157,8 +158,13 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       notes: `طلب ${item.name}`,
       travelers: [{ fullName: customer?.fullName || "", passportNo: "", nationality: "" }],
       answers: {},
+      departureCity: EGYPT_AIR_ROUTE_DEFAULTS.departureCity,
+      arrivalAirport: EGYPT_AIR_ROUTE_DEFAULTS.arrivalAirport,
+      entryPort: "",
     },
   };
+  // Egypt clearance variant: its entry method decides the route fields.
+  const egyptMode = egyptVariantEntryMode(item);
   const draft = readDraft(storageKey);
   const restored = Boolean(draft);
   if (draft) Object.assign(state.values, draft.values, { travelers: draft.values.travelers?.length ? draft.values.travelers : state.values.travelers });
@@ -215,6 +221,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     state.values.name = read("name").trim();
     state.values.phone = read("phone").trim();
     state.values.email = read("email").trim();
+    if (egyptMode === "AIR") {
+      state.values.departureCity = read("departureCity").trim();
+      state.values.arrivalAirport = read("arrivalAirport").trim();
+    } else if (egyptMode === "BORDER") {
+      state.values.entryPort = read("entryPort").trim();
+    }
     const count = Math.max(1, Math.min(maxTravelers, Number(read("travelerCount")) || state.values.travelers.length));
     const travelers = [];
     for (let i = 0; i < count; i += 1) {
@@ -268,6 +280,18 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
           <label class="field"><span>البريد الإلكتروني (اختياري)</span><input name="email" type="email" dir="ltr" value="${esc(v.email)}" autocomplete="email"></label>
         </div>
       </section>
+      ${egyptMode === "AIR" ? `
+        <section class="form-section" id="egyptRouteSection">
+          <h3>خط السير</h3>
+          <div class="field-row">
+            <label class="field"><span>جهة القدوم *</span><input name="departureCity" maxlength="80" value="${esc(v.departureCity || "")}"></label>
+            <label class="field"><span>مطار الوصول *</span><input name="arrivalAirport" maxlength="80" value="${esc(v.arrivalAirport || "")}"></label>
+          </div>
+        </section>` : egyptMode === "BORDER" ? `
+        <section class="form-section" id="egyptRouteSection">
+          <h3>خط السير</h3>
+          <label class="field"><span>منفذ الدخول *</span><input name="entryPort" maxlength="80" value="${esc(v.entryPort || "")}" placeholder="اسم المنفذ البري"></label>
+        </section>` : ""}
       <section class="form-section">
         <h3>المسافرون</h3>
         <label class="field">
@@ -387,6 +411,8 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         <div class="review-row"><span>الاسم</span><b>${esc(v.name)}</b></div>
         <div class="review-row"><span>الهاتف</span><b dir="ltr">${esc(v.phone)}</b></div>
         ${v.email ? `<div class="review-row"><span>البريد</span><b dir="ltr">${esc(v.email)}</b></div>` : ""}
+        ${egyptMode === "AIR" ? `<div class="review-row"><span>خط السير</span><b id="reviewEgyptRoute">${esc(v.departureCity)} ← ${esc(v.arrivalAirport)}</b></div>` : ""}
+        ${egyptMode === "BORDER" ? `<div class="review-row"><span>منفذ الدخول</span><b id="reviewEgyptRoute">${esc(v.entryPort)}</b></div>` : ""}
       </section>
       ${v.travelers.map((traveler, index) => `
         <section class="form-section review">
@@ -442,6 +468,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       syncData();
       const messages = [
         ...Object.values(validateContact(state.values)),
+        ...validateEgyptRoute(egyptMode, state.values),
         ...Object.values(validateTravelers(state.values.travelers)),
         ...missingAnswers(requirements, state.values.answers).filter((m) => answerRequirements().some((r) => r.id === m.key)).map((m) => m.message),
       ];
@@ -489,6 +516,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     payload.set("name", v.name);
     payload.set("phone", v.phone);
     if (v.email) payload.set("email", v.email);
+    if (egyptMode === "AIR") {
+      payload.set("departureCity", v.departureCity);
+      payload.set("arrivalAirport", v.arrivalAirport);
+    } else if (egyptMode === "BORDER") {
+      payload.set("entryPort", v.entryPort);
+    }
     payload.set("service", item.name);
     if (item.id) payload.set(item.isVisaType ? "visaTypeId" : "serviceId", item.id);
     if (item.serviceId) payload.set("serviceId", item.serviceId);

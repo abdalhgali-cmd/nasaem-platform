@@ -55,4 +55,9 @@ export const submitDraftSchema = z.object({
   // (contact-request-pricing/fixed-price.js).
   acceptedTotal: z.preprocess(emptyToUndefined, z.coerce.number().nonnegative().max(1_000_000_000).optional()),
   acceptedCurrency: z.preprocess(emptyToUndefined, z.enum(SUPPORTED_CURRENCIES).optional()),
+  // Egypt clearance variants (egypt-clearance-variants.js resolveEgyptRoute):
+  // by air the departure city and arrival airport, over land the entry point.
+  departureCity: z.string().trim().max(120).optional().or(z.literal("")),
+  arrivalAirport: z.string().trim().max(120).optional().or(z.literal("")),
+  entryPort: z.string().trim().max(120).optional().or(z.literal("")),
 });
