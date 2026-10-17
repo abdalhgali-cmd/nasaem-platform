@@ -54,6 +54,24 @@ jobs:
           for pr in "${PRS[@]}"; do
             git fetch --no-tags origin "+refs/pull/$pr/head:refs/remotes/test-pr/$pr"
           done
+          echo '### Pairwise feature-branch conflict scan' >> "$GITHUB_STEP_SUMMARY"
+          conflicts=0
+          for ((i=0; i<${#PRS[@]}; i++)); do
+            for ((j=i+1; j<${#PRS[@]}; j++)); do
+              left="${PRS[$i]}"
+              right="${PRS[$j]}"
+              if git merge-tree --write-tree --name-only "refs/remotes/test-pr/$left" "refs/remotes/test-pr/$right" > /tmp/nasaem-pair.log 2>&1; then
+                :
+              else
+                conflicts=$((conflicts + 1))
+                echo "- PR #$left + #$right: conflict" >> "$GITHUB_STEP_SUMMARY"
+                sed -n '2,14p' /tmp/nasaem-pair.log | grep -E '^(TASKS\\.md|backend/|web/|mobile/)' | sed 's/^/  - /' >> "$GITHUB_STEP_SUMMARY" || true
+                echo "Pair conflict: #$left + #$right"
+                cat /tmp/nasaem-pair.log | head -25
+              fi
+            done
+          done
+          echo "Pairwise incompatible combinations: $conflicts" >> "$GITHUB_STEP_SUMMARY"
           base="$(git rev-parse refs/remotes/origin/claude/release-integration)"
           git switch -C combined-local "$base"
           echo '### Combined PR merge compatibility' >> "$GITHUB_STEP_SUMMARY"
