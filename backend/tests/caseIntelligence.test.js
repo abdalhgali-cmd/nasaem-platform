@@ -7,6 +7,7 @@ import { normalizePhone } from "../src/utils/phone.js";
 import {
   buildExpiryWarnings,
   buildOcrMismatchWarnings,
+  buildSameRequestDuplicateWarnings,
 } from "../src/modules/case-intelligence/case-intelligence.service.js";
 
 // Smart Case Operations — Release G (intelligence): deterministic expiry,
@@ -104,6 +105,32 @@ describe("OCR mismatch warnings", () => {
       }),
       []
     );
+  });
+});
+
+describe("same-request duplicate passport warnings (issue #103)", () => {
+  test("flags two travelers sharing a passport number, ignoring case and spacing", () => {
+    const warnings = buildSameRequestDuplicateWarnings({
+      travelers: [
+        { id: "t1", fullName: "أحمد", passportNo: "SD1234567" },
+        { id: "t2", fullName: "محمد", passportNo: "sd 1234567" },
+        { id: "t3", fullName: "سارة", passportNo: "SD7654321" },
+      ],
+    });
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].code, "DUPLICATE_PASSPORT_IN_REQUEST");
+    assert.deepEqual(warnings[0].travelerIds, ["t1", "t2"]);
+  });
+
+  test("stays quiet for distinct or missing passport numbers", () => {
+    const warnings = buildSameRequestDuplicateWarnings({
+      travelers: [
+        { id: "t1", fullName: "أحمد", passportNo: "SD1234567" },
+        { id: "t2", fullName: "محمد", passportNo: null },
+        { id: "t3", fullName: "سارة", passportNo: "" },
+      ],
+    });
+    assert.deepEqual(warnings, []);
   });
 });
 
