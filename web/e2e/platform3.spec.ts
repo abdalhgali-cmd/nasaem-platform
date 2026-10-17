@@ -778,23 +778,23 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
 // page in one click, never on a general catalog the customer has to search
 // again. Covers the two real customer-facing surfaces that used to hardcode
 // a generic "/visas?visaType=...#book" destination for every visa type
-// regardless of whether it had a dedicated page: the homepage's Services
-// grid (services.tsx) and the /visas page's own catalog
+// regardless of whether it had a dedicated page: the /services catalog
+// (services.tsx) and the /visas page's own catalog
 // (dynamic-visa-catalog.tsx). "Navigation" in the routing spec maps onto
 // this app's actual architecture as the /visas listing catalog — the top
 // nav bar only ever held category-level links (التأشيرات), never
 // individual service links, on this site.
 test.describe("Direct service routing — no intermediate catalog browsing", () => {
-  test("homepage Services grid: Egypt Security Approval card goes straight to its dedicated page", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+  test("Services catalog: Egypt Security Approval card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/services", { waitUntil: "domcontentloaded" });
     await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
     await page.locator("a").filter({ hasText: "الموافقة الأمنية لمصر" }).first().click();
     await expect(page).toHaveURL(/\/visas\/egypt-security-approval$/);
     await expect(page.locator("h1")).toContainText("الموافقة الأمنية");
   });
 
-  test("homepage Services grid: Family Visit card goes straight to its dedicated page", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+  test("Services catalog: Family Visit card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/services", { waitUntil: "domcontentloaded" });
     await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
     await page.locator("a").filter({ hasText: "الزيارة العائلية" }).first().click();
     await expect(page).toHaveURL(/\/visas\/saudi-family-visit$/);
@@ -1040,8 +1040,8 @@ test.describe("Every named service opens its own page — no generic-catalog dea
     await expect(page.getByRole("link", { name: "العمرة", exact: true }).first()).toHaveAttribute("href", "/umrah");
   });
 
-  test("homepage Services grid sends International Visa, Work Visa, and Tasheel to their own pages, not a shared catalog", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+  test("Services catalog sends International Visa, Work Visa, and Tasheel to their own pages, not a shared catalog", async ({ page }) => {
+    await page.goto("/services", { waitUntil: "domcontentloaded" });
     const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
     const hrefs = await section.locator("a").evaluateAll((els) =>
       Object.fromEntries(els.map((el) => [el.querySelector("h3")?.textContent ?? "", el.getAttribute("href")]))

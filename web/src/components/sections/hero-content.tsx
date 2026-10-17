@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, ClipboardCheck, MessageCircle, Search, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BookingSearchWidget } from "@/components/sections/booking-search-widget";
+import type { PublicCatalog } from "@/lib/services";
 
 const trustSignals = [
   { icon: ShieldCheck, label: "اختيار الخدمة بوضوح" },
@@ -28,12 +29,13 @@ type HeroContentProps = {
   whatsapp: string;
   defaultTitleNode: ReactNode;
   defaultDescription: string;
+  catalog: PublicCatalog;
 };
 
 // Client component so the framer-motion entrance animations survive —
 // Hero itself (the parent) is a server component that fetches admin
 // content, and passes the resolved (or default) values down here.
-export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp, defaultTitleNode, defaultDescription }: HeroContentProps) {
+export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp, defaultTitleNode, defaultDescription, catalog }: HeroContentProps) {
   return (
     <>
       <motion.span
@@ -111,7 +113,7 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         transition={{ duration: 0.7, delay: 0.45 }}
         className="mt-10 w-full"
       >
-        <BookingSearchWidget />
+        <BookingSearchWidget initialCatalog={catalog} />
       </motion.div>
 
       <motion.dl
