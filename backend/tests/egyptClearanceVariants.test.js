@@ -6,7 +6,7 @@ import prisma from "../src/config/database.js";
 import { app, request } from "./helpers/api.js";
 import { createStaffUser, staffClient } from "./helpers/staff.js";
 import { PDF, deliverable, staffDetail, testPhone, trackingClient, uploadReceipt } from "./helpers/workflow.js";
-import { applyEgyptEntryMode, resolveEgyptEntryMode } from "../src/modules/egypt-clearance/egypt-clearance-variants.js";
+import { applyEgyptEntryMode, resolveEgyptEntryMode, resolveEgyptRoute } from "../src/modules/egypt-clearance/egypt-clearance-variants.js";
 
 // Egypt security approval sold per entry method (موافقة حربي — دخول بالطيران /
 // دخول عبر المعبر). Each variant is its own visa type priced by the agency;
@@ -41,7 +41,7 @@ before(async () => {
   }
 });
 
-function submit(variant, { phone, acceptedTotal, acceptedCurrency, answers }) {
+function submit(variant, { phone, acceptedTotal, acceptedCurrency, answers, route }) {
   const passport = variant.requirements.find((r) => r.attachmentType === "passport_copy");
   let req = request(app)
     .post("/api/contact-requests")
@@ -57,6 +57,7 @@ function submit(variant, { phone, acceptedTotal, acceptedCurrency, answers }) {
   if (acceptedTotal !== undefined) req = req.field("acceptedTotal", String(acceptedTotal));
   if (acceptedCurrency !== undefined) req = req.field("acceptedCurrency", acceptedCurrency);
   if (answers) req = req.field("answers", JSON.stringify(answers));
+  for (const [key, value] of Object.entries(route || {})) req = req.field(key, value);
   return req;
 }
 
@@ -113,8 +114,8 @@ describe("Egypt clearance variants", () => {
     assert.deepEqual(
       [listed("VISA-EGYPT-CLEARANCE-AIR"), listed("VISA-EGYPT-CLEARANCE-BORDER")].map((v) => [v.name, v.pricingMode, Number(v.basePrice), v.currency, v.priceUnit]),
       [
-        ["موافقة حربي — دخول بالطيران", "FIXED", 120, "USD", "PER_TRAVELER"],
-        ["موافقة حربي — دخول عبر المعبر", "FIXED", 45000, "SDG", "PER_REQUEST"],
+        ["موافقة حربي — جوي — مطار القاهرة", "FIXED", 120, "USD", "PER_TRAVELER"],
+        ["موافقة حربي — بري — المعبر", "FIXED", 45000, "SDG", "PER_REQUEST"],
       ]
     );
     assert.ok(!variants["VISA-EGYPT-CLEARANCE-AIR"].requirements.some((r) => r.attachmentType === "egypt_entry_mode"), "the variant is the entry method");
@@ -199,5 +200,81 @@ describe("Egypt clearance variants", () => {
     assert.equal(res.status, 400);
     assert.equal(res.body.code, "ENTRY_MODE_INVALID");
     assert.equal(await prisma.contactRequest.count({ where: { phone } }), 0);
+  });
+});
+
+// Issue #100: the route of a variant request (by air: departure city and
+// arrival airport, Port Sudan → Cairo by default and editable; over land: the
+// entry point), and the entry method asked only once.
+describe("Egypt clearance variants: route and a single entry-method choice", () => {
+  test("route rules: air defaults and edits, land entry point, other method's fields ignored, overlong refused", () => {
+    assert.deepEqual(resolveEgyptRoute("VISA-EGYPT-CLEARANCE-AIR", {}), { route: { entryMode: "AIR", departureCity: "بورتسودان", arrivalAirport: "القاهرة" } });
+    assert.deepEqual(resolveEgyptRoute("VISA-EGYPT-CLEARANCE-AIR", { departureCity: " الخرطوم ", arrivalAirport: "الأقصر", entryPort: "x" }).route, { entryMode: "AIR", departureCity: "الخرطوم", arrivalAirport: "الأقصر" });
+    assert.deepEqual(resolveEgyptRoute("VISA-EGYPT-CLEARANCE-BORDER", { entryPort: "أرقين", departureCity: "x" }).route, { entryMode: "BORDER", entryPort: "أرقين" });
+    assert.deepEqual(resolveEgyptRoute("VISA-EGYPT-CLEARANCE", { entryPort: "x" }), { route: null }, "the original item has no variant route");
+    assert.equal(resolveEgyptRoute("VISA-EGYPT-CLEARANCE-BORDER", { entryPort: "أ".repeat(81) }).error, "ROUTE_INVALID");
+  });
+
+  test("the route is stored with the request; an older client without it gets the air defaults", async () => {
+    const air = variants["VISA-EGYPT-CLEARANCE-AIR"];
+    const border = variants["VISA-EGYPT-CLEARANCE-BORDER"];
+    const edited = await submit(air, { phone: testPhone(), acceptedTotal: "120.00", acceptedCurrency: "USD", route: { departureCity: "الخرطوم", arrivalAirport: "القاهرة" } });
+    assert.equal(edited.status, 201, JSON.stringify(edited.body));
+    const old = await submit(air, { phone: testPhone(), acceptedTotal: "120.00", acceptedCurrency: "USD" });
+    assert.equal(old.status, 201, JSON.stringify(old.body));
+    const land = await submit(border, { phone: testPhone(), acceptedTotal: "45000", acceptedCurrency: "SDG", route: { entryPort: "أرقين" } });
+    assert.equal(land.status, 201, JSON.stringify(land.body));
+    const route = async (res) => (await prisma.contactRequest.findUnique({ where: { id: res.body.data.id }, select: { intakeData: true } })).intakeData.egyptRoute;
+    assert.deepEqual(await route(edited), { entryMode: "AIR", departureCity: "الخرطوم", arrivalAirport: "القاهرة" });
+    assert.deepEqual(await route(old), { entryMode: "AIR", departureCity: "بورتسودان", arrivalAirport: "القاهرة" });
+    assert.deepEqual(await route(land), { entryMode: "BORDER", entryPort: "أرقين" });
+
+    const phone = testPhone();
+    const tooLong = await submit(border, { phone, acceptedTotal: "45000", acceptedCurrency: "SDG", route: { entryPort: "أ".repeat(81) } });
+    assert.equal(tooLong.status, 400, JSON.stringify(tooLong.body));
+    assert.equal(tooLong.body.code, "ROUTE_INVALID");
+    assert.equal(await prisma.contactRequest.count({ where: { phone } }), 0, "nothing created");
+  });
+
+  test("the draft route (website) stores the edited air route", async () => {
+    const air = variants["VISA-EGYPT-CLEARANCE-AIR"];
+    const created = await request(app).post("/api/intake-drafts").send({ serviceKind: "visa", visaTypeId: air.visaType.id });
+    const token = created.body.data.token;
+    await request(app).patch(`/api/intake-drafts/${token}`).send({ name: "TEST-EG", phone: testPhone(), travelerCount: 1, travelers: [{ fullName: "TEST-EG", passportNo: "P7654322", birthDate: "1991-02-02" }] });
+    const passport = air.requirements.find((r) => r.attachmentType === "passport_copy");
+    await request(app).post(`/api/intake-drafts/${token}/documents`).field("label", "جواز").field("requirementId", passport.id).field("travelerIndex", "0").attach("file", PDF(), { filename: "p.pdf", contentType: "application/pdf" });
+    const ok = await request(app).post(`/api/intake-drafts/${token}/submit`).send({ acceptedTotal: "120.00", acceptedCurrency: "USD", departureCity: "كسلا", arrivalAirport: "القاهرة" });
+    assert.equal(ok.status, 201, JSON.stringify(ok.body));
+    const stored = await prisma.contactRequest.findUnique({ where: { id: ok.body.data.id }, select: { intakeData: true } });
+    assert.deepEqual(stored.intakeData.egyptRoute, { entryMode: "AIR", departureCity: "كسلا", arrivalAirport: "القاهرة" });
+  });
+
+  test("the travel plan of a variant request takes the variant's entry method; a different one is refused", async () => {
+    const border = variants["VISA-EGYPT-CLEARANCE-BORDER"];
+    const phone = testPhone();
+    const created = await submit(border, { phone, acceptedTotal: "45000", acceptedCurrency: "SDG", route: { entryPort: "أرقين" } });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const id = created.body.data.id;
+    const tracking = trackingClient(phone);
+    const entryDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    const other = await tracking.post(`/api/tracking/requests/${id}/egypt-travel-plan`).field("entryMode", "AIR").field("bookingStatus", "NEEDS_NASAEM").field("entryDate", entryDate);
+    assert.equal(other.status, 400, JSON.stringify(other.body));
+    assert.equal(other.body.code, "ENTRY_MODE_MISMATCH");
+    const saved = await tracking.post(`/api/tracking/requests/${id}/egypt-travel-plan`).field("bookingStatus", "NEEDS_NASAEM").field("entryDate", entryDate);
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const stored = await prisma.contactRequest.findUnique({ where: { id }, select: { intakeData: true } });
+    assert.equal(stored.intakeData.egyptTravel.entryMode, "BORDER", "taken from the variant, not asked again");
+    assert.equal(stored.intakeData.egyptRoute.entryPort, "أرقين", "the booking route is kept");
+  });
+
+  test("the original item still needs the entry method in its travel plan", async () => {
+    const base = await prisma.visaType.findUnique({ where: { code: "VISA-EGYPT-CLEARANCE" } });
+    const phone = testPhone();
+    const created = await request(app).post("/api/contact-requests").field("name", "TEST-EG عميل").field("phone", phone).field("message", "TEST-EG").field("visaTypeId", base.id);
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const entryDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    const missing = await trackingClient(phone).post(`/api/tracking/requests/${created.body.data.id}/egypt-travel-plan`).field("bookingStatus", "NEEDS_NASAEM").field("entryDate", entryDate);
+    assert.equal(missing.status, 400, JSON.stringify(missing.body));
+    assert.equal(missing.body.code, "ENTRY_MODE_REQUIRED");
   });
 });

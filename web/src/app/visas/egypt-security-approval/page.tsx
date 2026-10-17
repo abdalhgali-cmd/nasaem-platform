@@ -44,8 +44,8 @@ type PublicVisaType = {
 // price (backend egypt-clearance-variants.js). Both are always listed; one
 // without a published fixed price is shown as not bookable.
 const VARIANTS = [
-  { code: "VISA-EGYPT-CLEARANCE-AIR", entryMode: "AIR", name: "موافقة حربي — دخول بالطيران" },
-  { code: "VISA-EGYPT-CLEARANCE-BORDER", entryMode: "BORDER", name: "موافقة حربي — دخول عبر المعبر" },
+  { code: "VISA-EGYPT-CLEARANCE-AIR", entryMode: "AIR", name: "جوي — مطار القاهرة" },
+  { code: "VISA-EGYPT-CLEARANCE-BORDER", entryMode: "BORDER", name: "بري — المعبر" },
 ] as const;
 
 type PublicService = { id: string } & ServiceHeroMedia;
@@ -142,7 +142,8 @@ export default async function EgyptSecurityApprovalPage() {
       return {
         code: variant.code,
         entryMode: variant.entryMode,
-        name: item?.name || variant.name,
+        // The short type label (the catalog name is the agency's internal one).
+        name: variant.name,
         visaTypeId: fixed && item ? item.id : null,
         serviceId: item?.serviceId ?? null,
         price:
@@ -152,6 +153,8 @@ export default async function EgyptSecurityApprovalPage() {
                 currency: item.currency,
                 priceUnit: item.priceUnit === "PER_TRAVELER" ? "PER_TRAVELER" : "PER_REQUEST",
                 paymentAfterDocumentReview: Boolean(item.paymentAfterDocumentReview),
+                // From the agency's active exchange rate only (null without one).
+                priceSdg: item.currency !== "SDG" && Number(item.priceSdg) > 0 ? Number(item.priceSdg) : null,
               }
             : null,
         requirements: fixed && item ? await getRequirements(item.id) : [],

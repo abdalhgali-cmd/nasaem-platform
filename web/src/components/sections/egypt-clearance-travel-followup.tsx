@@ -35,6 +35,11 @@ type TrackingRequest = {
 // The original item and its entry-method variants (backend egypt-clearance-variants.js).
 const EGYPT_CLEARANCE_CODES = new Set(["VISA-EGYPT-CLEARANCE", "VISA-EGYPT-CLEARANCE-AIR", "VISA-EGYPT-CLEARANCE-BORDER"]);
 const FILE_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
+// A variant already fixed the entry method when it was booked: not asked again.
+const VARIANT_ENTRY_MODES: Record<string, "AIR" | "BORDER"> = {
+  "VISA-EGYPT-CLEARANCE-AIR": "AIR",
+  "VISA-EGYPT-CLEARANCE-BORDER": "BORDER",
+};
 
 function statusCopy(plan: EgyptTravelPlan | null | undefined) {
   if (!plan) {
@@ -87,7 +92,9 @@ function statusCopy(plan: EgyptTravelPlan | null | undefined) {
 
 function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved: () => Promise<void> }) {
   const current = request.intakeData?.egyptTravel ?? null;
-  const [entryMode, setEntryMode] = React.useState<"AIR" | "BORDER">(current?.entryMode ?? "AIR");
+  const fixedEntryMode = VARIANT_ENTRY_MODES[String(request.visaType?.code || "").toUpperCase()] ?? null;
+  const [chosenEntryMode, setEntryMode] = React.useState<"AIR" | "BORDER">(current?.entryMode ?? "AIR");
+  const entryMode = fixedEntryMode ?? chosenEntryMode;
   const [bookingStatus, setBookingStatus] = React.useState<"EXISTING" | "NEEDS_NASAEM">(
     current?.bookingStatus ?? "EXISTING"
   );
@@ -115,7 +122,7 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
     setSaving(true);
     try {
       const body = new FormData();
-      body.append("entryMode", entryMode);
+      if (!fixedEntryMode) body.append("entryMode", entryMode);
       body.append("bookingStatus", bookingStatus);
       body.append("entryDate", entryDate);
       if (file) body.append("file", file);
@@ -174,6 +181,11 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
       </div>
 
       <form onSubmit={submit} className="mt-5 grid gap-4">
+        {fixedEntryMode ? (
+          <p className="rounded-xl border border-border bg-muted/30 p-3 text-sm font-semibold text-foreground" data-testid="egypt-fixed-entry-mode">
+            طريقة الدخول: {fixedEntryMode === "AIR" ? "جوي — مطار القاهرة" : "بري — المعبر"}
+          </p>
+        ) : (
         <div>
           <p className="text-sm font-semibold text-foreground">طريقة الدخول</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
@@ -199,6 +211,7 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
             </button>
           </div>
         </div>
+        )}
 
         <div>
           <label className="text-sm font-semibold text-foreground" htmlFor={`egypt-entry-${request.id}`}>

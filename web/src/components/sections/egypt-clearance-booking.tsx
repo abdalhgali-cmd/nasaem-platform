@@ -66,6 +66,11 @@ export function EgyptClearanceBooking({ options }: { options: EgyptVariantOption
                   <span className={`mt-1 block text-sm ${available ? "font-extrabold text-foreground" : "text-muted-foreground"}`} dir={available ? "ltr" : undefined} data-testid="egypt-variant-price">
                     {option.price ? priceLine(option.price) : EGYPT_UNAVAILABLE}
                   </span>
+                  {option.price?.priceSdg ? (
+                    <span className="mt-0.5 block text-xs font-bold text-primary" data-testid="egypt-variant-price-sdg">
+                      يعادل {Math.round(option.price.priceSdg).toLocaleString("en-US")} جنيه سوداني
+                    </span>
+                  ) : null}
                 </span>
               </button>
             );

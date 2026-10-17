@@ -94,7 +94,8 @@ export async function uploadDocument(requestId, form, onProgress) {
 
 export async function saveEgyptTravelPlan(requestId, { entryMode, bookingStatus, entryDate }, file, onProgress) {
   const form = new FormData();
-  form.set("entryMode", entryMode);
+  // A variant request has no entry method to send (the variant is it).
+  if (entryMode) form.set("entryMode", entryMode);
   form.set("bookingStatus", bookingStatus);
   form.set("entryDate", entryDate);
   if (file) form.append("file", file);

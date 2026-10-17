@@ -42,6 +42,8 @@ async function answerAgencyQuestions(page: Page) {
 async function fillData(page: Page, { name, phone, travelers }: { name: string; phone: string; travelers: string[] }) {
   await page.fill('[name="name"]', name);
   await page.fill('[name="phone"]', phone);
+  // Egypt land variant: the entry point (the air route has editable defaults).
+  if (await page.locator('[name="entryPort"]').count()) await page.fill('[name="entryPort"]', "أرقين");
   await page.fill("#travelerCount", String(travelers.length));
   await page.dispatchEvent("#travelerCount", "change");
   for (const [index, traveler] of travelers.entries()) {
@@ -276,8 +278,8 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await page.locator("#startRequestBtn").click();
     const cards = page.locator(".variant-card");
     await expect(cards).toHaveCount(2);
-    await expect(cards.nth(0)).toContainText("موافقة حربي — دخول بالطيران");
-    await expect(cards.nth(1)).toContainText("موافقة حربي — دخول عبر المعبر");
+    await expect(cards.nth(0)).toContainText("جوي — مطار القاهرة");
+    await expect(cards.nth(1)).toContainText("بري — المعبر");
     for (const index of [0, 1]) {
       await expect(cards.nth(index)).toContainText("غير متاحة للحجز حاليًا");
       await expect(cards.nth(index)).toBeDisabled();
@@ -312,8 +314,8 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
       ] as const) {
         const cards = page.locator(".variant-card");
         await expect(cards).toHaveCount(2);
-        await expect(cards.nth(0)).toContainText("موافقة حربي — دخول بالطيران");
-        await expect(cards.nth(1)).toContainText("موافقة حربي — دخول عبر المعبر");
+        await expect(cards.nth(0)).toContainText("جوي — مطار القاهرة");
+        await expect(cards.nth(1)).toContainText("بري — المعبر");
         await page.locator(`.variant-card[data-code="${code}"]`).click();
         await expect(page.locator(`.variant-card[data-code="${code}"]`)).toHaveAttribute("aria-checked", "true");
         await expect(page.locator("#egyptFaqHelp")).not.toHaveAttribute("open", "");
@@ -330,6 +332,7 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
         expect(stored.invoice.status).toBe("APPROVED");
         expect(stored.invoice.currency).toBe(currency);
         expect(stored.intakeData.egyptEntryMode).toBe(mode);
+        expect(stored.intakeData.egyptRoute).toEqual(mode === "AIR" ? { entryMode: "AIR", departureCity: "بورتسودان", arrivalAirport: "القاهرة" } : { entryMode: "BORDER", entryPort: "أرقين" });
         expect(stored.allowedActions).not.toContain("ISSUE_QUOTE");
         if (mode === "AIR") {
           await page.goto("/index.html");

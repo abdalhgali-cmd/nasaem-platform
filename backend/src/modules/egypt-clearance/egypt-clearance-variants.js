@@ -1,8 +1,8 @@
 // The Egypt security approval ("موافقة حربي") is sold as variants, one per
 // entry method, each its own VisaType so the agency prices it in the
 // back-office like any other item (pricingMode, basePrice, currency):
-//   VISA-EGYPT-CLEARANCE-AIR     دخول بالطيران
-//   VISA-EGYPT-CLEARANCE-BORDER  دخول عبر المعبر
+//   VISA-EGYPT-CLEARANCE-AIR     جوي — مطار القاهرة
+//   VISA-EGYPT-CLEARANCE-BORDER  بري — المعبر
 // The original VISA-EGYPT-CLEARANCE (entry method chosen as an answer) stays
 // valid for existing requests and for catalogs without variants.
 // The variant fixes the entry method: the server records it and refuses a
@@ -16,10 +16,39 @@ const VARIANT_MODES = Object.freeze({
   [`${EGYPT_CLEARANCE_CODE}-BORDER`]: "BORDER",
 });
 
+// Short customer-facing labels of the two variants (the catalog name of an
+// existing variant is the agency's and is not changed).
+export const EGYPT_VARIANT_LABELS = Object.freeze({ AIR: "جوي — مطار القاهرة", BORDER: "بري — المعبر" });
+
 export const EGYPT_CLEARANCE_VARIANTS = Object.freeze([
-  { code: `${EGYPT_CLEARANCE_CODE}-AIR`, entryMode: "AIR", name: "موافقة حربي — دخول بالطيران" },
-  { code: `${EGYPT_CLEARANCE_CODE}-BORDER`, entryMode: "BORDER", name: "موافقة حربي — دخول عبر المعبر" },
+  { code: `${EGYPT_CLEARANCE_CODE}-AIR`, entryMode: "AIR", name: `موافقة حربي — ${EGYPT_VARIANT_LABELS.AIR}` },
+  { code: `${EGYPT_CLEARANCE_CODE}-BORDER`, entryMode: "BORDER", name: `موافقة حربي — ${EGYPT_VARIANT_LABELS.BORDER}` },
 ]);
+
+// The route of a variant request, editable by the customer: by air the
+// departure city and the arrival airport (defaults Port Sudan → Cairo); over
+// land the entry point (منفذ الدخول). Fields of the other entry method are
+// ignored; an older client that sends none gets the air defaults or no entry
+// point. Returns { route } (null for the original item) or { error }.
+export const EGYPT_AIR_ROUTE_DEFAULTS = Object.freeze({ departureCity: "بورتسودان", arrivalAirport: "القاهرة" });
+const ROUTE_FIELD_MAX = 80;
+
+function routeText(value) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+export function resolveEgyptRoute(code, { departureCity, arrivalAirport, entryPort } = {}) {
+  const mode = variantEntryMode(code);
+  if (!mode) return { route: null };
+  const fields = mode === "AIR"
+    ? {
+        departureCity: routeText(departureCity) || EGYPT_AIR_ROUTE_DEFAULTS.departureCity,
+        arrivalAirport: routeText(arrivalAirport) || EGYPT_AIR_ROUTE_DEFAULTS.arrivalAirport,
+      }
+    : { ...(routeText(entryPort) ? { entryPort: routeText(entryPort) } : {}) };
+  if (Object.values(fields).some((value) => value.length > ROUTE_FIELD_MAX)) return { error: "ROUTE_INVALID" };
+  return { route: { entryMode: mode, ...fields } };
+}
 
 export function isEgyptClearanceCode(code) {
   const normalized = String(code || "").toUpperCase();

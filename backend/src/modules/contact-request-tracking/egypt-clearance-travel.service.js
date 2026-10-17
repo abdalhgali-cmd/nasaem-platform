@@ -7,7 +7,7 @@ import { EGYPT_TRAVEL_TASK_KEYS, EGYPT_TRAVEL_TASK_TITLES } from "./egypt-travel
 import { ACTIONS, checkAction, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 import { refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 
-import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { isEgyptClearanceCode, variantEntryMode } from "../egypt-clearance/egypt-clearance-variants.js";
 const KHARTOUM_TIME_ZONE = "Africa/Khartoum";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -170,7 +170,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
 export async function saveMyEgyptTravelPlan(
   phoneNormalized,
   contactRequestId,
-  { entryMode, bookingStatus, entryDate },
+  { entryMode: givenEntryMode, bookingStatus, entryDate },
   file
 ) {
   const request = await prisma.contactRequest.findFirst({
@@ -183,6 +183,12 @@ export async function saveMyEgyptTravelPlan(
 
   if (!request) return { error: "NOT_FOUND" };
   if (!isEgyptClearanceCode(request.visaType?.code)) return { error: "WRONG_SERVICE" };
+  // A variant request already fixed the entry method when it was booked: it
+  // is not asked again, and a different one is refused.
+  const fixedEntryMode = variantEntryMode(request.visaType?.code);
+  if (fixedEntryMode && givenEntryMode && givenEntryMode !== fixedEntryMode) return { error: "ENTRY_MODE_MISMATCH" };
+  const entryMode = fixedEntryMode || givenEntryMode;
+  if (!entryMode) return { error: "ENTRY_MODE_REQUIRED" };
   const closedRefusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, request);
   if (closedRefusal) return { refusal: closedRefusal };
 
