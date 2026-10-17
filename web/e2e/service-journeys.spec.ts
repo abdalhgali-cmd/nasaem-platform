@@ -92,7 +92,7 @@ const JOURNEYS: Journey[] = [
   },
   {
     name: "Umrah",
-    execution: "جارٍ استخراج تأشيرة العمرة",
+    execution: "جارٍ إصدار التأشيرة",
     start: async (app) => {
       await shortcut(app, "umrah");
       await app.locator(".package-card").first().click();
@@ -217,6 +217,8 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   async function submitIntake(travelers: string[]) {
     await app.fill('[name="name"]', travelers[0]);
     await app.fill('[name="phone"]', phone);
+    // Umrah asks for the guarantor's phone (required).
+    if (await app.locator('[name="guarantorPhone"]').count()) await app.fill('[name="guarantorPhone"]', "+966501234567");
     await app.fill("#travelerCount", String(travelers.length));
     await app.dispatchEvent("#travelerCount", "change");
     for (const [index, traveler] of travelers.entries()) {
@@ -433,7 +435,9 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         await expect(app.locator('#requestProgress [aria-current="step"]')).toHaveAttribute("aria-label", /بيانات السفر والتعميم — المرحلة الحالية/);
         await app.locator("#egyptTravelBtn").click();
         const entry = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
-        await app.locator('#egyptPlanForm [name="entryMode"]').selectOption("AIR");
+        // The AIR variant already fixed the entry method: shown, not asked again.
+        await expect(app.locator("#egyptFixedEntryMode")).toContainText("جوي — مطار القاهرة");
+        await expect(app.locator('#egyptPlanForm [name="entryMode"]')).toHaveCount(0);
         await app.locator('#egyptPlanForm [name="bookingStatus"]').selectOption("EXISTING");
         await app.fill('#egyptPlanForm [name="entryDate"]', entry);
         await app.locator('#egyptPlanForm [name="file"]').setInputFiles(png("ticket.png"));

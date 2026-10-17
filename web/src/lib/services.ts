@@ -11,15 +11,44 @@ export type PublicService = {
   basePrice: number | string | null;
   currency: string | null;
   priceSdg: number | null;
+  pricingMode: "FIXED" | "QUOTE";
+  priceUnit: "PER_REQUEST" | "PER_TRAVELER";
 };
 
-export async function getPublicServices(): Promise<PublicService[]> {
+export type PublicVisaType = PublicService & {
+  country: string;
+  serviceId: string | null;
+};
+
+export type PublicCatalog = {
+  services: PublicService[];
+  visaTypes: PublicVisaType[];
+  packages: PublicService[];
+};
+
+export async function getPublicCatalog(): Promise<PublicCatalog> {
   try {
-    const response = await fetch(`${API_URL}/services/public`, { next: { revalidate: 60 } });
-    if (!response.ok) return [];
-    const payload = (await response.json()) as { data?: { services?: PublicService[] } };
-    return Array.isArray(payload.data?.services) ? payload.data.services : [];
+    const [catalogResponse, packagesResponse] = await Promise.all([
+      fetch(`${API_URL}/services/public`, { next: { revalidate: 60 } }),
+      fetch(`${API_URL}/services/public/packages`, { next: { revalidate: 60 } }),
+    ]);
+    const catalogPayload = catalogResponse.ok
+      ? ((await catalogResponse.json()) as { data?: { services?: PublicService[]; visaTypes?: PublicVisaType[] } })
+      : {};
+    const packagesPayload = packagesResponse.ok
+      ? ((await packagesResponse.json()) as { data?: PublicService[] })
+      : {};
+
+    return {
+      services: Array.isArray(catalogPayload.data?.services) ? catalogPayload.data.services : [],
+      visaTypes: Array.isArray(catalogPayload.data?.visaTypes) ? catalogPayload.data.visaTypes : [],
+      packages: Array.isArray(packagesPayload.data) ? packagesPayload.data : [],
+    };
   } catch {
-    return [];
+    return { services: [], visaTypes: [], packages: [] };
   }
+}
+
+export async function getPublicServices(): Promise<PublicService[]> {
+  return (await getPublicCatalog()).services;
 }

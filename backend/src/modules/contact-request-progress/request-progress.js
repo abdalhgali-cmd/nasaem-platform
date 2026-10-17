@@ -1,3 +1,4 @@
+import { umrahIncludesTickets } from "../umrah/umrah-packages.js";
 import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
 import { completionBlockers, egyptTravelBlockers, evaluateDelivery, evaluateReadiness, executionBlockers, isFixedPrice, paymentLockReasons, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 
@@ -31,8 +32,8 @@ export const SERVICE_KINDS = {
   },
   UMRAH: {
     label: "العمرة",
-    execution: "جارٍ استخراج تأشيرة العمرة",
-    executionStep: "استخراج تأشيرة العمرة",
+    execution: "جارٍ إصدار التأشيرة",
+    executionStep: "إصدار تأشيرة العمرة",
     deliveryStep: "تسليم التأشيرة",
   },
   FAMILY_VISIT: {
@@ -60,6 +61,20 @@ export const SERVICE_KINDS = {
     deliveryStep: "تسليم الملفات النهائية",
   },
 };
+
+// An Umrah package with flight or sea services (umrah/umrah-packages.js)
+// issues the tickets as well as the visa.
+const UMRAH_WITH_TICKETS = {
+  ...SERVICE_KINDS.UMRAH,
+  execution: "جارٍ إصدار التذاكر",
+  executionStep: "إصدار التأشيرة والتذاكر",
+  deliveryStep: "تسليم التأشيرة والتذاكر",
+};
+
+function serviceCopy(kind, request) {
+  if (kind === "UMRAH" && !request?.visaType && umrahIncludesTickets(request?.serviceRef?.features)) return UMRAH_WITH_TICKETS;
+  return SERVICE_KINDS[kind];
+}
 
 const SERVICE_CATEGORY_KINDS = {
   flight: "FLIGHT",
@@ -115,7 +130,7 @@ const CLOSED_LABELS = {
 // step, and a cancelled/rejected one never shows its delivery as done.
 export function deriveRequestProgress(request) {
   const kind = deriveServiceKind(request);
-  const copy = SERVICE_KINDS[kind];
+  const copy = serviceCopy(kind, request);
   const { status, outcome, paymentStatus, invoice, offers, selectedOfferId } = request;
   const published = publishedDeliverables(request);
   const delivery = evaluateDelivery(request);

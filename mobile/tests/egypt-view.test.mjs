@@ -41,3 +41,18 @@ test("unconfigured catalog: both variants listed as unavailable, nothing bookabl
   assert.ok(configured.every((o) => o.bookable));
   assert.equal(configured[0].item.id, "a");
 });
+
+test("#100: short type labels; route fields by entry method with editable air defaults", async () => {
+  const { EGYPT_VARIANTS, EGYPT_AIR_ROUTE_DEFAULTS, egyptVariantEntryMode, validateEgyptRoute } = await import("../www/js/egypt-view.js");
+  assert.deepEqual(EGYPT_VARIANTS.map((v) => v.name), ["جوي — مطار القاهرة", "بري — المعبر"]);
+  assert.equal(egyptVariantOptions({ visaTypes: [air] })[0].name, "جوي — مطار القاهرة", "the card shows the type label, not the catalog name");
+  assert.equal(egyptVariantEntryMode(air), "AIR");
+  assert.equal(egyptVariantEntryMode(border), "BORDER");
+  assert.equal(egyptVariantEntryMode(base), null);
+  assert.deepEqual(EGYPT_AIR_ROUTE_DEFAULTS, { departureCity: "بورتسودان", arrivalAirport: "القاهرة" });
+  assert.deepEqual(validateEgyptRoute("AIR", EGYPT_AIR_ROUTE_DEFAULTS), []);
+  assert.equal(validateEgyptRoute("AIR", { departureCity: "", arrivalAirport: "القاهرة" }).length, 1);
+  assert.deepEqual(validateEgyptRoute("BORDER", { entryPort: "أرقين" }), []);
+  assert.equal(validateEgyptRoute("BORDER", {}).length, 1);
+  assert.deepEqual(validateEgyptRoute(null, {}), []);
+});

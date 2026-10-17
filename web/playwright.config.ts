@@ -56,7 +56,7 @@ export default defineConfig({
   projects: [
     {
       name: "mobile-web",
-      testMatch: /web\.spec\.ts/,
+      testMatch: [/web\.spec\.ts/, /flight-search-issue-104\.spec\.ts/],
       use: { ...devices["Pixel 5"], baseURL: "http://localhost:3000" },
     },
     {
@@ -71,7 +71,7 @@ export default defineConfig({
       // (no real backend state needed), so it's safe alongside this
       // project's real-backend specs — it never touches the shared dev
       // database or its rate limiters.
-      testMatch: [/platform3\.spec\.ts/, /account-registration\.spec\.ts/, /egypt-passport-upload\.spec\.ts/, /home-service-entry\.spec\.ts/, /header-entry\.spec\.ts/, /p0-request-ux\.spec\.ts/, /website-fixed-price\.spec\.ts/, /website-fixed-price-real\.spec\.ts/, /website-payment-step\.spec\.ts/, /admin-workflow\.spec\.ts/, /umrah-payment-journey\.spec\.ts/],
+      testMatch: [/platform3\.spec\.ts/, /account-registration\.spec\.ts/, /egypt-passport-upload\.spec\.ts/, /home-service-entry\.spec\.ts/, /header-entry\.spec\.ts/, /p0-request-ux\.spec\.ts/, /website-fixed-price\.spec\.ts/, /website-fixed-price-real\.spec\.ts/, /website-payment-step\.spec\.ts/, /admin-workflow\.spec\.ts/, /umrah-payment-journey\.spec\.ts/, /payment-recovery\.spec\.ts/, /admin-cases-filters\.spec\.ts/, /passport-scan-review\.spec\.ts/],
       use: { ...devices["Desktop Chrome"], baseURL: "http://localhost:3000" },
     },
     {
@@ -122,6 +122,7 @@ export default defineConfig({
       // Turbopack in every environment this was actually tested in).
       command: "npx next dev --webpack",
       cwd: __dirname,
+      env: { PORT: "3000" },
       url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -140,6 +141,7 @@ export default defineConfig({
     {
       command: "npm run start",
       cwd: "../backend",
+      env: { PORT: "5000" },
       url: "http://localhost:5000/api/health",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

@@ -17,6 +17,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
+import { UMRAH_KIND_LABELS, isValidContactPhone, umrahPackageDetails } from "@/lib/umrah-package";
+import { customerErrorMessage } from "@/lib/network-error";
+import { duplicatePassportIndexes, mrzSexToGender, passportValidityWarning } from "@/lib/passport-review";
 import {
   RequestPaymentStep,
   clearPendingPayment,
@@ -49,6 +52,7 @@ type PublicService = {
   pricingMode?: "QUOTE" | "FIXED" | null;
   priceUnit?: "PER_REQUEST" | "PER_TRAVELER" | null;
   paymentAfterDocumentReview?: boolean | null;
+  features?: string[] | null;
 };
 
 type PublicVisaType = {
@@ -72,6 +76,14 @@ type Traveler = {
   fullName: string;
   passportNo: string;
   nationality: string;
+  // Issue #103: filled from the passport MRZ when scanned, editable either way.
+  birthDate?: string;
+  gender?: "MALE" | "FEMALE";
+  passportExpiry?: string;
+  // A scan filled fields the customer has not confirmed yet; the step
+  // cannot continue until they do (ocrConfirmed).
+  ocrPending?: boolean;
+  ocrConfirmed?: boolean;
 };
 
 // A checklist item from the Requirements Engine (Platform 3.0 Phase 5/8,
@@ -280,6 +292,11 @@ export function ServiceIntakeWizard({
   const [name, setName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [email, setEmail] = React.useState("");
+  // Umrah only: the guarantor's phone (required) and an optional second
+  // contact person (checked again server-side, umrah/umrah-packages.js).
+  const [guarantorPhone, setGuarantorPhone] = React.useState("");
+  const [extraContactName, setExtraContactName] = React.useState("");
+  const [extraContactPhone, setExtraContactPhone] = React.useState("");
 
   // Service details (step "details")
   const [travelDate, setTravelDate] = React.useState("");
@@ -372,6 +389,9 @@ export function ServiceIntakeWizard({
     travelerCount: number;
     travelers: Traveler[];
     notes: string;
+    guarantorPhone?: string;
+    extraContactName?: string;
+    extraContactPhone?: string;
     // Smart Case Operations — Release A/B. Answer-type requirements are
     // part of what the customer has filled in, so a resumed draft that
     // dropped them would silently lose work.
@@ -445,6 +465,9 @@ export function ServiceIntakeWizard({
       travelerCount,
       travelers,
       notes,
+      guarantorPhone,
+      extraContactName,
+      extraContactPhone,
       answers,
     };
     // A completely untouched form has nothing worth saving yet.
@@ -458,7 +481,7 @@ export function ServiceIntakeWizard({
       // Storage can legitimately be unavailable (private browsing, quota) —
       // the wizard must keep working without persistence either way.
     }
-  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, answers, result]);
+  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, guarantorPhone, extraContactName, extraContactPhone, answers, result]);
 
   // Mirrors the local draft to the server, debounced so typing doesn't
   // produce a request per keystroke. Every failure path here is silent by
@@ -612,6 +635,9 @@ export function ServiceIntakeWizard({
     setTravelerCount(draft.travelerCount || 1);
     setTravelers(draft.travelers?.length ? draft.travelers : [{ fullName: "", passportNo: "", nationality: "" }]);
     setNotes(draft.notes || "");
+    setGuarantorPhone(draft.guarantorPhone || "");
+    setExtraContactName(draft.extraContactName || "");
+    setExtraContactPhone(draft.extraContactPhone || "");
     setAnswers(draft.answers || {});
     setStep(Math.max(0, draft.step || 0));
     setDraftAvailable(false);
@@ -720,6 +746,13 @@ export function ServiceIntakeWizard({
 
   const selectedPackage = packageServices.find((p) => p.id === effectiveServiceId);
   const selectedVisaType = visaTypes.find((v) => v.id === effectiveVisaTypeId);
+  // Same rule as the server: an Umrah service or package request (an Umrah
+  // visa type is not affected).
+  const needsGuarantor =
+    service === "umrah" ||
+    (service === "package" && ["UMRAH_PACKAGE", "umrah", "umrah_package"].includes(selectedPackage?.category ?? ""));
+  const extraContactValid =
+    (!extraContactName.trim() && !extraContactPhone.trim()) || isValidContactPhone(extraContactPhone);
 
   // The single source of truth for the price shown to the customer is
   // whatever Pricing/Admin published against this Service/VisaType — never
@@ -824,6 +857,13 @@ export function ServiceIntakeWizard({
       return [{ key, requirement, travelerIndex: null, files: documentFilesBySlotKey[key] ?? [] }];
     });
   const answerSlots: PublicRequirement[] = applicableRequirements.filter((r) => r.type !== "DOCUMENT");
+  // Issue #103: the passport photo the traveler form can read. Without an
+  // OCR-enabled document requirement the server never reads an upload, so
+  // the scan button is not offered and the customer types the data.
+  const passportScanRequirement =
+    applicableRequirements.find((r) => r.type === "DOCUMENT" && r.ocrEnabled && r.scope === "TRAVELER") ??
+    applicableRequirements.find((r) => r.type === "DOCUMENT" && r.ocrEnabled) ??
+    null;
 
   const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
 
@@ -1023,19 +1063,50 @@ export function ServiceIntakeWizard({
   }
 
   async function scanPassport(index: number, file: File) {
+    if (!passportScanRequirement) return;
     setScanningTraveler(index);
     setScanMessageByTraveler((current) => ({ ...current, [index]: "" }));
 
     try {
       const token = await ensureServerDraftToken();
+      // The server runs OCR only for an upload tagged with an OCR-enabled
+      // requirement of the draft's own service, so the draft must name the
+      // service even when it was preselected from the URL.
+      await fetch(`${API_URL}/intake-drafts/${token}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          serviceKind: service,
+          serviceId: effectiveServiceId || undefined,
+          visaTypeId: effectiveVisaTypeId || undefined,
+        }),
+      });
       const body = new FormData();
       body.append("label", "جواز السفر");
+      body.append("requirementId", passportScanRequirement.id);
       body.append("travelerIndex", String(index));
       body.append("file", file);
 
       const res = await fetch(`${API_URL}/intake-drafts/${token}/documents`, { method: "POST", body });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.message || "تعذّرت قراءة الجواز");
+
+      // The draft copy existed only to be read. The request is submitted with
+      // the files attached in the documents step, so remove it rather than
+      // keep a second stored passport image.
+      const draftDocumentId = payload?.data?.id;
+      if (draftDocumentId) {
+        void fetch(`${API_URL}/intake-drafts/${token}/documents/${draftDocumentId}`, { method: "DELETE" }).catch(() => {});
+      }
+
+      // Offer the same photo as this traveler's passport document, unless the
+      // customer already attached one there.
+      const namedBefore = travelers.slice(0, index).filter((t) => t.fullName.trim()).length;
+      const slotKey =
+        passportScanRequirement.scope === "TRAVELER" ? `${passportScanRequirement.id}::${namedBefore}` : passportScanRequirement.id;
+      if (!(documentFilesBySlotKey[slotKey]?.length) && !validateDocumentFile(passportScanRequirement, file)) {
+        addDocumentFile(slotKey, passportScanRequirement, file);
+      }
 
       const ocr = payload?.data?.ocrResult;
       if (!ocr?.documentNumber) {
@@ -1049,16 +1120,22 @@ export function ServiceIntakeWizard({
       }
 
       const fullName = [ocr.givenNames, ocr.surname].filter(Boolean).join(" ").trim();
+      const gender = mrzSexToGender(ocr.sex);
       updateTraveler(index, {
+        ocrPending: true,
+        ocrConfirmed: false,
         // Never overwrite something the customer already typed — a scan is
         // an offer to save them work, not a correction of their own input.
         ...(fullName && !travelers[index]?.fullName ? { fullName } : {}),
         ...(ocr.documentNumber && !travelers[index]?.passportNo ? { passportNo: ocr.documentNumber } : {}),
         ...(ocr.nationality && !travelers[index]?.nationality ? { nationality: ocr.nationality } : {}),
+        ...(ocr.dateOfBirth && !travelers[index]?.birthDate ? { birthDate: ocr.dateOfBirth } : {}),
+        ...(gender && !travelers[index]?.gender ? { gender } : {}),
+        ...(ocr.expirationDate && !travelers[index]?.passportExpiry ? { passportExpiry: ocr.expirationDate } : {}),
       });
       setScanMessageByTraveler((current) => ({
         ...current,
-        [index]: "تمت قراءة بيانات الجواز — يرجى مراجعتها وتصحيح أي خطأ قبل المتابعة.",
+        [index]: "تمت قراءة بيانات الجواز — راجعها وصحّح أي خطأ، ثم أكّد المراجعة للمتابعة.",
       }));
     } catch (err) {
       setScanMessageByTraveler((current) => ({
@@ -1069,6 +1146,8 @@ export function ServiceIntakeWizard({
       setScanningTraveler(null);
     }
   }
+
+  const duplicatePassports = React.useMemo(() => duplicatePassportIndexes(travelers), [travelers]);
 
   function updateTraveler(index: number, patch: Partial<Traveler>) {
     setTravelers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
@@ -1090,7 +1169,12 @@ export function ServiceIntakeWizard({
     }
 
     if (current === "customer") {
-      return name.trim().length >= 2 && phone.trim().length >= 6;
+      const contactOk = name.trim().length >= 2 && phone.trim().length >= 6;
+      return needsGuarantor ? contactOk && isValidContactPhone(guarantorPhone) && extraContactValid : contactOk;
+    }
+
+    if (current === "details") {
+      return !travelers.some((t) => t.ocrPending) && duplicatePassports.size === 0;
     }
 
     return true;
@@ -1120,6 +1204,13 @@ export function ServiceIntakeWizard({
       formData.append("name", name);
       formData.append("phone", phone);
       if (email) formData.append("email", email);
+      if (needsGuarantor) {
+        formData.append("guarantorPhone", guarantorPhone.trim());
+        if (extraContactPhone.trim()) {
+          formData.append("extraContactName", extraContactName.trim());
+          formData.append("extraContactPhone", extraContactPhone.trim());
+        }
+      }
 
       const serviceLabel =
         service === "umrah"
@@ -1151,7 +1242,15 @@ export function ServiceIntakeWizard({
       formData.append(
         "intakeData",
         JSON.stringify({
-          travelers: filledTravelers,
+          travelers: filledTravelers.map((t) => ({
+            fullName: t.fullName,
+            passportNo: t.passportNo,
+            nationality: t.nationality,
+            ...(t.birthDate ? { birthDate: t.birthDate } : {}),
+            ...(t.gender ? { gender: t.gender } : {}),
+            ...(t.passportExpiry ? { passportExpiry: t.passportExpiry } : {}),
+            ...(t.ocrConfirmed ? { ocrConfirmed: true } : {}),
+          })),
           travelDate: travelDate || undefined,
           notes: notes.trim() || undefined,
         })
@@ -1164,7 +1263,7 @@ export function ServiceIntakeWizard({
       if (filledTravelers.length > 0) {
         formData.append(
           "travelers",
-          JSON.stringify(filledTravelers.map((t) => ({ fullName: t.fullName, passportNo: t.passportNo || undefined, nationality: t.nationality || undefined })))
+          JSON.stringify(filledTravelers.map((t) => ({ fullName: t.fullName, passportNo: t.passportNo || undefined, nationality: t.nationality || undefined, birthDate: t.birthDate || undefined, gender: t.gender || undefined })))
         );
       }
       if (Object.keys(answers).length > 0) {
@@ -1234,7 +1333,9 @@ export function ServiceIntakeWizard({
         paymentAccess,
       });
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى");
+      // A dropped connection keeps the same submissionKey: a retry returns
+      // the request the server may already have created, never a second one.
+      setSubmitError(customerErrorMessage(error, "تعذّر إرسال طلبك، حاول مرة أخرى"));
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -1434,16 +1535,22 @@ export function ServiceIntakeWizard({
                       <span className="text-xs text-muted-foreground">{(item as PublicVisaType).country}</span>
                     ) : null}
                   </div>
-                  {Number(item.basePrice) > 0 ? (
-                    <span className="mt-1 block text-xs text-muted-foreground" dir="ltr">
-                      يبدأ من {Number(item.basePrice).toLocaleString("en-US")} {item.currency}
-                    </span>
-                  ) : null}
-                  {Number(item.basePrice) > 0 && item.currency !== "SDG" && item.priceSdg != null ? (
-                    <span className="mt-1 block text-xs font-bold text-primary">
-                      يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
-                    </span>
-                  ) : null}
+                  {service === "package" ? (
+                    <PackageOptionDetails item={item as PublicService} />
+                  ) : (
+                    <>
+                      {Number(item.basePrice) > 0 ? (
+                        <span className="mt-1 block text-xs text-muted-foreground" dir="ltr">
+                          يبدأ من {Number(item.basePrice).toLocaleString("en-US")} {item.currency}
+                        </span>
+                      ) : null}
+                      {Number(item.basePrice) > 0 && item.currency !== "SDG" && item.priceSdg != null ? (
+                        <span className="mt-1 block text-xs font-bold text-primary">
+                          يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                 </button>
               );
             })}
@@ -1495,10 +1602,13 @@ export function ServiceIntakeWizard({
       ) : null}
 
       {current === "customer" ? (
-        <StepShell title="بيانات العميل" description="سنستخدمها للتواصل معك بخصوص طلبك.">
+        <StepShell
+          title={needsGuarantor ? "بيانات مقدم الطلب والضامن" : "بيانات العميل"}
+          description={needsGuarantor ? "بيانات التواصل معك ومع الضامن المقيم في السعودية." : "سنستخدمها للتواصل معك بخصوص طلبك."}
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <label className={labelClass}>الاسم الكامل</label>
+              <label className={labelClass}>{needsGuarantor ? "اسم مقدم الطلب" : "الاسم الكامل"}</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -1527,6 +1637,55 @@ export function ServiceIntakeWizard({
                 placeholder="example@email.com"
               />
             </div>
+            {needsGuarantor ? (
+              <>
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <label className={labelClass} htmlFor="umrah-guarantor-phone">رقم هاتف الضامن</label>
+                  <input
+                    id="umrah-guarantor-phone"
+                    data-testid="umrah-guarantor-phone"
+                    value={guarantorPhone}
+                    onChange={(e) => setGuarantorPhone(e.target.value)}
+                    type="tel"
+                    dir="ltr"
+                    required
+                    className={`${inputClass} text-end`}
+                    placeholder="+966 5X XXX XXXX"
+                  />
+                  <span className="text-xs text-muted-foreground">مطلوب: صاحب الإقامة التي ترفعها في خطوة المستندات.</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className={labelClass} htmlFor="umrah-extra-name">جهة اتصال إضافية (اختياري)</label>
+                  <input
+                    id="umrah-extra-name"
+                    data-testid="umrah-extra-contact-name"
+                    value={extraContactName}
+                    onChange={(e) => setExtraContactName(e.target.value)}
+                    className={inputClass}
+                    placeholder="الاسم"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className={labelClass} htmlFor="umrah-extra-phone">هاتف جهة الاتصال الإضافية</label>
+                  <input
+                    id="umrah-extra-phone"
+                    data-testid="umrah-extra-contact-phone"
+                    value={extraContactPhone}
+                    onChange={(e) => setExtraContactPhone(e.target.value)}
+                    type="tel"
+                    dir="ltr"
+                    className={`${inputClass} text-end`}
+                    placeholder="رقم الهاتف"
+                  />
+                </div>
+                {guarantorPhone.trim() && !isValidContactPhone(guarantorPhone) ? (
+                  <p className="text-xs font-semibold text-destructive sm:col-span-2">رقم هاتف الضامن غير صحيح.</p>
+                ) : null}
+                {!extraContactValid ? (
+                  <p className="text-xs font-semibold text-destructive sm:col-span-2">أدخل رقم هاتف صحيحًا لجهة الاتصال الإضافية أو اترك الحقلين فارغين.</p>
+                ) : null}
+              </>
+            ) : null}
           </div>
           <StepNav
             onBack={() => setStep((s) => s - 1)}
@@ -1574,8 +1733,41 @@ export function ServiceIntakeWizard({
                     placeholder="الجنسية (اختياري)"
                     className={`${inputClass} h-10 text-xs`}
                   />
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    تاريخ الميلاد (اختياري)
+                    <input
+                      type="date"
+                      value={traveler.birthDate ?? ""}
+                      onChange={(e) => updateTraveler(index, { birthDate: e.target.value })}
+                      data-testid={`traveler-birth-date-${index}`}
+                      className={`${inputClass} h-10 text-xs`}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    الجنس (اختياري)
+                    <select
+                      value={traveler.gender ?? ""}
+                      onChange={(e) => updateTraveler(index, { gender: (e.target.value || undefined) as Traveler["gender"] })}
+                      data-testid={`traveler-gender-${index}`}
+                      className={`${inputClass} h-10 text-xs`}
+                    >
+                      <option value="">—</option>
+                      <option value="MALE">ذكر</option>
+                      <option value="FEMALE">أنثى</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    تاريخ انتهاء الجواز (اختياري)
+                    <input
+                      type="date"
+                      value={traveler.passportExpiry ?? ""}
+                      onChange={(e) => updateTraveler(index, { passportExpiry: e.target.value })}
+                      data-testid={`traveler-passport-expiry-${index}`}
+                      className={`${inputClass} h-10 text-xs`}
+                    />
+                  </label>
                   <div className="sm:col-span-3">
-                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
+                      {passportScanRequirement ? <label data-testid={`passport-scan-${index}`} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
                         {scanningTraveler === index ? "جارٍ قراءة الجواز…" : "تعبئة البيانات من صورة الجواز"}
                         <input
                           type="file"
@@ -1588,9 +1780,31 @@ export function ServiceIntakeWizard({
                             if (file) void scanPassport(index, file);
                           }}
                         />
-                      </label>
+                      </label> : null}
                     {scanMessageByTraveler[index] ? (
                       <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
+                    ) : null}
+                    {traveler.ocrPending || traveler.ocrConfirmed ? (
+                      <label className="mt-2 flex items-start gap-2 rounded-lg border border-accent/50 bg-accent/5 p-2 text-xs font-semibold text-foreground">
+                        <input
+                          type="checkbox"
+                          data-testid={`passport-review-confirm-${index}`}
+                          className="mt-0.5"
+                          checked={Boolean(traveler.ocrConfirmed)}
+                          onChange={(e) => updateTraveler(index, { ocrPending: !e.target.checked, ocrConfirmed: e.target.checked })}
+                        />
+                        راجعتُ البيانات المقروءة من الجواز وهي مطابقة للجواز.
+                      </label>
+                    ) : null}
+                    {duplicatePassports.has(index) ? (
+                      <p role="alert" data-testid={`passport-duplicate-${index}`} className="mt-1 text-xs font-semibold text-destructive">
+                        رقم الجواز هذا مُدخل لمسافر آخر في الطلب نفسه — صحّح أحدهما للمتابعة.
+                      </p>
+                    ) : null}
+                    {passportValidityWarning(traveler.passportExpiry, travelDate) ? (
+                      <p data-testid={`passport-validity-warning-${index}`} className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        {passportValidityWarning(traveler.passportExpiry, travelDate)}
+                      </p>
                     ) : null}
                   </div>
                 </div>
@@ -1611,6 +1825,7 @@ export function ServiceIntakeWizard({
           <StepNav
             onBack={() => setStep((s) => s - 1)}
             onNext={() => setStep((s) => s + 1)}
+            nextDisabled={!canGoNext()}
           />
         </StepShell>
       ) : null}
@@ -1742,6 +1957,17 @@ export function ServiceIntakeWizard({
                 <span>{name}</span>
                 <span dir="ltr">{phone}</span>
                 {email ? <span>{email}</span> : null}
+                {needsGuarantor ? (
+                  <span data-testid="review-guarantor-phone">
+                    هاتف الضامن: <span dir="ltr">{guarantorPhone}</span>
+                  </span>
+                ) : null}
+                {needsGuarantor && extraContactPhone.trim() ? (
+                  <span>
+                    جهة اتصال إضافية: {extraContactName.trim() ? `${extraContactName.trim()} — ` : ""}
+                    <span dir="ltr">{extraContactPhone}</span>
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="rounded-xl border border-border/70 p-4">
@@ -1893,3 +2119,52 @@ export function ServiceIntakeWizard({
   );
 }
 
+
+// A package option on the selection step: its type (visa only / flights /
+// sea), the price (exact for a fixed price, per pilgrim or per request; a
+// "from" figure for a quoted one), the SDG equivalent only from the agency's
+// active exchange rate, and short lists of what is and is not included.
+function PackageOptionDetails({ item }: { item: PublicService }) {
+  const { kind, included, excluded } = umrahPackageDetails(item.features);
+  const price = Number(item.basePrice);
+  const fixed = item.pricingMode === "FIXED" && price > 0;
+  const perTraveler = item.priceUnit === "PER_TRAVELER";
+  return (
+    <div className="mt-2 flex flex-col gap-1.5 text-xs" data-testid="package-option-details">
+      {kind ? (
+        <span className="w-fit rounded-full bg-primary/10 px-2.5 py-0.5 font-bold text-primary" data-testid="package-kind">
+          {UMRAH_KIND_LABELS[kind]}
+        </span>
+      ) : null}
+      {fixed ? (
+        <span className="font-bold text-foreground" data-testid="package-price">
+          السعر: <span dir="ltr">{price.toLocaleString("en-US")} {item.currency}</span>
+          {perTraveler ? " للمعتمر" : " للطلب"}
+        </span>
+      ) : price > 0 ? (
+        <span className="text-muted-foreground" dir="ltr">
+          يبدأ من {price.toLocaleString("en-US")} {item.currency}
+        </span>
+      ) : null}
+      {price > 0 && item.currency !== "SDG" ? (
+        item.priceSdg != null ? (
+          <span className="font-bold text-primary" data-testid="package-price-sdg">
+            يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
+          </span>
+        ) : fixed ? (
+          <span className="text-muted-foreground" data-testid="package-price-sdg">المقابل بالجنيه السوداني غير متاح حاليًا</span>
+        ) : null
+      ) : null}
+      {included.length ? (
+        <span className="text-foreground/80" data-testid="package-included">
+          يشمل: {included.join("، ")}
+        </span>
+      ) : null}
+      {excluded.length ? (
+        <span className="text-muted-foreground" data-testid="package-excluded">
+          لا يشمل: {excluded.join("، ")}
+        </span>
+      ) : null}
+    </div>
+  );
+}

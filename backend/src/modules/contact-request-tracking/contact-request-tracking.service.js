@@ -126,7 +126,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       deliverables: { orderBy: { createdAt: "desc" } },
       offers: { orderBy: { createdAt: "desc" } },
       travelers: { orderBy: { sortOrder: "asc" } },
-      serviceRef: { select: { id: true, name: true, category: true } },
+      serviceRef: { select: { id: true, name: true, category: true, features: true } },
       visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
       // For the completion policy only (Egypt travel tasks); not sent to the customer.
       tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true, systemKey: true } },

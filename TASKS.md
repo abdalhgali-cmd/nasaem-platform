@@ -6,6 +6,16 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
+## Issue #98 — homepage service selection (2026-10-17)
+
+| Item | Status | Evidence |
+|---|---|---|
+| One mobile-first homepage chooser for Umrah, security approval, visas, flights, ferries, hotels and offers; no duplicate service/package sections | VERIFIED | `BookingSearchWidget`; homepage keeps one `#start-request`; Playwright Android-width/RTL/no-overflow check |
+| Selected type shows the backend catalog price and public required documents; an unpublished FIXED price is never guessed and disables booking | VERIFIED | Browser fetches `/services/public`, `/services/public/packages` and the selected requirements endpoint; mocked API acceptance test covers `1,250 SAR`, per-traveler pricing, passport requirement and unavailable FIXED pricing |
+| Direct guest start; existing dedicated service routes reused | VERIFIED | Family visit, Egypt security approval and ferry link assertions; guest copy shown; no registration gate added |
+
+Local results: web typecheck ✅, ESLint ✅, production build ✅ (`NODE_ENV=production`), targeted homepage Playwright **6/6**. Full CI and deployment NOT TESTED; no merge or deployment performed.
+
 ## DONE (verified)
 
 | Item | Evidence |
@@ -135,6 +145,116 @@ Owner chose: include PR #94 in `claude/release-next` before opening `claude/rele
 Local on `b37ccee` (fresh PostgreSQL, migrate + seed as CI): backend **893/893**; mobile unit **84/84** + syntax check; web tsc/eslint ok; `next build` ok; Playwright, all four CI projects in one run, **100/100**.
 
 Production gate NOT passed: no production backup yet (owner, 2026-10-13), production branch/Vercel project not verified, Vercel account blocked. No merge into `main`, no deploy, no DB change, no Android distribution.
+
+## Epic #96 — Issue #99 Umrah: three package types, guarantor contacts, direct payment (2026-10-17, branch `claude/umrah-packages-99`, base `claude/release-integration` `821df72`)
+
+Not merged, nothing deployed, no live data touched. **No migration**: the package type is a `KIND: VISA_ONLY|AIR|SEA` entry in `Service.features`, next to the existing `INCLUDED:`/`EXCLUDED:` lines.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| 3 types: visa only / flight services / sea services | VERIFIED (local) | `prisma/setup-umrah-packages.js` (idempotent, called by the seed): sets `KIND: VISA_ONLY` on `SVC-UMRAH-VISA` only if it has no type; creates `SVC-UMRAH-AIR` and `SVC-UMRAH-SEA` **inactive, QUOTE, price 0** (no invented price) with the visa-only checklist + «إقامة الضامن». Other packages and requests untouched. Admin «نوع الباقة» select (`umrah-package-manager.tsx`) |
+| Real price per type, SAR + SDG from the active agency rate only | VERIFIED (local) | Package card on `/umrah` (wizard select step), app Umrah screen and homepage cards: a FIXED package shows «السعر: 1,250 SAR للمعتمر» (not «يبدأ من»); SDG only from `priceSdg` (active FX rate), otherwise «المقابل بالجنيه السوداني غير متاح حاليًا». Homepage: coordinated with Codex PR #111 (#98) — it removes `FeaturedUmrah` (which said «التكلفة النهائية يحددها الموظف» / «يبدأ من») from the homepage and shows a FIXED price, «غير متاح للحجز» for an unpriced FIXED item and «بعد مراجعة الطلب» for a quoted one; this branch does not touch homepage files |
+| Short texts, included / not included | VERIFIED (local) | Card shows type badge + «يشمل: …» / «لا يشمل: …» from the package's own lines |
+| Applicant + every pilgrim's passport + guarantor residence + **guarantor phone required** + optional extra contact | VERIFIED (local) | The website wizard and app form require the guarantor phone before submitting. Server (`umrah/umrah-packages.js` `resolveUmrahContacts`, `POST /contact-requests` and draft submit, Umrah service/package only, not a visa type): an invalid guarantor or extra-contact phone is refused before anything is created (400 `GUARANTOR_PHONE_INVALID` / `EXTRA_CONTACT_PHONE_INVALID`); a **missing** one is accepted and flagged `guarantorPhoneMissing` (older installed apps cannot send it), shown to staff in `/admin/cases` as «رقم هاتف الضامن لم يُرسل — اطلبه من العميل». Stored as `intakeData.umrahContacts`; shown on the review step |
+| Review → account in the right currency → PDF/image receipt → `UNDER_REVIEW` until finance confirms | VERIFIED (existing flow, re-tested per type) | `umrahPackageTypes.test.js` and e2e: amount = fixed total, accounts only in SAR, receipt → `UNDER_REVIEW`, employee 403 on confirm, accountant confirms |
+| Execution «جارٍ إصدار التأشيرة» / «جارٍ إصدار التذاكر», then delivery | VERIFIED (local) | `request-progress.js`: Umrah visa only → «جارٍ إصدار التأشيرة», delivery «تسليم التأشيرة»; AIR/SEA → «جارٍ إصدار التذاكر», «تسليم التأشيرة والتذاكر» (same label for staff, tracking and app) |
+| No «price decided later» on FIXED packages; server price can't be bypassed | VERIFIED | Existing `resolveSubmissionPricing` (409 `PRICE_CHANGED` re-tested with 2 pilgrims at one pilgrim's price; nothing created) |
+| 3 E2E scenarios package → delivery; several pilgrims; guarantor; 409; no duplicate; receipt review | VERIFIED (local) | Playwright `umrah-payment-journey.spec.ts` 3/3 (VISA_ONLY, AIR, SEA: card type/price/inclusions, «التالي» disabled until the guarantor phone, 2 pilgrims, 3 documents, review shows the guarantor, double-click + reload = 1 request, payment, receipt `UNDER_REVIEW`, staff confirm, execution label, per-pilgrim delivery → `CLOSED/COMPLETED`). Backend `umrahPackageTypes.test.js` 7/7 (seed types, contact rules, refusals create nothing, draft route, 3 journeys incl. retry with the same `submissionKey` → same request) |
+
+Other results (local, fresh DB): backend full suite 891/892 before the one expected fix (`contactRequestIntake` submitted an Umrah request without a guarantor phone → test updated), then the affected suites 39/39; mobile unit 87/87 (`umrah-view.test.mjs` new); web `tsc`/`eslint` clean. Browser suites touching Umrah/intake: see the PR.
+
+Compatibility: an **installed app older than this branch** keeps submitting Umrah requests exactly as before (no new required field server-side; fixed price, payment token and receipt unchanged), verified by `umrahPackageTypes.test.js` «an older app without the guarantor field still submits» and the unmodified `contactRequestIntake.test.js` Umrah submission. NOT TESTED: real Android device, staging/production.
+
+Activation (owner): deploy after approval → `node prisma/setup-umrah-packages.js` on the target DB → in الإدارة → العمرة set each package's FIXED price/currency, check «يشمل/لا يشمل» and requirements, then publish; decide whether the older `SVC-UMRAH-SERVICES` / `SVC-UMRAH-GROUP` stay published.
+## Epic #96 — Issue #100 Egypt security approval: air / land, fixed price, short form (2026-10-17, branch `claude/egypt-approval-100`, base `claude/release-integration` `821df72`)
+
+Not merged, nothing deployed, no live data touched. **No migration.** Builds on the variant work already merged (#92/#95): variant chooser, FIXED-only booking, entry method fixed by the variant, direct payment.
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Two types first: «جوي — مطار القاهرة» / «بري — المعبر», with the server's USD/SDG price | VERIFIED (local) | Website cards and app cards show the short type label (by code; the agency's catalog name is not changed). Price = the variant's own FIXED price; SDG equivalent only from the active rate (`priceSdg`). New variants created by `setup-egypt-clearance-variants.js` get «موافقة حربي — جوي — مطار القاهرة» / «… — بري — المعبر»; existing rows untouched |
+| Air: departure «بورتسودان» and arrival «القاهرة», editable; land: «منفذ الدخول» | VERIFIED (local) | Website form and app form; review shows the route. Server `resolveEgyptRoute` (POST /contact-requests and draft submit) stores `intakeData.egyptRoute` (`{entryMode, departureCity, arrivalAirport}` or `{entryMode, entryPort}`); fields of the other method ignored; >80 chars → 400 `ROUTE_INVALID`, nothing created; an older client without the fields gets the air defaults (land: no entry point) |
+| Passports, clear fields, no `[object Object]`, entry method asked once | VERIFIED | `[object Object]` was fixed in round 1 (above; regression test kept). The travel-plan step of a variant request no longer asks the entry method (website `/track` and app show it); the server takes it from the variant and refuses a different one (400 `ENTRY_MODE_MISMATCH`); the original item still requires it (`ENTRY_MODE_REQUIRED`) |
+| No quote after submission; review → direct payment → receipt under review → approval → delivery | VERIFIED (existing flow, re-tested) | `egyptClearanceVariants.test.js` AIR/BORDER journeys; e2e `egypt-passport-upload.spec.ts`, `service-journeys.spec.ts` (Egypt) |
+| Price and entry method protected by the server (409) | VERIFIED (existing) | `egyptClearanceVariants.test.js` tampering test (other variant's price, wrong currency → 409, nothing created) |
+| Unconfigured price / unpublished type not accepted; old requests intact | VERIFIED (existing + new) | Unbookable-variant tests; original-item requests keep their behaviour (travel plan still asks the entry method) |
+
+Tests (local, fresh DB): backend `egyptClearanceVariants.test.js` 12/12 (5 new: route rules, stored route incl. older-client defaults and overlong refusal, draft route, variant travel plan fixed/mismatch, original item still asks). Backend full suite 897/897 (fresh DB). Mobile unit 85/85. Playwright (local) 29/29: `egypt-passport-upload` (labels, air defaults edited, land entry point, stored route, price change), `mobile-app` (labels, route stored), `service-journeys` (Egypt AIR travel plan shows the fixed entry method, no selector), `pricing-progress`.
+
+NOT TESTED: real Android device, staging/production. Activation is unchanged from the variant work: deploy after approval, run `setup-egypt-clearance-variants.js` if the variants do not exist, set each variant's FIXED price/currency and publish it.
+## Epic #96 — Issue #101 Unified request → payment → tracking (2026-10-17, branch `claude/payment-recovery-101`, base `claude/release-integration` `821df72`)
+
+Not merged, nothing deployed, no live data touched, no migration. Most of #101 already existed (#94/#95, see the service-flow section above): FIXED total recomputed by the server (409), request-scoped 72h payment token (hash only, one request, payment facts only), duplicate prevention by `submissionKey`, payment resume after refresh, receipt → `UNDER_REVIEW` only, finance-only confirm/reject with audit and customer notification. This branch closes what was still missing.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Lost connection on submit (the server created the request, the reply was lost) | FIXED + VERIFIED (local) | The website showed the browser's English «Failed to fetch». Now an Arabic message says retrying is safe; the retry keeps the same `submissionKey` and lands on the same request's payment step (`web/src/lib/network-error.ts`; wizard, Egypt form, `/track`, payment step). e2e `payment-recovery.spec.ts`: 1 request after the dropped reply + retry (200, same id) |
+| Receipt reached the server but the reply was lost | FIXED + VERIFIED (local) | Retrying used to fail with 409 although the receipt was stored. The payment step now re-reads the payment summary and finishes when the server already has it under review (`request-payment-step.tsx`). e2e: one financial document, `UNDER_REVIEW` |
+| Rejection → reason → new receipt | VERIFIED (existing behaviour, new tests) | Backend `paymentAccess.test.js` (new test): employee 403, accountant rejects, the same link reopens the payment with the reason and the SAR/USD account, a new receipt → `UNDER_REVIEW`, the reason is cleared, the first receipt stays `REJECTED`, never confirmed. e2e: `/track` shows the reason, re-upload → under review |
+| No passport/phone on the payment link; payment never «confirmed» by a receipt | VERIFIED (existing tests) | `paymentAccess.test.js` «summary shows only payment facts», «token never confirms or rejects» |
+| App | VERIFIED (existing) | The app already shows Arabic network errors (`mobile/www/js/api.js`) and resumes the pending payment from the home screen |
+
+Tests (local, fresh DB): backend `paymentAccess` + `paymentReviewFlow` 12/12. Playwright (local) 10/10: `payment-recovery` (new), `website-payment-step`, `website-fixed-price-real`, `umrah-payment-journey`, `egypt-passport-upload`.
+
+NOT TESTED: real Android device, staging/production.
+## Epic #96 — Issue #102 Admin: open the exact request, filters, phone layout (2026-10-17, branch `claude/admin-cases-102`, base `claude/release-integration` `821df72`)
+
+Not merged, nothing deployed, no backend change, no migration. Existing and re-used (not rebuilt): `/admin/cases`, `/admin/payment-review`, `/admin/reports`, `/admin/umrah`; Umrah/Egypt service filter; payment chips; finance-only confirm/reject with reason, audit and customer notification (`paymentReviewFlow.test.js`, `rbacMatrix.test.js`); receipts linked from the payment-review queue; reports per currency (`totalsByCurrency`, `contactRequestPayments`, mixed currencies never summed); staff document isolation (`customerDataIsolation.test.js`); notification links open the exact request in the back-office (`mobile-app.spec.ts` «staff: opening the notification goes to that exact request»).
+
+| Item | Status | Evidence |
+|---|---|---|
+| A link to a request opens it (payment review «فتح الطلب», operations centre, `?requestId=`) | FIXED + VERIFIED (local) | The workspace only showed a linked request when it was among the first 50 loaded and matched the filters; otherwise the detail stayed empty. It now fetches that request on its own (same `GET /contact-requests/:id`, same roles), says it is outside the current list/filters, and shows an error for an unknown id. e2e `admin-cases-filters.spec.ts` |
+| Payment-status and date filters | ADDED + VERIFIED (local) | Server-side (`paymentStatus`, `createdFrom`, `createdTo` already supported by the list API): «كل حالات الدفع» + the payment labels, «من تاريخ» / «إلى تاريخ». e2e: outside the CONFIRMED filter the request leaves the list; tomorrow's date → empty list |
+| Phone layout | FIXED + VERIFIED (local) | The case list overflowed by 83 px at 360 px (heading + two selects on one unwrappable row). Now it wraps; e2e checks no sideways scroll at 360 px with a request open |
+
+Tests (local): Playwright `admin-cases-filters` (new) + `admin-workflow` 4/4; web `tsc`/`eslint` clean.
+
+NOT TESTED: real phone, staging.
+## Issue #103 — passport scan with mandatory review (branch `claude/passport-mrz-103`, base `claude/release-integration`)
+
+Already present before this branch: local tesseract MRZ reading (no external service), TD3 check-digit validation (an invalid MRZ returns nothing rather than a guess), the PASSPORT_OCR flag, image-size limits, and staff expiry and OCR-mismatch warnings.
+
+| Change | Evidence |
+|---|---|
+| Website traveler form: the «تعبئة البيانات من صورة الجواز» button never ran OCR, because the upload carried no requirement. It now tags the service's OCR-enabled passport requirement, and it is hidden when the service has none. | `web/e2e/passport-scan-review.spec.ts` |
+| A scan fills the name, passport number, nationality, birth date, sex and passport expiry, never overwriting typed values. The step stays blocked until the customer ticks the review box. A blurry photo falls back to manual entry. | same spec |
+| The scanned photo becomes that traveler's passport document (only if that slot is empty). The temporary draft copy is deleted after reading. | same spec: one passport per traveler, carrying the OCR result |
+| The same passport on two travelers blocks the step (client side). Staff also get the new `DUPLICATE_PASSPORT_IN_REQUEST` warning, which covers older app builds. | `caseIntelligence.test.js` |
+| Passport validity under 6 months after the travel date only warns, never blocks. No service sets its own rule yet; the backend uses the same fallback. | spec + `web/src/lib/passport-review.ts` |
+| Egypt intake: the birth date was never prefilled, because the code read `ocr.birthDate` but OCR returns `dateOfBirth`. | `egypt-clearance-intake.tsx` |
+| Blurry and wrong-checksum test images both return 422. Passport text never reaches console logs. One draft's scan is never visible from another draft. | `passportOcr.test.js` (new fixtures `passport-mrz-blurry.png`, `passport-mrz-bad-checksum.png`) |
+
+- **VERIFIED locally:** passportOcr + caseIntelligence + intakeDrafts, 37/37 on a fresh DB; Playwright `platform3` project 72/72, including `passport-scan-review.spec.ts`, against the real backend with real OCR.
+- **NOT TESTED:**
+  - a real Android device (camera capture through the browser file picker), and real passport photos (all test images are synthetic);
+  - the Android app (`mobile/www`), which has no passport scan; this branch does not add one.
+
+## Integration test: #111 → #115 → #112 → #113 → #116 → #117 → #118 → #114 (branch `claude/integration-111-118`, test only, not for merging)
+
+All local runs below are against fresh, disposable PostgreSQL databases. Nothing was merged into `release-integration` or `main`, nothing was deployed, and no live database was touched.
+
+Conflicts resolved (both sides kept in every case):
+
+| Pair | Files | Resolution |
+|---|---|---|
+| #112 + #113 | `contact-requests` / `intake-drafts` controllers, services and validators; `mobile/www/js/screens/intake.js`; `web/e2e/mobile-app.spec.ts` | Kept both features: Umrah guarantor contacts (`umrahContacts`) and the Egypt route (`egyptRoute`, error `ROUTE_INVALID`). Both are written into `intakeData`, and draft submit accepts both sets of fields. In the app form, both sections, both review rows and both validators are kept. |
+| #116 + #112 | `service-intake-wizard.tsx` | Kept both imports. |
+| #117 + #116, #118 | `web/playwright.config.ts` | Took the union of the `platform3` test lists. |
+| #118 + #112/#116 | `service-intake-wizard.tsx` | Kept all imports. The guarantor check (customer step) and the passport review check (details step) are independent. |
+| all | `TASKS.md` | Kept every section. |
+
+| Suite | Result |
+|---|---|
+| Backend full (`node --test`, fresh DB) | **911/911** |
+| Web `tsc` + `eslint` | clean |
+| Web production build | ok with `next build --webpack`. Turbopack refuses this local worktree's symlinked `node_modules` (setup only); CI builds with a real install. |
+| Mobile `npm run check` + unit tests | ok, **88/88** |
+| Playwright `mobile-web`, `mobile-frontend`, `platform3`, `mobile-app` (CI projects and env, fresh seeded DB) | **111/111** |
+
+NOT TESTED:
+- real Android device;
+- staging backup/restore;
+- the Vercel check, which fails on every PR with "Account is blocked".
 
 ## BLOCKED (needs owner / infrastructure)
 

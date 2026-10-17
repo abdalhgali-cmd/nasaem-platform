@@ -21,7 +21,7 @@ export const WORKFLOW_INCLUDE = {
   documents: { orderBy: { createdAt: "desc" } },
   travelers: { orderBy: { sortOrder: "asc" } },
   deliverables: { orderBy: { createdAt: "desc" } },
-  serviceRef: { select: { id: true, name: true, category: true } },
+  serviceRef: { select: { id: true, name: true, category: true, features: true } },
   visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
   // Open system tasks: the Egypt travel-plan tasks gate completion.
   tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true, systemKey: true } },

@@ -23,6 +23,7 @@ import {
   type PaymentSummary,
 } from "@/components/sections/request-payment-step";
 import { API_URL } from "@/lib/api-url";
+import { customerErrorMessage } from "@/lib/network-error";
 
 export type EgyptClearanceRequirement = {
   id: string;
@@ -48,6 +49,7 @@ export type EgyptFixedPrice = {
   currency: string;
   priceUnit: "PER_REQUEST" | "PER_TRAVELER";
   paymentAfterDocumentReview: boolean;
+  priceSdg?: number | null;
 };
 
 type Props = {
@@ -102,6 +104,12 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
   const [passportNo, setPassportNo] = React.useState("");
   const [birthDate, setBirthDate] = React.useState("");
   const [entryMode, setEntryMode] = React.useState<EntryMode>(fixedEntryMode);
+  // Route of the trip, editable (backend egypt-clearance-variants.js
+  // resolveEgyptRoute): by air from Port Sudan to Cairo airport by default,
+  // over land the entry point.
+  const [departureCity, setDepartureCity] = React.useState("بورتسودان");
+  const [arrivalAirport, setArrivalAirport] = React.useState("القاهرة");
+  const [entryPort, setEntryPort] = React.useState("");
   // One traveler per request here: per-traveler and per-request totals match.
   const [total, setTotal] = React.useState({ amount: Math.round(fixedPrice.unitPrice * 100) / 100, currency: fixedPrice.currency });
   const [totalConfirmed, setTotalConfirmed] = React.useState(false);
@@ -333,10 +341,10 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
         const extractedName = [ocr.givenNames, ocr.surname].filter(Boolean).join(" ").trim();
         if (extractedName && !name) setName(extractedName);
         if (ocr.documentNumber && !passportNo) setPassportNo(ocr.documentNumber);
-        if (ocr.birthDate && !birthDate) setBirthDate(ocr.birthDate);
+        if (ocr.dateOfBirth && !birthDate) setBirthDate(ocr.dateOfBirth);
       }
     } catch (uploadError) {
-      setPassportError(uploadError instanceof Error ? uploadError.message : "تعذّر رفع صورة الجواز");
+      setPassportError(customerErrorMessage(uploadError, "تعذّر رفع صورة الجواز"));
     } finally {
       setUploading(false);
     }
@@ -348,6 +356,8 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
     if (!passportNo.trim()) return "رقم الجواز مطلوب";
     if (!birthDate) return "تاريخ الميلاد مطلوب";
     if (!entryMode) return "اختر طريقة الدخول إلى مصر";
+    if (fixedEntryMode === "AIR" && (!departureCity.trim() || !arrivalAirport.trim())) return "أدخل جهة القدوم ومطار الوصول";
+    if (fixedEntryMode === "BORDER" && !entryPort.trim()) return "أدخل منفذ الدخول";
     if (!passportDocumentId) return "صورة جواز السفر مطلوبة";
     if (!totalConfirmed) return "أكّد الإجمالي النهائي وعملته قبل الإرسال";
     return null;
@@ -369,6 +379,9 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
           message: "طلب الموافقة الأمنية لمصر — مرحلة الموافقة الأساسية",
           acceptedTotal: total.amount.toFixed(2),
           acceptedCurrency: total.currency,
+          ...(fixedEntryMode === "AIR"
+            ? { departureCity: departureCity.trim(), arrivalAirport: arrivalAirport.trim() }
+            : { entryPort: entryPort.trim() }),
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -394,7 +407,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
         // Submission already succeeded.
       }
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "تعذّر إرسال الطلب");
+      setError(customerErrorMessage(submitError, "تعذّر إرسال الطلب"));
     } finally {
       setSubmitting(false);
     }
@@ -478,6 +491,23 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
           <span className="flex items-center gap-2 text-sm font-bold text-foreground"><Mail className="size-4" /> البريد الإلكتروني <span className="font-normal text-muted-foreground">(اختياري)</span></span>
           <input value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} placeholder="name@example.com" type="email" autoComplete="email" />
         </label>
+        {fixedEntryMode === "AIR" ? (
+          <>
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-bold text-foreground">جهة القدوم *</span>
+              <input value={departureCity} onChange={(event) => setDepartureCity(event.target.value)} className={inputClass} maxLength={80} data-testid="egypt-departure-city" />
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-bold text-foreground">مطار الوصول *</span>
+              <input value={arrivalAirport} onChange={(event) => setArrivalAirport(event.target.value)} className={inputClass} maxLength={80} data-testid="egypt-arrival-airport" />
+            </label>
+          </>
+        ) : (
+          <label className="flex flex-col gap-2 sm:col-span-2">
+            <span className="text-sm font-bold text-foreground">منفذ الدخول *</span>
+            <input value={entryPort} onChange={(event) => setEntryPort(event.target.value)} className={inputClass} maxLength={80} placeholder="اسم المنفذ البري" data-testid="egypt-entry-port" />
+          </label>
+        )}
       </div>
 
       <div className="mt-7 rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
@@ -565,7 +595,12 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
       <div className="mt-7 rounded-2xl border border-border p-4 text-sm" data-testid="egypt-review">
         <p className="font-bold text-foreground">راجع بياناتك قبل الإرسال</p>
         <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">نوع الموافقة</dt><dd className="font-semibold text-foreground">{entryMode === "AIR" ? "دخول بالطيران" : entryMode === "BORDER" ? "دخول عبر المعبر" : "—"}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-foreground">نوع الموافقة</dt><dd className="font-semibold text-foreground">{entryMode === "AIR" ? "جوي — مطار القاهرة" : entryMode === "BORDER" ? "بري — المعبر" : "—"}</dd></div>
+          {fixedEntryMode === "AIR" ? (
+            <div className="flex justify-between gap-3"><dt className="text-muted-foreground">خط السير</dt><dd className="font-semibold text-foreground" data-testid="egypt-review-route">{departureCity || "—"} ← {arrivalAirport || "—"}</dd></div>
+          ) : (
+            <div className="flex justify-between gap-3"><dt className="text-muted-foreground">منفذ الدخول</dt><dd className="font-semibold text-foreground" data-testid="egypt-review-route">{entryPort || "—"}</dd></div>
+          )}
           <div className="flex justify-between gap-3"><dt className="text-muted-foreground">الاسم</dt><dd className="font-semibold text-foreground">{name || "—"}</dd></div>
           <div className="flex justify-between gap-3"><dt className="text-muted-foreground">الهاتف</dt><dd className="font-semibold text-foreground" dir="ltr">{phone || "—"}</dd></div>
           <div className="flex justify-between gap-3"><dt className="text-muted-foreground">رقم الجواز</dt><dd className="font-semibold text-foreground" dir="ltr">{passportNo || "—"}</dd></div>
