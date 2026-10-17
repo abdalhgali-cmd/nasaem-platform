@@ -124,6 +124,36 @@ describe("payment straight after submission", () => {
     assert.ok(audit.some((row) => /PAYMENT_CONFIRMED/.test(row.action)), JSON.stringify(audit.map((row) => row.action)));
   });
 
+  test("a rejected receipt reopens the payment on the same link with the reason; a new receipt goes back under review", async () => {
+    const visaType = await visa({ pricingMode: "FIXED" });
+    const created = await submit({ phone: testPhone(), visaType, acceptedTotal: "200.00", acceptedCurrency: "USD" });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const { id, paymentAccess } = created.body.data;
+    assert.equal((await uploadWith(id, paymentAccess.token)).status, 201);
+
+    assert.equal((await employee.post(`/api/contact-requests/${id}/reject-payment`).send({ reason: "TEST-WF المبلغ غير مطابق" })).status, 403, "only finance rejects");
+    const rejected = await accountant.post(`/api/contact-requests/${id}/reject-payment`).send({ reason: "TEST-WF المبلغ غير مطابق" });
+    assert.equal(rejected.status, 200, JSON.stringify(rejected.body));
+
+    const reopened = await access(id, paymentAccess.token);
+    assert.equal(reopened.status, 200, JSON.stringify(reopened.body));
+    assert.equal(reopened.body.data.paymentStatus, "AWAITING_TRANSFER");
+    assert.equal(reopened.body.data.paymentOpen, true);
+    assert.equal(reopened.body.data.rejectionReason, "TEST-WF المبلغ غير مطابق");
+    assert.ok(reopened.body.data.accounts.some((row) => row.id === account.id), "the account is shown again");
+
+    const again = await uploadWith(id, paymentAccess.token);
+    assert.equal(again.status, 201, JSON.stringify(again.body));
+    assert.equal(again.body.data.request.paymentStatus, "UNDER_REVIEW");
+    assert.equal(again.body.data.request.rejectionReason, null, "the old reason is cleared");
+    const stored = await prisma.contactRequest.findUnique({ where: { id }, include: { documents: true } });
+    assert.equal(stored.paymentStatus, "UNDER_REVIEW");
+    assert.equal(stored.paymentConfirmedAt, null, "never paid by a receipt");
+    const receipts = stored.documents.filter((d) => d.classification === "FINANCIAL_DOCUMENT");
+    assert.equal(receipts.length, 2);
+    assert.equal(receipts.filter((d) => d.status === "REJECTED").length, 1, "the first receipt stays recorded as rejected");
+  });
+
   test("the token opens only its own request; wrong, missing or expired tokens are refused", async () => {
     const visaType = await visa({ pricingMode: "FIXED" });
     const first = await submit({ phone: testPhone(), visaType, acceptedTotal: "200.00", acceptedCurrency: "USD" });

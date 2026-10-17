@@ -136,6 +136,22 @@ Local on `b37ccee` (fresh PostgreSQL, migrate + seed as CI): backend **893/893**
 
 Production gate NOT passed: no production backup yet (owner, 2026-10-13), production branch/Vercel project not verified, Vercel account blocked. No merge into `main`, no deploy, no DB change, no Android distribution.
 
+## Epic #96 — Issue #101 Unified request → payment → tracking (2026-10-17, branch `claude/payment-recovery-101`, base `claude/release-integration` `821df72`)
+
+Not merged, nothing deployed, no live data touched, no migration. Most of #101 already existed (#94/#95, see the service-flow section above): FIXED total recomputed by the server (409), request-scoped 72h payment token (hash only, one request, payment facts only), duplicate prevention by `submissionKey`, payment resume after refresh, receipt → `UNDER_REVIEW` only, finance-only confirm/reject with audit and customer notification. This branch closes what was still missing.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Lost connection on submit (the server created the request, the reply was lost) | FIXED + VERIFIED (local) | The website showed the browser's English «Failed to fetch». Now an Arabic message says retrying is safe; the retry keeps the same `submissionKey` and lands on the same request's payment step (`web/src/lib/network-error.ts`; wizard, Egypt form, `/track`, payment step). e2e `payment-recovery.spec.ts`: 1 request after the dropped reply + retry (200, same id) |
+| Receipt reached the server but the reply was lost | FIXED + VERIFIED (local) | Retrying used to fail with 409 although the receipt was stored. The payment step now re-reads the payment summary and finishes when the server already has it under review (`request-payment-step.tsx`). e2e: one financial document, `UNDER_REVIEW` |
+| Rejection → reason → new receipt | VERIFIED (existing behaviour, new tests) | Backend `paymentAccess.test.js` (new test): employee 403, accountant rejects, the same link reopens the payment with the reason and the SAR/USD account, a new receipt → `UNDER_REVIEW`, the reason is cleared, the first receipt stays `REJECTED`, never confirmed. e2e: `/track` shows the reason, re-upload → under review |
+| No passport/phone on the payment link; payment never «confirmed» by a receipt | VERIFIED (existing tests) | `paymentAccess.test.js` «summary shows only payment facts», «token never confirms or rejects» |
+| App | VERIFIED (existing) | The app already shows Arabic network errors (`mobile/www/js/api.js`) and resumes the pending payment from the home screen |
+
+Tests (local, fresh DB): backend `paymentAccess` + `paymentReviewFlow` 12/12. Playwright (local) 10/10: `payment-recovery` (new), `website-payment-step`, `website-fixed-price-real`, `umrah-payment-journey`, `egypt-passport-upload`.
+
+NOT TESTED: real Android device, staging/production.
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.
