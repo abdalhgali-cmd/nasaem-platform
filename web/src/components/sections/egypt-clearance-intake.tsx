@@ -23,6 +23,7 @@ import {
   type PaymentSummary,
 } from "@/components/sections/request-payment-step";
 import { API_URL } from "@/lib/api-url";
+import { customerErrorMessage } from "@/lib/network-error";
 
 export type EgyptClearanceRequirement = {
   id: string;
@@ -343,7 +344,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
         if (ocr.birthDate && !birthDate) setBirthDate(ocr.birthDate);
       }
     } catch (uploadError) {
-      setPassportError(uploadError instanceof Error ? uploadError.message : "تعذّر رفع صورة الجواز");
+      setPassportError(customerErrorMessage(uploadError, "تعذّر رفع صورة الجواز"));
     } finally {
       setUploading(false);
     }
@@ -406,7 +407,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
         // Submission already succeeded.
       }
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "تعذّر إرسال الطلب");
+      setError(customerErrorMessage(submitError, "تعذّر إرسال الطلب"));
     } finally {
       setSubmitting(false);
     }

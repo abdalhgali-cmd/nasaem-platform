@@ -182,6 +182,21 @@ Not merged, nothing deployed, no live data touched. **No migration.** Builds on 
 Tests (local, fresh DB): backend `egyptClearanceVariants.test.js` 12/12 (5 new: route rules, stored route incl. older-client defaults and overlong refusal, draft route, variant travel plan fixed/mismatch, original item still asks). Backend full suite 897/897 (fresh DB). Mobile unit 85/85. Playwright (local) 29/29: `egypt-passport-upload` (labels, air defaults edited, land entry point, stored route, price change), `mobile-app` (labels, route stored), `service-journeys` (Egypt AIR travel plan shows the fixed entry method, no selector), `pricing-progress`.
 
 NOT TESTED: real Android device, staging/production. Activation is unchanged from the variant work: deploy after approval, run `setup-egypt-clearance-variants.js` if the variants do not exist, set each variant's FIXED price/currency and publish it.
+## Epic #96 — Issue #101 Unified request → payment → tracking (2026-10-17, branch `claude/payment-recovery-101`, base `claude/release-integration` `821df72`)
+
+Not merged, nothing deployed, no live data touched, no migration. Most of #101 already existed (#94/#95, see the service-flow section above): FIXED total recomputed by the server (409), request-scoped 72h payment token (hash only, one request, payment facts only), duplicate prevention by `submissionKey`, payment resume after refresh, receipt → `UNDER_REVIEW` only, finance-only confirm/reject with audit and customer notification. This branch closes what was still missing.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Lost connection on submit (the server created the request, the reply was lost) | FIXED + VERIFIED (local) | The website showed the browser's English «Failed to fetch». Now an Arabic message says retrying is safe; the retry keeps the same `submissionKey` and lands on the same request's payment step (`web/src/lib/network-error.ts`; wizard, Egypt form, `/track`, payment step). e2e `payment-recovery.spec.ts`: 1 request after the dropped reply + retry (200, same id) |
+| Receipt reached the server but the reply was lost | FIXED + VERIFIED (local) | Retrying used to fail with 409 although the receipt was stored. The payment step now re-reads the payment summary and finishes when the server already has it under review (`request-payment-step.tsx`). e2e: one financial document, `UNDER_REVIEW` |
+| Rejection → reason → new receipt | VERIFIED (existing behaviour, new tests) | Backend `paymentAccess.test.js` (new test): employee 403, accountant rejects, the same link reopens the payment with the reason and the SAR/USD account, a new receipt → `UNDER_REVIEW`, the reason is cleared, the first receipt stays `REJECTED`, never confirmed. e2e: `/track` shows the reason, re-upload → under review |
+| No passport/phone on the payment link; payment never «confirmed» by a receipt | VERIFIED (existing tests) | `paymentAccess.test.js` «summary shows only payment facts», «token never confirms or rejects» |
+| App | VERIFIED (existing) | The app already shows Arabic network errors (`mobile/www/js/api.js`) and resumes the pending payment from the home screen |
+
+Tests (local, fresh DB): backend `paymentAccess` + `paymentReviewFlow` 12/12. Playwright (local) 10/10: `payment-recovery` (new), `website-payment-step`, `website-fixed-price-real`, `umrah-payment-journey`, `egypt-passport-upload`.
+
+NOT TESTED: real Android device, staging/production.
 
 ## BLOCKED (needs owner / infrastructure)
 

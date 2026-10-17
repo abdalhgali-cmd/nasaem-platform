@@ -6,6 +6,7 @@ import * as React from "react";
 import { Check, Copy, Landmark, Loader2, Send, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
+import { customerErrorMessage, isNetworkError } from "@/lib/network-error";
 
 // The payment step straight after a fixed-price submission (backend
 // contact-request-payment-access): the amount and currency the customer
@@ -144,7 +145,7 @@ export function RequestPaymentStep({
       if (!res.ok || !payload?.success) throw new Error(payload?.message || "تعذّر تحميل بيانات الدفع");
       setSummary(payload.data as PaymentSummary);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "تعذّر تحميل بيانات الدفع");
+      setLoadError(customerErrorMessage(error, "تعذّر تحميل بيانات الدفع"));
     } finally {
       setLoading(false);
     }
@@ -190,12 +191,36 @@ export function RequestPaymentStep({
         body: form,
       });
       const payload = await res.json().catch(() => null);
-      if (!res.ok || !payload?.success) throw new Error(payload?.message || "تعذّر رفع إشعار التحويل، حاول مرة أخرى");
+      if (!res.ok || !payload?.success) {
+        // The receipt may have arrived on an earlier attempt whose reply was
+        // lost: if the server already has it under review, that is success.
+        if (res.status === 409 && (await receiptAlreadyUnderReview())) return;
+        throw new Error(payload?.message || "تعذّر رفع إشعار التحويل، حاول مرة أخرى");
+      }
       onFinished((payload.data?.request as PaymentSummary) ?? summary, "RECEIPT_SENT");
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "تعذّر رفع إشعار التحويل، حاول مرة أخرى");
+      if (isNetworkError(error) && (await receiptAlreadyUnderReview())) return;
+      setSendError(customerErrorMessage(error, "تعذّر رفع إشعار التحويل، حاول مرة أخرى"));
       sendingRef.current = false;
       setSending(false);
+    }
+  }
+
+  // Re-reads the payment summary; true (and finishes the step) when the
+  // server already holds a receipt for this request.
+  async function receiptAlreadyUnderReview() {
+    try {
+      const res = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(requestId)}/payment-access`, {
+        headers: { "X-Payment-Access": access.token },
+        cache: "no-store",
+      });
+      const payload = await res.json().catch(() => null);
+      const current = payload?.data as PaymentSummary | undefined;
+      if (!res.ok || current?.paymentStatus !== "UNDER_REVIEW") return false;
+      onFinished(current, "RECEIPT_SENT");
+      return true;
+    } catch {
+      return false;
     }
   }
 

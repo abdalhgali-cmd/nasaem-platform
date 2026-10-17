@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
 import { UMRAH_KIND_LABELS, isValidContactPhone, umrahPackageDetails } from "@/lib/umrah-package";
+import { customerErrorMessage } from "@/lib/network-error";
 import {
   RequestPaymentStep,
   clearPendingPayment,
@@ -1265,7 +1266,9 @@ export function ServiceIntakeWizard({
         paymentAccess,
       });
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى");
+      // A dropped connection keeps the same submissionKey: a retry returns
+      // the request the server may already have created, never a second one.
+      setSubmitError(customerErrorMessage(error, "تعذّر إرسال طلبك، حاول مرة أخرى"));
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
