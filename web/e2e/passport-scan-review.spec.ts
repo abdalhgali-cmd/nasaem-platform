@@ -56,7 +56,12 @@ test("passport scan fills the traveler, needs review, and flags duplicates and s
     await expect(page.getByTestId("traveler-gender-0")).toHaveValue("MALE");
     await expect(page.getByTestId("traveler-passport-expiry-0")).toHaveValue("2030-01-01");
     await expect(next).toBeDisabled();
-    await page.getByTestId("passport-review-confirm-0").check();
+    const confirm = page.getByTestId("passport-review-confirm-0");
+    await confirm.check();
+    await expect(next).toBeEnabled();
+    await confirm.uncheck();
+    await expect(next).toBeDisabled();
+    await confirm.check();
     await expect(next).toBeEnabled();
 
     // A blurry photo is never guessed at: the customer types the data.

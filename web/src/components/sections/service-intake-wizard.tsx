@@ -1692,15 +1692,14 @@ export function ServiceIntakeWizard({
                     {scanMessageByTraveler[index] ? (
                       <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
                     ) : null}
-                    {traveler.ocrPending ? (
+                    {traveler.ocrPending || traveler.ocrConfirmed ? (
                       <label className="mt-2 flex items-start gap-2 rounded-lg border border-accent/50 bg-accent/5 p-2 text-xs font-semibold text-foreground">
                         <input
                           type="checkbox"
                           data-testid={`passport-review-confirm-${index}`}
                           className="mt-0.5"
-                          onChange={(e) => {
-                            if (e.target.checked) updateTraveler(index, { ocrPending: false, ocrConfirmed: true });
-                          }}
+                          checked={Boolean(traveler.ocrConfirmed)}
+                          onChange={(e) => updateTraveler(index, { ocrPending: !e.target.checked, ocrConfirmed: e.target.checked })}
                         />
                         راجعتُ البيانات المقروءة من الجواز وهي مطابقة للجواز.
                       </label>
