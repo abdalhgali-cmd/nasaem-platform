@@ -18,7 +18,18 @@ import { attachAirlineLogos } from "./flights.enrichment.js";
 export async function searchFlights(req, res, next) {
   try {
     const tripType = String(req.query.tripType || "ONE_WAY").toUpperCase();
-    const travelers = Math.max(1, Number(req.query.travelers || req.query.guests || 1));
+    if (!["ONE_WAY", "ROUND_TRIP", "MULTI_CITY"].includes(tripType)) {
+      return res.status(400).json({ success: false, message: "Invalid tripType" });
+    }
+    const passengers = {
+      adults: Math.max(1, Number(req.query.adults || req.query.travelers || req.query.guests || 1)),
+      children: Math.max(0, Number(req.query.children || 0)),
+      infants: Math.max(0, Number(req.query.infants || 0)),
+    };
+    const travelers = passengers.adults + passengers.children + passengers.infants;
+    if (!Object.values(passengers).every(Number.isInteger) || travelers > 9 || passengers.infants > passengers.adults) {
+      return res.status(400).json({ success: false, message: "Invalid passenger counts" });
+    }
     let legs;
     try {
       legs = req.query.legs ? JSON.parse(req.query.legs) : [{ from: req.query.from, to: req.query.to, departureDate: req.query.date }];
@@ -32,14 +43,20 @@ export async function searchFlights(req, res, next) {
       if (!req.query.returnDate) return res.status(400).json({ success: false, message: "returnDate is required for round trip" });
       legs = [legs[0], { from: legs[0].to, to: legs[0].from, departureDate: req.query.returnDate }];
     }
+    const dates = legs.map((leg) => new Date(`${leg.departureDate}T00:00:00Z`));
+    if (legs.some((leg, index) => leg.from.trim().toLowerCase() === leg.to.trim().toLowerCase()
+      || Number.isNaN(dates[index].getTime())
+      || (index > 0 && dates[index] < dates[index - 1]))) {
+      return res.status(400).json({ success: false, message: "Flight legs must use different airports and chronological dates" });
+    }
 
     const manual = await searchManualFlights(legs);
     // Platform 3.0 Phase 12: cached wrapper around the Trip.com call (see
     // flights.cache.js) — the request/response shape to Trip.com itself
     // is unchanged, only duplicate identical searches within a short
     // window are deduplicated.
-    const tripCacheKey = JSON.stringify({ legs, travelers });
-    const trip = await withTripSearchCache(tripCacheKey, () => searchTripFlights({ legs, travelers }));
+    const tripCacheKey = JSON.stringify({ legs, travelers, passengers });
+    const trip = await withTripSearchCache(tripCacheKey, () => searchTripFlights({ legs, travelers, passengers }));
     let allLegs = legs.map((_, index) => ({
       leg: index + 1,
       manual: manual[index] ?? [],
@@ -47,7 +64,7 @@ export async function searchFlights(req, res, next) {
     }));
     allLegs = await attachAirlineLogos(allLegs);
 
-    return res.json({ success: true, tripConfigured: trip.configured, tripType, travelers, currency: "SDG", legs: allLegs });
+    return res.json({ success: true, tripConfigured: trip.configured, tripType, travelers, passengers, currency: "SDG", legs: allLegs });
   } catch (error) {
     next(error);
   }
