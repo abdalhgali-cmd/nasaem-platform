@@ -149,7 +149,7 @@ Not merged, nothing deployed, no live data touched. **No migration.** Builds on 
 | Price and entry method protected by the server (409) | VERIFIED (existing) | `egyptClearanceVariants.test.js` tampering test (other variant's price, wrong currency → 409, nothing created) |
 | Unconfigured price / unpublished type not accepted; old requests intact | VERIFIED (existing + new) | Unbookable-variant tests; original-item requests keep their behaviour (travel plan still asks the entry method) |
 
-Tests (local, fresh DB): backend `egyptClearanceVariants.test.js` 12/12 (5 new: route rules, stored route incl. older-client defaults and overlong refusal, draft route, variant travel plan fixed/mismatch, original item still asks). Mobile unit 85/85. Browser: see the PR.
+Tests (local, fresh DB): backend `egyptClearanceVariants.test.js` 12/12 (5 new: route rules, stored route incl. older-client defaults and overlong refusal, draft route, variant travel plan fixed/mismatch, original item still asks). Backend full suite 897/897 (fresh DB). Mobile unit 85/85. Playwright (local) 29/29: `egypt-passport-upload` (labels, air defaults edited, land entry point, stored route, price change), `mobile-app` (labels, route stored), `service-journeys` (Egypt AIR travel plan shows the fixed entry method, no selector), `pricing-progress`.
 
 NOT TESTED: real Android device, staging/production. Activation is unchanged from the variant work: deploy after approval, run `setup-egypt-clearance-variants.js` if the variants do not exist, set each variant's FIXED price/currency and publish it.
 
