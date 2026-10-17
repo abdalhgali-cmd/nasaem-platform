@@ -42,6 +42,8 @@ async function answerAgencyQuestions(page: Page) {
 async function fillData(page: Page, { name, phone, travelers }: { name: string; phone: string; travelers: string[] }) {
   await page.fill('[name="name"]', name);
   await page.fill('[name="phone"]', phone);
+  // Umrah asks for the guarantor's phone (required).
+  if (await page.locator('[name="guarantorPhone"]').count()) await page.fill('[name="guarantorPhone"]', "+966501234567");
   await page.fill("#travelerCount", String(travelers.length));
   await page.dispatchEvent("#travelerCount", "change");
   for (const [index, traveler] of travelers.entries()) {

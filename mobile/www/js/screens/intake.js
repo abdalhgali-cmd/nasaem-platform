@@ -11,6 +11,7 @@ import {
 } from "../intake-core.js";
 import { setTrackingPrefill } from "../tracking.js";
 import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-view.js";
+import { umrahNeedsGuarantor, validateUmrahContacts } from "../umrah-view.js";
 import { selectOptions } from "../egypt-view.js";
 
 const ALLOWED_DOC_ACCEPT = "image/*,.pdf";
@@ -157,8 +158,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       notes: `طلب ${item.name}`,
       travelers: [{ fullName: customer?.fullName || "", passportNo: "", nationality: "" }],
       answers: {},
+      guarantorPhone: "",
+      extraContactName: "",
+      extraContactPhone: "",
     },
   };
+  const needsGuarantor = umrahNeedsGuarantor(item);
   const draft = readDraft(storageKey);
   const restored = Boolean(draft);
   if (draft) Object.assign(state.values, draft.values, { travelers: draft.values.travelers?.length ? draft.values.travelers : state.values.travelers });
@@ -215,6 +220,11 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     state.values.name = read("name").trim();
     state.values.phone = read("phone").trim();
     state.values.email = read("email").trim();
+    if (needsGuarantor) {
+      state.values.guarantorPhone = read("guarantorPhone").trim();
+      state.values.extraContactName = read("extraContactName").trim();
+      state.values.extraContactPhone = read("extraContactPhone").trim();
+    }
     const count = Math.max(1, Math.min(maxTravelers, Number(read("travelerCount")) || state.values.travelers.length));
     const travelers = [];
     for (let i = 0; i < count; i += 1) {
@@ -262,12 +272,22 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       <section class="form-section">
         <h3>بيانات التواصل</h3>
         <p class="field-hint">لا تحتاج إلى حساب. نستخدم رقم هاتفك للتواصل معك ولمتابعة طلبك برمز تحقق عبر واتساب.</p>
-        <label class="field"><span>الاسم الكامل *</span><input name="name" value="${esc(v.name)}" autocomplete="name"></label>
+        <label class="field"><span>${needsGuarantor ? "اسم مقدم الطلب *" : "الاسم الكامل *"}</span><input name="name" value="${esc(v.name)}" autocomplete="name"></label>
         <div class="field-row">
           <label class="field"><span>رقم الهاتف *</span><input name="phone" inputmode="tel" dir="ltr" value="${esc(v.phone)}" autocomplete="tel"></label>
           <label class="field"><span>البريد الإلكتروني (اختياري)</span><input name="email" type="email" dir="ltr" value="${esc(v.email)}" autocomplete="email"></label>
         </div>
       </section>
+      ${needsGuarantor ? `
+        <section class="form-section" id="umrahContactsSection">
+          <h3>الضامن وجهة اتصال إضافية</h3>
+          <label class="field"><span>رقم هاتف الضامن *</span><input name="guarantorPhone" inputmode="tel" dir="ltr" value="${esc(v.guarantorPhone || "")}" autocomplete="off"></label>
+          <p class="field-hint">صاحب الإقامة التي ترفعها في خطوة المستندات.</p>
+          <div class="field-row">
+            <label class="field"><span>جهة اتصال إضافية (اختياري)</span><input name="extraContactName" value="${esc(v.extraContactName || "")}" autocomplete="off"></label>
+            <label class="field"><span>هاتفها</span><input name="extraContactPhone" inputmode="tel" dir="ltr" value="${esc(v.extraContactPhone || "")}" autocomplete="off"></label>
+          </div>
+        </section>` : ""}
       <section class="form-section">
         <h3>المسافرون</h3>
         <label class="field">
@@ -387,6 +407,8 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         <div class="review-row"><span>الاسم</span><b>${esc(v.name)}</b></div>
         <div class="review-row"><span>الهاتف</span><b dir="ltr">${esc(v.phone)}</b></div>
         ${v.email ? `<div class="review-row"><span>البريد</span><b dir="ltr">${esc(v.email)}</b></div>` : ""}
+        ${needsGuarantor ? `<div class="review-row"><span>هاتف الضامن</span><b dir="ltr" id="reviewGuarantorPhone">${esc(v.guarantorPhone)}</b></div>` : ""}
+        ${needsGuarantor && v.extraContactPhone ? `<div class="review-row"><span>جهة اتصال إضافية</span><b>${esc(v.extraContactName ? `${v.extraContactName} — ` : "")}<bdi>${esc(v.extraContactPhone)}</bdi></b></div>` : ""}
       </section>
       ${v.travelers.map((traveler, index) => `
         <section class="form-section review">
@@ -442,6 +464,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       syncData();
       const messages = [
         ...Object.values(validateContact(state.values)),
+        ...(needsGuarantor ? validateUmrahContacts(state.values) : []),
         ...Object.values(validateTravelers(state.values.travelers)),
         ...missingAnswers(requirements, state.values.answers).filter((m) => answerRequirements().some((r) => r.id === m.key)).map((m) => m.message),
       ];
@@ -489,6 +512,13 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     payload.set("name", v.name);
     payload.set("phone", v.phone);
     if (v.email) payload.set("email", v.email);
+    if (needsGuarantor) {
+      payload.set("guarantorPhone", v.guarantorPhone);
+      if (v.extraContactPhone) {
+        payload.set("extraContactName", v.extraContactName || "");
+        payload.set("extraContactPhone", v.extraContactPhone);
+      }
+    }
     payload.set("service", item.name);
     if (item.id) payload.set(item.isVisaType ? "visaTypeId" : "serviceId", item.id);
     if (item.serviceId) payload.set("serviceId", item.serviceId);

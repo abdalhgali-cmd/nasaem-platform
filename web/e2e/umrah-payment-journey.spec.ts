@@ -12,18 +12,30 @@ import { loginAsSeededAdmin } from "./helpers";
 const BACKEND = "http://localhost:5000";
 const FIXTURE = path.join(__dirname, "fixtures", "sample-document.png");
 
-test("Umrah: fixed price → documents → summary → payment → receipt under review → staff confirm", async ({ page }) => {
+// Issue #99: the three package types, each from the package card to the
+// delivery: visa only («جارٍ إصدار التأشيرة»), flight and sea services
+// («جارٍ إصدار التذاكر»). Two pilgrims, the guarantor's phone required.
+const KINDS = [
+  { kind: "VISA_ONLY", label: "تأشيرة فقط", included: "إصدار تأشيرة العمرة", execution: "جارٍ إصدار التأشيرة" },
+  { kind: "AIR", label: "مع خدمات الطيران", included: "تذاكر الطيران", execution: "جارٍ إصدار التذاكر" },
+  { kind: "SEA", label: "مع خدمات البحر", included: "تذاكر العبّارة", execution: "جارٍ إصدار التذاكر" },
+] as const;
+
+for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guarantor → fixed total → payment → receipt under review → ${type.execution} → delivery`, async ({ page }) => {
   await loginAsSeededAdmin(page);
   const admin = page.request;
   const stamp = `${Date.now()}`.slice(-8);
-  const code = `E2E-UMRAH-PAY-${stamp}`;
-  const packageName = `باقة عمرة دفع E2E ${stamp}`;
+  const code = `E2E-UMRAH-PAY-${type.kind}-${stamp}`;
+  const packageName = `باقة عمرة ${type.label} E2E ${stamp}`;
   const customer = `معتمر اختبار ${stamp}`;
   const accountNumber = `E2EUMR${stamp}`;
   const created: { services: string[]; accounts: string[] } = { services: [], accounts: [] };
 
   const pkg = await admin.post(`${BACKEND}/api/services`, {
-    data: { code, name: packageName, category: "UMRAH_PACKAGE", basePrice: 2500, currency: "SAR", active: true, pricingMode: "FIXED", priceUnit: "PER_REQUEST" },
+    data: {
+      code, name: packageName, category: "UMRAH_PACKAGE", basePrice: 1250, currency: "SAR", active: true, pricingMode: "FIXED", priceUnit: "PER_TRAVELER",
+      features: [`KIND: ${type.kind}`, `INCLUDED: ${type.included}`, "EXCLUDED: السكن"],
+    },
   });
   expect(pkg.ok(), await pkg.text()).toBeTruthy();
   const packageId = (await pkg.json()).data.id as string;
@@ -48,22 +60,37 @@ test("Umrah: fixed price → documents → summary → payment → receipt under
   try {
     await page.goto(`/umrah?package=${code}`);
     await expect(page.getByRole("heading", { name: "اختر الباقة", exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator("button").filter({ hasText: packageName })).toBeVisible();
+    const card = page.locator("button").filter({ hasText: packageName });
+    await expect(card).toBeVisible();
+    // The card: type, the exact fixed price per pilgrim, what is and is not included.
+    await expect(card.getByTestId("package-kind")).toHaveText(type.label);
+    await expect(card.getByTestId("package-price")).toHaveText("السعر: 1,250 SAR للمعتمر");
+    await expect(card.getByTestId("package-included")).toContainText(type.included);
+    await expect(card.getByTestId("package-excluded")).toContainText("السكن");
+    await expect(card).not.toContainText("يبدأ من");
     await page.getByRole("button", { name: "التالي" }).click();
 
-    // Applicant first, then the trip, then the pilgrims.
+    // Applicant and guarantor first, then the trip, then the pilgrims.
     await page.getByPlaceholder("اسمك الكامل").fill(customer);
     await page.getByPlaceholder("+249 9XX XXX XXX").fill(`+2499${stamp}`);
-    await page.getByRole("button", { name: "التالي" }).click();
+    const next = page.getByRole("button", { name: "التالي" });
+    await expect(next, "the guarantor's phone is required").toBeDisabled();
+    await page.getByTestId("umrah-guarantor-phone").fill("+966 50 123 4567");
+    await page.getByTestId("umrah-extra-contact-name").fill("قريب المعتمر");
+    await page.getByTestId("umrah-extra-contact-phone").fill("0912345678");
+    await next.click();
     await expect(page.getByRole("heading", { name: "متى ترغب في أداء العمرة؟" })).toBeVisible();
+    await page.locator('input[type="number"]').fill("2");
     await page.getByRole("button", { name: "التالي" }).click();
     await page.getByPlaceholder("اسم المسافر 1").fill(customer);
+    await page.getByPlaceholder("اسم المسافر 2").fill(`${customer} الثاني`);
     await page.getByRole("button", { name: "التالي" }).click();
 
     // Documents from the admin checklist: passport + guarantor residence, no personal photo.
     await expect(page.getByText("إقامة الضامن").first()).toBeVisible();
     await expect(page.getByText("الصورة الشخصية")).toHaveCount(0);
-    for (let i = 0; i < 2; i += 1) {
+    // each pilgrim's passport + the guarantor's residence
+    for (let i = 0; i < 3; i += 1) {
       await page.locator('label:has-text("اختر ملفًا") input[type="file"]').first().setInputFiles(FIXTURE);
     }
     await page.getByRole("button", { name: "التالي" }).click();
@@ -73,6 +100,7 @@ test("Umrah: fixed price → documents → summary → payment → receipt under
     await page.getByRole("button", { name: "السابق" }).click();
     await page.getByRole("button", { name: "التالي" }).click();
     await expect(page.getByText(customer).first()).toBeVisible();
+    await expect(page.getByTestId("review-guarantor-phone")).toContainText("+966 50 123 4567");
     const send = page.getByRole("button", { name: "تأكيد ومتابعة إلى الدفع" });
     await expect(send).toBeDisabled();
     await page.getByTestId("confirm-fixed-total").check();
@@ -120,6 +148,34 @@ test("Umrah: fixed price → documents → summary → payment → receipt under
     expect(confirmed.ok(), await confirmed.text()).toBeTruthy();
     const after = (await (await admin.get(`${BACKEND}/api/contact-requests/${found[0].id}`)).json()).data;
     expect(after.paymentStatus).toBe("CONFIRMED");
+    expect(after.intakeData.umrahContacts).toEqual({ guarantorPhone: "+966 50 123 4567", extraContact: { name: "قريب المعتمر", phone: "0912345678" } });
+    expect(after.travelers).toHaveLength(2);
+
+    // Execution and delivery: documents accepted, execution started with the
+    // type's wording, each pilgrim's final file published → completed.
+    const id = found[0].id;
+    for (const document of after.documents as Array<{ id: string; classification: string | null }>) {
+      if (document.classification === "FINANCIAL_DOCUMENT") continue;
+      const reviewed = await admin.patch(`${BACKEND}/api/contact-requests/${id}/documents/${document.id}/status`, { data: { status: "ACCEPTED" } });
+      expect(reviewed.ok(), await reviewed.text()).toBeTruthy();
+    }
+    const started = await admin.post(`${BACKEND}/api/contact-requests/${id}/start-execution`, { data: {} });
+    expect(started.ok(), await started.text()).toBeTruthy();
+    expect((await started.json()).data.progress.label).toBe(type.execution);
+    for (const traveler of after.travelers as Array<{ id: string; fullName: string }>) {
+      const file = await admin.post(`${BACKEND}/api/contact-requests/${id}/deliverables`, {
+        multipart: {
+          label: `التأشيرة — ${traveler.fullName}`,
+          travelerIds: JSON.stringify([traveler.id]),
+          publish: "true",
+          file: { name: "final.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF") },
+        },
+      });
+      expect(file.ok(), await file.text()).toBeTruthy();
+    }
+    const done = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
+    expect(done.status).toBe("CLOSED");
+    expect(done.outcome).toBe("COMPLETED");
   } finally {
     for (const id of created.accounts) await admin.patch(`${BACKEND}/api/payment-accounts/${id}`, { data: { active: false } });
     for (const id of created.services) await admin.patch(`${BACKEND}/api/services/${id}`, { data: { active: false } });

@@ -55,4 +55,8 @@ export const submitDraftSchema = z.object({
   // (contact-request-pricing/fixed-price.js).
   acceptedTotal: z.preprocess(emptyToUndefined, z.coerce.number().nonnegative().max(1_000_000_000).optional()),
   acceptedCurrency: z.preprocess(emptyToUndefined, z.enum(SUPPORTED_CURRENCIES).optional()),
+  // Umrah only (umrah/umrah-packages.js).
+  guarantorPhone: z.string().trim().max(30).optional().or(z.literal("")),
+  extraContactName: z.string().trim().max(120).optional().or(z.literal("")),
+  extraContactPhone: z.string().trim().max(30).optional().or(z.literal("")),
 });

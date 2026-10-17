@@ -92,7 +92,7 @@ const JOURNEYS: Journey[] = [
   },
   {
     name: "Umrah",
-    execution: "جارٍ استخراج تأشيرة العمرة",
+    execution: "جارٍ إصدار التأشيرة",
     start: async (app) => {
       await shortcut(app, "umrah");
       await app.locator(".package-card").first().click();
@@ -217,6 +217,8 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   async function submitIntake(travelers: string[]) {
     await app.fill('[name="name"]', travelers[0]);
     await app.fill('[name="phone"]', phone);
+    // Umrah asks for the guarantor's phone (required).
+    if (await app.locator('[name="guarantorPhone"]').count()) await app.fill('[name="guarantorPhone"]', "+966501234567");
     await app.fill("#travelerCount", String(travelers.length));
     await app.dispatchEvent("#travelerCount", "change");
     for (const [index, traveler] of travelers.entries()) {

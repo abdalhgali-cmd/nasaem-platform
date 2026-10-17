@@ -6,6 +6,7 @@ import { normalizePhone } from "../../utils/phone.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { applyEgyptEntryMode, egyptVariantBookingError } from "../egypt-clearance/egypt-clearance-variants.js";
+import { resolveUmrahContacts } from "../umrah/umrah-packages.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -267,7 +268,7 @@ export async function removeDraftDocument(token, documentId) {
 // Everything runs in one transaction: either the request exists with all
 // its travelers and documents attached, or nothing changed and the
 // customer's draft is still intact to retry.
-export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency } = {}) {
+export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone } = {}) {
   const found = await findMutableDraft(token);
   if (found.error) return found;
 
@@ -299,6 +300,15 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
     if (egypt.error) return egypt;
     answers = egypt.answers;
     egyptEntryMode = egypt.entryMode || null;
+  }
+
+  // Umrah: the guarantor's phone and extra contact (same rule as POST /contact-requests).
+  let umrahContacts = null;
+  if (draft.serviceId && !draft.visaTypeId) {
+    const service = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { category: true } });
+    const umrah = resolveUmrahContacts(service?.category, { guarantorPhone, extraContactName, extraContactPhone });
+    if (umrah.error) return umrah;
+    umrahContacts = umrah.contacts;
   }
 
   // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
@@ -333,6 +343,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
           ...(draft.notes ? { notes: draft.notes } : {}),
           ...(answers ? { answers } : {}),
           ...(egyptEntryMode ? { egyptEntryMode } : {}),
+          ...(umrahContacts ? { umrahContacts } : {}),
         },
         requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
         message: message || draft.notes || "طلب خدمة عبر نموذج الحجز الإلكتروني",

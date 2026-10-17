@@ -1,5 +1,6 @@
 import { esc, toast, skeletonList } from "../ui.js";
-import { startingPrice, priceText, sdgText, shortDescription, durationOf } from "../service-view.js";
+import { startingPrice, priceText, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE, shortDescription, durationOf } from "../service-view.js";
+import { umrahPackageDetails, umrahPriceText } from "../umrah-view.js";
 import { icon } from "../icons.js";
 import { loadPackages } from "../catalog.js";
 import { renderIntakeScreen } from "./intake.js";
@@ -10,7 +11,7 @@ export async function renderUmrahScreen({ bodyEl, params }) {
     <div class="service-hero">
       <div class="service-hero-icon">${icon("umrah", { size: 36 })}</div>
       <h2>العمرة</h2>
-      <p>اختر الباقة المناسبة وحدد عدد المعتمرين. لكل معتمر بيانات وجواز مستقل، ويراجع فريق نسائم الحرمين السعر والتوفر قبل الدفع.</p>
+      <p>اختر الباقة، ثم بيانات المعتمرين وجوازاتهم وإقامة الضامن ورقم هاتفه، وراجع الإجمالي قبل الدفع.</p>
     </div>
 
     <section class="section">
@@ -34,14 +35,25 @@ export async function renderUmrahScreen({ bodyEl, params }) {
       `;
       packagesList.querySelector("#fallbackUmrahBtn").addEventListener("click", () => mountIntake(bodyEl, item));
     } else {
-      packagesList.innerHTML = packages.map((pkg) => `
+      packagesList.innerHTML = packages.map((pkg) => {
+        const details = umrahPackageDetails(pkg);
+        const fixed = umrahPriceText(pkg);
+        const price = startingPrice(pkg);
+        const sdg = price ? sdgText(price) || (fixed && sdgUnavailable(price) ? SDG_UNAVAILABLE_NOTICE : "") : "";
+        return `
         <button class="package-card" data-id="${esc(pkg.id)}">
           <div>
             <b>${esc(pkg.name)}</b>
+            ${details.kindLabel ? `<span class="package-kind">${esc(details.kindLabel)}</span>` : ""}
             ${shortDescription(pkg) ? `<span>${esc(shortDescription(pkg))}</span>` : ""}${durationOf(pkg) ? `<span>${esc(durationOf(pkg))}</span>` : ""}
+            ${details.included.length ? `<span class="package-included">يشمل: ${esc(details.included.join("، "))}</span>` : ""}
+            ${details.excluded.length ? `<span class="package-excluded">لا يشمل: ${esc(details.excluded.join("، "))}</span>` : ""}
           </div>
-          ${startingPrice(pkg) ? `<strong><bdi>${esc(priceText(startingPrice(pkg)))}</bdi>${sdgText(startingPrice(pkg)) ? `<small><bdi>${esc(sdgText(startingPrice(pkg)))}</bdi></small>` : ""}</strong>` : `<span class="pending-price">السعر بعد مراجعة الوكالة</span>`}
-        </button>`).join("");
+          ${fixed ? `<strong class="package-price"><bdi>${esc(fixed)}</bdi>${sdg ? `<small><bdi>${esc(sdg)}</bdi></small>` : ""}</strong>`
+            : price ? `<strong><bdi>${esc(priceText(price))}</bdi>${sdgText(price) ? `<small><bdi>${esc(sdgText(price))}</bdi></small>` : ""}</strong>`
+            : `<span class="pending-price">السعر بعد مراجعة الوكالة</span>`}
+        </button>`;
+      }).join("");
       packagesList.querySelectorAll(".package-card").forEach((card) => {
         card.addEventListener("click", () => {
           const pkg = packages.find((p) => p.id === card.dataset.id);
@@ -61,9 +73,12 @@ function mountIntake(bodyEl, item, baseItem = null) {
   const mount = bodyEl.querySelector("#umrahIntakeMount");
   mount.scrollIntoView({ behavior: "smooth" });
   const price = baseItem ? startingPrice(item) : null;
+  const fixed = baseItem ? umrahPriceText(item) : null;
   const selection = baseItem
     ? {
-        summary: `الباقة المختارة: ${item.name}${price ? ` — السعر المعلن من ${priceText(price)}${sdgText(price) ? ` (${sdgText(price)})` : ""}، والسعر النهائي تؤكده الوكالة` : ""}`,
+        summary: fixed
+          ? `الباقة المختارة: ${item.name} — ${fixed}`
+          : `الباقة المختارة: ${item.name}${price ? ` — السعر المعلن من ${priceText(price)}${sdgText(price) ? ` (${sdgText(price)})` : ""}، والسعر النهائي تؤكده الوكالة` : ""}`,
         details: { type: "UMRAH_PACKAGE", packageId: item.id, name: item.name, basePrice: price?.amount ?? null, currency: price?.currency ?? null },
       }
     : null;

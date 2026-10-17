@@ -911,3 +911,7 @@ button:focus-visible, a:focus-visible, .ob-track:focus-visible { outline: 3px so
 }
 .pending-payment-card span { display: flex; flex-direction: column; gap: 2px; }
 .pending-payment-card small { color: var(--muted, #6b7280); }
+
+/* Umrah package type, inclusions and exclusions (issue #99) */
+.package-card .package-kind { display: inline-block; margin: 4px 0; padding: 2px 8px; border-radius: 999px; background: var(--surface-2, rgba(13, 59, 128, .08)); color: var(--navy); font-weight: 700; }
+.package-card .package-included, .package-card .package-excluded { display: block; margin-top: 2px; }
