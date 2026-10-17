@@ -164,6 +164,9 @@ type CaseRow = {
   providerSubmissions: ProviderSubmission[];
   readiness: Readiness;
   progress?: { serviceKind?: string; serviceKindLabel?: string; pricingMode?: string } | null;
+  intakeData?: {
+    umrahContacts?: { guarantorPhone?: string; guarantorPhoneMissing?: boolean; extraContact?: { name?: string; phone?: string } } | null;
+  } | null;
 };
 
 // What a request is for (backend deriveServiceKind) — the Umrah and Egypt
@@ -564,6 +567,22 @@ function CaseDetail({
           <p className="mt-1 text-sm text-muted-foreground" dir="ltr">
             {caseRow.phone}
           </p>
+          {caseRow.intakeData?.umrahContacts?.guarantorPhone ? (
+            <p className="mt-1 text-sm text-muted-foreground" data-testid="case-guarantor-phone">
+              هاتف الضامن: <span dir="ltr">{caseRow.intakeData.umrahContacts.guarantorPhone}</span>
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahContacts?.guarantorPhoneMissing ? (
+            <p className="mt-1 text-sm font-bold text-amber-700" data-testid="case-guarantor-phone-missing">
+              رقم هاتف الضامن لم يُرسل (تطبيق قديم) — اطلبه من العميل.
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahContacts?.extraContact?.phone ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              جهة اتصال إضافية: {caseRow.intakeData.umrahContacts.extraContact.name ? `${caseRow.intakeData.umrahContacts.extraContact.name} — ` : ""}
+              <span dir="ltr">{caseRow.intakeData.umrahContacts.extraContact.phone}</span>
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">

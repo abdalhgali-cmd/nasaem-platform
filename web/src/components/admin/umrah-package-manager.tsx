@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { adminRequest } from "@/lib/admin-api";
 import { PricingModeFields, emptyPricing, pricingFrom, type PricingFields } from "@/components/admin/pricing-mode-fields";
+import { UMRAH_KIND_LABELS, umrahPackageDetails, type UmrahPackageKind } from "@/lib/umrah-package";
 
 type PackageService = {
   id: string;
@@ -36,6 +37,7 @@ type PackageForm = PricingFields & {
   nights: string;
   transport: string;
   visa: string;
+  kind: "" | UmrahPackageKind;
   included: string;
   excluded: string;
   active: boolean;
@@ -52,6 +54,7 @@ const empty: PackageForm = {
   nights: "",
   transport: "",
   visa: "",
+  kind: "",
   included: "",
   excluded: "",
   active: true,
@@ -78,6 +81,7 @@ function formFromPackage(item: PackageService): PackageForm {
     nights: readFeature(item.features, "NIGHTS"),
     transport: readFeature(item.features, "TRANSPORT"),
     visa: readFeature(item.features, "VISA"),
+    kind: umrahPackageDetails(item.features).kind ?? "",
     included: splitFeatures(item.features, "INCLUDED"),
     excluded: splitFeatures(item.features, "EXCLUDED"),
     active: item.active,
@@ -87,6 +91,7 @@ function formFromPackage(item: PackageService): PackageForm {
 
 function featuresFromForm(form: PackageForm) {
   return [
+    form.kind && `KIND: ${form.kind}`,
     form.duration && `DURATION: ${form.duration}`,
     form.hotel && `HOTEL: ${form.hotel}`,
     form.nights && `NIGHTS: ${form.nights}`,
@@ -218,6 +223,7 @@ export function UmrahPackageManager() {
       <div className="sm:col-span-2 lg:col-span-3 flex items-center justify-between"><h3 className="font-black">{editingId ? "تعديل الباقة" : "باقة جديدة"}</h3>{editingId ? <button type="button" aria-label="إلغاء تعديل الباقة" onClick={reset}><X className="size-4" /></button> : null}</div>
       <label className="text-sm font-bold">رمز الباقة<input required placeholder="umrah-economy-2026" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal" dir="ltr" /></label>
       <label className="text-sm font-bold">اسم الباقة<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label>
+      <label className="text-sm font-bold">نوع الباقة<select data-testid="umrah-package-kind" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as PackageForm["kind"] })} className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal"><option value="">غير محدد</option>{(Object.keys(UMRAH_KIND_LABELS) as UmrahPackageKind[]).map((kind) => <option key={kind} value={kind}>{UMRAH_KIND_LABELS[kind]}</option>)}</select></label>
       <label className="text-sm font-bold">السعر<input required type="number" min="0" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label>
       <label className="text-sm font-bold">المدة<input value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })} placeholder="10 أيام" className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label>
       <label className="text-sm font-bold">الفندق<input value={form.hotel} onChange={(e) => setForm({ ...form, hotel: e.target.value })} className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label>

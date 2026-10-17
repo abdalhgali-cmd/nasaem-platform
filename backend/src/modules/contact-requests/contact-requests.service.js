@@ -9,6 +9,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { createNotification, notifyRequestCustomer } from "../../utils/notifications.js";
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
+import { resolveUmrahContacts } from "../umrah/umrah-packages.js";
 import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, publishedDeliverables, allowedActions } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
@@ -124,12 +125,18 @@ async function createContactRequestOnce(data, req, files) {
   // a guessed/invented rule for what else might count as one. See
   // SERVICE_CATEGORY_FEATURE_FLAGS's own comment for this disclosed
   // boundary.
+  let umrahContacts = null;
   if (data.serviceId) {
     const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true } });
     const flagKey = service ? SERVICE_CATEGORY_FEATURE_FLAGS[service.category] : null;
     if (flagKey && !(await isFeatureEnabled(flagKey))) {
       return { error: "FEATURE_DISABLED" };
     }
+    // Umrah package (not a visa type): the guarantor's phone and an optional
+    // extra contact (an invalid one is refused before anything is created).
+    const umrah = resolveUmrahContacts(data.visaTypeId ? null : service?.category, data);
+    if (umrah.error) return umrah;
+    umrahContacts = umrah.contacts;
   }
 
   // Platform 3.0 Phase 5: capture the selected visa type's (or, since
@@ -250,8 +257,13 @@ async function createContactRequestOnce(data, req, files) {
     // comment); a submission with neither keeps intakeData exactly as it
     // was before this release.
     intakeData:
-      data.intakeData || data.answers || egyptEntryMode
-        ? { ...(data.intakeData || {}), ...(data.answers ? { answers: data.answers } : {}), ...(egyptEntryMode ? { egyptEntryMode } : {}) }
+      data.intakeData || data.answers || egyptEntryMode || umrahContacts
+        ? {
+            ...(data.intakeData || {}),
+            ...(data.answers ? { answers: data.answers } : {}),
+            ...(egyptEntryMode ? { egyptEntryMode } : {}),
+            ...(umrahContacts ? { umrahContacts } : {}),
+          }
         : undefined,
     requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
     pricingMode: pricing.mode,
@@ -455,7 +467,7 @@ const CONTACT_REQUEST_CASE_INCLUDE = {
   travelers: { orderBy: { sortOrder: "asc" } },
   // Selected fields only — staff need the human-readable name/category
   // for a Service Intake submission, not the full catalog row.
-  serviceRef: { select: { id: true, name: true, category: true } },
+  serviceRef: { select: { id: true, name: true, category: true, features: true } },
   visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
   // Smart Case Operations — Release C groundwork.
   assignedUser: { select: safeUserSelect },

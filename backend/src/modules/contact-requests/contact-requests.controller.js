@@ -55,6 +55,8 @@ const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
   FIXED_TOTAL_REQUIRED: "أكّد الإجمالي النهائي قبل إرسال الطلب.",
   ENTRY_MODE_MISMATCH: "طريقة الدخول المرسلة لا تطابق نوع الموافقة المختار. اختر النوع الصحيح ثم أعد الإرسال.",
   ENTRY_MODE_INVALID: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر.",
+  GUARANTOR_PHONE_INVALID: "رقم هاتف الضامن غير صحيح.",
+  EXTRA_CONTACT_PHONE_INVALID: "رقم هاتف جهة الاتصال الإضافية غير صحيح.",
   REQUIREMENT_NOT_FOUND: "One of the selected requirements does not belong to the selected visa type",
   INVALID_MIME: "One of the uploaded files has a type that isn't allowed for its requirement",
   FILE_TOO_LARGE: "One of the uploaded files exceeds the maximum size allowed for its requirement",
