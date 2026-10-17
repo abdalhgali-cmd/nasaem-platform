@@ -24,6 +24,7 @@ import intakeDraftRoutes from "../modules/intake-drafts/intake-drafts.routes.js"
 import passportOcrRoutes from "../modules/passport-ocr/passport-ocr.routes.js";
 import siteAssetRoutes from "../modules/site-assets/site-assets.routes.js";
 import flightRoutes from "../modules/flights/flights.routes.js";
+import flightProviderRoutes from "../modules/flight-providers/flight-providers.routes.js";
 import flightBookingRoutes from "../modules/flight-bookings/flight-bookings.routes.js";
 import paymentAccountRoutes from "../modules/payment-accounts/payment-accounts.routes.js";
 import paymentAccountPublicRoutes from "../modules/payment-accounts/payment-accounts.public.routes.js";
@@ -75,6 +76,7 @@ router.use("/payment-accounts/public", paymentAccountPublicRoutes);
 router.use("/passport-ocr", passportOcrRoutes);
 router.use("/site-assets", siteAssetRoutes);
 router.use("/flights", flightRoutes);
+router.use("/flight-providers", flightProviderRoutes);
 router.use("/flight-bookings", flightBookingRoutes);
 router.use("/umrah-groups", umrahGroupRoutes);
 router.use("/finance", financeRoutes);
