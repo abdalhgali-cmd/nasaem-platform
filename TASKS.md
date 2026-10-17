@@ -148,7 +148,7 @@ Not merged, nothing deployed, no live data touched, no migration. Most of #101 a
 | No passport/phone on the payment link; payment never «confirmed» by a receipt | VERIFIED (existing tests) | `paymentAccess.test.js` «summary shows only payment facts», «token never confirms or rejects» |
 | App | VERIFIED (existing) | The app already shows Arabic network errors (`mobile/www/js/api.js`) and resumes the pending payment from the home screen |
 
-Tests (local, fresh DB): backend `paymentAccess` + `paymentReviewFlow` 12/12. Browser: see the PR.
+Tests (local, fresh DB): backend `paymentAccess` + `paymentReviewFlow` 12/12. Playwright (local) 10/10: `payment-recovery` (new), `website-payment-step`, `website-fixed-price-real`, `umrah-payment-journey`, `egypt-passport-upload`.
 
 NOT TESTED: real Android device, staging/production.
 

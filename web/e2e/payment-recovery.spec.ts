@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
@@ -7,8 +8,9 @@ import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 //  1. The connection drops after the server created the request: the
 //     customer sees an Arabic message (not «Failed to fetch»), retries, and
 //     lands on the same request's payment step — one request only.
-//  2. The receipt reaches the server but the reply is lost: the step checks
-//     the server and finishes («بانتظار مراجعة التحويل»), no second receipt.
+//  2. A receipt already reached the server and the reply was lost: the step
+//     checks the server and finishes («بانتظار مراجعة التحويل»), no second
+//     receipt.
 //  3. Staff reject the receipt: /track shows the reason, a new receipt goes
 //     back under review, and the payment is never confirmed by the customer.
 
@@ -72,18 +74,24 @@ test("payment recovery: lost reply on submit and on receipt, then rejection and 
 
     const retried = page.waitForResponse((r) => r.url() === `${BACKEND}/api/contact-requests` && r.request().method() === "POST");
     await send.click();
-    expect((await retried).status(), "same submissionKey → the same request").toBe(200);
+    const retriedResponse = await retried;
+    expect(retriedResponse.status(), "same submissionKey → the same request").toBe(200);
+    const token = (await retriedResponse.json()).data.paymentAccess.token as string;
     const step = page.getByTestId("payment-step");
     await expect(step.getByTestId("payment-amount")).toHaveText("300 SAR", { timeout: 15_000 });
     const found = await requestsFor();
     expect(found, "no second request").toHaveLength(1);
     const id = found[0].id;
 
-    // 2) The receipt arrives, the reply is lost: the step asks the server.
-    await page.route(`${BACKEND}/api/contact-requests/${id}/payment-access/receipt`, async (route) => {
-      await route.fetch();
-      await route.abort("connectionreset");
+    // 2) An earlier attempt's receipt reached the server (sent here with the
+    // same payment link), and this attempt's reply is lost: the step asks the
+    // server and finishes instead of showing an error.
+    const earlier = await page.request.post(`${BACKEND}/api/contact-requests/${id}/payment-access/receipt`, {
+      headers: { "X-Payment-Access": token },
+      multipart: { file: { name: "receipt.png", mimeType: "image/png", buffer: fs.readFileSync(FIXTURE) } },
     });
+    expect(earlier.status(), await earlier.text()).toBe(201);
+    await page.route(`${BACKEND}/api/contact-requests/${id}/payment-access/receipt`, (route) => route.abort("connectionreset"));
     await step.getByTestId("payment-receipt-input").setInputFiles(FIXTURE);
     await step.getByRole("button", { name: "إرسال الطلب للمراجعة" }).click();
     await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة التحويل", { timeout: 15_000 });
