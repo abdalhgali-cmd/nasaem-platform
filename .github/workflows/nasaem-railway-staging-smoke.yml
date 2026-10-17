@@ -1,0 +1,52 @@
+name: Railway Website Staging Smoke Test
+
+on:
+  pull_request:
+    branches: [claude/release-integration]
+    paths:
+      - ".github/workflows/nasaem-railway-staging-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Site routes and staging API CORS
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Smoke-test isolated website routes (GET only)
+        env:
+          SITE: https://nasaem-website-staging-staging.up.railway.app
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in / /umrah /visas/egypt-security-approval /flights /admin/cases; do
+            status="$(curl -L -sS --retry 2 --max-time 30 -o /tmp/nasaem-page -w '%{http_code}' "$SITE$path")"
+            echo "$path => HTTP $status"
+            test "$status" = "200"
+            if [ "$path" = / ]; then
+              grep -q 'نسائم' /tmp/nasaem-page
+            fi
+          done
+      - name: Staging API health and browser CORS preflight (read only)
+        env:
+          SITE: https://nasaem-website-staging-staging.up.railway.app
+          API: https://adaptable-quietude-staging.up.railway.app/api
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl -sS --retry 2 --max-time 20 -o /tmp/nasaem-api-health -w '%{http_code}' "$API/health")"
+          echo "Staging API health => HTTP $status"
+          test "$status" = 200
+          curl -sS -D /tmp/nasaem-cors-headers -o /dev/null \
+            -X OPTIONS "$API/health" \
+            -H "Origin: $SITE" \
+            -H "Access-Control-Request-Method: GET" \
+            --max-time 20
+          if ! grep -iEq "^access-control-allow-origin: $SITE" /tmp/nasaem-cors-headers; then
+            echo "::error::The staging API does not explicitly allow the new Railway website origin. Update CORS_ORIGIN preserving existing origins."
+            sed -nE '/^(HTTP\/|access-control-allow-origin:|access-control-allow-credentials:|vary:)/Ip' /tmp/nasaem-cors-headers
+            exit 1
+          fi
+          echo "Cross-origin staging API requests allowed"
