@@ -23,7 +23,7 @@ const STATUS_LABELS_AR = {
   PAYMENT_PENDING: "بانتظار الدفع",
   PAYMENT_UNDER_REVIEW: "إشعار الدفع قيد المراجعة",
   PAYMENT_CONFIRMED: "تم تأكيد الدفع",
-  FINAL_TICKET_ISSUED: "تم إصدار الحجز النهائي",
+  FINAL_TICKET_ISSUED: "مستند الرحلة النهائي متاح",
   CANCELLED: "ملغي",
 };
 const EXTENSION_BY_MIME = { "application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp" };
