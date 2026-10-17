@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
+import { duplicatePassportIndexes, mrzSexToGender, passportValidityWarning } from "@/lib/passport-review";
 import {
   RequestPaymentStep,
   clearPendingPayment,
@@ -72,6 +73,14 @@ type Traveler = {
   fullName: string;
   passportNo: string;
   nationality: string;
+  // Issue #103: filled from the passport MRZ when scanned, editable either way.
+  birthDate?: string;
+  gender?: "MALE" | "FEMALE";
+  passportExpiry?: string;
+  // A scan filled fields the customer has not confirmed yet; the step
+  // cannot continue until they do (ocrConfirmed).
+  ocrPending?: boolean;
+  ocrConfirmed?: boolean;
 };
 
 // A checklist item from the Requirements Engine (Platform 3.0 Phase 5/8,
@@ -824,6 +833,13 @@ export function ServiceIntakeWizard({
       return [{ key, requirement, travelerIndex: null, files: documentFilesBySlotKey[key] ?? [] }];
     });
   const answerSlots: PublicRequirement[] = applicableRequirements.filter((r) => r.type !== "DOCUMENT");
+  // Issue #103: the passport photo the traveler form can read. Without an
+  // OCR-enabled document requirement the server never reads an upload, so
+  // the scan button is not offered and the customer types the data.
+  const passportScanRequirement =
+    applicableRequirements.find((r) => r.type === "DOCUMENT" && r.ocrEnabled && r.scope === "TRAVELER") ??
+    applicableRequirements.find((r) => r.type === "DOCUMENT" && r.ocrEnabled) ??
+    null;
 
   const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
 
@@ -1023,19 +1039,50 @@ export function ServiceIntakeWizard({
   }
 
   async function scanPassport(index: number, file: File) {
+    if (!passportScanRequirement) return;
     setScanningTraveler(index);
     setScanMessageByTraveler((current) => ({ ...current, [index]: "" }));
 
     try {
       const token = await ensureServerDraftToken();
+      // The server runs OCR only for an upload tagged with an OCR-enabled
+      // requirement of the draft's own service, so the draft must name the
+      // service even when it was preselected from the URL.
+      await fetch(`${API_URL}/intake-drafts/${token}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          serviceKind: service,
+          serviceId: effectiveServiceId || undefined,
+          visaTypeId: effectiveVisaTypeId || undefined,
+        }),
+      });
       const body = new FormData();
       body.append("label", "جواز السفر");
+      body.append("requirementId", passportScanRequirement.id);
       body.append("travelerIndex", String(index));
       body.append("file", file);
 
       const res = await fetch(`${API_URL}/intake-drafts/${token}/documents`, { method: "POST", body });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.message || "تعذّرت قراءة الجواز");
+
+      // The draft copy existed only to be read. The request is submitted with
+      // the files attached in the documents step, so remove it rather than
+      // keep a second stored passport image.
+      const draftDocumentId = payload?.data?.id;
+      if (draftDocumentId) {
+        void fetch(`${API_URL}/intake-drafts/${token}/documents/${draftDocumentId}`, { method: "DELETE" }).catch(() => {});
+      }
+
+      // Offer the same photo as this traveler's passport document, unless the
+      // customer already attached one there.
+      const namedBefore = travelers.slice(0, index).filter((t) => t.fullName.trim()).length;
+      const slotKey =
+        passportScanRequirement.scope === "TRAVELER" ? `${passportScanRequirement.id}::${namedBefore}` : passportScanRequirement.id;
+      if (!(documentFilesBySlotKey[slotKey]?.length) && !validateDocumentFile(passportScanRequirement, file)) {
+        addDocumentFile(slotKey, passportScanRequirement, file);
+      }
 
       const ocr = payload?.data?.ocrResult;
       if (!ocr?.documentNumber) {
@@ -1049,16 +1096,22 @@ export function ServiceIntakeWizard({
       }
 
       const fullName = [ocr.givenNames, ocr.surname].filter(Boolean).join(" ").trim();
+      const gender = mrzSexToGender(ocr.sex);
       updateTraveler(index, {
+        ocrPending: true,
+        ocrConfirmed: false,
         // Never overwrite something the customer already typed — a scan is
         // an offer to save them work, not a correction of their own input.
         ...(fullName && !travelers[index]?.fullName ? { fullName } : {}),
         ...(ocr.documentNumber && !travelers[index]?.passportNo ? { passportNo: ocr.documentNumber } : {}),
         ...(ocr.nationality && !travelers[index]?.nationality ? { nationality: ocr.nationality } : {}),
+        ...(ocr.dateOfBirth && !travelers[index]?.birthDate ? { birthDate: ocr.dateOfBirth } : {}),
+        ...(gender && !travelers[index]?.gender ? { gender } : {}),
+        ...(ocr.expirationDate && !travelers[index]?.passportExpiry ? { passportExpiry: ocr.expirationDate } : {}),
       });
       setScanMessageByTraveler((current) => ({
         ...current,
-        [index]: "تمت قراءة بيانات الجواز — يرجى مراجعتها وتصحيح أي خطأ قبل المتابعة.",
+        [index]: "تمت قراءة بيانات الجواز — راجعها وصحّح أي خطأ، ثم أكّد المراجعة للمتابعة.",
       }));
     } catch (err) {
       setScanMessageByTraveler((current) => ({
@@ -1069,6 +1122,8 @@ export function ServiceIntakeWizard({
       setScanningTraveler(null);
     }
   }
+
+  const duplicatePassports = React.useMemo(() => duplicatePassportIndexes(travelers), [travelers]);
 
   function updateTraveler(index: number, patch: Partial<Traveler>) {
     setTravelers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
@@ -1091,6 +1146,10 @@ export function ServiceIntakeWizard({
 
     if (current === "customer") {
       return name.trim().length >= 2 && phone.trim().length >= 6;
+    }
+
+    if (current === "details") {
+      return !travelers.some((t) => t.ocrPending) && duplicatePassports.size === 0;
     }
 
     return true;
@@ -1151,7 +1210,15 @@ export function ServiceIntakeWizard({
       formData.append(
         "intakeData",
         JSON.stringify({
-          travelers: filledTravelers,
+          travelers: filledTravelers.map((t) => ({
+            fullName: t.fullName,
+            passportNo: t.passportNo,
+            nationality: t.nationality,
+            ...(t.birthDate ? { birthDate: t.birthDate } : {}),
+            ...(t.gender ? { gender: t.gender } : {}),
+            ...(t.passportExpiry ? { passportExpiry: t.passportExpiry } : {}),
+            ...(t.ocrConfirmed ? { ocrConfirmed: true } : {}),
+          })),
           travelDate: travelDate || undefined,
           notes: notes.trim() || undefined,
         })
@@ -1164,7 +1231,7 @@ export function ServiceIntakeWizard({
       if (filledTravelers.length > 0) {
         formData.append(
           "travelers",
-          JSON.stringify(filledTravelers.map((t) => ({ fullName: t.fullName, passportNo: t.passportNo || undefined, nationality: t.nationality || undefined })))
+          JSON.stringify(filledTravelers.map((t) => ({ fullName: t.fullName, passportNo: t.passportNo || undefined, nationality: t.nationality || undefined, birthDate: t.birthDate || undefined, gender: t.gender || undefined })))
         );
       }
       if (Object.keys(answers).length > 0) {
@@ -1574,8 +1641,41 @@ export function ServiceIntakeWizard({
                     placeholder="الجنسية (اختياري)"
                     className={`${inputClass} h-10 text-xs`}
                   />
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    تاريخ الميلاد (اختياري)
+                    <input
+                      type="date"
+                      value={traveler.birthDate ?? ""}
+                      onChange={(e) => updateTraveler(index, { birthDate: e.target.value })}
+                      data-testid={`traveler-birth-date-${index}`}
+                      className={`${inputClass} h-10 text-xs`}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    الجنس (اختياري)
+                    <select
+                      value={traveler.gender ?? ""}
+                      onChange={(e) => updateTraveler(index, { gender: (e.target.value || undefined) as Traveler["gender"] })}
+                      data-testid={`traveler-gender-${index}`}
+                      className={`${inputClass} h-10 text-xs`}
+                    >
+                      <option value="">—</option>
+                      <option value="MALE">ذكر</option>
+                      <option value="FEMALE">أنثى</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    تاريخ انتهاء الجواز (اختياري)
+                    <input
+                      type="date"
+                      value={traveler.passportExpiry ?? ""}
+                      onChange={(e) => updateTraveler(index, { passportExpiry: e.target.value })}
+                      data-testid={`traveler-passport-expiry-${index}`}
+                      className={`${inputClass} h-10 text-xs`}
+                    />
+                  </label>
                   <div className="sm:col-span-3">
-                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
+                      {passportScanRequirement ? <label data-testid={`passport-scan-${index}`} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
                         {scanningTraveler === index ? "جارٍ قراءة الجواز…" : "تعبئة البيانات من صورة الجواز"}
                         <input
                           type="file"
@@ -1588,9 +1688,32 @@ export function ServiceIntakeWizard({
                             if (file) void scanPassport(index, file);
                           }}
                         />
-                      </label>
+                      </label> : null}
                     {scanMessageByTraveler[index] ? (
                       <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
+                    ) : null}
+                    {traveler.ocrPending ? (
+                      <label className="mt-2 flex items-start gap-2 rounded-lg border border-accent/50 bg-accent/5 p-2 text-xs font-semibold text-foreground">
+                        <input
+                          type="checkbox"
+                          data-testid={`passport-review-confirm-${index}`}
+                          className="mt-0.5"
+                          onChange={(e) => {
+                            if (e.target.checked) updateTraveler(index, { ocrPending: false, ocrConfirmed: true });
+                          }}
+                        />
+                        راجعتُ البيانات المقروءة من الجواز وهي مطابقة للجواز.
+                      </label>
+                    ) : null}
+                    {duplicatePassports.has(index) ? (
+                      <p role="alert" data-testid={`passport-duplicate-${index}`} className="mt-1 text-xs font-semibold text-destructive">
+                        رقم الجواز هذا مُدخل لمسافر آخر في الطلب نفسه — صحّح أحدهما للمتابعة.
+                      </p>
+                    ) : null}
+                    {passportValidityWarning(traveler.passportExpiry, travelDate) ? (
+                      <p data-testid={`passport-validity-warning-${index}`} className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        {passportValidityWarning(traveler.passportExpiry, travelDate)}
+                      </p>
                     ) : null}
                   </div>
                 </div>
@@ -1611,6 +1734,7 @@ export function ServiceIntakeWizard({
           <StepNav
             onBack={() => setStep((s) => s - 1)}
             onNext={() => setStep((s) => s + 1)}
+            nextDisabled={!canGoNext()}
           />
         </StepShell>
       ) : null}

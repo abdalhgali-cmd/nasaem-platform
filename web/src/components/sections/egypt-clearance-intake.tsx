@@ -333,7 +333,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
         const extractedName = [ocr.givenNames, ocr.surname].filter(Boolean).join(" ").trim();
         if (extractedName && !name) setName(extractedName);
         if (ocr.documentNumber && !passportNo) setPassportNo(ocr.documentNumber);
-        if (ocr.birthDate && !birthDate) setBirthDate(ocr.birthDate);
+        if (ocr.dateOfBirth && !birthDate) setBirthDate(ocr.dateOfBirth);
       }
     } catch (uploadError) {
       setPassportError(uploadError instanceof Error ? uploadError.message : "تعذّر رفع صورة الجواز");

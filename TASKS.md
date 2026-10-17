@@ -136,6 +136,25 @@ Local on `b37ccee` (fresh PostgreSQL, migrate + seed as CI): backend **893/893**
 
 Production gate NOT passed: no production backup yet (owner, 2026-10-13), production branch/Vercel project not verified, Vercel account blocked. No merge into `main`, no deploy, no DB change, no Android distribution.
 
+## Issue #103 — passport scan with mandatory review (branch `claude/passport-mrz-103`, base `claude/release-integration`)
+
+Already present before this branch: local tesseract MRZ reading (no external service), TD3 check-digit validation (an invalid MRZ returns nothing rather than a guess), the PASSPORT_OCR flag, image-size limits, and staff expiry and OCR-mismatch warnings.
+
+| Change | Evidence |
+|---|---|
+| Website traveler form: the «تعبئة البيانات من صورة الجواز» button never ran OCR, because the upload carried no requirement. It now tags the service's OCR-enabled passport requirement, and it is hidden when the service has none. | `web/e2e/passport-scan-review.spec.ts` |
+| A scan fills the name, passport number, nationality, birth date, sex and passport expiry, never overwriting typed values. The step stays blocked until the customer ticks the review box. A blurry photo falls back to manual entry. | same spec |
+| The scanned photo becomes that traveler's passport document (only if that slot is empty). The temporary draft copy is deleted after reading. | same spec: one passport per traveler, carrying the OCR result |
+| The same passport on two travelers blocks the step (client side). Staff also get the new `DUPLICATE_PASSPORT_IN_REQUEST` warning, which covers older app builds. | `caseIntelligence.test.js` |
+| Passport validity under 6 months after the travel date only warns, never blocks. No service sets its own rule yet; the backend uses the same fallback. | spec + `web/src/lib/passport-review.ts` |
+| Egypt intake: the birth date was never prefilled, because the code read `ocr.birthDate` but OCR returns `dateOfBirth`. | `egypt-clearance-intake.tsx` |
+| Blurry and wrong-checksum test images both return 422. Passport text never reaches console logs. One draft's scan is never visible from another draft. | `passportOcr.test.js` (new fixtures `passport-mrz-blurry.png`, `passport-mrz-bad-checksum.png`) |
+
+- **VERIFIED locally:** passportOcr + caseIntelligence + intakeDrafts, 37/37 on a fresh DB.
+- **NOT TESTED:**
+  - a real Android device (camera capture through the browser file picker), and real passport photos (all test images are synthetic);
+  - the Android app (`mobile/www`), which has no passport scan; this branch does not add one.
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.
