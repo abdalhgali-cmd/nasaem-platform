@@ -14,6 +14,7 @@ working environment**.
 | Codex CLI → Claude Code | `.codex/config.toml` | `claude` |
 
 - Both use `npx -y claude-codex-bridge@0.3.1` with the corresponding `serve` command.
+  The Codex side launches it through `.codex/claude-bridge.sh` (see below).
 - The pre-existing NotebookLM MCP server in `.mcp.json` remains unchanged.
 - Codex applies project-scoped config only when you trust the project.
 - This is **not** a GitHub Action, hosted service, or integration between the
@@ -50,6 +51,33 @@ working environment**.
 6. In Claude Code, try: **Ask Codex to review my latest changes without
    modifying files.**
    In Codex, try: **Ask Claude to review my plan without modifying files.**
+
+## Known issue in 0.3.1 and the repo-local fix
+
+In `claude-codex-bridge@0.3.1` the Codex → Claude read-only tools
+(`claude_review_code`, `claude_explain_code`, `claude_review_plan`,
+`claude_plan_perf`) run `claude -p ... --allowedTools Read ... "<prompt>"`.
+Claude Code parses `--allowedTools` as a variadic flag, so the prompt is taken
+as a tool name and every call fails with:
+
+```
+Error: Input must be provided either through stdin or as a prompt argument when using --print
+```
+
+`.codex/claude-bridge.sh` puts `.codex/bin/claude` first on `PATH`; that shim
+recognizes the pinned bridge's `-p --output-format json` prefix and known
+option/value pairs, then inserts `--` before its final prompt, including empty
+or dash-prefixed prompts. Other argument layouts and existing separators pass
+through unchanged. This also applies to `claude_query` and `claude_implement`;
+the Claude → Codex direction is unchanged. Prompt text is never evaluated as
+shell code. Remove the shim after testing an upstream fix and re-pin both configs.
+
+Validation on 2026-10-18 uses local Bash checks and a fake CLI that captures
+arguments. These checks do not establish authenticated MCP operation.
+Real Claude/Codex calls, tool listing, Codespace operation and npm tarball/source
+equivalence have not been verified in this review. Bash is required; the target
+runtime is a Linux Codespace. The shim repairs argument boundaries only and
+does not enforce a read-only sandbox or change the bridge's session permissions.
 
 ## Security and workflow
 
