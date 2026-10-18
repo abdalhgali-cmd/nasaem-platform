@@ -1,5 +1,5 @@
 import { esc, skeletonGrid, skeletonList, errorState, emptyState } from "../ui.js";
-import { startingPrice, priceText, sdgText, durationOf, shortDescription, serviceDirectoryItems, hubVisaTypes, VISAS_HUB_ITEM } from "../service-view.js";
+import { startingPrice, priceText, sdgText, durationOf, shortDescription, serviceDirectoryItems, groupServiceDirectory, hubVisaTypes, VISAS_HUB_ITEM } from "../service-view.js";
 import { stagger } from "../motion.js";
 import { icon, iconForService } from "../icons.js";
 import { loadCatalog, resolveServiceScreen } from "../catalog.js";
@@ -43,20 +43,26 @@ export async function renderServicesScreen({ bodyEl }) {
   bodyEl.innerHTML = `<div class="svc-flow">${skeletonList(5)}</div>`;
   try {
     const catalog = await loadCatalog();
-    const items = serviceDirectoryItems(catalog);
-    if (!items.length) {
+    const groups = groupServiceDirectory(catalog);
+    if (!groups.length) {
       bodyEl.innerHTML = emptyState({ icon: "inbox", title: "لا توجد خدمات منشورة حالياً" });
       return;
     }
     bodyEl.innerHTML = `
       ${catalog.stale ? `<p class="field-hint stale-note">${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>` : ""}
-      <ol class="svc-flow">
-        ${items.map((item, index) => serviceRow(item, index)).join("")}
-      </ol>`;
+      <div class="svc-groups">
+        ${groups.map((group) => `
+          <section class="svc-group" aria-label="${esc(group.title)}">
+            <h2 class="svc-group-title"><span class="svc-group-diamond" aria-hidden="true"></span>${esc(group.title)}</h2>
+            <ol class="svc-flow svc-group-list">
+              ${group.items.map((item, index) => serviceRow(item, index)).join("")}
+            </ol>
+          </section>`).join("")}
+      </div>`;
     bodyEl.querySelectorAll("[data-id]").forEach((row) => {
       row.addEventListener("click", () => openServiceById(row.dataset.id, catalog));
     });
-    stagger(bodyEl.querySelector(".svc-flow"));
+    bodyEl.querySelectorAll(".svc-flow").forEach((list) => stagger(list));
   } catch (error) {
     bodyEl.innerHTML = errorState(error.message, { onRetry: () => renderServicesScreen({ bodyEl }) });
   }

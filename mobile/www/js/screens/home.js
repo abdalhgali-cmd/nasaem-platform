@@ -80,30 +80,20 @@ export async function renderHomeScreen({ bodyEl }) {
     <div id="pendingPaymentMount"></div>
     <div id="homeUmrahSpotlight" class="home-umrah-mount"></div>
 
-    <section class="shortcuts" aria-label="اختصارات سريعة">
-      <div class="shortcut-rail" id="shortcutRail">${skeletonGrid(4)}</div>
-    </section>
-
-    <section class="home-banner" aria-roledescription="شرائح العروض" aria-label="عروض وإعلانات نسائم الحرمين">
-      <div class="banner-track" id="bannerTrack"><div class="banner-slide skeleton-banner"></div></div>
-      <div class="banner-dots" id="bannerDots"></div>
-    </section>
-
-    <section class="section" id="featuredSection" hidden>
-      <div class="section-head">
-        <h2>خدمات مختارة</h2>
-        <button class="link-btn" id="seeAllServices">عرض الكل</button>
+    <section class="shortcuts home-categories" aria-label="خدمات الوكالة">
+      <div class="home-section-head">
+        <h2>الخدمات</h2>
+        <button type="button" class="home-see-all" id="allServicesFromHome">عرض كل الخدمات ${icon("chevron-start", { size: 16 })}</button>
       </div>
-      <p class="field-hint stale-note" id="catalogStale" hidden>${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>
-      <div id="featuredList" class="featured-list"></div>
+      <div class="shortcut-rail" id="shortcutRail">${skeletonGrid(4)}</div>
     </section>
 
     <section class="section home-journey" aria-label="كيف يعمل طلبك">
       <div class="section-head"><h2>كيف يعمل طلبك</h2></div>
       <ol class="home-journey-grid">
         <li><span>١</span><strong>اختر الخدمة</strong></li>
-        <li><span>٢</span><strong>أرسل المستندات</strong></li>
-        <li><span>٣</span><strong>السعر والدفع</strong></li>
+        <li><span>٢</span><strong>بياناتك ومستنداتك</strong></li>
+        <li><span>٣</span><strong>الدفع وإشعار التحويل</strong></li>
         <li><span>٤</span><strong>تابع الطلب</strong></li>
       </ol>
     </section>
@@ -117,6 +107,20 @@ export async function renderHomeScreen({ bodyEl }) {
     </section>
 
 
+
+    <section class="home-banner" aria-roledescription="شرائح العروض" aria-label="إعلانات نسائم الحرمين">
+      <div class="banner-track" id="bannerTrack"><div class="banner-slide skeleton-banner"></div></div>
+      <div class="banner-dots" id="bannerDots"></div>
+    </section>
+
+    <section class="section" id="featuredSection" hidden>
+      <div class="section-head">
+        <h2>خدمات مختارة</h2>
+        <button class="link-btn" id="seeAllServices">عرض الكل</button>
+      </div>
+      <p class="field-hint stale-note" id="catalogStale" hidden>${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>
+      <div id="featuredList" class="featured-list"></div>
+    </section>
 
     <section class="section" id="activitySection" hidden>
       <div class="section-head"><h2>نشاطك</h2></div>
@@ -133,7 +137,9 @@ export async function renderHomeScreen({ bodyEl }) {
   `;
   showPendingPayment(bodyEl.querySelector("#pendingPaymentMount"));
 
-  bodyEl.querySelector("#seeAllServices").addEventListener("click", () => goToTab("services", "services", { title: "الخدمات" }));
+  const allServices = () => goToTab("services", "services", { title: "الخدمات" });
+  bodyEl.querySelector("#seeAllServices").addEventListener("click", allServices);
+  bodyEl.querySelector("#allServicesFromHome").addEventListener("click", allServices);
   bodyEl.querySelector("#startNowBtn").addEventListener("click", () => {
     tapFeedback();
     goToTab("services", "services", { title: "الخدمات" });
@@ -272,7 +278,9 @@ async function loadCatalogSection(bodyEl) {
     bodyEl.querySelector("#catalogStale").hidden = !catalog.stale;
     renderPublishedUmrah(bodyEl, catalog);
 
-    const shortcuts = resolveShortcuts(catalog);
+    // Umrah has its own published spotlight card above the category grid.
+    // Never show an unapproved hotel or a duplicate Umrah shortcut.
+    const shortcuts = resolveShortcuts(catalog).filter((shortcut) => shortcut.key !== "umrah");
     rail.innerHTML = shortcuts.length ? shortcuts.map(shortcutButton).join("") : "";
     stagger(rail);
     rail.querySelectorAll(".shortcut").forEach((button) => {

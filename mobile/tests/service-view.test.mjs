@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveShortcuts, startingPrice, priceText, sdgText, durationOf, shortDescription, featuredServices, homeFeaturedServices, serviceDirectoryItems, groupRequirements, FINAL_PRICE_NOTE } from "../www/js/service-view.js";
+import { resolveShortcuts, startingPrice, priceText, sdgText, durationOf, shortDescription, featuredServices, homeFeaturedServices, serviceDirectoryItems, groupRequirements, groupServiceDirectory, FINAL_PRICE_NOTE } from "../www/js/service-view.js";
 
 const catalog = {
   services: [
@@ -86,4 +86,23 @@ test("Umrah is its own section: never listed among the visas", async () => {
   assert.deepEqual(hubVisaTypes(catalog).map((visa) => visa.id), ["v2"]);
   assert.equal(serviceDirectoryItems({ services: [], visaTypes: [catalog.visaTypes[0]] }).length, 0, "no visas hub for Umrah alone");
   assert.equal(resolveShortcuts({ services: [], visaTypes: [catalog.visaTypes[0]] }).some((shortcut) => shortcut.key === "visas"), false);
+});
+
+test("approved mobile service directory is grouped without inventing entries or exposing hotels", () => {
+  const example = {
+    services: [
+      { id: "um", code: "SVC-UMRAH", name: "العمرة" },
+      { id: "fl", code: "SVC-FLIGHT", name: "الطيران" },
+      { id: "fe", code: "SVC-FERRY", name: "البواخر" },
+      { id: "ho", code: "SVC-HOTEL", name: "الفنادق" },
+      { id: "ot", code: "SVC-OTHER", name: "خدمات أخرى" },
+    ],
+    visaTypes: [{ id: "eg", code: "VISA-EGYPT-CLEARANCE", category: "VISA" }],
+  };
+  const grouped = groupServiceDirectory(example);
+  assert.deepEqual(grouped.map((g) => g.key), ["umrah", "travel", "visas", "other"]);
+  assert.deepEqual(grouped.flatMap((g) => g.items.map((x) => x.code)), [
+    "SVC-UMRAH", "SVC-FLIGHT", "SVC-FERRY", "HUB-VISAS", "SVC-OTHER",
+  ]);
+  assert.equal(groupServiceDirectory({ services: [], visaTypes: [] }).length, 0);
 });
