@@ -11,3 +11,18 @@ command = "bash"
 args = ["-c", "exec \"$(git rev-parse --show-toplevel)/.codex/claude-bridge.sh\""]
 tool_timeout_sec = 600
 startup_timeout_sec = 60
+
+# Per-tool approvals (Codex -> Claude). Read-only tools run without prompting;
+# anything that can change files or run with Claude's full toolset asks first.
+[mcp_servers.claude.tools.claude_review_code]
+approval_mode = "approve"
+[mcp_servers.claude.tools.claude_review_plan]
+approval_mode = "approve"
+[mcp_servers.claude.tools.claude_explain_code]
+approval_mode = "approve"
+[mcp_servers.claude.tools.claude_plan_perf]
+approval_mode = "approve"
+[mcp_servers.claude.tools.claude_query]
+approval_mode = "prompt"
+[mcp_servers.claude.tools.claude_implement]
+approval_mode = "prompt"
