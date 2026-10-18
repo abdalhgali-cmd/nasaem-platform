@@ -81,6 +81,35 @@ export function resolveShortcuts(catalog) {
   return out;
 }
 
+// Distinct services a customer can request, for «كل الخدمات (N)»: every
+// published Service (postponed hotels excluded) plus any visa type that has no
+// Service of its own. A visa type linked to a listed Service (serviceId) is the
+// same journey and is not counted twice. Umrah visa types belong to Umrah.
+export function publishedServiceCount(catalog) {
+  const services = (catalog?.services || []).filter((item) => !isPostponedHotel(item));
+  const ids = new Set(services.map((item) => item.id));
+  const unlinked = hubVisaTypes(catalog).filter((visaType) => !(visaType.serviceId && ids.has(visaType.serviceId)));
+  return services.length + unlinked.length;
+}
+
+// "خدمة واحدة" / "خدمتان" / "3 خدمات" / "11 خدمة" — Arabic number agreement.
+export function serviceCountText(count) {
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  if (n === 1) return "خدمة واحدة";
+  if (n === 2) return "خدمتان";
+  if (n >= 3 && n <= 10) return `${n} خدمات`;
+  return `${n} خدمة`;
+}
+
+// Home bento, in priority order after the Umrah feature tile. Only published
+// services appear (resolveShortcuts); hotels are not offered.
+export const HOME_BENTO_KEYS = Object.freeze(["flights", "ferries", "visas", "egypt", "family"]);
+
+export function homeBentoTiles(catalog) {
+  const shortcuts = resolveShortcuts(catalog);
+  return HOME_BENTO_KEYS.map((key) => shortcuts.find((shortcut) => shortcut.key === key)).filter(Boolean);
+}
+
 export function startingPrice(item) {
   const amount = Number(item?.basePrice);
   if (!(amount > 0)) return null;
