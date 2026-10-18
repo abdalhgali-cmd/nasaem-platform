@@ -32,22 +32,19 @@ export function renderWelcomeScreen({ bodyEl, params = {} }) {
         <h1 class="reveal" style="--i:1">نسائم الحرمين</h1>
         <p class="welcome-sub reveal" style="--i:2">للسفر والسياحة</p>
         <p class="welcome-tagline reveal" style="--i:3">رحلتك تبدأ معنا بثقة</p>
-        <p class="welcome-intro reveal" style="--i:4">عمرة، تذاكر طيران، تأشيرات، فنادق ورحلات بحرية — قدّم طلبك وتابعه من هاتفك.</p>
+        <p class="welcome-intro reveal" style="--i:4">العمرة والتأشيرات والطيران والبواخر في تطبيق واحد.</p>
       </div>
       <div class="welcome-actions">
-        <div class="welcome-points" role="list">
-          <span role="listitem" class="reveal" style="--i:5">${icon("shield-check", { size: 20 })}<b>نحافظ على خصوصية بياناتك</b></span>
-          <span role="listitem" class="reveal" style="--i:6">${icon("clock", { size: 20 })}<b>تابع طلبك خطوة بخطوة</b></span>
-          <span role="listitem" class="reveal" style="--i:7">${icon("umrah", { size: 20 })}<b>خدمات سفرك في مكان واحد</b></span>
-        </div>
         <button class="primary welcome-login" id="goLogin">تسجيل الدخول</button>
         <button class="secondary" id="goRegister">إنشاء حساب جديد</button>
+        <button class="welcome-guest" id="continueAsGuest">الدخول كزائر دون حساب</button>
       </div>
     </div>
   `;
   bodyEl.querySelector("#goLogin").addEventListener("click", () => go("login", {}, { title: "تسجيل الدخول" }));
   bodyEl.querySelector("#goRegister").addEventListener("click", () => go("register", {}, { title: "إنشاء حساب" }));
   bodyEl.querySelector("#welcomeAbout").addEventListener("click", () => go("about", {}, { title: "من نحن" }));
+  bodyEl.querySelector("#continueAsGuest").addEventListener("click", () => params.onContinueAsGuest?.());
 }
 
 export function renderLoginScreen({ bodyEl, params = {} }) {

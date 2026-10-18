@@ -42,6 +42,10 @@ test("service directory shows one visas hub and never repeats VisaTypes beside t
   assert.equal(items.filter((item) => item.id === "HUB-VISAS").length, 1);
   assert.ok(!items.some((item) => item.isVisaType), "visa types belong inside the visas hub");
   assert.deepEqual(serviceDirectoryItems({ services: catalog.services, visaTypes: [] }).map((item) => item.id), ["s1", "s2", "s3"]);
+  const hotel = { id: "hotel", code: "SVC-HOTEL", name: "فنادق", basePrice: "150", currency: "USD" };
+  const withHotel = { ...catalog, services: [...catalog.services, hotel] };
+  assert.ok(!serviceDirectoryItems(withHotel).some((item) => item.code === "SVC-HOTEL"), "hotel discovery is postponed");
+  assert.ok(!homeFeaturedServices(withHotel).some((item) => item.code === "SVC-HOTEL"), "no home hotel offers");
 });
 
 test("home featured list excludes shortcut services and individual visa types", () => {
