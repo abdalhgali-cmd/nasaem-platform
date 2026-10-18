@@ -1,0 +1,8 @@
+# Claude Code bridge for Codex CLI.
+# Loaded only when Codex trusts this repository.
+# Requires Node.js >=18, authenticated Claude Code CLI and Codex CLI.
+# Package version pinned to avoid silently running future releases.
+[mcp_servers.claude]
+command = "npx"
+args = ["-y", "claude-codex-bridge@0.3.1", "serve", "claude"]
+tool_timeout_sec = 600
