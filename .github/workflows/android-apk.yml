@@ -61,6 +61,19 @@ jobs:
             head -c 300 /tmp/probe.json 2>/dev/null; echo
           done
 
+      - name: Stamp QA app version for in-app diagnosis
+        env:
+          QA_VERSION_NAME: 0.3.${{ github.run_number }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const file = "www/js/config.js";
+            let src = fs.readFileSync(file, "utf8");
+            if (!/appVersion: "[^"]*"/.test(src)) process.exit(1);
+            src = src.replace(/appVersion: "[^"]*"/, `appVersion: ${JSON.stringify(process.env.QA_VERSION_NAME)}`);
+            fs.writeFileSync(file, src);
+          '
+
       - name: Sync Capacitor (copy web assets, refresh native config)
         run: npx cap sync android
 
@@ -83,8 +96,8 @@ jobs:
         working-directory: mobile/android
         run: |
           ./gradlew assembleRelease \
-            -Pandroid.injected.version.code=${{ github.run_number }} \
-            -Pandroid.injected.version.name=0.3.${{ github.run_number }}
+            -PNASAEM_VERSION_CODE=${{ github.run_number }} \
+            -PNASAEM_VERSION_NAME=0.3.${{ github.run_number }}
 
       - name: Verify APK package/label and signature
         working-directory: mobile/android
@@ -99,7 +112,13 @@ jobs:
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
           SDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-          "$SDK_BUILD_TOOLS/aapt" dump badging "$APK" | grep -E "^package:|^application-label:|^application-icon-"
+          BADGING="$("$SDK_BUILD_TOOLS/aapt" dump badging "$APK")"
+          echo "$BADGING" | grep -E "^package:|^application-label:|^application-icon-"
+          # Prevent a new artifact with the exact old Android versionCode 1:
+          # Android installers may regard that package as unchanged.
+          echo "$BADGING" | grep -qF "name='com.nasaemalharamain.app' versionCode='${{ github.run_number }}' versionName='0.3.${{ github.run_number }}'"
+          # Independently verify the shipped WebView bundle includes the stamped version.
+          unzip -p "$APK" assets/public/js/config.js | grep -qF 'appVersion: "0.3.${{ github.run_number }}"'
           SIGNING_OUTPUT="$("$SDK_BUILD_TOOLS/apksigner" verify --print-certs "$APK")"
           echo "$SIGNING_OUTPUT"
           ACTUAL_CERT_SHA256="$(echo "$SIGNING_OUTPUT" | grep -oE '[0-9a-f]{64}' | head -1)"
