@@ -1,0 +1,118 @@
+<title>NASAEM Mobile Concepts</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Amiri:wght@700&display=swap">
+<style>
+/* Board: neutral studio wall so the three concepts carry the color. Rows = screens, columns = A/B/C. */
+:root{
+  --bg:#eef0f4; --panel:#ffffff; --fg:#14213d; --muted:#5f6a80; --line:#dde2ea;
+  --navy:#082b58; --gold:#b88a2a; --chip:#e4e8ef;
+  --f:"IBM Plex Sans Arabic","Segoe UI",Tahoma,system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d121b;--panel:#161d2a;--fg:#e9edf4;--muted:#9aa5b9;--line:#263043;--navy:#9fc0ec;--gold:#e0b862;--chip:#222b3b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0d121b;--panel:#161d2a;--fg:#e9edf4;--muted:#9aa5b9;--line:#263043;--navy:#9fc0ec;--gold:#e0b862;--chip:#222b3b;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--f);direction:rtl}
+.wrap{max-width:1320px;margin:0 auto;padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header.top{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:16px}
+h1{font-family:"Amiri",serif;font-size:clamp(28px,4vw,40px);line-height:1.2;color:var(--navy);text-wrap:balance}
+.lead{color:var(--muted);margin-top:6px;font-size:15px;max-width:62ch}
+.seg{display:inline-flex;background:var(--chip);border-radius:12px;padding:4px;gap:4px}
+.seg button{font:inherit;border:0;background:none;color:var(--muted);padding:8px 14px;border-radius:9px;cursor:pointer;font-weight:500;font-variant-numeric:tabular-nums}
+.seg button.on{background:var(--panel);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.seg button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.legend{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:26px}
+.legend div{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;min-width:0}
+.legend b{display:block;font-size:16px}
+.legend span{color:var(--muted);font-size:13px}
+.legend .k{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--navy);color:var(--panel);font-weight:700;font-size:13px;margin-inline-end:8px;vertical-align:middle}
+section.screen{margin-top:34px}
+section.screen h2{font-size:18px;font-weight:600;display:flex;align-items:center;gap:10px}
+section.screen h2 small{font-weight:400;color:var(--muted);font-size:13px}
+.row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:12px}
+.cell{min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px}
+.cell .lab{font-size:12.5px;color:var(--muted);font-weight:500}
+.phone{position:relative;border-radius:30px;background:#0a0f18;padding:7px;box-shadow:0 18px 40px rgba(10,20,40,.18)}
+.phone .clip{border-radius:24px;overflow:hidden;position:relative}
+.phone iframe{border:0;display:block;transform-origin:top right;background:#fff}
+.open{font-size:12px;color:var(--navy);text-decoration:none}
+.open:hover{text-decoration:underline}
+table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:14px;overflow:hidden;font-variant-numeric:tabular-nums}
+.tbl{overflow-x:auto;margin-top:12px;border:1px solid var(--line);border-radius:14px}
+th,td{padding:12px 14px;text-align:start;border-bottom:1px solid var(--line);font-size:14px;white-space:nowrap}
+th{font-weight:600;color:var(--muted);font-size:12.5px}
+tr:last-child td{border-bottom:0}
+td.best{color:var(--gold);font-weight:700}
+.bar{display:inline-block;height:6px;border-radius:3px;background:var(--navy);vertical-align:middle;margin-inline-start:8px;opacity:.75}
+.rec{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-inline-start:4px solid var(--gold);border-radius:14px;padding:18px 20px}
+.rec h3{font-size:17px}
+.rec p,.rec li{color:var(--muted);font-size:14.5px;line-height:1.8;max-width:75ch}
+.rec ul{padding-inline-start:20px;margin-top:6px}
+.note{font-size:12.5px;color:var(--muted);margin-top:8px}
+@media (max-width:760px){.row,.legend{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>نسائم الحرمين · ثلاثة اتجاهات لتطبيق العملاء</h1>
+      <p class="lead">نماذج حيّة قابلة للنقر، بالعربية ومن اليمين لليسار، بالخدمات الحقيقية من قاعدة البيانات. لا أسعار ولا بيانات حجز.</p>
+    </div>
+    <div class="seg" role="group" aria-label="عرض الشاشة">
+      <button id="w360" type="button">360px</button>
+      <button id="w390" type="button" class="on">390px</button>
+    </div>
+  </header>
+
+  <div class="legend">
+    <div><span class="k">A</span><b style="display:inline">بسيط عصري</b><br><span>أبيض، حبر كحلي، خط ذهبي واحد. أقصى وضوح.</span></div>
+    <div><span class="k">B</span><b style="display:inline">فخامة السفر</b><br><span>ليل كحلي، ذهب، قوس المحراب ونقش النجمة الثمانية.</span></div>
+    <div><span class="k">C</span><b style="display:inline">رحلة ديناميكية</b><br><span>مدار الشعار يصبح حركة، شبكة بنتو، شريط تنقل عائم.</span></div>
+  </div>
+
+  <div id="screens"></div>
+
+  <section class="screen">
+    <h2>التقييم <small>تقديري من 10</small></h2>
+    <div class="tbl"><table>
+      <thead><tr><th>المفهوم</th><th>تجربة الاستخدام</th><th>الجمال</th><th>الأداء</th><th>المجموع</th></tr></thead>
+      <tbody id="scores"></tbody>
+    </table></div>
+    <div class="rec">
+      <h3>التوصية: B · فخامة السفر، مع وضوح A في شاشة الخدمات</h3>
+      <ul>
+        <li>الوحيد الذي يبدو كعلامة نسائم الحرمين وليس كقالب: القوس والنقش والذهب مرتبطة بالعمرة مباشرة.</li>
+        <li>شاشة الترحيب تعرض الخيارات الثلاثة بوضوح، والخدمات مجمّعة في قوائم سهلة القراءة.</li>
+        <li>للأداء على أجهزة أندرويد الضعيفة: النقش صورة SVG واحدة، والحركة CSS فقط، مع إيقافها عند تفعيل "تقليل الحركة".</li>
+        <li>C خيار قوي لجمهور أصغر سنًا؛ يمكن استعارة خطوات "كيف يعمل طلبك" منه.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+var C=[{k:'a',n:'A · بسيط عصري'},{k:'b',n:'B · فخامة السفر'},{k:'c',n:'C · رحلة ديناميكية'}];
+var S=[{k:'welcome',n:'الترحيب',d:'تسجيل الدخول · إنشاء حساب · الدخول كزائر'},{k:'returning',n:'مستخدم عائد',d:'فتح بالبصمة — نموذج للواجهة فقط'},{k:'home',n:'الرئيسية',d:'وضع الزائر'},{k:'services',n:'لوحة الخدمات',d:'9 خدمات من بيانات النظام'}];
+var SC=[['A · بسيط عصري',9,7,9.5],['B · فخامة السفر',8.5,9.5,8],['C · رحلة ديناميكية',8,8.5,7.5]];
+var W=390, H={360:780,390:844};
+function render(){
+  var host=document.getElementById('screens');
+  host.innerHTML=S.map(function(s){return '<section class="screen"><h2>'+s.n+' <small>'+s.d+'</small></h2><div class="row">'+
+    C.map(function(c){return '<div class="cell"><span class="lab">'+c.n+'</span><div class="phone"><div class="clip" data-w="'+W+'"><iframe loading="lazy" title="'+c.n+' — '+s.n+'" src="concept-'+c.k+'.html#'+s.k+'" width="'+W+'" height="'+H[W]+'"></iframe></div></div><a class="open" href="concept-'+c.k+'.html#'+s.k+'" target="_blank" rel="noopener">فتح بحجم كامل ↗</a></div>'}).join('')+
+    '</div></section>'}).join('');
+  fit();
+}
+function fit(){
+  document.querySelectorAll('.clip').forEach(function(clip){
+    var cell=clip.closest('.cell'), avail=cell.clientWidth-14, s=Math.min(1,avail/W), f=clip.querySelector('iframe');
+    f.style.transform='scale('+s+')';
+    clip.style.width=(W*s)+'px'; clip.style.height=(H[W]*s)+'px';
+  });
+}
+function setW(w){W=w;document.getElementById('w360').classList.toggle('on',w===360);document.getElementById('w390').classList.toggle('on',w===390);render()}
+document.getElementById('w360').onclick=function(){setW(360)};
+document.getElementById('w390').onclick=function(){setW(390)};
+window.addEventListener('resize',fit);
+var max=[0,0,0,0];SC.forEach(function(r){var t=r[1]+r[2]+r[3];r.push(t);for(var i=1;i<5;i++)max[i-1]=Math.max(max[i-1],r[i])});
+document.getElementById('scores').innerHTML=SC.map(function(r){return '<tr><td>'+r[0]+'</td>'+[1,2,3,4].map(function(i){var v=r[i];return '<td class="'+(v===max[i-1]?'best':'')+'">'+v+(i<4?'<span class="bar" style="width:'+(v*6)+'px"></span>':'')+'</td>'}).join('')+'</tr>'}).join('');
+render();
+</script>
