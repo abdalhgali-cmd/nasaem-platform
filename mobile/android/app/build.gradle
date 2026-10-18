@@ -7,10 +7,12 @@ android {
         applicationId "com.nasaemalharamain.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // Overridden by the build (-Pandroid.injected.version.code/name): the
-        // release workflow sets a versionCode that only ever increases.
-        versionCode 1
-        versionName "1.0"
+        // AGP ignored -Pandroid.injected.version.code/name in the APK builds:
+        // AndroidManifest.xml kept versionCode 1 / versionName 1.0.
+        // Use explicit project properties with QA and official release jobs.
+        // If no build properties are supplied, these defaults are only for local builds.
+        versionCode (project.findProperty("NASAEM_VERSION_CODE") ?: "1").toString().toInteger()
+        versionName (project.findProperty("NASAEM_VERSION_NAME") ?: "1.0").toString()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

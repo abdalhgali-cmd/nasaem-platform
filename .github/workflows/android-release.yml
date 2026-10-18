@@ -119,8 +119,8 @@ jobs:
           CODE=$((BASE + ${{ github.run_number }}))
           echo "versionCode=$CODE versionName=$VERSION_NAME"
           ./gradlew assembleRelease bundleRelease -PrequireReleaseKey=true \
-            -Pandroid.injected.version.code=$CODE \
-            -Pandroid.injected.version.name="$VERSION_NAME"
+            -PNASAEM_VERSION_CODE="$CODE" \
+            -PNASAEM_VERSION_NAME="$VERSION_NAME"
           echo "VERSION_CODE=$CODE" >> "$GITHUB_ENV"
 
       - name: Verify package, version and signature
