@@ -45,6 +45,26 @@ export function serviceDirectoryItems(catalog) {
   return hubVisaTypes(catalog).length ? [VISAS_HUB_ITEM, ...services] : [...services];
 }
 
+// A compact, catalog-backed directory. Categories are presentation only: the
+// same item ids go through the existing service router and priced intake.
+export function groupServiceDirectory(catalog) {
+  const items = serviceDirectoryItems(catalog);
+  const groups = [
+    { key: "umrah", title: "العمرة", items: [] },
+    { key: "travel", title: "السفر", items: [] },
+    { key: "visas", title: "التأشيرات والموافقات", items: [] },
+    { key: "other", title: "خدمات أخرى", items: [] },
+  ];
+  for (const item of items) {
+    const code = String(item?.code || "").toUpperCase();
+    if (code.includes("UMRAH")) groups[0].items.push(item);
+    else if (code === "SVC-FLIGHT" || code === "SVC-FERRY" || /^(FLIGHT|FERRY)$/.test(code)) groups[1].items.push(item);
+    else if (code === "HUB-VISAS" || code.startsWith("VISA-") || /VISA|EGYPT|CLEARANCE|VISIT/.test(code)) groups[2].items.push(item);
+    else groups[3].items.push(item);
+  }
+  return groups.filter((group) => group.items.length > 0);
+}
+
 // Only shortcuts whose service is actually published are returned: a shortcut
 // never leads to a service the agency has switched off.
 export function resolveShortcuts(catalog) {
