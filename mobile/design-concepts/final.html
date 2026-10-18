@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Final · NASAEM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:wght@700&family=Readex+Pro:wght@300;400;500;600;700&display=swap">
+<style>
+/* Final proposal — B identity (navy night, gold leaf, star lattice), A typography + service list, C request steps.
+   Designed at 360px first. All text in rem so Android text zoom scales it. */
+:root{
+  --navy:#082b58; --night:#051a36; --deep:#061f42; --navy-2:#0b417e;
+  --gold:#d6aa4b; --gold-hi:#ecd08b; --gold-ink:#8a6412;
+  --pearl:#f5f7fa; --card:#ffffff; --line:#e3e7ee; --ink:#0f1f3a; --muted:#4f5a70; --on-navy:rgba(255,255,255,.86);
+  --wordmark:"Amiri","Times New Roman",serif;
+  --f:"Readex Pro","Segoe UI",Tahoma,system-ui,sans-serif;
+  --leaf:linear-gradient(135deg,#f1d996 0%,#d6aa4b 50%,#c39436 100%);
+  --star:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='%23d6aa4b' stroke-width='.7' opacity='.55'%3E%3Cpath d='M28 8l6 14 14 6-14 6-6 14-6-14-14-6 14-6z'/%3E%3Crect x='16' y='16' width='24' height='24' transform='rotate(45 28 28)'/%3E%3C/g%3E%3C/svg%3E");
+  color-scheme:light;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--f);background:var(--night);color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+button:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
+.ic{width:1.375rem;height:1.375rem;flex:none}
+#app{height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.rise{animation:rise .6s cubic-bezier(.16,.8,.24,1) both}
+.d2{animation-delay:.08s}.d3{animation-delay:.16s}.d4{animation-delay:.24s}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.logo{overflow:hidden;display:block;background:#fff;border-radius:50%}
+.logo img{width:100%;height:100%;object-fit:cover;transform:scale(1.08)}
+.medal{flex:none;border-radius:50%;padding:3px;background:var(--leaf)}
+.medal .logo{width:100%;height:100%}
+.night{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 0%,var(--navy-2) 0%,var(--navy) 42%,var(--night) 100%)}
+.night::before{content:"";position:absolute;inset:0;background:var(--star);opacity:.2;-webkit-mask:linear-gradient(#000,transparent 70%);mask:linear-gradient(#000,transparent 70%)}
+
+/* Buttons — every action ≥ 48px tall, high contrast on navy */
+.btn{min-height:3.25rem;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:.6rem;font-weight:500;font-size:1rem;padding:.6rem 1rem;width:100%;transition:transform .15s}
+.btn:active{transform:scale(.98)}
+.btn.gold{background:var(--leaf);color:var(--night);font-weight:600}
+.btn.line{border:1.5px solid var(--gold);color:#fff}
+.btn.soft{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.4);color:#fff}
+.btn .ic{width:1.2rem;height:1.2rem}
+
+/* Welcome */
+.w{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;padding:1.25rem 1.25rem 1.25rem;overflow-y:auto}
+.arch{margin-top:2.5vh;width:9rem;height:11rem;border-radius:4.5rem 4.5rem 12px 12px;border:1px solid rgba(214,170,75,.75);display:grid;place-items:center;position:relative;flex:none}
+.arch::before{content:"";position:absolute;inset:6px;border-radius:4.1rem 4.1rem 8px 8px;border:1px solid rgba(214,170,75,.3)}
+.arch .medal{width:5.75rem;height:5.75rem;padding:4px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.w h1{font-family:var(--wordmark);font-weight:700;font-size:2rem;line-height:1.3;margin-top:1rem;background:var(--leaf);-webkit-background-clip:text;background-clip:text;color:transparent}
+.w .sub{font-size:.875rem;letter-spacing:.12em;color:var(--on-navy);font-weight:400}
+.w .lede{color:var(--on-navy);font-size:.9375rem;margin-top:.9rem;text-align:center;font-weight:300}
+.actions{margin-top:auto;padding-top:1.25rem;width:100%;display:grid;gap:.7rem}
+
+/* Returning */
+.r{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;padding:1.5rem 1.25rem 1.25rem;overflow-y:auto}
+.r .medal{width:4.25rem;height:4.25rem;margin-top:3vh}
+.r h2{font-weight:600;font-size:1.5rem;margin-top:.9rem;color:#fff}
+.r p{color:var(--on-navy);font-size:.9375rem;margin-top:.25rem;text-align:center}
+.fp{margin:auto;width:8.5rem;height:8.5rem;flex:none;border-radius:50%;display:grid;place-items:center;color:var(--gold-hi);position:relative;border:1.5px solid rgba(214,170,75,.7);background:radial-gradient(circle,rgba(214,170,75,.16),transparent 70%)}
+.fp .ic{width:3.75rem;height:3.75rem;stroke-width:1.3}
+.fp::after{content:"";position:absolute;inset:-12px;border-radius:50%;border:1px solid rgba(214,170,75,.45);animation:halo 2.8s ease-out infinite}
+@keyframes halo{0%{transform:scale(.92);opacity:1}100%{transform:scale(1.2);opacity:0}}
+.proto{display:flex;align-items:center;gap:.5rem;margin-top:.9rem;font-size:.8125rem;color:var(--gold-hi);background:rgba(214,170,75,.12);border:1px solid rgba(214,170,75,.55);border-radius:12px;padding:.5rem .8rem;text-align:start}
+.proto .ic{width:1rem;height:1rem}
+.r .stack{width:100%;display:grid;gap:.6rem;margin-top:1rem}
+
+/* App header — compact */
+.hd{position:relative;flex:none;padding:.85rem 1rem 1rem;background:radial-gradient(130% 120% at 50% 0%,var(--navy-2),var(--navy) 55%,var(--deep));color:#fff;overflow:hidden}
+.hd::before{content:"";position:absolute;inset:0;background:var(--star);opacity:.14}
+.bar{position:relative;display:flex;align-items:center;gap:.7rem}
+.bar .medal{width:2.5rem;height:2.5rem;padding:2px}
+.bar .t{flex:1;min-width:0}
+.bar .t small{display:block;color:var(--on-navy);font-size:.75rem}
+.bar .t b{font-weight:600;font-size:1.125rem}
+.ring{flex:none;width:2.75rem;height:2.75rem;border-radius:50%;border:1px solid rgba(214,170,75,.6);display:grid;place-items:center;color:var(--gold-hi)}
+.search{position:relative;margin-top:.8rem;display:flex;align-items:center;gap:.6rem;min-height:2.75rem;border-radius:12px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);padding:0 .85rem;color:var(--on-navy);font-size:.875rem}
+.search .ic{width:1.1rem;height:1.1rem}
+
+.body{flex:1;overflow-y:auto;background:var(--pearl);padding:1rem 1rem 1.25rem}
+
+/* Umrah card — compact, one clear CTA */
+.umrah{border-radius:18px;padding:.9rem;background:linear-gradient(135deg,var(--navy-2),var(--navy) 60%,var(--night));color:#fff;position:relative;overflow:hidden;display:grid;grid-template-columns:auto 1fr;gap:.25rem .8rem;align-items:center}
+.umrah::before{content:"";position:absolute;inset:0;background:var(--star);opacity:.14}
+.umrah .archlet{position:relative;grid-row:span 2;width:2.9rem;height:3.4rem;border-radius:1.45rem 1.45rem 7px 7px;border:1px solid var(--gold);display:grid;place-items:center;color:var(--gold-hi)}
+.umrah h3{position:relative;font-weight:600;font-size:1.0625rem}
+.umrah p{position:relative;font-size:.8125rem;color:var(--on-navy);line-height:1.5}
+.umrah .cta{position:relative;grid-column:1 / -1;margin-top:.6rem;min-height:2.75rem;border-radius:12px;background:var(--leaf);color:var(--night);font-weight:600;font-size:.9375rem;display:flex;align-items:center;justify-content:center;gap:.5rem}
+.umrah .cta .ic{width:1.1rem;height:1.1rem}
+
+.sec{display:flex;align-items:center;gap:.6rem;margin:1.25rem 0 .7rem}
+.sec h4{font-weight:600;font-size:1rem;color:var(--ink)}
+.sec i{flex:1;height:1px;background:var(--line)}
+.sec a{font-size:.8125rem;color:var(--gold-ink);font-weight:600;text-decoration:none;padding:.4rem 0}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:.75rem .35rem;display:flex;flex-direction:column;align-items:center;gap:.45rem;text-align:center;font-size:.8125rem;line-height:1.4;color:var(--ink);min-height:5.5rem;overflow-wrap:anywhere}
+.tile .ic{color:var(--navy);width:1.4rem;height:1.4rem}
+
+/* Steps (from C) */
+.steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.25rem;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:.85rem .4rem;position:relative}
+.steps::before{content:"";position:absolute;top:1.65rem;right:12.5%;left:12.5%;height:2px;background:repeating-linear-gradient(270deg,var(--gold) 0 6px,transparent 6px 11px)}
+.step{display:flex;flex-direction:column;align-items:center;gap:.4rem;text-align:center;font-size:.75rem;line-height:1.4;color:var(--muted);position:relative;overflow-wrap:anywhere}
+.step i{width:1.75rem;height:1.75rem;border-radius:50%;background:var(--navy);color:#fff;font-style:normal;font-weight:600;font-size:.8125rem;display:grid;place-items:center;box-shadow:0 0 0 4px var(--card)}
+.step:first-child i{background:var(--gold);color:var(--night)}
+
+.guest{margin-top:.7rem;border-radius:16px;padding:.85rem;display:flex;align-items:center;gap:.7rem;background:var(--card);border:1px solid var(--line)}
+.guest>.ic{color:var(--gold-ink)}
+.guest div{flex:1;min-width:0}
+.guest b{display:block;font-size:.875rem;font-weight:600}
+.guest small{color:var(--muted);font-size:.8125rem}
+.guest .mini{flex:none;background:var(--navy);color:#fff;border-radius:10px;min-height:2.5rem;padding:0 .9rem;font-size:.875rem;font-weight:500}
+
+/* Services list (from A) */
+.group h5{display:flex;align-items:center;gap:.5rem;font-size:.875rem;color:var(--navy);font-weight:600;margin:1.1rem .1rem .45rem}
+.group:first-child h5{margin-top:.2rem}
+.group h5 b{width:6px;height:6px;transform:rotate(45deg);background:var(--gold)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.row{display:flex;align-items:center;gap:.8rem;padding:.7rem .85rem;min-height:3.75rem;width:100%;text-align:start}
+.row+.row{border-top:1px solid var(--line)}
+.row .sq{flex:none;width:2.6rem;height:2.6rem;border-radius:12px;background:#eef2f8;display:grid;place-items:center;color:var(--navy)}
+.row span{flex:1;min-width:0;font-size:.9375rem;line-height:1.45;overflow-wrap:anywhere}
+.row .chev{color:#8b94a7;width:1.1rem;height:1.1rem}
+
+/* Bottom nav — in the flex flow, never overlays content */
+.nav{flex:none;display:flex;background:var(--night);padding:.45rem .25rem calc(.55rem + env(safe-area-inset-bottom,0px));border-top:1px solid rgba(214,170,75,.3)}
+.nav button{flex:1;min-width:0;min-height:3rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2rem;font-size:.75rem;color:rgba(255,255,255,.72)}
+.nav button.on{color:var(--gold-hi);font-weight:500}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script src="shared.js"></script>
+<script>
+// ?zoom=1.3 simulates Android text zoom (review only)
+var z = /zoom=([\d.]+)/.exec(location.search); if (z) document.documentElement.style.fontSize = (16 * +z[1]) + 'px';
+var I = N.icon;
+function medal(){return '<div class="medal"><div class="logo"><img src="assets/logo-mark.png" alt="نسائم الحرمين"></div></div>'}
+function nav(on){return '<nav class="nav">'+N.tabs.map(function(t){return '<button class="'+(t.k===on?'on':'')+'" data-go="home"'+(t.k===on?' aria-current="page"':'')+'>'+I(t.i)+t.n+'</button>'}).join('')+'</nav>'}
+N.mount({
+  welcome:function(){return '<div class="night"></div><section class="w">'+
+    '<div class="arch rise">'+medal()+'</div>'+
+    '<h1 class="rise d2">نسائم الحرمين</h1><div class="sub rise d2">للسفر والسياحة</div>'+
+    '<p class="lede rise d2">العمرة والسفر والتأشيرات في تطبيق واحد</p>'+
+    '<div class="actions">'+
+      '<button class="btn gold rise d3" data-go="returning">'+I('login')+'تسجيل الدخول</button>'+
+      '<button class="btn line rise d3">'+I('userPlus')+'إنشاء حساب</button>'+
+      '<button class="btn soft rise d4" data-go="home">'+I('user')+'الدخول كزائر</button>'+
+    '</div></section>'},
+  returning:function(){return '<div class="night"></div><section class="r">'+
+    '<div class="rise">'+medal()+'</div>'+
+    '<h2 class="rise d2">مرحبًا بعودتك</h2><p class="rise d2">جلستك محفوظة بأمان على هذا الجهاز</p>'+
+    '<button class="fp rise d3" data-go="home" aria-label="الدخول بالبصمة">'+I('finger')+'</button>'+
+    '<p>المس مستشعر البصمة للمتابعة</p>'+
+    '<div class="stack"><button class="btn soft">'+I('lock')+'الدخول بكلمة المرور</button></div>'+
+    '<div class="proto" role="note">'+I('shield')+'نموذج واجهة فقط — الدخول بالبصمة غير مفعّل بعد</div></section>'},
+  home:function(){return '<header class="hd"><div class="bar">'+medal()+
+    '<div class="t"><small>نسائم الحرمين</small><b>أهلًا بك</b></div><button class="ring" aria-label="الإشعارات">'+I('bell')+'</button></div>'+
+    '<div class="search">'+I('search')+'ابحث عن خدمة</div></header>'+
+    '<div class="body">'+
+    '<div class="umrah rise"><div class="archlet">'+I('kaaba')+'</div><h3>خدمات العمرة</h3><p>تأشيرة فقط أو عمرة مع الخدمات</p>'+
+    '<button class="cta" data-go="services">اطلب الخدمة'+I('fwd')+'</button></div>'+
+    '<div class="sec"><h4>الخدمات</h4><i></i><a href="#services">عرض الكل (9)</a></div>'+
+    '<div class="tiles rise d2">'+['flight','hotel','ferry','family','egypt','tasheel'].map(function(k){var s=N.svc(k);return '<button class="tile" data-go="services">'+I(s.i)+s.n+'</button>'}).join('')+'</div>'+
+    '<div class="sec"><h4>كيف يعمل طلبك</h4><i></i></div>'+
+    '<div class="steps rise d3">'+['اختر الخدمة','أرسل بياناتك','وافق على عرض السعر','تابع طلبك'].map(function(s,i){return '<div class="step"><i>'+(i+1)+'</i>'+s+'</div>'}).join('')+'</div>'+
+    '<div class="guest rise d4">'+I('list')+'<div><b>تتبّع طلباتك</b><small>سجّل الدخول لمتابعة حالة طلباتك</small></div><button class="mini" data-go="welcome">دخول</button></div>'+
+    '</div>'+nav('home')},
+  services:function(){return '<header class="hd"><div class="bar"><button class="ring" data-go="home" aria-label="رجوع">'+I('back')+'</button>'+
+    '<div class="t"><small>اختر الخدمة وأرسل طلبك</small><b>كل الخدمات</b></div></div>'+
+    '<div class="search">'+I('search')+'ابحث عن خدمة</div></header>'+
+    '<div class="body">'+N.groups.map(function(g){return '<div class="group"><h5><b></b>'+g.n+'</h5><div class="card">'+
+      N.inGroup(g.k).map(function(s){return '<button class="row"><span class="sq">'+I(s.i)+'</span><span>'+s.n+'</span>'+I('chev','chev')+'</button>'}).join('')+'</div></div>'}).join('')+
+    '</div>'+nav('home')}
+});
+</script>
+</body>
+</html>
