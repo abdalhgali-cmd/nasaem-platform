@@ -1,5 +1,10 @@
 apply plugin: 'com.android.application'
 
+// Evaluate values outside the Android DSL; Groovy's command-style versionCode
+// setter otherwise mis-parses a chained .toString().toInteger() expression.
+def nasaemVersionCode = Integer.parseInt((project.findProperty('NASAEM_VERSION_CODE') ?: '1').toString())
+def nasaemVersionName = (project.findProperty('NASAEM_VERSION_NAME') ?: '1.0').toString()
+
 android {
     namespace = "com.nasaemalharamain.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -11,8 +16,8 @@ android {
         // AndroidManifest.xml kept versionCode 1 / versionName 1.0.
         // Use explicit project properties with QA and official release jobs.
         // If no build properties are supplied, these defaults are only for local builds.
-        versionCode (project.findProperty("NASAEM_VERSION_CODE") ?: "1").toString().toInteger()
-        versionName (project.findProperty("NASAEM_VERSION_NAME") ?: "1.0").toString()
+        versionCode nasaemVersionCode
+        versionName nasaemVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
