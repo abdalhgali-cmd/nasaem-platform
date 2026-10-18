@@ -106,3 +106,36 @@ test("approved mobile service directory is grouped without inventing entries or 
   ]);
   assert.equal(groupServiceDirectory({ services: [], visaTypes: [] }).length, 0);
 });
+
+test("home bento: published tiles in priority order, never hotels", async () => {
+  const { homeBentoTiles } = await import("../www/js/service-view.js");
+  const withHotel = { ...catalog, services: [...catalog.services, { id: "h", code: "SVC-HOTEL", name: "فنادق" }] };
+  assert.deepEqual(homeBentoTiles(withHotel).map((t) => t.key), ["flights", "ferries", "visas", "egypt"]);
+  assert.deepEqual(homeBentoTiles({ services: [], visaTypes: [] }), []);
+});
+
+test("service count is dynamic: hotels excluded, linked visa types not double-counted", async () => {
+  const { publishedServiceCount } = await import("../www/js/service-view.js");
+  const cat = {
+    services: [
+      { id: "s1", code: "SVC-FLIGHT" }, { id: "s2", code: "SVC-HOTEL" }, { id: "s3", code: "SVC-UMRAH" },
+      { id: "s4", code: "SVC-EGYPT-CLEARANCE" },
+    ],
+    visaTypes: [
+      { id: "v1", code: "VISA-UMRAH", category: "UMRAH", serviceId: "s3" },
+      { id: "v2", code: "VISA-EGYPT-CLEARANCE", category: "OTHER", serviceId: "s4" },
+      { id: "v3", code: "VISA-INTERNATIONAL", category: "INTERNATIONAL", serviceId: null },
+    ],
+  };
+  assert.equal(publishedServiceCount(cat), 4, "flight, umrah, egypt + unlinked international visa");
+  assert.equal(publishedServiceCount({ services: [], visaTypes: [] }), 0);
+});
+
+test("service count text follows Arabic number agreement", async () => {
+  const { serviceCountText } = await import("../www/js/service-view.js");
+  assert.equal(serviceCountText(1), "خدمة واحدة");
+  assert.equal(serviceCountText(2), "خدمتان");
+  assert.equal(serviceCountText(4), "4 خدمات");
+  assert.equal(serviceCountText(11), "11 خدمة");
+  assert.equal(serviceCountText(0), "0 خدمة");
+});

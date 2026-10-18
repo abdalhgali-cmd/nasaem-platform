@@ -56,7 +56,7 @@ export function buildBannerSlides({ hero = null, sections = [], coupons = [] } =
     slides.push({ kind: "coupon", eyebrow: "كوبون متاح لك", title: coupon.code, text: couponText(coupon), icon: "star" });
   }
   if (!slides.length) {
-    slides.push({ kind: "brand", eyebrow: "نسائم الحرمين للسفر والسياحة", title: "رحلتك تبدأ معنا بثقة", text: "عمرة، طيران، تأشيرات، فنادق ورحلات بحرية — في مكان واحد.", icon: "plane" });
+    slides.push({ kind: "brand", eyebrow: "نسائم الحرمين للسفر والسياحة", title: "رحلتك تبدأ معنا بثقة", text: "عمرة، طيران، تأشيرات ورحلات بحرية — في مكان واحد.", icon: "plane" });
   }
   return slides.slice(0, 6);
 }

@@ -5,7 +5,7 @@ import { getCustomer, isAccountUnlocked } from "../auth.js";
 import { loadCatalog, loadHomepage } from "../catalog.js";
 import { go, goToTab } from "../router.js";
 import { openServiceById, openServiceItem, VISAS_HUB_CODE } from "./services.js";
-import { resolveShortcuts, homeFeaturedServices, startingPrice, priceText, sdgText, durationOf } from "../service-view.js";
+import { homeBentoTiles, publishedServiceCount, serviceCountText, hubVisaTypes, homeFeaturedServices, startingPrice, priceText, sdgText, durationOf } from "../service-view.js";
 import { firstName, greeting, buildBannerSlides, nextSlide, readPendingPayment } from "../experience-core.js";
 import { prefersReducedMotion, stagger, watchSnapIndex, scrollToSlide, tapFeedback } from "../motion.js";
 import { loadAgency, whatsappLink } from "../agency.js";
@@ -59,33 +59,24 @@ export async function renderHomeScreen({ bodyEl }) {
   const customer = signedIn ? getCustomer() : null;
   const name = firstName(customer?.fullName);
   bodyEl.innerHTML = `
-    <section class="home-hero">
-      <svg class="home-hero-path" viewBox="0 0 360 160" fill="none" aria-hidden="true">
-        <path d="M-10 140 C 90 40, 220 20, 370 70" stroke="rgba(214,170,75,.35)" stroke-width="1.5" stroke-dasharray="5 7"/>
-      </svg>
-      <div class="home-hero-top">
-        <img class="home-brand-mark" src="assets/brand/logo-mark.png" alt="شعار نسائم الحرمين" width="44" height="44">
-        <div class="home-hero-greeting">
-          <span class="eyebrow">${signedIn ? `${esc(greeting())}${name ? `، ${esc(name)}` : ""}` : "أهلاً بك في نسائم الحرمين"}</span>
-          <h1>نسائم الحرمين</h1>
-          <p>رحلتك تبدأ معنا بثقة</p>
-        </div>
-        ${signedIn ? `<button class="home-bell" id="homeBell" aria-label="الإشعارات">
-          ${icon("bell", { size: 22 })}<span class="home-bell-dot" id="homeBellDot" hidden></span>
-        </button>` : ""}
+    <header class="hc-top">
+      <img class="hc-mark" src="assets/brand/logo-mark.png" alt="شعار نسائم الحرمين" width="44" height="44">
+      <div class="hc-greeting">
+        <small>${signedIn ? `${esc(greeting())}${name ? `، ${esc(name)}` : ""}` : "نسائم الحرمين"}</small>
+        <h1>${signedIn ? "نسائم الحرمين" : "أهلاً بك"}</h1>
       </div>
-      <button class="hero-cta" id="startNowBtn">${icon("search", { size: 20 })}<span>ابحث عن خدمة أو ابدأ طلبك</span></button>
-    </section>
+      ${signedIn ? `<button class="hc-icon-btn home-bell" id="homeBell" aria-label="الإشعارات">
+        ${icon("bell", { size: 22 })}<span class="home-bell-dot" id="homeBellDot" hidden></span>
+      </button>` : ""}
+    </header>
+    <div class="hc-search-wrap">
+      <button class="hc-search" id="startNowBtn">${icon("search", { size: 19 })}<span>ابحث عن خدمة أو ابدأ طلبك</span></button>
+    </div>
 
     <div id="pendingPaymentMount"></div>
-    <div id="homeUmrahSpotlight" class="home-umrah-mount"></div>
 
-    <section class="shortcuts home-categories" aria-label="خدمات الوكالة">
-      <div class="home-section-head">
-        <h2>الخدمات</h2>
-        <button type="button" class="home-see-all" id="allServicesFromHome">عرض كل الخدمات ${icon("chevron-start", { size: 16 })}</button>
-      </div>
-      <div class="shortcut-rail" id="shortcutRail">${skeletonGrid(4)}</div>
+    <section class="hc-bento-wrap" aria-label="خدمات الوكالة">
+      <div class="hc-bento" id="homeBento">${skeletonGrid(4)}</div>
     </section>
 
     <section class="section home-journey" aria-label="كيف يعمل طلبك">
@@ -139,7 +130,6 @@ export async function renderHomeScreen({ bodyEl }) {
 
   const allServices = () => goToTab("services", "services", { title: "الخدمات" });
   bodyEl.querySelector("#seeAllServices").addEventListener("click", allServices);
-  bodyEl.querySelector("#allServicesFromHome").addEventListener("click", allServices);
   bodyEl.querySelector("#startNowBtn").addEventListener("click", () => {
     tapFeedback();
     goToTab("services", "services", { title: "الخدمات" });
@@ -151,7 +141,7 @@ export async function renderHomeScreen({ bodyEl }) {
   bodyEl.querySelector("#homeTrackBtn")?.addEventListener("click", () => goToTab("requests", "requests", { title: "طلباتي" }));
 
   const stopBanner = mountBanner(bodyEl, { signedIn });
-  loadCatalogSection(bodyEl);
+  loadCatalogSection(bodyEl, { allServices });
   if (signedIn) loadActivitySection(bodyEl);
   loadAgency().then((agency) => {
     const strip = bodyEl.querySelector("#helpStrip");
@@ -232,11 +222,13 @@ function mountBanner(bodyEl, { signedIn }) {
   };
 }
 
-function shortcutButton(shortcut) {
+// One bento tile per published service; the label is the catalog's own name.
+function bentoTile(shortcut) {
+  const label = shortcut.item?.name || shortcut.label;
   return `
-    <button class="shortcut" data-key="${esc(shortcut.key)}" aria-label="${esc(shortcut.label)}">
-      <span class="shortcut-icon">${icon(shortcut.icon, { size: 24 })}</span>
-      <span class="shortcut-label">${esc(shortcut.label)}</span>
+    <button type="button" class="hc-tile" data-key="${esc(shortcut.key)}">
+      <span class="hc-tile-icon">${icon(shortcut.icon, { size: 22 })}</span>
+      <span class="hc-tile-label">${esc(label)}</span>
     </button>`;
 }
 
@@ -254,36 +246,55 @@ function featuredRow(item) {
     </button>`;
 }
 
-// The spotlight is derived from the published catalog, never a simulated
-// package or price. The normal service dispatcher keeps each package's
-// actual price, document requirements and payment flow intact.
-function renderPublishedUmrah(bodyEl, catalog) {
-  const mount = bodyEl.querySelector("#homeUmrahSpotlight");
-  if (!mount) return;
+// The Umrah feature tile is derived from the published catalog, never a
+// simulated package or price. The normal service dispatcher keeps each
+// package's actual price, document requirements and payment flow intact.
+function publishedUmrah(catalog) {
   const services = [...(catalog.services || []), ...(catalog.visaTypes || [])];
-  const umrah = services.find((item) => item.code === "SVC-UMRAH") || services.find((item) => item.code === "VISA-UMRAH");
-  if (!umrah) { mount.replaceChildren(); return; }
-  mount.innerHTML = '<button type="button" class="home-umrah-card" id="homeUmrahBtn">' +
-    '<span class="home-umrah-emblem">' + icon("umrah", { size: 28 }) + '</span>' +
-    '<span class="home-umrah-copy"><strong>خدمات العمرة</strong><small>تأشيرة فقط أو عمرة مع خدمات بالطيران أو البحر</small></span>' +
-    '<span class="home-umrah-action">عرض الباقات ' + icon("chevron-start", { size: 18 }) + '</span>' +
-    '</button>';
-  mount.querySelector("#homeUmrahBtn").addEventListener("click", () => { tapFeedback(); openServiceItem(umrah); });
+  return services.find((item) => item.code === "SVC-UMRAH") || services.find((item) => item.code === "VISA-UMRAH") || null;
 }
 
-async function loadCatalogSection(bodyEl) {
-  const rail = bodyEl.querySelector("#shortcutRail");
+function umrahTile() {
+  return `
+    <div class="hc-tile hc-tile-feature">
+      <span class="hc-tile-icon">${icon("umrah", { size: 24 })}</span>
+      <span class="hc-feature-copy"><strong>خدمات العمرة</strong><small>تأشيرة فقط أو عمرة مع خدمات بالطيران أو البحر</small></span>
+      <button type="button" class="hc-feature-cta" id="homeUmrahBtn">اطلب الخدمة ${icon("chevron-start", { size: 18 })}</button>
+    </div>`;
+}
+
+async function loadCatalogSection(bodyEl, { allServices }) {
+  const bento = bodyEl.querySelector("#homeBento");
   try {
     const catalog = await loadCatalog();
     bodyEl.querySelector("#catalogStale").hidden = !catalog.stale;
-    renderPublishedUmrah(bodyEl, catalog);
 
-    // Umrah has its own published spotlight card above the category grid.
-    // Never show an unapproved hotel or a duplicate Umrah shortcut.
-    const shortcuts = resolveShortcuts(catalog).filter((shortcut) => shortcut.key !== "umrah");
-    rail.innerHTML = shortcuts.length ? shortcuts.map(shortcutButton).join("") : "";
-    stagger(rail);
-    rail.querySelectorAll(".shortcut").forEach((button) => {
+    // Bento in priority order: Umrah feature, flights, ferries, the visas hub
+    // (with its live count), Egypt clearance, family visit, then every
+    // service. Each tile opens the real published service; counts come from
+    // the catalog. Hotels are postponed and never shown.
+    const umrah = publishedUmrah(catalog);
+    const shortcuts = homeBentoTiles(catalog);
+    const visaCount = hubVisaTypes(catalog).length;
+    const total = publishedServiceCount(catalog);
+    bento.innerHTML = [
+      umrah ? umrahTile() : "",
+      ...shortcuts.map((shortcut) => shortcut.hub
+        ? `<button type="button" class="hc-tile hc-tile-wide" data-key="visas">
+            <span class="hc-tile-icon">${icon("visa", { size: 22 })}</span>
+            <span class="hc-tile-label">التأشيرات والموافقات<small>${esc(serviceCountText(visaCount))}</small></span>
+            ${icon("chevron-start", { size: 18 })}
+          </button>`
+        : bentoTile(shortcut)),
+      total ? `<button type="button" class="hc-tile hc-tile-all" id="allServicesFromHome">
+          <span class="hc-tile-icon">${icon("grid", { size: 22 })}</span>
+          <span class="hc-tile-label">كل الخدمات (<bdi>${total}</bdi>)</span>
+        </button>` : "",
+    ].join("");
+    stagger(bento);
+    bento.querySelector("#homeUmrahBtn")?.addEventListener("click", () => { tapFeedback(); openServiceItem(umrah); });
+    bento.querySelector("#allServicesFromHome")?.addEventListener("click", () => { tapFeedback(); allServices(); });
+    bento.querySelectorAll(".hc-tile[data-key]").forEach((button) => {
       button.addEventListener("click", () => {
         tapFeedback();
         const shortcut = shortcuts.find((candidate) => candidate.key === button.dataset.key);
@@ -309,7 +320,7 @@ async function loadCatalogSection(bodyEl) {
       section.hidden = !catalog.stale;
     }
   } catch (error) {
-    rail.innerHTML = `<p class="field-hint">تعذر تحميل الخدمات: ${esc(error.message)}</p>`;
+    bento.innerHTML = `<p class="field-hint">تعذر تحميل الخدمات: ${esc(error.message)}</p>`;
   }
 }
 
