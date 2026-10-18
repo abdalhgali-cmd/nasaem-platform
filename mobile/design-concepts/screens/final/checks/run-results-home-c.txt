@@ -1,4 +1,4 @@
-NASAEM final design — automated checks (2026-10-18T09:25:33.303Z)
+NASAEM final design — automated checks (2026-10-18T09:58:51.840Z)
 Zoom 130% = SIMULATED in desktop Chromium (root font-size x1.3). NOT an Android device/WebView test.
 home-360                   PASS  (touch targets: 14, smallest side 48px)
 home-360 zoom130(sim)      PASS  (touch targets: 14, smallest side 62px)

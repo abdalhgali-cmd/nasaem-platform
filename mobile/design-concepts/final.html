@@ -200,6 +200,8 @@ button:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
 // ?zoom=1.3 simulates Android text zoom (review only)
 var z = /zoom=([\d.]+)/.exec(location.search); if (z) document.documentElement.style.fontSize = (16 * +z[1]) + 'px';
 var I = N.icon;
+// Hotels are postponed by agency decision: not offered anywhere in this prototype.
+N.services = N.services.filter(function(s){return s.k!=='hotel'});
 // Fingerprint tap only flips the on-screen text: no sensor, no storage, no auth call.
 document.addEventListener('click',function(e){if(!e.target.closest('[data-sim]'))return;document.getElementById('simstate').textContent='تمت المحاكاة — لم يتم التحقق من أي بصمة';document.getElementById('simgo').hidden=false});
 function medal(){return '<div class="medal"><div class="logo"><img src="assets/logo-mark.png" alt="نسائم الحرمين"></div></div>'}
@@ -222,8 +224,9 @@ N.mount({
     '<p id="simstate" aria-live="polite">اضغط على الأيقونة لتجربة المحاكاة</p>'+
     '<div class="stack"><button class="btn gold" id="simgo" data-go="home" hidden>متابعة إلى الرئيسية (محاكاة)</button>'+
     '<button class="btn soft">'+I('lock')+'الدخول بكلمة المرور</button></div></section>'},
-  // Home — C direction. Bento order = priority: Umrah, flights, hotels, the 4 visa services, ferries, Tasheel, all 9.
-  home:function(){var u=N.svc('umrah');
+  // Home — C direction. Bento order = priority: Umrah, flights, ferries, visas hub, Egypt clearance, family visit, all services.
+  // Counts are computed from the service list (the app computes them from the published catalog).
+  home:function(){var u=N.svc('umrah'), visas=N.inGroup('visa').length, total=N.services.length;
     function bx(k){var s=N.svc(k);return '<button class="bx press in" data-go="services"><span class="bi">'+I(s.i)+'</span>'+s.n+'</button>'}
     return '<div class="h" style="display:contents">'+
     '<header class="h-top in"><div class="logo mk"><img src="assets/logo-mark.png" alt="نسائم الحرمين"></div>'+
@@ -233,14 +236,14 @@ N.mount({
     '<div class="bentobox"><div class="bento">'+
       '<div class="bx top in"><span class="bi">'+I(u.i)+'</span><div><h3>'+u.n+'</h3><p>تأشيرة فقط أو عمرة مع الخدمات</p></div>'+
       '<button class="go press" data-go="services">اطلب الخدمة'+I('fwd')+'</button></div>'+
-      bx('flight')+bx('hotel')+
-      '<button class="bx wide press in" data-go="services"><span class="bi">'+I('passport')+'</span><span class="tx">التأشيرات والموافقات<small>4 خدمات</small></span>'+I('fwd','ar')+'</button>'+
-      bx('ferry')+bx('tasheel')+
-      '<button class="bx all press in" data-go="services"><span class="bi">'+I('grid')+'</span>كل الخدمات (9)</button>'+
+      bx('flight')+bx('ferry')+
+      '<button class="bx wide press in" data-go="services"><span class="bi">'+I('passport')+'</span><span class="tx">التأشيرات والموافقات<small>'+visas+' خدمات</small></span>'+I('fwd','ar')+'</button>'+
+      bx('egypt')+bx('family')+
+      '<button class="bx all press in" data-go="services"><span class="bi">'+I('grid')+'</span>كل الخدمات ('+total+')</button>'+
     '</div></div>'+
     '<div class="h-sec"><h4>كيف يعمل طلبك</h4></div>'+
-    '<div class="stepsbox in"><div class="steps">'+['اختر الخدمة','أرسل بياناتك','وافق على عرض السعر','تابع طلبك'].map(function(s,i){return '<div class="step"><i>'+(i+1)+'</i><span>'+s+'</span></div>'}).join('')+'</div></div>'+
-    '<div class="guest in">'+I('list')+'<div><b>تتبّع طلباتك</b><small>سجّل الدخول لمتابعة حالة طلباتك</small></div><button class="mini press" data-go="welcome">دخول</button></div>'+
+    '<div class="stepsbox in"><div class="steps">'+['اختر الخدمة','بياناتك ومستنداتك','الدفع وإشعار التحويل','تابع الطلب'].map(function(s,i){return '<div class="step"><i>'+(i+1)+'</i><span>'+s+'</span></div>'}).join('')+'</div></div>'+
+    '<div class="guest in">'+I('list')+'<div><b>تتبع الطلب</b><small>برقم هاتفك ورمز تحقق عبر واتساب، دون حساب</small></div><button class="mini press">تتبع</button></div>'+
     '</div>'+
     '<nav class="nav h-nav">'+N.tabs.map(function(t){var on=t.k==='home';return '<button class="press'+(on?' on':'')+'" data-go="home"'+(on?' aria-current="page"':'')+'>'+I(t.i)+t.n+'</button>'}).join('')+'</nav>'+
     '</div>'},
