@@ -10,7 +10,9 @@ const { chromium } = createRequire(import.meta.url)('playwright'); // resolved v
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(dir, 'screens', 'final');
 fs.mkdirSync(path.join(out, 'checks'), { recursive: true });
-const screens = ['welcome', 'returning', 'home', 'services'];
+// SCREENS=home limits the run; TAG=-c keeps earlier screenshots by writing F-home-c-*.png
+const screens = (process.env.SCREENS || 'welcome,returning,home,services').split(',');
+const TAG = process.env.TAG || '';
 const sizes = [[360, 780], [390, 844]];
 const MIN_TOUCH = 48;
 const log = [];
@@ -85,16 +87,16 @@ for (const [w, h] of sizes) {
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(900); // entrance animations settle
       const tag = zoom > 1 ? '-zoom130sim' : '';
-      await page.screenshot({ path: path.join(zoom > 1 ? path.join(out, 'checks') : out, `F-${s}-${w}${tag}.png`) });
+      await page.screenshot({ path: path.join(zoom > 1 ? path.join(out, 'checks') : out, `F-${s}${TAG}-${w}${tag}.png`) });
       const r = await page.evaluate(audit, MIN_TOUCH);
       if (s === 'home' || s === 'services') {
         await page.evaluate(() => { const b = document.querySelector('.body'); b.scrollTop = b.scrollHeight; });
-        await page.screenshot({ path: path.join(out, 'checks', `F-${s}-${w}${tag}-bottom.png`) });
+        await page.screenshot({ path: path.join(out, 'checks', `F-${s}${TAG}-${w}${tag}-bottom.png`) });
       }
       if (s === 'returning') { // simulated tap state
         await page.click('[data-sim]');
         await page.waitForTimeout(300);
-        await page.screenshot({ path: path.join(out, 'checks', `F-returning-${w}${tag}-tapped.png`) });
+        await page.screenshot({ path: path.join(out, 'checks', `F-returning${TAG}-${w}${tag}-tapped.png`) });
         const r2 = await page.evaluate(audit, MIN_TOUCH);
         r.issues.push(...r2.issues.map((x) => 'after tap: ' + x));
         r.touchCount += 1; r.smallest = Math.min(r.smallest, r2.smallest);
@@ -107,5 +109,5 @@ for (const [w, h] of sizes) {
 }
 await browser.close();
 say(problems ? `RESULT: ${problems} issue(s)` : 'RESULT: all checks passed');
-fs.writeFileSync(path.join(out, 'checks', 'run-results.txt'), log.join('\n') + '\n');
+fs.writeFileSync(path.join(out, 'checks', `run-results${process.env.SCREENS ? '-' + process.env.SCREENS.replace(/,/g, '_') + TAG : ''}.txt`), log.join('\n') + '\n');
 process.exitCode = problems ? 1 : 0;

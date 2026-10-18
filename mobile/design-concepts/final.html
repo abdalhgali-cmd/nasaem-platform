@@ -138,6 +138,59 @@ button:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
 .nav{flex:none;display:flex;background:var(--night);padding:.45rem .25rem calc(.55rem + env(safe-area-inset-bottom,0px));border-top:1px solid rgba(214,170,75,.3)}
 .nav button{flex:1;min-width:48px;min-height:max(48px,3rem);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2rem;font-size:.75rem;color:rgba(255,255,255,.72)}
 .nav button.on{color:var(--gold-hi);font-weight:500}
+
+/* Home — C direction (under review): flat light surfaces, bento priorities, no arch/stars/gradients.
+   Navy carries the brand; gold only on the main action and step 1. One radius scale: 20 / 14. */
+.h{--h-bg:#f3f5f9;--h-card:#ffffff;--h-line:#e2e7ef;--h-tint:#eaf0f8;--r-lg:20px;--r-sm:14px}
+.press{transition:transform .14s ease-out,background-color .14s ease-out}
+.press:active{transform:scale(.97)}
+.in{animation:fadeup .24s ease-out both}
+@keyframes fadeup{from{opacity:0;transform:translateY(6px)}}
+.h-top{flex:none;display:flex;align-items:center;gap:.75rem;padding:1rem 1rem .5rem;background:var(--h-bg)}
+.h-top .mk{flex:none;width:2.75rem;height:2.75rem;border:1px solid var(--h-line)}
+.h-top .t{flex:1;min-width:0}
+.h-top small{display:block;font-size:.8125rem;color:var(--muted)}
+.h-top b{font-size:1.375rem;font-weight:700;color:var(--ink)}
+.h-icon{flex:none;width:max(48px,3rem);height:max(48px,3rem);border-radius:var(--r-sm);background:var(--h-card);border:1px solid var(--h-line);display:grid;place-items:center;color:var(--navy)}
+.body.h-body{background:var(--h-bg);padding:.5rem 1rem 1.5rem}
+.h-search{width:100%;min-height:max(48px,3rem);display:flex;align-items:center;gap:.6rem;padding:0 1rem;border-radius:var(--r-sm);background:var(--h-card);border:1px solid var(--h-line);color:var(--muted);font-size:.9375rem;text-align:start}
+.h-search .ic{width:1.15rem;height:1.15rem}
+.bentobox{container-type:inline-size;margin-top:1rem}
+.bento{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(6.5rem,auto);gap:.625rem}
+.bx{min-width:0;border-radius:var(--r-lg);background:var(--h-card);border:1px solid var(--h-line);padding:.85rem;display:flex;flex-direction:column;justify-content:space-between;gap:.6rem;text-align:start;color:var(--ink);font-size:.875rem;font-weight:500;line-height:1.4;overflow-wrap:break-word}
+.bx:active{background:var(--h-tint)}
+.bx .bi{width:2.5rem;height:2.5rem;border-radius:12px;background:var(--h-tint);color:var(--navy);display:grid;place-items:center}
+.bx.top{grid-column:span 2;grid-row:span 2;background:var(--navy);border-color:var(--navy);color:#fff;padding:1rem}
+.bx.top:active{background:var(--navy)}
+.bx.top .bi{background:rgba(255,255,255,.12);color:#fff}
+.bx.top h3{font-size:1.25rem;font-weight:700;line-height:1.35}
+.bx.top p{font-size:.8125rem;font-weight:400;color:rgba(255,255,255,.84);margin-top:.15rem}
+.bx.top .go{min-height:max(48px,3rem);border-radius:var(--r-sm);background:var(--gold);color:var(--night);font-weight:600;font-size:.9375rem;display:flex;align-items:center;justify-content:center;gap:.4rem}
+.bx.top .go .ic{width:1.1rem;height:1.1rem}
+.bx.wide{grid-column:span 3;flex-direction:row;align-items:center;gap:.75rem}
+.bx.wide .tx{flex:1;min-width:0}
+.bx.wide small{display:block;font-size:.8125rem;font-weight:400;color:var(--muted)}
+.bx .ar{width:1.1rem;height:1.1rem;color:#8b94a7}
+.bx.all{background:var(--h-tint);border-color:transparent;color:var(--navy);font-weight:600}
+.bx.all .bi{background:var(--h-card)}
+/* narrow box (e.g. 360px with large text): 2 columns, Umrah and the closing tile go full width */
+@container (max-width:19rem){
+  .bento{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(5.5rem,auto)}
+  .bx.top{grid-row:auto}
+  .bx.wide,.bx.all{grid-column:span 2}
+  .bx.all{flex-direction:row;align-items:center;gap:.75rem}
+}
+.h-sec{display:flex;align-items:baseline;justify-content:space-between;margin:1.5rem .1rem .65rem}
+.h-sec h4{font-size:1.0625rem;font-weight:700;color:var(--ink)}
+.h-body .steps{border-radius:var(--r-lg);border-color:var(--h-line)}
+.h-body .steps::before{background:repeating-linear-gradient(270deg,#c3ccdb 0 6px,transparent 6px 11px)}
+.h-body .guest{border-radius:var(--r-lg);border-color:var(--h-line)}
+.h-body .guest .mini{border-radius:var(--r-sm)}
+.nav.h-nav{background:var(--h-card);border-top:1px solid var(--h-line);padding:.35rem .5rem calc(.45rem + env(safe-area-inset-bottom,0px))}
+.h-nav button{gap:.15rem;color:#56607a}
+.h-nav button .ic{width:3.25rem;height:2rem;padding:.3rem 0;border-radius:999px;transition:background-color .2s ease-out}
+.h-nav button.on{color:var(--navy);font-weight:600}
+.h-nav button.on .ic{background:var(--h-tint)}
 </style>
 </head>
 <body>
@@ -169,18 +222,28 @@ N.mount({
     '<p id="simstate" aria-live="polite">اضغط على الأيقونة لتجربة المحاكاة</p>'+
     '<div class="stack"><button class="btn gold" id="simgo" data-go="home" hidden>متابعة إلى الرئيسية (محاكاة)</button>'+
     '<button class="btn soft">'+I('lock')+'الدخول بكلمة المرور</button></div></section>'},
-  home:function(){return '<header class="hd"><div class="bar">'+medal()+
-    '<div class="t"><small>نسائم الحرمين</small><b>أهلًا بك</b></div><button class="ring" aria-label="الإشعارات">'+I('bell')+'</button></div>'+
-    '<button class="search" data-go="services">'+I('search')+'ابحث عن خدمة</button></header>'+
-    '<div class="body">'+
-    '<div class="umrah rise"><div class="archlet">'+I('kaaba')+'</div><h3>خدمات العمرة</h3><p>تأشيرة فقط أو عمرة مع الخدمات</p>'+
-    '<button class="cta" data-go="services">اطلب الخدمة'+I('fwd')+'</button></div>'+
-    '<div class="sec"><h4>الخدمات</h4><i></i><a href="#services">عرض الكل (9)</a></div>'+
-    '<div class="tiles rise d2">'+['flight','hotel','ferry','family','egypt','tasheel'].map(function(k){var s=N.svc(k);return '<button class="tile" data-go="services">'+I(s.i)+s.n+'</button>'}).join('')+'</div>'+
-    '<div class="sec"><h4>كيف يعمل طلبك</h4><i></i></div>'+
-    '<div class="stepsbox rise d3"><div class="steps">'+['اختر الخدمة','أرسل بياناتك','وافق على عرض السعر','تابع طلبك'].map(function(s,i){return '<div class="step"><i>'+(i+1)+'</i><span>'+s+'</span></div>'}).join('')+'</div></div>'+
-    '<div class="guest rise d4">'+I('list')+'<div><b>تتبّع طلباتك</b><small>سجّل الدخول لمتابعة حالة طلباتك</small></div><button class="mini" data-go="welcome">دخول</button></div>'+
-    '</div>'+nav('home')},
+  // Home — C direction. Bento order = priority: Umrah, flights, hotels, the 4 visa services, ferries, Tasheel, all 9.
+  home:function(){var u=N.svc('umrah');
+    function bx(k){var s=N.svc(k);return '<button class="bx press in" data-go="services"><span class="bi">'+I(s.i)+'</span>'+s.n+'</button>'}
+    return '<div class="h" style="display:contents">'+
+    '<header class="h-top in"><div class="logo mk"><img src="assets/logo-mark.png" alt="نسائم الحرمين"></div>'+
+    '<div class="t"><small>نسائم الحرمين</small><b>أهلًا بك</b></div><button class="h-icon press" aria-label="الإشعارات">'+I('bell')+'</button></header>'+
+    '<div class="body h-body">'+
+    '<button class="h-search press" data-go="services">'+I('search')+'ابحث عن خدمة</button>'+
+    '<div class="bentobox"><div class="bento">'+
+      '<div class="bx top in"><span class="bi">'+I(u.i)+'</span><div><h3>'+u.n+'</h3><p>تأشيرة فقط أو عمرة مع الخدمات</p></div>'+
+      '<button class="go press" data-go="services">اطلب الخدمة'+I('fwd')+'</button></div>'+
+      bx('flight')+bx('hotel')+
+      '<button class="bx wide press in" data-go="services"><span class="bi">'+I('passport')+'</span><span class="tx">التأشيرات والموافقات<small>4 خدمات</small></span>'+I('fwd','ar')+'</button>'+
+      bx('ferry')+bx('tasheel')+
+      '<button class="bx all press in" data-go="services"><span class="bi">'+I('grid')+'</span>كل الخدمات (9)</button>'+
+    '</div></div>'+
+    '<div class="h-sec"><h4>كيف يعمل طلبك</h4></div>'+
+    '<div class="stepsbox in"><div class="steps">'+['اختر الخدمة','أرسل بياناتك','وافق على عرض السعر','تابع طلبك'].map(function(s,i){return '<div class="step"><i>'+(i+1)+'</i><span>'+s+'</span></div>'}).join('')+'</div></div>'+
+    '<div class="guest in">'+I('list')+'<div><b>تتبّع طلباتك</b><small>سجّل الدخول لمتابعة حالة طلباتك</small></div><button class="mini press" data-go="welcome">دخول</button></div>'+
+    '</div>'+
+    '<nav class="nav h-nav">'+N.tabs.map(function(t){var on=t.k==='home';return '<button class="press'+(on?' on':'')+'" data-go="home"'+(on?' aria-current="page"':'')+'>'+I(t.i)+t.n+'</button>'}).join('')+'</nav>'+
+    '</div>'},
   services:function(){return '<header class="hd"><div class="bar"><button class="ring" data-go="home" aria-label="رجوع">'+I('back')+'</button>'+
     '<div class="t"><small>اختر الخدمة وأرسل طلبك</small><b>كل الخدمات</b></div></div>'+
     '<button class="search">'+I('search')+'ابحث عن خدمة</button></header>'+
