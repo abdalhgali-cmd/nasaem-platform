@@ -23,6 +23,7 @@
 html,body{height:100%}
 body{font-family:var(--f);background:var(--night);color:var(--ink);-webkit-font-smoothing:antialiased}
 button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+[hidden]{display:none!important}
 button:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
 .ic{width:1.375rem;height:1.375rem;flex:none}
 #app{height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative}
@@ -57,15 +58,17 @@ button:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
 
 /* Returning */
 .r{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;padding:1.5rem 1.25rem 1.25rem;overflow-y:auto}
-.r .medal{width:4.25rem;height:4.25rem;margin-top:3vh}
+.r .medal{width:4.25rem;height:4.25rem;margin-top:1.25rem}
 .r h2{font-weight:600;font-size:1.5rem;margin-top:.9rem;color:#fff}
 .r p{color:var(--on-navy);font-size:.9375rem;margin-top:.25rem;text-align:center}
 .fp{margin:auto;width:8.5rem;height:8.5rem;flex:none;border-radius:50%;display:grid;place-items:center;color:var(--gold-hi);position:relative;border:1.5px solid rgba(214,170,75,.7);background:radial-gradient(circle,rgba(214,170,75,.16),transparent 70%)}
 .fp .ic{width:3.75rem;height:3.75rem;stroke-width:1.3}
 .fp::after{content:"";position:absolute;inset:-12px;border-radius:50%;border:1px solid rgba(214,170,75,.45);animation:halo 2.8s ease-out infinite}
 @keyframes halo{0%{transform:scale(.92);opacity:1}100%{transform:scale(1.2);opacity:0}}
-.proto{display:flex;align-items:center;gap:.5rem;margin-top:.9rem;font-size:.8125rem;color:var(--gold-hi);background:rgba(214,170,75,.12);border:1px solid rgba(214,170,75,.55);border-radius:12px;padding:.5rem .8rem;text-align:start}
-.proto .ic{width:1rem;height:1rem}
+.sim{position:relative;width:100%;display:flex;align-items:flex-start;gap:.5rem;font-size:.8125rem;color:var(--gold-hi);background:rgba(214,170,75,.12);border:1px solid rgba(214,170,75,.55);border-radius:12px;padding:.5rem .8rem;text-align:start}
+.sim .ic{width:1.1rem;height:1.1rem;margin-top:.1rem}
+.sim b{font-weight:600}
+#simstate{min-height:1.5em}
 .r .stack{width:100%;display:grid;gap:.6rem;margin-top:1rem}
 
 /* App header — compact */
@@ -76,8 +79,8 @@ button:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
 .bar .t{flex:1;min-width:0}
 .bar .t small{display:block;color:var(--on-navy);font-size:.75rem}
 .bar .t b{font-weight:600;font-size:1.125rem}
-.ring{flex:none;width:2.75rem;height:2.75rem;border-radius:50%;border:1px solid rgba(214,170,75,.6);display:grid;place-items:center;color:var(--gold-hi)}
-.search{position:relative;margin-top:.8rem;display:flex;align-items:center;gap:.6rem;min-height:2.75rem;border-radius:12px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);padding:0 .85rem;color:var(--on-navy);font-size:.875rem}
+.ring{flex:none;width:max(48px,3rem);height:max(48px,3rem);border-radius:50%;border:1px solid rgba(214,170,75,.6);display:grid;place-items:center;color:var(--gold-hi)}
+.search{position:relative;width:100%;text-align:start;margin-top:.8rem;display:flex;align-items:center;gap:.6rem;min-height:max(48px,3rem);border-radius:12px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);padding:0 .85rem;color:var(--on-navy);font-size:.875rem}
 .search .ic{width:1.1rem;height:1.1rem}
 
 .body{flex:1;overflow-y:auto;background:var(--pearl);padding:1rem 1rem 1.25rem}
@@ -88,30 +91,37 @@ button:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
 .umrah .archlet{position:relative;grid-row:span 2;width:2.9rem;height:3.4rem;border-radius:1.45rem 1.45rem 7px 7px;border:1px solid var(--gold);display:grid;place-items:center;color:var(--gold-hi)}
 .umrah h3{position:relative;font-weight:600;font-size:1.0625rem}
 .umrah p{position:relative;font-size:.8125rem;color:var(--on-navy);line-height:1.5}
-.umrah .cta{position:relative;grid-column:1 / -1;margin-top:.6rem;min-height:2.75rem;border-radius:12px;background:var(--leaf);color:var(--night);font-weight:600;font-size:.9375rem;display:flex;align-items:center;justify-content:center;gap:.5rem}
+.umrah .cta{position:relative;grid-column:1 / -1;margin-top:.6rem;min-height:max(48px,3rem);border-radius:12px;background:var(--leaf);color:var(--night);font-weight:600;font-size:.9375rem;display:flex;align-items:center;justify-content:center;gap:.5rem}
 .umrah .cta .ic{width:1.1rem;height:1.1rem}
 
 .sec{display:flex;align-items:center;gap:.6rem;margin:1.25rem 0 .7rem}
 .sec h4{font-weight:600;font-size:1rem;color:var(--ink)}
 .sec i{flex:1;height:1px;background:var(--line)}
-.sec a{font-size:.8125rem;color:var(--gold-ink);font-weight:600;text-decoration:none;padding:.4rem 0}
+.sec a{display:inline-flex;align-items:center;justify-content:center;min-height:48px;min-width:48px;padding:0 .3rem;font-size:.8125rem;color:var(--gold-ink);font-weight:600;text-decoration:none}
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem}
 .tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:.75rem .35rem;display:flex;flex-direction:column;align-items:center;gap:.45rem;text-align:center;font-size:.8125rem;line-height:1.4;color:var(--ink);min-height:5.5rem;overflow-wrap:anywhere}
 .tile .ic{color:var(--navy);width:1.4rem;height:1.4rem}
 
-/* Steps (from C) */
+/* Steps (from C) — 4 across when roomy, 2×2 when narrow */
+.stepsbox{container-type:inline-size}
 .steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.25rem;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:.85rem .4rem;position:relative}
 .steps::before{content:"";position:absolute;top:1.65rem;right:12.5%;left:12.5%;height:2px;background:repeating-linear-gradient(270deg,var(--gold) 0 6px,transparent 6px 11px)}
 .step{display:flex;flex-direction:column;align-items:center;gap:.4rem;text-align:center;font-size:.75rem;line-height:1.4;color:var(--muted);position:relative;overflow-wrap:anywhere}
 .step i{width:1.75rem;height:1.75rem;border-radius:50%;background:var(--navy);color:#fff;font-style:normal;font-weight:600;font-size:.8125rem;display:grid;place-items:center;box-shadow:0 0 0 4px var(--card)}
 .step:first-child i{background:var(--gold);color:var(--night)}
+@container (max-width:22rem){
+  .steps{grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem;padding:.6rem}
+  .steps::before{display:none}
+  .step{flex-direction:row;text-align:start;gap:.5rem;padding:.45rem .5rem;border-radius:10px;background:var(--pearl);min-height:3rem}
+  .step i{flex:none;box-shadow:none}
+}
 
 .guest{margin-top:.7rem;border-radius:16px;padding:.85rem;display:flex;align-items:center;gap:.7rem;background:var(--card);border:1px solid var(--line)}
 .guest>.ic{color:var(--gold-ink)}
 .guest div{flex:1;min-width:0}
 .guest b{display:block;font-size:.875rem;font-weight:600}
 .guest small{color:var(--muted);font-size:.8125rem}
-.guest .mini{flex:none;background:var(--navy);color:#fff;border-radius:10px;min-height:2.5rem;padding:0 .9rem;font-size:.875rem;font-weight:500}
+.guest .mini{flex:none;background:var(--navy);color:#fff;border-radius:10px;min-height:max(48px,3rem);min-width:48px;padding:0 .9rem;font-size:.875rem;font-weight:500}
 
 /* Services list (from A) */
 .group h5{display:flex;align-items:center;gap:.5rem;font-size:.875rem;color:var(--navy);font-weight:600;margin:1.1rem .1rem .45rem}
@@ -126,7 +136,7 @@ button:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
 
 /* Bottom nav — in the flex flow, never overlays content */
 .nav{flex:none;display:flex;background:var(--night);padding:.45rem .25rem calc(.55rem + env(safe-area-inset-bottom,0px));border-top:1px solid rgba(214,170,75,.3)}
-.nav button{flex:1;min-width:0;min-height:3rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2rem;font-size:.75rem;color:rgba(255,255,255,.72)}
+.nav button{flex:1;min-width:48px;min-height:max(48px,3rem);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2rem;font-size:.75rem;color:rgba(255,255,255,.72)}
 .nav button.on{color:var(--gold-hi);font-weight:500}
 </style>
 </head>
@@ -137,6 +147,8 @@ button:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
 // ?zoom=1.3 simulates Android text zoom (review only)
 var z = /zoom=([\d.]+)/.exec(location.search); if (z) document.documentElement.style.fontSize = (16 * +z[1]) + 'px';
 var I = N.icon;
+// Fingerprint tap only flips the on-screen text: no sensor, no storage, no auth call.
+document.addEventListener('click',function(e){if(!e.target.closest('[data-sim]'))return;document.getElementById('simstate').textContent='تمت المحاكاة — لم يتم التحقق من أي بصمة';document.getElementById('simgo').hidden=false});
 function medal(){return '<div class="medal"><div class="logo"><img src="assets/logo-mark.png" alt="نسائم الحرمين"></div></div>'}
 function nav(on){return '<nav class="nav">'+N.tabs.map(function(t){return '<button class="'+(t.k===on?'on':'')+'" data-go="home"'+(t.k===on?' aria-current="page"':'')+'>'+I(t.i)+t.n+'</button>'}).join('')+'</nav>'}
 N.mount({
@@ -150,27 +162,28 @@ N.mount({
       '<button class="btn soft rise d4" data-go="home">'+I('user')+'الدخول كزائر</button>'+
     '</div></section>'},
   returning:function(){return '<div class="night"></div><section class="r">'+
+    '<div class="sim" role="note">'+I('info')+'<span><b>محاكاة للواجهة فقط.</b> لا تُقرأ أي بصمة ولا يُحفظ أي شيء على الجهاز.</span></div>'+
     '<div class="rise">'+medal()+'</div>'+
-    '<h2 class="rise d2">مرحبًا بعودتك</h2><p class="rise d2">جلستك محفوظة بأمان على هذا الجهاز</p>'+
-    '<button class="fp rise d3" data-go="home" aria-label="الدخول بالبصمة">'+I('finger')+'</button>'+
-    '<p>المس مستشعر البصمة للمتابعة</p>'+
-    '<div class="stack"><button class="btn soft">'+I('lock')+'الدخول بكلمة المرور</button></div>'+
-    '<div class="proto" role="note">'+I('shield')+'نموذج واجهة فقط — الدخول بالبصمة غير مفعّل بعد</div></section>'},
+    '<h2 class="rise d2">مرحبًا بعودتك</h2><p class="rise d2">معاينة لشكل الدخول بالبصمة للمستخدم العائد</p>'+
+    '<button class="fp rise d3" data-sim aria-label="تجربة محاكاة الدخول بالبصمة">'+I('finger')+'</button>'+
+    '<p id="simstate" aria-live="polite">اضغط على الأيقونة لتجربة المحاكاة</p>'+
+    '<div class="stack"><button class="btn gold" id="simgo" data-go="home" hidden>متابعة إلى الرئيسية (محاكاة)</button>'+
+    '<button class="btn soft">'+I('lock')+'الدخول بكلمة المرور</button></div></section>'},
   home:function(){return '<header class="hd"><div class="bar">'+medal()+
     '<div class="t"><small>نسائم الحرمين</small><b>أهلًا بك</b></div><button class="ring" aria-label="الإشعارات">'+I('bell')+'</button></div>'+
-    '<div class="search">'+I('search')+'ابحث عن خدمة</div></header>'+
+    '<button class="search" data-go="services">'+I('search')+'ابحث عن خدمة</button></header>'+
     '<div class="body">'+
     '<div class="umrah rise"><div class="archlet">'+I('kaaba')+'</div><h3>خدمات العمرة</h3><p>تأشيرة فقط أو عمرة مع الخدمات</p>'+
     '<button class="cta" data-go="services">اطلب الخدمة'+I('fwd')+'</button></div>'+
     '<div class="sec"><h4>الخدمات</h4><i></i><a href="#services">عرض الكل (9)</a></div>'+
     '<div class="tiles rise d2">'+['flight','hotel','ferry','family','egypt','tasheel'].map(function(k){var s=N.svc(k);return '<button class="tile" data-go="services">'+I(s.i)+s.n+'</button>'}).join('')+'</div>'+
     '<div class="sec"><h4>كيف يعمل طلبك</h4><i></i></div>'+
-    '<div class="steps rise d3">'+['اختر الخدمة','أرسل بياناتك','وافق على عرض السعر','تابع طلبك'].map(function(s,i){return '<div class="step"><i>'+(i+1)+'</i>'+s+'</div>'}).join('')+'</div>'+
+    '<div class="stepsbox rise d3"><div class="steps">'+['اختر الخدمة','أرسل بياناتك','وافق على عرض السعر','تابع طلبك'].map(function(s,i){return '<div class="step"><i>'+(i+1)+'</i><span>'+s+'</span></div>'}).join('')+'</div></div>'+
     '<div class="guest rise d4">'+I('list')+'<div><b>تتبّع طلباتك</b><small>سجّل الدخول لمتابعة حالة طلباتك</small></div><button class="mini" data-go="welcome">دخول</button></div>'+
     '</div>'+nav('home')},
   services:function(){return '<header class="hd"><div class="bar"><button class="ring" data-go="home" aria-label="رجوع">'+I('back')+'</button>'+
     '<div class="t"><small>اختر الخدمة وأرسل طلبك</small><b>كل الخدمات</b></div></div>'+
-    '<div class="search">'+I('search')+'ابحث عن خدمة</div></header>'+
+    '<button class="search">'+I('search')+'ابحث عن خدمة</button></header>'+
     '<div class="body">'+N.groups.map(function(g){return '<div class="group"><h5><b></b>'+g.n+'</h5><div class="card">'+
       N.inGroup(g.k).map(function(s){return '<button class="row"><span class="sq">'+I(s.i)+'</span><span>'+s.n+'</span>'+I('chev','chev')+'</button>'}).join('')+'</div></div>'}).join('')+
     '</div>'+nav('home')}
