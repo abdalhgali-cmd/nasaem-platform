@@ -64,19 +64,21 @@ export async function renderHomeScreen({ bodyEl }) {
         <path d="M-10 140 C 90 40, 220 20, 370 70" stroke="rgba(214,170,75,.35)" stroke-width="1.5" stroke-dasharray="5 7"/>
       </svg>
       <div class="home-hero-top">
+        <img class="home-brand-mark" src="assets/brand/logo-mark.png" alt="شعار نسائم الحرمين" width="44" height="44">
         <div class="home-hero-greeting">
           <span class="eyebrow">${signedIn ? `${esc(greeting())}${name ? `، ${esc(name)}` : ""}` : "أهلاً بك في نسائم الحرمين"}</span>
-          <h1>رحلتك تبدأ معنا بثقة</h1>
-          <p>اختيارك الآمن للسفر</p>
+          <h1>نسائم الحرمين</h1>
+          <p>رحلتك تبدأ معنا بثقة</p>
         </div>
         ${signedIn ? `<button class="home-bell" id="homeBell" aria-label="الإشعارات">
           ${icon("bell", { size: 22 })}<span class="home-bell-dot" id="homeBellDot" hidden></span>
         </button>` : ""}
       </div>
-      <button class="hero-cta" id="startNowBtn">${icon("plane", { size: 20 })}<span>ابدأ طلبك الآن</span></button>
+      <button class="hero-cta" id="startNowBtn">${icon("search", { size: 20 })}<span>ابحث عن خدمة أو ابدأ طلبك</span></button>
     </section>
 
     <div id="pendingPaymentMount"></div>
+    <div id="homeUmrahSpotlight" class="home-umrah-mount"></div>
 
     <section class="shortcuts" aria-label="اختصارات سريعة">
       <div class="shortcut-rail" id="shortcutRail">${skeletonGrid(4)}</div>
@@ -94,6 +96,16 @@ export async function renderHomeScreen({ bodyEl }) {
       </div>
       <p class="field-hint stale-note" id="catalogStale" hidden>${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>
       <div id="featuredList" class="featured-list"></div>
+    </section>
+
+    <section class="section home-journey" aria-label="كيف يعمل طلبك">
+      <div class="section-head"><h2>كيف يعمل طلبك</h2></div>
+      <ol class="home-journey-grid">
+        <li><span>١</span><strong>اختر الخدمة</strong></li>
+        <li><span>٢</span><strong>أرسل المستندات</strong></li>
+        <li><span>٣</span><strong>السعر والدفع</strong></li>
+        <li><span>٤</span><strong>تابع الطلب</strong></li>
+      </ol>
     </section>
 
     <section class="section">
@@ -236,11 +248,29 @@ function featuredRow(item) {
     </button>`;
 }
 
+// The spotlight is derived from the published catalog, never a simulated
+// package or price. The normal service dispatcher keeps each package's
+// actual price, document requirements and payment flow intact.
+function renderPublishedUmrah(bodyEl, catalog) {
+  const mount = bodyEl.querySelector("#homeUmrahSpotlight");
+  if (!mount) return;
+  const services = [...(catalog.services || []), ...(catalog.visaTypes || [])];
+  const umrah = services.find((item) => item.code === "SVC-UMRAH") || services.find((item) => item.code === "VISA-UMRAH");
+  if (!umrah) { mount.replaceChildren(); return; }
+  mount.innerHTML = '<button type="button" class="home-umrah-card" id="homeUmrahBtn">' +
+    '<span class="home-umrah-emblem">' + icon("umrah", { size: 28 }) + '</span>' +
+    '<span class="home-umrah-copy"><strong>خدمات العمرة</strong><small>تأشيرة فقط أو عمرة مع خدمات بالطيران أو البحر</small></span>' +
+    '<span class="home-umrah-action">عرض الباقات ' + icon("chevron-start", { size: 18 }) + '</span>' +
+    '</button>';
+  mount.querySelector("#homeUmrahBtn").addEventListener("click", () => { tapFeedback(); openServiceItem(umrah); });
+}
+
 async function loadCatalogSection(bodyEl) {
   const rail = bodyEl.querySelector("#shortcutRail");
   try {
     const catalog = await loadCatalog();
     bodyEl.querySelector("#catalogStale").hidden = !catalog.stale;
+    renderPublishedUmrah(bodyEl, catalog);
 
     const shortcuts = resolveShortcuts(catalog);
     rail.innerHTML = shortcuts.length ? shortcuts.map(shortcutButton).join("") : "";

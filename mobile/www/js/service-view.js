@@ -36,8 +36,12 @@ export function hubVisaTypes(catalog) {
   return (catalog?.visaTypes || []).filter((visaType) => String(visaType.category || "").toUpperCase() !== "UMRAH");
 }
 
+// Hotel discovery is postponed by agency decision; existing cases and
+// backend routes remain readable and untouched.
+export const isPostponedHotel = (item) => String(item?.code || "").toUpperCase() === "SVC-HOTEL";
+
 export function serviceDirectoryItems(catalog) {
-  const services = catalog?.services || [];
+  const services = (catalog?.services || []).filter((item) => !isPostponedHotel(item));
   return hubVisaTypes(catalog).length ? [VISAS_HUB_ITEM, ...services] : [...services];
 }
 
@@ -111,7 +115,7 @@ export function homeFeaturedServices(catalog, shortcuts = resolveShortcuts(catal
     shortcuts.flatMap((shortcut) => shortcut.codes || []).map((code) => code.toUpperCase())
   );
   return featuredServices({ services: catalog?.services || [], visaTypes: [] }, Number.MAX_SAFE_INTEGER)
-    .filter((item) => !shortcutIds.has(item.id) && !shortcutCodes.has((item.code || "").toUpperCase()))
+    .filter((item) => !isPostponedHotel(item) && !shortcutIds.has(item.id) && !shortcutCodes.has((item.code || "").toUpperCase()))
     .slice(0, limit);
 }
 

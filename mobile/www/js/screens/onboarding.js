@@ -61,7 +61,7 @@ function welcomeArt() {
 function servicesArt() {
   return `
     <div class="ob-services" role="list">
-      ${AGENCY_SERVICES.map((service) => `
+      ${AGENCY_SERVICES.filter((service) => !/فنادق|فندق/.test(service.label)).map((service) => `
         <div class="ob-service" role="listitem">
           <span class="ob-service-icon">${icon(service.icon, { size: 24 })}</span>
           <span>${esc(service.label)}</span>
@@ -82,7 +82,7 @@ function journeyArt() {
 }
 
 const SLIDES = [
-  { id: "welcome", title: "مرحباً بك في نسائم الحرمين", subtitle: AGENCY.tagline, text: "وكالة سفر وسياحة لخدمات العمرة والتأشيرات وحجوزات الطيران والفنادق.", art: welcomeArt },
+  { id: "welcome", title: "مرحباً بك في نسائم الحرمين", subtitle: AGENCY.tagline, text: "وكالة سفر وسياحة لخدمات العمرة والتأشيرات وحجوزات الطيران والبواخر.", art: welcomeArt },
   { id: "services", title: "كل خدمات سفرك في مكان واحد", subtitle: "", text: "اختر خدمتك وقدّم طلبك من التطبيق مباشرة.", art: servicesArt },
   { id: "journey", title: "تابع رحلتك بكل سهولة", subtitle: "", text: "من اختيار الخدمة حتى التسليم، تبقى على اطلاع بكل خطوة.", art: journeyArt },
 ];

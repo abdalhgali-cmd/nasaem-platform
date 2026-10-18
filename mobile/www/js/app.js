@@ -32,7 +32,10 @@ const navEl = document.getElementById("bottomNav");
 
 function registerAllScreens() {
   registerScreen("onboarding", renderOnboardingScreen, { chrome: false });
-  registerScreen("welcome", renderWelcomeScreen, { chrome: false });
+  registerScreen("welcome", (ctx) => renderWelcomeScreen({
+    ...ctx,
+    params: { ...ctx.params, onContinueAsGuest: () => enterShell("home") },
+  }), { chrome: false });
   registerScreen("about", renderAboutScreen);
   registerScreen("legal", renderLegalScreen);
   registerScreen("login", renderLoginScreen);
