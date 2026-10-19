@@ -28,13 +28,20 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
   const mount = bodyEl.querySelector("#egyptIntakeMount");
   loadFaq(bodyEl.querySelector("#egyptFaq"));
 
-  let options;
+  let catalog;
   try {
-    // Fresh: the variants and their prices are what the agency publishes now.
-    options = egyptVariantOptions(await loadCatalog({ fresh: true }));
+    // Booking must use a freshly confirmed catalog, never cached prices.
+    catalog = await loadCatalog({ fresh: true });
+    if (catalog.stale) throw new Error("تعذر تحديث الأسعار الحالية من الخادم.");
   } catch {
-    options = egyptVariantOptions(null);
+    variantsEl.hidden = false;
+    variantsEl.innerHTML = '<p role="alert" class="info-note">تعذر تحميل أسعار الموافقة من الخادم. تحقق من الاتصال وأعد المحاولة؛ لم يتم إيقاف الخدمة.</p><button type="button" class="btn secondary" id="egyptRetryCatalog">إعادة المحاولة</button>';
+    variantsEl.querySelector("#egyptRetryCatalog").addEventListener("click", () => renderEgyptClearanceScreen({ bodyEl, params }));
+    return;
   }
+  // A confirmed catalog without active, FIXED-priced variants is genuinely
+  // unavailable; unlike a network error this is an agency configuration issue.
+  const options = egyptVariantOptions(catalog);
   const bookable = options.filter((option) => option.bookable);
 
   let currentCode = null;

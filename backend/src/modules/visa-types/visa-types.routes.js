@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
+import { getEgyptPricingConfig, saveEgyptPricingConfig } from "../egypt-clearance/egypt-pricing-admin.controller.js";
 import {
   destroyRequirement,
   getPublicRequirements,
@@ -31,6 +32,9 @@ router.use(requireAuth);
 // Platform 3.0 Phase 15: CONTENT_MANAGER added to the catalog-content
 // routes — never to DELETE /:id, which stays SUPER_ADMIN-only exactly
 // as before.
+// Dedicated Egypt service settings: only administrators can change prices or the globally shared USD rate.
+router.get("/egypt/config", requireRole("SUPER_ADMIN", "ADMIN"), getEgyptPricingConfig);
+router.patch("/egypt/config", requireRole("SUPER_ADMIN", "ADMIN"), saveEgyptPricingConfig);
 router.get("/", requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"), getVisaTypes);
 // Registered before /:id so "reorder" is never swallowed as an id param.
 router.patch("/reorder", requireRole("SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"), patchReorder);
