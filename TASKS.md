@@ -17,9 +17,11 @@ Claude Code implemented; Codex reviewed through MCP (read-only tools only, no `c
 - Payment: «إرسال إشعار التحويل», resume kept after «سأحوّل لاحقًا», no receipt upload when no account exists for the currency.
 - Tracking: customer moments (request → payment → issuing → ready), the customer's own task first, every server stage under «تفاصيل كل المراحل».
 - First launch: sign in or «المتابعة كزائر» (remembered); biometric accounts lock after 5 min idle/background; pinch-zoom allowed; focus moves to each screen title.
-- Codex: gap review + plan review + 6 code-review rounds; 23 confirmed findings fixed; last rounds: no confirmed findings.
-- Mobile unit tests 107/107, `npm run check` ok; web typecheck ok.
-- Playwright `mobile-app` project on a disposable local PostgreSQL + real backend: `mobile-app.spec` 11/11, `service-journeys.spec` 6/6, `pricing-progress.spec` 5/5.
+- Codex: gap review + plan review + 9 code-review rounds; 24 confirmed findings fixed; final round on `1abc29b`: no confirmed findings.
+- Mobile unit tests 109/109, `npm run check` ok; web typecheck ok.
+- Playwright `mobile-app` project (mobile-app 11, service-journeys 6, pricing-progress 5) on a fresh disposable PostgreSQL + real backend: **22/22 on `1abc29b`**.
+- Full CI e2e command (all 4 projects) on `93a0b35`: 109/110; the one failure (`mobile-web` flight-search, website code this branch does not touch) passed 2/2 on rerun.
+- Real-backend screenshots (welcome → home → Umrah → payment + receipt → guest OTP tracking → Egypt) at 360/390 px and 130% text: no horizontal overflow, no page errors; a real-stack run found and fixed the "receipt in while documents are reviewed" tracker state.
 
 **NOT TESTED / BLOCKED**
 - Android APK not built here: `dl.google.com` (Android SDK) is blocked by this environment's network policy. The repository's `android-apk.yml` builds the signed QA APK on the pull request.
