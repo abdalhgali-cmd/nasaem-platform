@@ -25,6 +25,10 @@ export const EGYPT_STAGE_LABELS = Object.freeze({
   CLOSED: "مغلق",
 });
 
+// Open Egypt requests are expected in the hundreds; beyond this the answer
+// says it was truncated (and filters narrow it) rather than silently cutting.
+const QUEUE_LIMIT = 2000;
+
 const QUEUE_INCLUDE = {
   visaType: { select: { code: true, name: true } },
   travelers: { select: { id: true, fullName: true }, orderBy: { sortOrder: "asc" } },
@@ -110,9 +114,13 @@ export async function listEgyptQueue(organizationId, { stage, entryMode, from, t
         : {}),
     },
     include: QUEUE_INCLUDE,
-    orderBy: { createdAt: "desc" },
-    take: 500,
+    // The schedule is read nearest date first in the database itself, so a
+    // large backlog never hides an imminent departure behind newer requests.
+    orderBy: view === "schedule" ? [{ travelEntryDate: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }] : { createdAt: "desc" },
+    take: QUEUE_LIMIT + 1,
   });
+  const truncated = requests.length > QUEUE_LIMIT;
+  if (truncated) requests.length = QUEUE_LIMIT;
   let rows = requests.map((request) => toQueueRow(request, now));
   if (stage) rows = rows.filter((row) => row.stage === stage);
   if (entryMode) rows = rows.filter((row) => row.entryMode === entryMode);
@@ -126,7 +134,7 @@ export async function listEgyptQueue(organizationId, { stage, entryMode, from, t
   }
   const counts = Object.fromEntries(EGYPT_QUEUE_STAGES.map((key) => [key, 0]));
   for (const row of requests.map((request) => toQueueRow(request, now))) counts[row.stage] += 1;
-  return { rows, counts, stageLabels: EGYPT_STAGE_LABELS };
+  return { rows, counts, stageLabels: EGYPT_STAGE_LABELS, truncated };
 }
 
 // The Egypt part of the staff workspace for one request.

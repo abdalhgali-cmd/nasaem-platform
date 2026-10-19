@@ -264,7 +264,7 @@ export function requestKindOf(request) {
 }
 
 import { EGYPT_CLEARANCE_CODE, isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
-import { circularState, isApprovalIssued, travelTickets } from "../egypt-clearance/egypt-approval-rules.js";
+import { circularState, isApprovalIssued, travelPreparation, travelTickets } from "../egypt-clearance/egypt-approval-rules.js";
 
 export { EGYPT_CLEARANCE_CODE };
 
@@ -431,6 +431,12 @@ export function checkAction(action, request, context = {}) {
     case ACTIONS.ISSUE_CIRCULAR:
       if (!isEgyptClearanceCode(request.visaType?.code)) return refuse("WRONG_SERVICE", "هذا الإجراء خاص بطلبات الموافقة الأمنية لمصر.");
       if (!isApprovalIssued(request)) return refuse("APPROVAL_NOT_ISSUED", "يُجهَّز التعميم بعد إصدار الموافقة الأمنية لكل المسافرين.");
+      {
+        // The circular is prepared from the travel details: air needs the
+        // date and a ticket, overland the crossing and the arrival date.
+        const preparation = travelPreparation(request);
+        if (!preparation.complete) return refuse("TRAVEL_PREPARATION_INCOMPLETE", `أكمل تجهيز السفر قبل التعميم: ${preparation.missing.map((m) => m.message).join(" ")}`, preparation.missing);
+      }
       if (action === ACTIONS.START_CIRCULAR && circularState(request).status !== "NOT_STARTED") return refuse("CIRCULAR_ALREADY_STARTED", "بدأ تجهيز التعميم أو صدر بالفعل؛ حدّث الصفحة.");
       return null;
     case ACTIONS.ATTACH_TICKET:

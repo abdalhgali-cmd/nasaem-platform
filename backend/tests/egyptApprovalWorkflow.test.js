@@ -7,7 +7,7 @@ import { createOrganization, createStaffUser, staffClient } from "./helpers/staf
 import { PDF, testPhone, trackingClient } from "./helpers/workflow.js";
 import { normalizePhone } from "../src/utils/phone.js";
 import { resolveStoredUploadPath } from "../src/config/uploadRoot.js";
-import { processDueTravelReminders } from "../src/modules/egypt-clearance/travel-reminders.service.js";
+import { processDueTravelReminders, reconcileTravelSchedules } from "../src/modules/egypt-clearance/travel-reminders.service.js";
 import { todayInKhartoum } from "../src/modules/egypt-clearance/egypt-approval-rules.js";
 
 // Egypt security approval after payment: typed, versioned files (approval,
@@ -127,6 +127,11 @@ describe("Egypt approval issuance", () => {
     await issueApproval(employee, req.id, { travelerIds: [req.travelers[1].id] });
     mine = await req.tracking.request(req.id);
     assert.equal(mine.egypt.approval.issued, true);
+    // Replacing both is fine; replacing one traveler of a joint file is refused.
+    const joint = await issueApproval(employee, req.id, { travelerIds: req.travelers.map((t) => t.id) });
+    assert.equal(joint.status, 201, JSON.stringify(joint.body));
+    const partial = await issueApproval(employee, req.id, { travelerIds: [req.travelers[0].id] });
+    assert.equal(partial.body.code, "APPROVAL_PARTIAL_OVERLAP");
   });
 
   test("refused before payment, for a future issue date, outside the organization, and for accountants", async () => {
@@ -155,6 +160,9 @@ describe("Egypt circular and tickets", () => {
     const early = await employee.post(`/api/contact-requests/${req.id}/egypt/circular/processing`).send({});
     assert.equal(early.body.code, "APPROVAL_NOT_ISSUED");
     await issueApproval(employee, req.id);
+    const incomplete = await employee.post(`/api/contact-requests/${req.id}/egypt/circular/processing`).send({});
+    assert.equal(incomplete.body.code, "TRAVEL_PREPARATION_INCOMPLETE", "air needs the ticket before the circular");
+    await employee.post(`/api/contact-requests/${req.id}/egypt/tickets`).attach("file", PDF(), { filename: "ticket.pdf", contentType: "application/pdf" });
     assert.equal((await employee.post(`/api/contact-requests/${req.id}/egypt/circular/processing`).send({})).status, 200);
     let mine = await req.tracking.request(req.id);
     assert.equal(mine.egypt.circular.status, "PROCESSING");
@@ -169,6 +177,13 @@ describe("Egypt circular and tickets", () => {
     assert.equal(mine.egypt.timeline.find((s) => s.key === "CIRCULAR_ISSUED").state, "done");
     assert.equal(mine.egypt.approval.issued, true, "the circular never replaces the approval");
     assert.equal((await req.tracking.get(`/api/tracking/requests/${req.id}/deliverables/${pdf.body.data.id}/file`)).status, 200);
+    // Re-issuing the approval withdraws the circular issued on the old one.
+    await issueApproval(employee, req.id);
+    mine = await req.tracking.request(req.id);
+    assert.equal(mine.egypt.circular.status, "PROCESSING", "the old circular no longer matches");
+    assert.equal((await req.tracking.get(`/api/tracking/requests/${req.id}/deliverables/${pdf.body.data.id}/file`)).status, 404);
+    const again = await employee.post(`/api/contact-requests/${req.id}/egypt/circular`).attach("file", PDF(), { filename: "circular2.pdf", contentType: "application/pdf" });
+    assert.equal(again.body.data.version, 2);
     // After the circular, the customer can no longer move the date.
     const move = await req.tracking.post(`/api/tracking/requests/${req.id}/egypt-travel-plan`).field("bookingStatus", "NEEDS_NASAEM").field("entryDate", addDays(12));
     assert.equal(move.status, 409);
@@ -250,6 +265,16 @@ describe("Egypt travel date and reminders", () => {
     assert.equal(reminder.status, "SUPERSEDED");
     assert.equal(await prisma.notification.count({ where: { contactRequestId: req.id, type: { startsWith: "EGYPT_TRAVEL_REMINDER" } } }), 0);
   });
+});
+
+test("dates stored before reminders existed are scheduled by the reconciler", async () => {
+  const req = await paidEgyptRequest({ entryDate: addDays(9) });
+  assert.equal(await prisma.travelReminder.count({ where: { contactRequestId: req.id } }), 0);
+  await reconcileTravelSchedules();
+  const reminder = await prisma.travelReminder.findFirst({ where: { contactRequestId: req.id } });
+  assert.equal(reminder.kind, "THREE_DAY");
+  await reconcileTravelSchedules();
+  assert.equal(await prisma.travelReminder.count({ where: { contactRequestId: req.id } }), 1, "idempotent");
 });
 
 describe("Egypt staff queue", () => {

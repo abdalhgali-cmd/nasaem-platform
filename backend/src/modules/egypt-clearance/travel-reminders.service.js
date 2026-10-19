@@ -13,8 +13,8 @@
 // The worker (processDueTravelReminders) re-checks all of it under the
 // request's row lock before notifying, and claims each row once.
 import prisma from "../../config/database.js";
-import { isEgyptClearanceCode } from "./egypt-clearance-variants.js";
-import { calendarDaysUntil, dateOnlyString, reminderPlan, requestTravelDate } from "./egypt-approval-rules.js";
+import { EGYPT_CLEARANCE_CODE, isEgyptClearanceCode } from "./egypt-clearance-variants.js";
+import { calendarDaysUntil, dateOnlyString, reminderPlan, requestTravelDate, todayInKhartoum } from "./egypt-approval-rules.js";
 
 const STAFF_ROLES = ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"];
 
@@ -56,24 +56,27 @@ function reminderText(request, reminder) {
   };
 }
 
-// One due reminder, under the request's row lock: the request must still be
-// open with the same travel date, and the row still SCHEDULED; the claim and
-// the staff notifications commit together (a crash sends none or all).
-async function deliverReminder(reminderId) {
+// One due reminder, under the request's row lock: the lock is taken first,
+// then the reminder and the request are read, so a concurrent date change
+// (which holds the same lock) is either fully before or fully after. The
+// request must still be open with the same date and schedule revision, and
+// the row still SCHEDULED and due; the claim and the staff notifications
+// commit together (a crash sends none or all).
+async function deliverReminder(reminderId, contactRequestId, now) {
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "ContactRequest" WHERE id = ${contactRequestId} FOR UPDATE`;
     const reminder = await tx.travelReminder.findUnique({ where: { id: reminderId } });
-    if (!reminder || reminder.status !== "SCHEDULED") return "SKIPPED";
-    await tx.$queryRaw`SELECT id FROM "ContactRequest" WHERE id = ${reminder.contactRequestId} FOR UPDATE`;
+    if (!reminder || reminder.status !== "SCHEDULED" || reminder.dueAt > now) return "SKIPPED";
     const request = await tx.contactRequest.findUnique({
-      where: { id: reminder.contactRequestId },
+      where: { id: contactRequestId },
       select: { id: true, name: true, status: true, organizationId: true, travelEntryDate: true, travelScheduleRevision: true, intakeData: true, visaType: { select: { code: true } } },
     });
     const sameDate = request && requestTravelDate(request) === dateOnlyString(reminder.travelDate);
     if (!request || request.status === "CLOSED" || !sameDate || reminder.revision !== request.travelScheduleRevision) {
-      await tx.travelReminder.updateMany({ where: { id: reminderId, status: "SCHEDULED" }, data: { status: request?.status === "CLOSED" ? "CANCELLED" : "SUPERSEDED" } });
+      await tx.travelReminder.updateMany({ where: { id: reminderId, status: "SCHEDULED", revision: reminder.revision }, data: { status: request?.status === "CLOSED" ? "CANCELLED" : "SUPERSEDED" } });
       return "STALE";
     }
-    const claimed = await tx.travelReminder.updateMany({ where: { id: reminderId, status: "SCHEDULED" }, data: { status: "SENT", sentAt: new Date() } });
+    const claimed = await tx.travelReminder.updateMany({ where: { id: reminderId, status: "SCHEDULED", revision: reminder.revision }, data: { status: "SENT", sentAt: new Date() } });
     if (claimed.count !== 1) return "SKIPPED";
     const staff = await tx.user.findMany({ where: { organizationId: request.organizationId, role: { in: STAFF_ROLES }, status: "ACTIVE" }, select: { id: true } });
     const text = reminderText(request, reminder);
@@ -85,16 +88,43 @@ async function deliverReminder(reminderId) {
   });
 }
 
+// Open Egypt requests whose travel date has no reminder yet (dates written
+// before reminders existed — the migration backfill — or by an older build):
+// scheduled under the request lock exactly as a date change would.
+export async function reconcileTravelSchedules({ now = new Date(), limit = 100 } = {}) {
+  const today = new Date(`${todayInKhartoum(now)}T00:00:00.000Z`);
+  const candidates = await prisma.contactRequest.findMany({
+    where: {
+      status: { not: "CLOSED" },
+      travelEntryDate: { gte: today },
+      visaType: { code: { startsWith: EGYPT_CLEARANCE_CODE } },
+      travelReminders: { none: { status: { in: ["SCHEDULED", "SENT"] } } },
+    },
+    select: { id: true },
+    take: limit,
+  });
+  let scheduled = 0;
+  for (const { id } of candidates) {
+    const done = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "ContactRequest" WHERE id = ${id} FOR UPDATE`;
+      const request = await tx.contactRequest.findUnique({ where: { id }, select: { id: true, status: true, travelEntryDate: true, travelScheduleRevision: true, intakeData: true, visaType: { select: { code: true } } } });
+      return request ? syncTravelReminders(tx, request, { now }) : null;
+    });
+    if (done) scheduled += 1;
+  }
+  return { scheduled };
+}
+
 export async function processDueTravelReminders({ now = new Date(), limit = 50 } = {}) {
   const due = await prisma.travelReminder.findMany({
     where: { status: "SCHEDULED", dueAt: { lte: now } },
     orderBy: { dueAt: "asc" },
     take: limit,
-    select: { id: true },
+    select: { id: true, contactRequestId: true },
   });
   const outcomes = {};
   for (const row of due) {
-    const outcome = await deliverReminder(row.id).catch((error) => {
+    const outcome = await deliverReminder(row.id, row.contactRequestId, now).catch((error) => {
       console.error("[travel-reminders] delivery failed", error?.message);
       return "ERROR";
     });
@@ -111,8 +141,9 @@ export function startTravelReminderWorker({ intervalMs = 5 * 60_000 } = {}) {
     if (running) return;
     running = true;
     try {
+      const reconciled = await reconcileTravelSchedules();
       const result = await processDueTravelReminders();
-      if (result.processed) console.log("[travel-reminders]", JSON.stringify(result));
+      if (result.processed || reconciled.scheduled) console.log("[travel-reminders]", JSON.stringify({ ...result, ...reconciled }));
     } catch (error) {
       console.error("[travel-reminders] run failed", error?.message);
     } finally {

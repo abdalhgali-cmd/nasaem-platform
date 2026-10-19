@@ -111,9 +111,26 @@ WHERE d."kind" = 'GENERAL'
   );
 
 -- Backfill 2: the canonical travel date from a valid stored travel plan
--- (YYYY-MM-DD only; anything else stays null and shows as «بلا تاريخ»).
-UPDATE "ContactRequest" cr
-SET "travelEntryDate" = to_date(cr."intakeData"->'egyptTravel'->>'entryDate', 'YYYY-MM-DD')
-WHERE cr."travelEntryDate" IS NULL
-  AND cr."intakeData"->'egyptTravel'->>'entryDate' ~ '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$'
-  AND to_char(to_date(cr."intakeData"->'egyptTravel'->>'entryDate', 'YYYY-MM-DD'), 'YYYY-MM-DD') = cr."intakeData"->'egyptTravel'->>'entryDate';
+-- (YYYY-MM-DD, a real calendar date). Converted row by row so one malformed
+-- value can never abort the migration; anything invalid stays null and shows
+-- as «بلا تاريخ» in the staff schedule.
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT cr."id", cr."intakeData"->'egyptTravel'->>'entryDate' AS raw
+    FROM "ContactRequest" cr
+    WHERE cr."travelEntryDate" IS NULL
+      AND cr."intakeData"->'egyptTravel'->>'entryDate' ~ '^(19|20)[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+  LOOP
+    BEGIN
+      IF to_char(make_date(substr(r.raw, 1, 4)::int, substr(r.raw, 6, 2)::int, substr(r.raw, 9, 2)::int), 'YYYY-MM-DD') = r.raw THEN
+        UPDATE "ContactRequest" SET "travelEntryDate" = r.raw::date WHERE "id" = r."id";
+      END IF;
+    EXCEPTION WHEN others THEN
+      -- not a real calendar date (e.g. 2026-02-30): leave it null
+      NULL;
+    END;
+  END LOOP;
+END $$;

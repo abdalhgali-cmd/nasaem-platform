@@ -37,6 +37,17 @@ export function discardUpload(file) {
   if (file?.path) fs.promises.unlink(file.path).catch(() => {});
 }
 
+// An unexpected error inside the transaction rolls everything back; the file
+// already written for it must not stay behind as an orphan.
+async function lockedWithUpload(file, id, scope, work) {
+  try {
+    return await withLockedRequest(id, scope, work);
+  } catch (error) {
+    discardUpload(file);
+    throw error;
+  }
+}
+
 const STORAGE_FAILED = { status: 500, code: "STORAGE_FAILED", message: "تعذّر التأكد من حفظ الملف على الخادم؛ لم يتغير شيء. أعد رفعه." };
 
 async function nextVersion(tx, contactRequestId, kind) {
@@ -103,7 +114,7 @@ export async function issueEgyptApproval(contactRequestId, organizationId, userI
     discardUpload(file);
     return { refusal: STORAGE_FAILED };
   }
-  const result = await withLockedRequest(contactRequestId, { organizationId }, async (tx, request) => {
+  const result = await lockedWithUpload(file, contactRequestId, { organizationId }, async (tx, request) => {
     const refusal = checkAction(ACTIONS.ISSUE_APPROVAL, request);
     if (refusal) refuseWith(refusal);
     const coverage = travelerIds?.length ? [...new Set(travelerIds)] : request.travelers.length === 1 ? [request.travelers[0].id] : [];
@@ -114,11 +125,25 @@ export async function issueEgyptApproval(contactRequestId, organizationId, userI
     if (!request.executionStartedAt) {
       await tx.contactRequest.update({ where: { id: contactRequestId }, data: { executionStartedAt: new Date(), executionStartedByUserId: userId, executionNote: "إصدار الموافقة الأمنية" } });
     }
-    // A newer approval replaces the older files it fully covers.
-    const replaced = request.deliverables
-      .filter((d) => d.kind === DELIVERABLE_KINDS.APPROVAL && isCurrentPublished(d))
-      .filter((d) => request.travelers.length <= 1 || (d.travelerIds.length > 0 && d.travelerIds.every((id) => coverage.includes(id))))
-      .map((d) => d.id);
+    // A newer approval replaces the older files it fully covers. An older
+    // file covering only some of these travelers (and others too) would leave
+    // two current approvals for the same person: refused, staff re-issue the
+    // whole group instead.
+    const current = request.deliverables.filter((d) => d.kind === DELIVERABLE_KINDS.APPROVAL && isCurrentPublished(d));
+    const single = request.travelers.length <= 1;
+    const overlaps = (d) => d.travelerIds.some((id) => coverage.includes(id));
+    const within = (d) => d.travelerIds.length > 0 && d.travelerIds.every((id) => coverage.includes(id));
+    if (!single && current.some((d) => overlaps(d) && !within(d))) {
+      refuseWith({ status: 409, code: "APPROVAL_PARTIAL_OVERLAP", message: "توجد موافقة حالية تشمل هؤلاء المسافرين مع غيرهم؛ أعد إصدارها لكل المسافرين الذين تشملها." });
+    }
+    const replaced = current.filter((d) => single || within(d)).map((d) => d.id);
+    // A circular issued on the previous approval no longer matches it.
+    let circularWithdrawn = false;
+    if (replaced.length && circularState(request).status === "ISSUED") {
+      await tx.contactRequestDeliverable.updateMany({ where: { contactRequestId, kind: DELIVERABLE_KINDS.CIRCULAR, supersededAt: null }, data: { supersededAt: new Date() } });
+      await tx.contactRequest.update({ where: { id: contactRequestId }, data: { circularProcessingAt: new Date() } });
+      circularWithdrawn = true;
+    }
     const approval = await createTypedFile(tx, request, {
       kind: DELIVERABLE_KINDS.APPROVAL,
       label: label || "الموافقة الأمنية",
@@ -133,7 +158,7 @@ export async function issueEgyptApproval(contactRequestId, organizationId, userI
       action: "EGYPT_APPROVAL_ISSUED",
       entityId: contactRequestId,
       organizationId,
-      newValue: { deliverableId: approval.id, version: approval.version, issuedOn, travelerIds: coverage, replaced },
+      newValue: { deliverableId: approval.id, version: approval.version, issuedOn, travelerIds: coverage, replaced, circularWithdrawn },
     });
     const after = await tx.contactRequest.findUnique({ where: { id: contactRequestId }, include: { ...REFRESH_INCLUDE } });
     await refreshTravelPlan(tx, after);
@@ -179,7 +204,7 @@ export async function issueEgyptCircular(contactRequestId, organizationId, userI
     discardUpload(file);
     return { refusal: STORAGE_FAILED };
   }
-  const result = await withLockedRequest(contactRequestId, { organizationId }, async (tx, request) => {
+  const result = await lockedWithUpload(file, contactRequestId, { organizationId }, async (tx, request) => {
     const refusal = checkAction(ACTIONS.ISSUE_CIRCULAR, request);
     if (refusal) refuseWith(refusal);
     const circular = await createTypedFile(tx, request, {
@@ -219,7 +244,7 @@ export async function attachEgyptTicket(contactRequestId, organizationId, userId
     discardUpload(file);
     return { refusal: STORAGE_FAILED };
   }
-  const result = await withLockedRequest(contactRequestId, { organizationId }, async (tx, request) => {
+  const result = await lockedWithUpload(file, contactRequestId, { organizationId }, async (tx, request) => {
     const refusal = checkAction(ACTIONS.ATTACH_TICKET, request);
     if (refusal) refuseWith(refusal);
     const coverage = [...new Set(travelerIds || [])];
