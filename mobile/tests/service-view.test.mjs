@@ -143,3 +143,16 @@ test("service count text follows Arabic number agreement", async () => {
   assert.equal(serviceCountText(11), "11 خدمة");
   assert.equal(serviceCountText(0), "0 خدمة");
 });
+
+test("a fixed-price service never shows quote copy: its own steps and note", async () => {
+  const { requestSteps, priceNote, FIXED_REQUEST_STEPS, REQUEST_STEPS, FINAL_PRICE_NOTE } = await import("../www/js/service-view.js");
+  const fixed = { pricingMode: "FIXED", basePrice: "450", currency: "SAR" };
+  assert.equal(requestSteps(fixed), FIXED_REQUEST_STEPS);
+  assert.deepEqual(FIXED_REQUEST_STEPS.map((step) => step.title), ["اختر الخدمة", "المتطلبات", "الدفع", "المتابعة"]);
+  assert.ok(!JSON.stringify(FIXED_REQUEST_STEPS).includes("موافقت"), "no price approval step");
+  assert.doesNotMatch(priceNote(fixed), /بعد أن تراجع الوكالة|مبدئي/);
+  // Quote (default) and a FIXED mode without a positive price keep the quote copy.
+  assert.equal(requestSteps({ pricingMode: "QUOTE", basePrice: "10" }), REQUEST_STEPS);
+  assert.equal(requestSteps({ pricingMode: "FIXED", basePrice: "0" }), REQUEST_STEPS);
+  assert.equal(priceNote({}), FINAL_PRICE_NOTE);
+});

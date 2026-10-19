@@ -1,3 +1,5 @@
+import { fixedPricing } from "./pricing-view.js";
+
 // Presentation rules for services (home shortcuts, services list, service
 // details). Pure functions, no DOM: unit-tested in tests/service-view.test.mjs.
 // Everything shown comes from the catalog the agency publishes (prices, text,
@@ -190,3 +192,22 @@ export const REQUEST_STEPS = Object.freeze([
 
 export const FINAL_PRICE_NOTE =
   "السعر المعروض هو السعر المبدئي المعلن. السعر النهائي وتعليمات الدفع تظهر لك بعد أن تراجع الوكالة طلبك.";
+
+// A fixed-price service (pricingMode FIXED with a positive price, set by the
+// agency): the price is final, so there is no quote and no approval step.
+export const FIXED_REQUEST_STEPS = Object.freeze([
+  { title: "اختر الخدمة", text: "السعر ثابت ومعلن قبل أن تبدأ." },
+  { title: "المتطلبات", text: "ارفع الجوازات والمستندات المطلوبة وأكّد الإجمالي." },
+  { title: "الدفع", text: "حوّل المبلغ إلى الحساب المعتمد وارفع إشعار التحويل." },
+  { title: "المتابعة", text: "تتابع طلبك حتى الإصدار والتسليم." },
+]);
+
+export const FIXED_PRICE_NOTE = "سعر ثابت: لا عرض سعر ولا موافقة لاحقة، وتدفع المبلغ نفسه.";
+
+export function requestSteps(item) {
+  return fixedPricing(item) ? FIXED_REQUEST_STEPS : REQUEST_STEPS;
+}
+
+export function priceNote(item) {
+  return fixedPricing(item) ? FIXED_PRICE_NOTE : FINAL_PRICE_NOTE;
+}

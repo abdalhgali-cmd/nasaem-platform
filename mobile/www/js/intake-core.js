@@ -55,6 +55,21 @@ export function buildDocumentSlots(requirements = [], answers = {}, travelers = 
   return slots;
 }
 
+// Removing traveler `index`: their files go, and every later traveler's files
+// move down one place with them, so a passport always stays on its owner.
+// Request-wide files (no "::index") are untouched. Returns a new Map.
+export function removeTravelerFiles(files, index) {
+  const next = new Map();
+  for (const [key, file] of files) {
+    const [requirementId, position] = String(key).split("::");
+    if (position === undefined) { next.set(key, file); continue; }
+    const at = Number(position);
+    if (at === index) continue;
+    next.set(at > index ? `${requirementId}::${at - 1}` : key, file);
+  }
+  return next;
+}
+
 export function validateFile(file, requirement) {
   if (!file) return null;
   const allowed = requirement?.allowedMimeTypes?.length ? requirement.allowedMimeTypes : DEFAULT_MIME;

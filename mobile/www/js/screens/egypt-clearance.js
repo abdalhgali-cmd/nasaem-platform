@@ -10,12 +10,13 @@ import { renderIntakeScreen } from "./intake.js";
 // collapsed). A variant without a published fixed price is shown as
 // unavailable; new bookings never fall back to the original item or a quote.
 export async function renderEgyptClearanceScreen({ bodyEl, params }) {
-  const { item } = params;
+  // `variantCode`: an entry method already chosen on the home screen.
+  const { item, variantCode = null } = params;
   bodyEl.innerHTML = `
     <div class="service-hero service-hero-egypt service-hero-compact">
       <div class="service-hero-icon">${icon("shield-check", { size: 30 })}</div>
       <h2>الموافقة الأمنية لمصر</h2>
-      <p>اختر نوع الموافقة وطريقة الدخول، ثم أكمل بيانات المسافر والمستندات.</p>
+      <p>اختر طريقة الدخول، ثم ارفع الجوازات وأكّد الإجمالي. السعر ثابت.</p>
     </div>
     <section class="section" id="egyptVariants" hidden></section>
     <div id="egyptIntakeMount"></div>
@@ -46,7 +47,7 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
 
   variantsEl.hidden = false;
   variantsEl.innerHTML = `
-    <h3 id="egyptVariantsTitle">نوع الموافقة وطريقة الدخول</h3>
+    <h3 id="egyptVariantsTitle">طريقة الدخول</h3>
     <div class="variant-list" role="radiogroup" aria-labelledby="egyptVariantsTitle">
       ${options
         .map(
@@ -54,6 +55,7 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
             <button type="button" class="variant-card${option.bookable ? "" : " variant-unavailable"}" role="radio" aria-checked="false" data-code="${esc(option.code)}" ${option.bookable ? "" : 'disabled aria-disabled="true"'}>
               <strong>${esc(option.name)}</strong>
               <span class="variant-price${option.bookable ? "" : " variant-price-quote"}"><bdi>${esc(option.priceText)}</bdi></span>
+              ${option.sdgText ? `<small class="variant-sdg"><bdi>${esc(option.sdgText)}</bdi></small>` : ""}
             </button>`
         )
         .join("")}
@@ -66,9 +68,9 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
     mount.innerHTML = `<p class="info-note" id="egyptUnavailable">${esc(EGYPT_UNAVAILABLE)}. يرجى التواصل مع الوكالة.</p>`;
     return;
   }
-  const preselected = bookable.find((option) => option.item.id === item?.id);
+  const preselected = bookable.find((option) => option.code === variantCode) || bookable.find((option) => option.item.id === item?.id) || (bookable.length === 1 ? bookable[0] : null);
   if (preselected) await choose(preselected);
-  else mount.innerHTML = `<p class="field-hint" id="egyptChooseHint">اختر نوع الموافقة أولًا لعرض المتطلبات والسعر.</p>`;
+  else mount.innerHTML = `<p class="field-hint" id="egyptChooseHint">اختر طريقة الدخول لعرض المتطلبات.</p>`;
 }
 
 async function loadFaq(el) {

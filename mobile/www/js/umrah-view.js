@@ -1,7 +1,7 @@
 // Umrah package details and contacts (issue #99). Pure, unit-tested without
 // a DOM. Mirrors backend umrah/umrah-packages.js and web/src/lib/umrah-package.ts.
 import { fixedPricing, moneyText } from "./pricing-view.js";
-import { startingPrice, priceText, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "./service-view.js";
+import { startingPrice, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "./service-view.js";
 
 export const UMRAH_KIND_LABELS = Object.freeze({
   VISA_ONLY: "تأشيرة فقط",
@@ -44,30 +44,36 @@ export function isUmrahPackage(pkg) {
 
 export const UMRAH_KIND_ORDER = Object.freeze(["VISA_ONLY", "AIR", "SEA"]);
 
+// Umrah is booked only at a fixed price: a package without one is unavailable.
+export const UMRAH_UNAVAILABLE = "غير متاحة للحجز حاليًا";
+
 // One line per Umrah kind the agency has published, in UMRAH_KIND_ORDER: the
-// lowest published price of that kind ("من" when several packages share it).
-// A kind with no published package is left out, an unpriced one says so, and
-// the SDG line is the server's own conversion — never an estimate.
+// lowest fixed price of that kind ("من" when several packages share it) and
+// that package's id (the home screen opens it directly). A kind with no
+// published package is left out; one without a fixed price is not bookable
+// (priceText null, packageId null). The SDG line is the server's own
+// conversion — never an estimate.
 export function umrahKindOffers(packages) {
   const list = (Array.isArray(packages) ? packages : []).filter(isUmrahPackage);
   return UMRAH_KIND_ORDER.map((kind) => {
     const ofKind = list.filter((pkg) => umrahPackageDetails(pkg).kind === kind);
     if (!ofKind.length) return null;
-    const priced = ofKind.map((pkg) => ({ pkg, price: startingPrice(pkg) })).filter((entry) => entry.price);
+    const priced = ofKind.filter((pkg) => fixedPricing(pkg)).map((pkg) => ({ pkg, price: startingPrice(pkg) })).filter((entry) => entry.price);
     // Only like-for-like amounts are compared (same currency and billing unit,
     // per pilgrim vs per request); the first priced package sets the basis.
     const unit = (pkg) => (pkg.priceUnit === "PER_TRAVELER" ? "PER_TRAVELER" : "PER_REQUEST");
     const basis = priced[0];
     const comparable = priced.filter((entry) => entry.price.currency === basis?.price.currency && unit(entry.pkg) === unit(basis.pkg));
     const cheapest = comparable.reduce((best, entry) => (!best || entry.price.amount < best.price.amount ? entry : best), null);
-    if (!cheapest) return { kind, label: UMRAH_KIND_LABELS[kind], priceText: null, sdgText: "", packageCount: ofKind.length };
+    if (!cheapest) return { kind, label: UMRAH_KIND_LABELS[kind], priceText: null, sdgText: "", packageId: null, packageCount: ofKind.length };
     const fixed = umrahPriceText(cheapest.pkg);
-    const sdg = sdgText(cheapest.price) || (fixed && sdgUnavailable(cheapest.price) ? SDG_UNAVAILABLE_NOTICE : "");
+    const sdg = sdgText(cheapest.price) || (sdgUnavailable(cheapest.price) ? SDG_UNAVAILABLE_NOTICE : "");
     return {
       kind,
       label: UMRAH_KIND_LABELS[kind],
-      priceText: `${comparable.length > 1 ? "من " : ""}${fixed || priceText(cheapest.price)}`,
+      priceText: `${comparable.length > 1 ? "من " : ""}${fixed}`,
       sdgText: sdg,
+      packageId: cheapest.pkg.id,
       packageCount: ofKind.length,
     };
   }).filter(Boolean);

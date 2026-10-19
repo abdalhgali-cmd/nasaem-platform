@@ -56,3 +56,14 @@ test("#100: short type labels; route fields by entry method with editable air de
   assert.equal(validateEgyptRoute("BORDER", {}).length, 1);
   assert.deepEqual(validateEgyptRoute(null, {}), []);
 });
+
+test("Egypt variant cards: the server's SDG equivalent or the notice, never a computed one", async () => {
+  const { egyptVariantOptions } = await import("../www/js/egypt-view.js");
+  const air = { id: "a", code: "VISA-EGYPT-CLEARANCE-AIR", name: "جوي", pricingMode: "FIXED", basePrice: "95", currency: "USD", priceUnit: "PER_TRAVELER", priceSdg: "247000", fxRateToSdg: "2600" };
+  const border = { id: "b", code: "VISA-EGYPT-CLEARANCE-BORDER", name: "بري", pricingMode: "FIXED", basePrice: "80", currency: "USD", priceUnit: "PER_TRAVELER" };
+  const [airOption, borderOption] = egyptVariantOptions({ services: [], visaTypes: [air, border] });
+  assert.match(airOption.sdgText, /^≈ \S+ SDG$/, "the server's priceSdg, formatted");
+  assert.equal(borderOption.sdgText, "المقابل بالجنيه السوداني غير متاح حاليًا");
+  const [unpublished] = egyptVariantOptions({ services: [], visaTypes: [] });
+  assert.equal(unpublished.sdgText, "");
+});

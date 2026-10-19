@@ -71,3 +71,14 @@ test("home Umrah kinds never compare a per-pilgrim price with a per-request one"
   assert.ok(!offer.priceText.startsWith("من"), "only one comparable package: exact price");
   assert.equal(offer.packageCount, 2);
 });
+
+test("home Umrah kinds link to the cheapest fixed package; a quoted one is not bookable", async () => {
+  const { umrahKindOffers } = await import("../www/js/umrah-view.js");
+  const cheap = { ...air, id: "cheap", basePrice: "900" };
+  const quoted = { ...air, id: "q", code: "SVC-UMRAH-SEA", features: ["KIND: SEA"], pricingMode: "QUOTE", basePrice: "100" };
+  const offers = umrahKindOffers([air, cheap, quoted]);
+  assert.equal(offers[0].packageId, "cheap");
+  assert.equal(offers[1].kind, "SEA");
+  assert.equal(offers[1].packageId, null, "a quoted package with a base price is still not bookable");
+  assert.equal(offers[1].priceText, null);
+});

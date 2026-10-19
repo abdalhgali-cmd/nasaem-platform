@@ -16,8 +16,10 @@ function paymentPath(id) {
   return `/contact-requests/${encodeURIComponent(id)}/payment-access`;
 }
 
-function finish(params, summary) {
-  clearPendingPayment(localStorage);
+// `keepPending`: the customer chose to transfer later (or the payment could
+// not load offline) — the home screen keeps offering «أكمل الدفع».
+function finish(params, summary, { keepPending = false } = {}) {
+  if (!keepPending) clearPendingPayment(localStorage);
   replace(
     "requestSubmitted",
     {
@@ -63,7 +65,8 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
     bodyEl.innerHTML = `
       ${errorState(error.message)}
       <button type="button" class="secondary" id="paymentLaterBtn">متابعة بدون الدفع الآن</button>`;
-    bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, null));
+    // Offline: the payment link is still valid; elsewise it is not reusable.
+    bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, null, { keepPending: error?.status === 0 }));
     return;
   }
 
@@ -74,18 +77,19 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
   bodyEl.innerHTML = `
     <div class="detail-block payment-step" data-testid="direct-payment-step">
       ${params.resumed ? `<p class="field-hint" id="paymentResumed">طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.</p>` : ""}
-      <p class="field-hint">حُفظ طلبك برقم <code dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ ثم ارفع إشعار التحويل لإرسال الطلب للمراجعة.</p>
+      <p class="field-hint">طلبك محفوظ برقم <code dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ إلى الحساب المعتمد ثم ارفع إشعار التحويل.</p>
       <h4>الدفع بالتحويل البنكي</h4>
       <p class="payment-amount">المبلغ المطلوب: <strong id="directPaymentAmount"><bdi>${esc(amountText)}</bdi></strong></p>
-      ${sdgText ? `<p class="field-hint">ما يعادل <bdi>${esc(sdgText)}</bdi> بسعر الصرف المعتمد وقت تأكيد الطلب</p>` : ""}
+      ${sdgText ? `<p class="field-hint">ما يعادل <bdi>${esc(sdgText)}</bdi> بسعر الصرف المعتمد وقت تأكيد الطلب</p>`
+        : summary.currency && summary.currency !== "SDG" ? `<p class="field-hint" id="paymentSdgUnavailable">المقابل بالجنيه السوداني غير متاح حاليًا؛ حوّل بالعملة الظاهرة.</p>` : ""}
       ${summary.rejectionReason ? `<p class="field-error" role="alert">لم يُقبل الإشعار السابق: ${esc(summary.rejectionReason)}</p>` : ""}
       ${summary.paymentOpen
         ? `
           <p class="field-hint">حوّل المبلغ بالعملة نفسها (${esc(summary.currency || "")}) إلى أحد الحسابات التالية فقط.</p>
           ${accounts.length
             ? accounts.map((account) => accountCard(account, summary.currency)).join("")
-            : `<p class="field-hint">لا يوجد حساب دفع مفعّل لهذه العملة حاليًا. لا تحوّل أي مبلغ قبل تواصل الوكالة معك.</p>`}
-          <form id="directReceiptForm" class="form">
+            : `<p class="field-hint" id="noPaymentAccount">لا يوجد حساب دفع مفعّل لهذه العملة حاليًا. لا تحوّل أي مبلغ قبل تواصل الوكالة معك؛ طلبك محفوظ.</p>`}
+          ${accounts.length ? `<form id="directReceiptForm" class="form">
             <label class="field">
               <span>إشعار التحويل (صورة أو PDF) *</span>
               <input name="file" type="file" accept="image/*,.pdf" required>
@@ -93,11 +97,12 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
             <div class="upload-progress-wrap" id="directReceiptProgressWrap" hidden>
               <div class="upload-progress-bar"><div class="upload-progress-fill" id="directReceiptProgressFill"></div></div>
             </div>
-            <button type="submit" class="primary" id="sendReceiptBtn">إرسال الطلب للمراجعة</button>
-            <small>رفع الإشعار لا يعني تأكيد السداد؛ تصبح حالة الدفع «بانتظار مراجعة التحويل» حتى يؤكدها موظف مختص.</small>
-          </form>`
+            <button type="submit" class="primary" id="sendReceiptBtn">إرسال إشعار التحويل</button>
+            <small>يؤكد موظف الوكالة استلام المبلغ، وحتى ذلك تكون حالة الدفع «بانتظار مراجعة التحويل».</small>
+          </form>` : ""}`
         : `<p class="field-hint"><b>${esc(summary.paymentStatusLabel || "")}</b></p>${(summary.lockReasons || []).map((reason) => `<p class="field-hint">${esc(reason)}</p>`).join("")}`}
       <button type="button" class="secondary" id="paymentLaterBtn">${summary.paymentOpen ? "سأحوّل لاحقًا" : "متابعة"}</button>
+      ${summary.paymentOpen ? `<p class="field-hint">يبقى «أكمل الدفع» ظاهرًا في الرئيسية حتى ترفع الإشعار.</p>` : ""}
     </div>`;
 
   bodyEl.querySelectorAll("[data-copy]").forEach((button) => {
@@ -110,7 +115,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
       }
     });
   });
-  bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, summary));
+  bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, summary, { keepPending: Boolean(summary.paymentOpen) }));
 
   const form = bodyEl.querySelector("#directReceiptForm");
   if (!form) return;

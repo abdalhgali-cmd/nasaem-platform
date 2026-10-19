@@ -34,8 +34,18 @@ export async function openServiceById(id, catalogHint) {
 
 // Opening a service shows its details first (price, duration, what is
 // needed, steps) with a fixed "start the request" button; the request form
-// itself is the dedicated screen resolveServiceScreen() picks.
-export function openServiceItem(item) {
+// itself is the dedicated screen resolveServiceScreen() picks. Umrah and the
+// Egypt approval skip the details page: their own screen already shows each
+// option's fixed price and what it includes, so it would only add a tap.
+// `extra` (e.g. { packageId }) preselects an option there.
+const DIRECT_SCREENS = { umrah: "العمرة", egyptClearance: "الموافقة الأمنية لمصر" };
+
+export function openServiceItem(item, extra = {}) {
+  const screen = resolveServiceScreen(item);
+  if (DIRECT_SCREENS[screen]) {
+    go(screen, { item, ...extra }, { title: DIRECT_SCREENS[screen], tab: "services" });
+    return;
+  }
   go("serviceInfo", { item }, { title: item.name, tab: "services" });
 }
 

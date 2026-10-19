@@ -145,3 +145,37 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 @media (prefers-reduced-motion: reduce) {
  .svc-group-list .svc-step {animation:none;transition:none;}
 }
+
+/* ---- Simplified journeys (one requirements screen, direct choosers) ---- */
+.hc-umrah-kinds li {list-style:none;}
+button.hc-umrah-kind {width:100%;min-height:48px;border:0;color:#fff;font:inherit;text-align:start;cursor:pointer;transition:background-color .14s ease-out;}
+button.hc-umrah-kind:active {background:rgba(255,255,255,.2);}
+.hc-umrah-kind.is-unavailable {opacity:.75;}
+.hc-tile-egypt {grid-column:1 / -1;gap:10px;}
+.hc-egypt-head {display:flex;align-items:center;gap:10px;}
+.hc-egypt-head strong {font-size:1rem;font-weight:700;}
+.hc-egypt-options {display:grid;grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr));gap:8px;}
+.hc-egypt-option {min-height:48px;display:grid;gap:2px;align-content:start;padding:8px 10px;border-radius:12px;background:#eaf0f8;border:0;color:#0f1f3a;font:inherit;text-align:start;cursor:pointer;}
+.hc-egypt-option span {font-size:.8125rem;color:#56607a;}
+.hc-egypt-option b {font-size:.9375rem;font-weight:700;color:#082b58;}
+.hc-egypt-option small {font-size:.75rem;color:#56607a;}
+button.hc-egypt-option:active {background:#dbe5f2;}
+.hc-egypt-option.is-unavailable {opacity:.7;cursor:default;}
+.variant-card .variant-sdg, .variant-prices small {display:block;font-size:.75rem;font-weight:600;color:var(--text-muted);}
+
+.umrah-choose {padding-top:12px!important;}
+.umrah-title {font-size:1.125rem;font-weight:700;color:#0f1f3a;margin:0 0 2px;}
+.package-card {align-items:flex-start;min-height:48px;border-width:1.5px;cursor:pointer;}
+.package-card .package-body {flex:1;min-width:0;display:grid;gap:2px;}
+.package-card .package-radio {flex:none;width:22px;height:22px;margin-top:2px;border-radius:50%;border:2px solid #b9c4d6;background:#fff;}
+.package-card.selected {border-color:#082b58;box-shadow:0 0 0 3px rgba(8,43,88,.08);}
+.package-card.selected .package-radio {border:7px solid #082b58;}
+.package-card.package-unavailable {opacity:.65;cursor:not-allowed;}
+.package-card .package-price {text-align:end;font-size:.9375rem;}
+
+.intake-single .form-section h3 {font-size:1rem;}
+.traveler-card {position:relative;}
+.traveler-remove {position:absolute;inset-block-start:4px;inset-inline-end:8px;min-height:44px;display:inline-flex;align-items:center;gap:4px;font-size:.8125rem;}
+.add-traveler {width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:10px;}
+.slot-pick, .slot-remove, .copy-row .chip-btn {min-height:48px;}
+.traveler-remove {min-height:48px;}
