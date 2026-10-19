@@ -80,3 +80,16 @@ export function validateEgyptRoute(entryMode, { departureCity, arrivalAirport, e
   if (entryMode === "BORDER") return String(entryPort || "").trim() ? [] : ["أدخل منفذ الدخول."];
   return [];
 }
+
+// The three steps of an Egypt application: entry method → details and
+// passports → payment. `current` is 1, 2 or 3.
+export function egyptStepsHtml(current, esc = (value) => value) {
+  const labels = ["طريقة الدخول", "البيانات والجوازات", "الدفع"];
+  return `<ol class="egypt-steps" aria-label="خطوات الطلب">${labels
+    .map((label, index) => {
+      const step = index + 1;
+      const state = step < current ? "done" : step === current ? "current" : "upcoming";
+      return `<li class="egypt-step egypt-step-${state}"${state === "current" ? ' aria-current="step"' : ""}><span class="egypt-step-dot" aria-hidden="true">${state === "done" ? "✓" : step}</span><span>${esc(label)}</span></li>`;
+    })
+    .join("")}</ol>`;
+}

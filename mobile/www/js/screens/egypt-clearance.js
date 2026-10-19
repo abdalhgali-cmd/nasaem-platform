@@ -1,7 +1,7 @@
 import { esc, confirmDialog } from "../ui.js";
 import { icon } from "../icons.js";
 import { loadCatalog, loadPublicSettings, parseFaq } from "../catalog.js";
-import { EGYPT_UNAVAILABLE, egyptVariantOptions } from "../egypt-view.js";
+import { EGYPT_UNAVAILABLE, egyptStepsHtml, egyptVariantOptions } from "../egypt-view.js";
 import { renderIntakeScreen } from "./intake.js";
 
 // Egypt security approval (موافقة حربي). Order of the screen: the variant
@@ -16,8 +16,9 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
     <div class="service-hero service-hero-egypt service-hero-compact">
       <div class="service-hero-icon">${icon("shield-check", { size: 30 })}</div>
       <h2>الموافقة الأمنية لمصر</h2>
-      <p>اختر طريقة الدخول، ثم ارفع الجوازات وأكّد الإجمالي. السعر ثابت.</p>
+      <p>سعر ثابت، ولا يلزم شراء تذكرة من نسائم.</p>
     </div>
+    <div id="egyptStepsMount">${egyptStepsHtml(1, esc)}</div>
     <section class="section" id="egyptVariants" hidden></section>
     <div id="egyptIntakeMount"></div>
     <div id="egyptFaq"></div>
@@ -42,6 +43,7 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
     // Another entry method starts a new form: files already picked would be lost.
     if (currentCode && mount.querySelector(".slot-ok") && !confirmDialog("تغيير طريقة الدخول يمسح الملفات التي رفعتها. هل تريد المتابعة؟")) return;
     currentCode = option.code;
+    bodyEl.querySelector("#egyptStepsMount").innerHTML = egyptStepsHtml(2, esc);
     variantsEl.querySelectorAll("[data-code]").forEach((button) => {
       const selected = button.dataset.code === option.code;
       button.classList.toggle("selected", selected);

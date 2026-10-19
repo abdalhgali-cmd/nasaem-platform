@@ -11,6 +11,7 @@ import { bindProgressTrack, journeyBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
 import { egyptVariantEntryMode, isEgyptClearanceItem } from "../egypt-view.js";
+import { egyptFilesHtml, egyptPrepHtml, isEgyptOverview } from "../egypt-journey.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
 // these three values — everything a customer actually cares about day to
@@ -382,6 +383,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     const mayDo = (action) => request.status !== "CLOSED" && (!Array.isArray(request.allowedActions) || request.allowedActions.includes(action));
     // The original item and its entry-method variants share the travel plan.
     const isEgyptClearance = isEgyptClearanceItem(request.visaType) && mayDo("SAVE_TRAVEL_PLAN");
+    // Egypt security approval with the server's overview: typed files and
+    // the travel preparation section replace the generic blocks.
+    const egypt = isEgyptOverview(request);
+    const approvalIssued = egypt && request.egypt.approval.issued;
 
     bodyEl.innerHTML = `
       <div class="request-summary">
@@ -426,14 +431,17 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
             ${doc.status === "REJECTED" && doc.reviewNote ? `<p class="field-error">${esc(doc.reviewNote)}</p>` : ""}`).join("")}
         </div>` : ""}
 
-      ${request.deliverables?.length ? `
+      ${egypt ? egyptFilesHtml(request, esc, icon) : ""}
+      ${egypt ? egyptPrepHtml(request, esc, { canEditPlan: isEgyptClearance, canChooseFlight: mayDo("REQUEST_FLIGHT_BOOKING") }) : ""}
+
+      ${!egypt && request.deliverables?.length ? `
         <div class="detail-block" id="deliverablesBlock">
           <h4>الملفات النهائية</h4>
           ${request.deliverables.map((file) => `<button class="secondary deliverable-btn" data-id="${esc(file.id)}">${icon("download", { size: 16 })} ${esc(file.label || file.fileName)}</button>`).join("")}
         </div>` : ""}
 
-      ${request.intakeData?.egyptTravel ? egyptTravelSummary(request.intakeData.egyptTravel) : ""}
-      ${isEgyptClearance ? `<button class="primary" id="egyptTravelBtn">${request.intakeData?.egyptTravel ? "تعديل بيانات السفر والتعميم" : "استكمال بيانات السفر والتعميم"}</button>` : ""}
+      ${!egypt && request.intakeData?.egyptTravel ? egyptTravelSummary(request.intakeData.egyptTravel) : ""}
+      ${isEgyptClearance && !approvalIssued ? `<button class="${egypt ? "secondary" : "primary"}" id="egyptTravelBtn">${egypt ? (request.egypt.travel.travelDate ? "تعديل تاريخ السفر" : "إضافة تاريخ السفر (اختياري)") : request.intakeData?.egyptTravel ? "تعديل بيانات السفر والتعميم" : "استكمال بيانات السفر والتعميم"}</button>` : ""}
 
       <div id="trackingActionPanel"></div>
 
@@ -457,7 +465,25 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     const openPaymentStep = () => showPaymentStep(panel, { requestId: request.id, currency: pricing?.currency, price, onUploaded: load });
     bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", openPaymentStep);
     bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", openPaymentStep);
-    bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load, egyptVariantEntryMode(request.visaType)));
+    bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load, egyptVariantEntryMode(request.visaType), request));
+    bodyEl.querySelectorAll("[data-flight-choice]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const choice = btn.dataset.flightChoice;
+        const done = () => { toast(choice === "REQUEST" ? "أُرسل طلب حجز التذكرة إلى الوكالة" : "تم حفظ اختيارك"); load(); };
+        if (viaTracking) return ensureTrackingAndRun(panel, () => tracking.recordFlightChoice(request.id, choice), { onDone: done });
+        return api(`/customer/requests/${request.id}/egypt/flight`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ choice }) })
+          .then(done)
+          .catch((error) => toast(error.message, { tone: "error" }));
+      });
+    });
+    bodyEl.querySelectorAll(".egypt-file-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const kind = btn.dataset.egyptFile;
+        if (kind === "RECEIPT") return viaTracking ? downloadTrackedPath(`/tracking/requests/${request.id}/payment-receipt/file`) : downloadAccountPath(`/customer/requests/${request.id}/payment-receipt/file`);
+        const owner = btn.dataset.request;
+        return viaTracking ? downloadTrackedDeliverable(owner, btn.dataset.deliverable) : downloadDeliverable(owner, btn.dataset.deliverable);
+      });
+    });
     bodyEl.querySelectorAll("[data-upload-item]").forEach((input) => {
       input.addEventListener("change", () => {
         const item = request.checklist.find((entry) => `${entry.requirementId}::${entry.travelerId || ""}` === input.dataset.uploadItem);
@@ -642,11 +668,14 @@ function egyptTravelSummary(plan) {
 
 // A variant request already fixed the entry method when it was booked: it is
 // shown, not asked again (the server refuses a different one).
-function showEgyptTravelPlan(panel, requestId, onSaved, fixedEntryMode = null) {
+function showEgyptTravelPlan(panel, requestId, onSaved, fixedEntryMode = null, request = null) {
   const today = new Date().toISOString().slice(0, 10);
+  const current = request?.egypt?.travel?.travelDate || request?.intakeData?.egyptTravel?.entryDate || "";
+  const border = fixedEntryMode === "BORDER";
+  const port = request?.egypt?.route?.entryPort || request?.intakeData?.egyptRoute?.entryPort || "";
   panel.innerHTML = `
     <form id="egyptPlanForm" class="form detail-block">
-      <h4>بيانات السفر والتعميم</h4>
+      <h4>${border ? "بيانات الوصول إلى المنفذ" : "بيانات السفر"}</h4>
       ${fixedEntryMode ? `<p class="field-hint" id="egyptFixedEntryMode">طريقة الدخول: ${fixedEntryMode === "AIR" ? "جوي — مطار القاهرة" : "بري — المعبر"}</p>` : `
       <label class="field">
         <span>طريقة الدخول</span>
@@ -655,34 +684,51 @@ function showEgyptTravelPlan(panel, requestId, onSaved, fixedEntryMode = null) {
           <option value="BORDER">منفذ بري</option>
         </select>
       </label>`}
+      ${border ? `
       <label class="field">
-        <span>حالة الحجز</span>
+        <span>منفذ الدخول *</span>
+        <input name="entryPort" maxlength="80" value="${esc(port)}" required>
+      </label>` : `
+      <label class="field">
+        <span>التذكرة</span>
         <select name="bookingStatus">
-          <option value="EXISTING">لدي حجز بالفعل</option>
+          <option value="EXISTING">لدي تذكرة — سأرفعها</option>
           <option value="NEEDS_NASAEM">أريد الحجز من نسائم الحرمين</option>
         </select>
-      </label>
+      </label>`}
       <label class="field">
-        <span>تاريخ الدخول المتوقع *</span>
-        <input name="entryDate" type="date" min="${today}" required>
+        <span>${border ? "تاريخ الوصول المتوقع إلى المنفذ *" : "تاريخ السفر *"}</span>
+        <input name="entryDate" type="date" min="${today}" value="${esc(current)}" required>
       </label>
+      ${border ? "" : `
       <label class="field" data-doc-field>
-        <span>التذكرة أو الحجز إن وجد</span>
+        <span>صورة التذكرة أو ملفها</span>
         <input name="file" type="file" accept="image/*,.pdf">
-      </label>
-      <p class="field-hint">مرحلة التعميم تحتاج وقتًا كافيًا قبل الدخول، وستظهر حالة الطلب الفعلية دون أي تأكيد غير دقيق.</p>
-      <button type="submit" class="primary">حفظ بيانات السفر</button>
+      </label>`}
+      <label class="confirm-check"><input type="checkbox" name="confirmDate" required> <span>أؤكد أن هذا التاريخ صحيح.</span></label>
+      <p class="field-hint">يُجهَّز التعميم قبل السفر بوقت كافٍ؛ ستظهر حالته الفعلية هنا.</p>
+      <button type="submit" class="primary">حفظ</button>
     </form>`;
   const form = panel.querySelector("#egyptPlanForm");
+  panel.scrollIntoView?.({ block: "start" });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = new FormData(form);
+    if (!raw.get("confirmDate")) {
+      toast("أكّد التاريخ أولًا.", { tone: "error" });
+      return;
+    }
     const file = raw.get("file");
     const submitBtn = form.querySelector("button");
     setLoading(submitBtn, true, "جارٍ الحفظ…");
     await ensureTrackingAndRun(
       panel,
-      () => tracking.saveEgyptTravelPlan(requestId, { ...(fixedEntryMode ? {} : { entryMode: raw.get("entryMode") }), bookingStatus: raw.get("bookingStatus"), entryDate: raw.get("entryDate") }, file?.size ? file : null),
+      () => tracking.saveEgyptTravelPlan(requestId, {
+        ...(fixedEntryMode ? {} : { entryMode: raw.get("entryMode") }),
+        bookingStatus: border ? "EXISTING" : raw.get("bookingStatus"),
+        entryDate: raw.get("entryDate"),
+        ...(border ? { entryPort: String(raw.get("entryPort") || "").trim() } : {}),
+      }, file?.size ? file : null),
       { onDone: () => { toast("تم حفظ بيانات السفر"); onSaved(); } }
     );
   });
@@ -727,9 +773,15 @@ export async function renderOrderDetailScreen({ bodyEl, setTitle, params }) {
 }
 
 async function downloadDeliverable(requestId, deliverableId) {
+  return downloadAccountPath(`/customer/requests/${requestId}/deliverables/${deliverableId}/file`);
+}
+
+// Files are fetched with the customer's own session and opened locally;
+// their server address is never shared or public.
+async function downloadAccountPath(path) {
   try {
     const token = await getToken();
-    const response = await fetch(`${CONFIG.apiBaseUrl}/customer/requests/${requestId}/deliverables/${deliverableId}/file`, {
+    const response = await fetch(`${CONFIG.apiBaseUrl}${path}`, {
       credentials: "include",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -743,8 +795,12 @@ async function downloadDeliverable(requestId, deliverableId) {
 }
 
 async function downloadTrackedDeliverable(requestId, deliverableId) {
+  return downloadTrackedPath(`/tracking/requests/${requestId}/deliverables/${deliverableId}/file`);
+}
+
+async function downloadTrackedPath(path) {
   try {
-    const blob = await tracking.fetchTrackedFile(`/tracking/requests/${requestId}/deliverables/${deliverableId}/file`);
+    const blob = await tracking.fetchTrackedFile(path);
     window.open(URL.createObjectURL(blob), "_blank");
   } catch (error) {
     toast(error.message, { tone: "error" });

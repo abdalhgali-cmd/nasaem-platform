@@ -281,7 +281,7 @@ export function egyptTravelBlockers(request) {
     return [{ code: "TRAVEL_PLAN_MISSING", message: "لم تُستكمل بيانات السفر والتعميم (طريقة الدخول، حالة الحجز، تاريخ الدخول) من العميل." }];
   }
   const reasons = [];
-  if (plan.bookingStatus === "EXISTING") {
+  if (plan.bookingStatus === "EXISTING" && plan.entryMode !== "BORDER") {
     const ticket = (request.documents || []).find((d) => d.id === plan.ticketDocumentId && !d.supersededAt);
     // A ticket staff attached (or published on the linked booking) also counts.
     const otherTicket = travelTickets(request).some((t) => t.source !== "CUSTOMER");

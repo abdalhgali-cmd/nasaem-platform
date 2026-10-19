@@ -14,6 +14,15 @@ import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-vie
 import { isUmrahPackage, umrahNeedsGuarantor, validateUmrahContacts } from "../umrah-view.js";
 import { EGYPT_AIR_ROUTE_DEFAULTS, egyptVariantEntryMode, validateEgyptRoute } from "../egypt-view.js";
 import { selectOptions } from "../egypt-view.js";
+import { QUALITY_MESSAGES, analyzePassportFile } from "../passport-quality.js";
+
+// Egypt: a passport slot offers the camera and the gallery, with a preview
+// and on-device quality hints (passport-quality.js).
+function isPassportSlot(slot) {
+  const requirement = slot.requirement || {};
+  return requirement.attachmentType === "passport_copy" || /جواز/.test(requirement.name || "");
+}
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ALLOWED_DOC_ACCEPT = "image/*,.pdf";
 
@@ -143,6 +152,9 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
 
   const state = {
     files: new Map(),
+    // Egypt passport slots: quality hints and preview per slot key.
+    quality: new Map(),
+    previews: new Map(),
     values: {
       name: customer?.fullName || "",
       phone: customer?.phone || "",
@@ -155,6 +167,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       departureCity: EGYPT_AIR_ROUTE_DEFAULTS.departureCity,
       arrivalAirport: EGYPT_AIR_ROUTE_DEFAULTS.arrivalAirport,
       entryPort: "",
+      flightChoice: "",
     },
   };
   const draft = readDraft(storageKey);
@@ -223,9 +236,11 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     if (egyptMode === "AIR") {
       state.values.departureCity = read("departureCity").trim();
       state.values.arrivalAirport = read("arrivalAirport").trim();
+      state.values.flightChoice = stepBody.querySelector('[name="flightChoice"]:checked')?.value || "";
     } else if (egyptMode === "BORDER") {
       state.values.entryPort = read("entryPort").trim();
     }
+    if (egyptMode && stepBody.querySelector('[name="email"]')) state.values.email = read("email").trim();
     state.values.travelers = state.values.travelers.map((traveler, index) => ({
       ...traveler,
       fullName: stepBody.querySelector(`[name="t_name_${index}"]`) ? read(`t_name_${index}`).trim() : traveler.fullName || "",
@@ -242,7 +257,35 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     saveDraft();
   }
 
+  function passportSlotRow(slot, label) {
+    const file = state.files.get(slot.key);
+    const quality = state.quality.get(slot.key);
+    const preview = state.previews.get(slot.key);
+    const requirement = slot.requirement;
+    return `
+      <div class="slot passport-slot ${file ? "slot-ok" : ""}" data-slot="${esc(slot.key)}">
+        <div class="slot-main">
+          <b>${esc(label)}${requirement.required ? ' <i class="req-star">*</i>' : ' <small>(اختياري)</small>'}</b>
+          <span class="field-hint">صفحة البيانات كاملة (التي فيها صورتك)، واضحة ودون انعكاس ضوء.</span>
+          ${preview ? `<img class="passport-preview" src="${esc(preview)}" alt="معاينة صورة الجواز">` : file ? `<span class="slot-file">${icon("document", { size: 14 })} ${esc(file.name)} · ${formatBytes(file.size)}</span>` : ""}
+          ${quality?.warnings?.length ? `<div class="quality-warnings" role="status"><b>ملاحظات على الصورة</b><ul>${quality.warnings.map((code) => `<li>${esc(QUALITY_MESSAGES[code] || "")}</li>`).join("")}</ul><small>يمكنك إعادة التصوير، أو إرسالها كما هي وسيراجعها الموظف.</small></div>` : file ? `<span class="slot-file slot-file-ok">${icon("check", { size: 14 })} الصورة جاهزة للإرسال</span>` : ""}
+          <span class="field-error slot-error" hidden></span>
+          <span class="field-hint slot-checking" hidden>جارٍ فحص الصورة…</span>
+        </div>
+        <div class="slot-actions passport-actions">
+          <label class="chip-btn slot-pick">${icon("camera", { size: 16 })}<span>${file ? "إعادة التصوير" : "تصوير الجواز"}</span>
+            <input type="file" class="sr-only" accept="image/*" capture="environment" data-slot-input="${esc(slot.key)}" data-capture="CAMERA" aria-label="تصوير ${esc(slot.label)}">
+          </label>
+          <label class="chip-btn slot-pick">${icon("upload", { size: 16 })}<span>${file ? "استبدال" : "رفع صورة الجواز"}</span>
+            <input type="file" class="sr-only" accept="image/jpeg,image/png,image/webp,.pdf" data-slot-input="${esc(slot.key)}" data-capture="UPLOAD" aria-label="رفع ${esc(slot.label)}">
+          </label>
+          ${file ? `<button type="button" class="chip-btn slot-remove" data-slot-remove="${esc(slot.key)}">${icon("close", { size: 14 })}<span>إزالة</span></button>` : ""}
+        </div>
+      </div>`;
+  }
+
   function slotRow(slot, label = slot.requirement.name) {
+    if (egyptMode && isPassportSlot(slot)) return passportSlotRow(slot, label);
     const file = state.files.get(slot.key);
     const requirement = slot.requirement;
     return `
@@ -316,6 +359,15 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
             <label class="field"><span>مطار الوصول *</span><input name="arrivalAirport" maxlength="80" value="${esc(v.arrivalAirport || "")}"></label>
           </div>
           <p class="field-hint">عدّلهما إن كانت رحلتك من مكان آخر.</p>
+        </section>
+        <section class="form-section" id="egyptFlightSection">
+          <fieldset class="choice-group">
+            <legend>هل ترغب في حجز تذكرة الطيران عبر نسائم الحرمين؟</legend>
+            <label class="choice-row"><input type="radio" name="flightChoice" value="REQUEST" ${v.flightChoice === "REQUEST" ? "checked" : ""}> <span>نعم، أريد الحجز عبر نسائم <small>(يُرسل طلب منفصل وتتواصل معك الوكالة بالسعر)</small></span></label>
+            <label class="choice-row"><input type="radio" name="flightChoice" value="BOOKED" ${v.flightChoice === "BOOKED" ? "checked" : ""}> <span>حجزت تذكرتي بالفعل</span></label>
+            <label class="choice-row"><input type="radio" name="flightChoice" value="LATER" ${v.flightChoice === "LATER" ? "checked" : ""}> <span>لاحقًا</span></label>
+          </fieldset>
+          <p class="field-hint">الموافقة الأمنية لا تتطلب شراء التذكرة من نسائم.</p>
         </section>` : egyptMode === "BORDER" ? `
         <section class="form-section" id="egyptRouteSection">
           <h3>خط السير</h3>
@@ -332,6 +384,8 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         <label class="field"><span>${needsGuarantor ? "اسم مقدم الطلب *" : "اسمك *"}</span><input name="name" value="${esc(v.name)}" autocomplete="name"></label>
         <label class="field"><span>رقم هاتفك (واتساب) *</span><input name="phone" inputmode="tel" dir="ltr" value="${esc(v.phone)}" autocomplete="tel"></label>
         <p class="field-hint">بهذا الرقم تتابع طلبك برمز تحقق عبر واتساب، دون حساب.</p>
+        ${egyptMode ? `<label class="field"><span>البريد الإلكتروني (لإرسال إيصال السداد)</span><input name="email" type="email" inputmode="email" dir="ltr" autocomplete="email" maxlength="200" value="${esc(v.email || "")}"></label>
+        <p class="field-hint">اختياري. يصلك إيصال السداد عليه بعد تأكيد الدفع، ويبقى متاحًا في صفحة الطلب.</p>` : ""}
       </section>
       ${answerRequirements().length ? `
         <section class="form-section" id="answersSection">
@@ -379,11 +433,37 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         return;
       }
       syncData();
+      if (egyptMode && isPassportSlot(slot)) {
+        const row = input.closest(".slot");
+        const checking = row?.querySelector(".slot-checking");
+        if (checking) checking.hidden = false;
+        const capture = input.dataset.capture === "CAMERA" ? "CAMERA" : "UPLOAD";
+        analyzePassportFile(file).then((result) => {
+          if (submitting) return;
+          if (!result.ok) {
+            const errorEl = stepBody.querySelector(`[data-slot="${CSS.escape(slot.key)}"] .slot-error`);
+            if (errorEl) { errorEl.textContent = result.error; errorEl.hidden = false; }
+            const checkingNow = stepBody.querySelector(`[data-slot="${CSS.escape(slot.key)}"] .slot-checking`);
+            if (checkingNow) checkingNow.hidden = true;
+            return;
+          }
+          const old = state.previews.get(slot.key);
+          if (old) URL.revokeObjectURL(old);
+          state.files.set(slot.key, file);
+          state.quality.set(slot.key, { warnings: result.warnings, checks: result.checks, capture, acceptedWithWarnings: result.warnings.length > 0 });
+          if (!result.pdf && typeof URL.createObjectURL === "function") state.previews.set(slot.key, URL.createObjectURL(file));
+          else state.previews.delete(slot.key);
+          renderForm();
+        });
+        input.value = "";
+        return;
+      }
       state.files.set(slot.key, file);
       renderForm();
       return;
     }
     if (input.id === "confirmTotal") return;
+    if (input.name === "flightChoice") { syncData(); return; }
     syncData();
     // An answer can reveal or hide another question (conditional requirements).
     if (visibleSignature() !== stepBody.dataset.visible) {
@@ -398,6 +478,10 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     if (removeFile) {
       syncData();
       state.files.delete(removeFile.dataset.slotRemove);
+      state.quality.delete(removeFile.dataset.slotRemove);
+      const preview = state.previews.get(removeFile.dataset.slotRemove);
+      if (preview) URL.revokeObjectURL(preview);
+      state.previews.delete(removeFile.dataset.slotRemove);
       renderForm();
       return;
     }
@@ -428,6 +512,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     return [
       ...Object.values(validateTravelers(state.values.travelers)),
       ...validateEgyptRoute(egyptMode, state.values),
+      ...(egyptMode && state.values.email && !EMAIL_PATTERN.test(state.values.email) ? ["البريد الإلكتروني غير صالح؛ صحّحه أو اتركه فارغًا."] : []),
       ...validateSlots(slots(), state.files).map((problem) => problem.message),
       ...(needsGuarantor ? validateUmrahContacts(state.values) : []),
       ...Object.values(validateContact({ name: state.values.name, phone: state.values.phone })),
@@ -462,6 +547,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     if (egyptMode === "AIR") {
       payload.set("departureCity", v.departureCity);
       payload.set("arrivalAirport", v.arrivalAirport);
+      if (v.flightChoice) payload.set("egyptFlightChoice", v.flightChoice);
     } else if (egyptMode === "BORDER") {
       payload.set("entryPort", v.entryPort);
     }
@@ -481,6 +567,8 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     payload.set("documentLabels", JSON.stringify(parts.labels));
     payload.set("documentTravelerIndexes", JSON.stringify(parts.travelerIndexes));
     payload.set("documentRequirementIds", JSON.stringify(parts.requirementIds));
+    // Device quality hints, in the same order as the files (Egypt passports).
+    if (state.quality.size) payload.set("documentQuality", JSON.stringify(parts.keys.map((key) => state.quality.get(key) || null)));
     parts.files.forEach((file) => payload.append("documents", file));
 
     const progressWrap = stepBody.querySelector("#uploadProgressWrap");
@@ -495,7 +583,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       });
       // Only now - with the server's confirmation in hand - is the draft dropped.
       dropDraft();
-      showSubmitted(outcome, { serviceName: item.name, phone: v.phone, travelerCount: travelers.length, payNow: Boolean(fixed && !pricing()?.paymentAfterDocumentReview) });
+      showSubmitted(outcome, { serviceName: item.name, phone: v.phone, travelerCount: travelers.length, payNow: Boolean(fixed && !pricing()?.paymentAfterDocumentReview), steps: egyptMode ? "EGYPT" : null });
     } catch (error) {
       submitting = false;
       stepBody.removeAttribute("inert");

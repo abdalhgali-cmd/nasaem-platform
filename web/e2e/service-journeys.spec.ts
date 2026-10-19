@@ -243,8 +243,11 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     // Umrah asks for the guarantor's phone (required).
     if (await app.locator('[name="guarantorPhone"]').count()) await app.fill('[name="guarantorPhone"]', "+966501234567");
     await answerAgencyQuestions();
-    const keys = await app.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || ""));
-    for (const key of keys) await app.locator(`[data-slot-input="${key}"]`).setInputFiles(png(`doc-${key.slice(-6)}.png`));
+    // An Egypt passport slot has two inputs (camera, gallery): one file each.
+    const keys = [...new Set(await app.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || "")))];
+    for (const key of keys) await app.locator(`[data-slot-input="${key}"]`).last().setInputFiles(png(`doc-${key.slice(-6)}.png`));
+    // Passport photos are checked on the device first; wait until all are in.
+    await expect(app.locator(".slot.slot-ok")).toHaveCount(await app.locator(".slot").count(), { timeout: 15_000 });
     // A fixed price is confirmed once, here, beside the send button.
     if (await app.locator("#confirmTotal").count()) await app.locator("#confirmTotal").check();
     await send();
@@ -301,15 +304,19 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   }
 
   // Staff and customer read the same server line (the customer's headline).
-  async function bothSay(label: string) {
+  // `headline`: what the customer's journey says when it differs from the
+  // server's stage line (Egypt: «تم إصدار الموافقة الأمنية» once issued).
+  async function bothSay(label: string, headline = label) {
     await expect(office.locator("[data-cr-progress-label]")).toHaveText(label);
     await expect(app.locator("#requestProgress .progress-label")).toHaveText(label);
-    await expect(app.locator("#requestJourney .journey-headline")).toHaveText(label);
+    await expect(app.locator("#requestJourney .journey-headline")).toHaveText(headline);
   }
 
   for (const journey of JOURNEYS) {
     test(`${journey.name}: request, documents, price, payment, execution, delivery`, async () => {
       test.setTimeout(240_000);
+      // Egypt shows its typed files (approval, circular, receipt, tickets).
+      const finalFiles = journey.travelPlan ? '[data-egypt-file="APPROVAL"]' : ".deliverable-btn";
       const travelers = [`مسافر ${journey.name} ${unique()}`, `مرافق ${unique()}`];
 
       // ---- customer: service, its selection, travelers, documents
@@ -423,7 +430,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await expect(detail.locator("[data-cr-delivery-missing]")).toContainText(travelers[1]);
       await openCustomerRequest(id);
       await bothSay(journey.execution);
-      await expect(app.locator(".deliverable-btn")).toHaveCount(1);
+      await expect(app.locator(finalFiles)).toHaveCount(1);
 
       // the second traveler's file: prepared as a draft (invisible), then published
       await openStaffRequest(id, travelers[0]);
@@ -433,7 +440,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await office.locator('[data-cr-form="deliverable"] input[name="publish"]').uncheck();
       await staffAct(detail.locator('[data-cr-form="deliverable"] button[type="submit"]'), "مسودة");
       await openCustomerRequest(id);
-      await expect(app.locator(".deliverable-btn")).toHaveCount(1);
+      await expect(app.locator(finalFiles)).toHaveCount(1);
       await openStaffRequest(id, travelers[0]);
       await staffAct(detail.locator("[data-cr-publish]").first(), "تم نشر الملف");
 
@@ -445,8 +452,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         expect(premature.status()).toBe(409);
         expect(((await premature.json()).reasons as { code: string }[]).map((r) => r.code)).toContain("TRAVEL_PLAN_MISSING");
         await openCustomerRequest(id);
-        await bothSay("ملفاتك النهائية جاهزة للتحميل");
+        await bothSay("ملفاتك النهائية جاهزة للتحميل", "تم إصدار الموافقة الأمنية");
         await expect(app.locator('#requestProgress [aria-current="step"]')).toHaveAttribute("aria-label", /بيانات السفر والتعميم — المرحلة الحالية/);
+        await expect(app.locator("#egyptApprovalIssued")).toContainText("تم إصدار الموافقة الأمنية");
+        await expect(app.locator("#egyptPrep")).toContainText("مطلوب منك");
         await app.locator("#egyptTravelBtn").click();
         const entry = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
         // The AIR variant already fixed the entry method: shown, not asked again.
@@ -455,8 +464,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         await app.locator('#egyptPlanForm [name="bookingStatus"]').selectOption("EXISTING");
         await app.fill('#egyptPlanForm [name="entryDate"]', entry);
         await app.locator('#egyptPlanForm [name="file"]').setInputFiles(png("ticket.png"));
+        await app.locator('#egyptPlanForm [name="confirmDate"]').check();
         await app.locator("#egyptPlanForm button[type=submit]").click();
-        await expect(app.locator("#egyptTravelSummary")).toContainText("جاهز لتجهيز التعميم", { timeout: 15_000 });
+        await expect(app.locator("#egyptPrep")).toContainText(entry, { timeout: 15_000 });
+        await expect(app.locator("#egyptPrep")).toContainText("بيانات السفر مكتملة");
         // staff review the ticket, then complete the request by hand
         await openStaffRequest(id, travelers[0]);
         while ((await detail.locator("[data-doc-accept]").count()) > 0) {
@@ -475,7 +486,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
 
       await openCustomerRequest(id);
       await bothSay("تم إنجاز طلبك بنجاح");
-      await expect(app.locator(".deliverable-btn")).toHaveCount(2);
+      await expect(app.locator(finalFiles)).toHaveCount(2);
       await expect(app.locator("#requestProgress .progress-node-current")).toHaveCount(0);
       // closed: read-only for the customer and for staff
       await expect(app.locator("#approveBtn, #uploadReceiptBtn, #egyptTravelBtn, [data-upload-item]")).toHaveCount(0);

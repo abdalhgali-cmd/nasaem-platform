@@ -10,6 +10,8 @@
 // between stages (mirrored in RTL), Home/End, Enter/Space select.
 // The HTML builders are pure and unit-tested without a DOM.
 
+import { egyptJourney, isEgyptOverview } from "./egypt-journey.js";
+
 const STATE_CLASS = { done: "done", current: "current", upcoming: "upcoming" };
 const STATE_AR = { done: "مكتملة", current: "المرحلة الحالية", upcoming: "لم تبدأ بعد" };
 
@@ -160,6 +162,17 @@ const ACTION_PRIORITY = ["DOCUMENTS", "PAYMENT", "PAYMENT_REVIEW", "QUOTE", "TRA
 export function customerJourney(progress, request = null) {
   const steps = progressSteps(progress);
   if (!steps.length) return null;
+  // Egypt security approval: its own six customer steps (server timeline).
+  if (isEgyptOverview(request)) {
+    const byKeyEgypt = new Map(steps.map((step) => [step.key, step]));
+    let customerAction = null;
+    for (const key of ["DOCUMENTS", "PAYMENT", "PAYMENT_REVIEW"]) {
+      const step = byKeyEgypt.get(key);
+      const candidate = step ? stepAction(step, request) : null;
+      if (candidate && candidate.label !== "عرض المستندات") { customerAction = candidate; break; }
+    }
+    return egyptJourney(request, { fallbackHeadline: progress.label || "", customerAction });
+  }
   const byKey = new Map(steps.map((step) => [step.key, step]));
   // A closed or finished request has no current stage on the server: then
   // nothing is shown as in progress.

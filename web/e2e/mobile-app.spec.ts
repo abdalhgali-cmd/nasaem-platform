@@ -57,8 +57,10 @@ async function fillData(page: Page, { name, phone, travelers }: { name: string; 
 }
 
 async function uploadAllSlots(page: Page) {
-  const keys = await page.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || ""));
-  for (const key of keys) await page.locator(`[data-slot-input="${key}"]`).setInputFiles(file(`doc-${key.slice(-6)}.png`));
+  // An Egypt passport slot has two inputs (camera, gallery): one file each.
+  const keys = [...new Set(await page.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || "")))];
+  for (const key of keys) await page.locator(`[data-slot-input="${key}"]`).last().setInputFiles(file(`doc-${key.slice(-6)}.png`));
+  await expect(page.locator(".slot.slot-ok")).toHaveCount(await page.locator(".slot").count(), { timeout: 15_000 });
   return keys;
 }
 

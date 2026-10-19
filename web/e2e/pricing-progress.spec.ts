@@ -103,8 +103,10 @@ test.describe.serial("pricing modes and interactive progress", () => {
     await app.fill('[name="phone"]', phone);
     // Umrah asks for the guarantor's phone (required).
     if (await app.locator('[name="guarantorPhone"]').count()) await app.fill('[name="guarantorPhone"]', "+966501234567");
-    const keys = await app.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || ""));
-    for (const key of keys) await app.locator(`[data-slot-input="${key}"]`).setInputFiles({ name: `doc-${key.slice(-4)}.png`, mimeType: "image/png", buffer: PNG });
+    // An Egypt passport slot has two inputs (camera, gallery): one file each.
+    const keys = [...new Set(await app.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || "")))];
+    for (const key of keys) await app.locator(`[data-slot-input="${key}"]`).last().setInputFiles({ name: `doc-${key.slice(-4)}.png`, mimeType: "image/png", buffer: PNG });
+    await expect(app.locator(".slot.slot-ok")).toHaveCount(await app.locator(".slot").count(), { timeout: 15_000 });
   }
 
   async function sendAndGetReference() {

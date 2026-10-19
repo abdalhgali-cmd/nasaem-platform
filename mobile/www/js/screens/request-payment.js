@@ -11,6 +11,7 @@ import { replace } from "../router.js";
 import { validateFile } from "../intake-core.js";
 import { formatAmount } from "../payment-view.js";
 import { savePendingPayment, clearPendingPayment, clearPendingPaymentFor } from "../experience-core.js";
+import { egyptStepsHtml } from "../egypt-view.js";
 
 function paymentPath(id) {
   return `/contact-requests/${encodeURIComponent(id)}/payment-access`;
@@ -77,6 +78,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
   const accounts = summary.accounts || [];
 
   bodyEl.innerHTML = `
+    ${params.steps === "EGYPT" ? egyptStepsHtml(3, esc) : ""}
     <div class="detail-block payment-step" data-testid="direct-payment-step">
       ${params.resumed ? `<p class="field-hint" id="paymentResumed">طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.</p>` : ""}
       <p class="field-hint">طلبك محفوظ برقم <code dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ إلى الحساب المعتمد ثم ارفع إشعار التحويل.</p>

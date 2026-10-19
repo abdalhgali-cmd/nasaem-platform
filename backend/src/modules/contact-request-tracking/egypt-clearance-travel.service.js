@@ -173,7 +173,7 @@ export function travelPlanFor(request, { entryMode, bookingStatus, entryDate, ti
 export async function saveMyEgyptTravelPlan(
   phoneNormalized,
   contactRequestId,
-  { entryMode: givenEntryMode, bookingStatus, entryDate },
+  { entryMode: givenEntryMode, bookingStatus, entryDate, entryPort },
   file
 ) {
   const request = await prisma.contactRequest.findFirst({
@@ -203,8 +203,11 @@ export async function saveMyEgyptTravelPlan(
   const currentPlan = request.intakeData?.egyptTravel || null;
   let ticketDocumentId = currentPlan?.ticketDocumentId || null;
 
+  // Air: an existing booking comes with its ticket. Overland: the crossing
+  // and the confirmed arrival date are what the circular needs (a document
+  // is optional).
   if (bookingStatus === "EXISTING") {
-    if (!file && !ticketDocumentId) return { error: "BOOKING_DOCUMENT_REQUIRED" };
+    if (!file && !ticketDocumentId && entryMode === "AIR") return { error: "BOOKING_DOCUMENT_REQUIRED" };
     if (file) {
       const upload = await createContactRequestDocument(contactRequestId, {
         label: ticketLabel(entryMode),
@@ -225,13 +228,16 @@ export async function saveMyEgyptTravelPlan(
     const refusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, locked);
     if (refusal) refuseWith(refusal);
     const plan = travelPlanFor(locked, { entryMode, bookingStatus, entryDate, ticketDocumentId });
-    const { previousDate } = await applyTravelPlanInTransaction(tx, locked, plan);
+    // Overland: the crossing goes with the request's route (one place).
+    const port = entryMode === "BORDER" && typeof entryPort === "string" ? entryPort.trim().replace(/\s+/g, " ") : "";
+    const base = port ? { ...locked, intakeData: { ...(locked.intakeData || {}), egyptRoute: { ...(locked.intakeData?.egyptRoute || { entryMode: "BORDER" }), entryPort: port } } } : locked;
+    const { previousDate } = await applyTravelPlanInTransaction(tx, base, plan);
     await auditInTransaction(tx, {
       action: "EGYPT_CLEARANCE_TRAVEL_PLAN_UPDATED",
       entityId: contactRequestId,
       organizationId: locked.organizationId,
       oldValue: { entryDate: previousDate, bookingStatus: currentPlan?.bookingStatus ?? null },
-      newValue: { entryDate, bookingStatus, entryMode, by: "CUSTOMER" },
+      newValue: { entryDate, bookingStatus, entryMode, ...(port ? { entryPort: port } : {}), by: "CUSTOMER", confirmed: true },
     });
     return { plan };
   });

@@ -79,7 +79,7 @@ export default defineConfig({
       // back-office: requests with several travelers, per-traveler documents,
       // staff review, price, payment accounts and receipt review.
       name: "mobile-app",
-      testMatch: [/mobile-app\.spec\.ts/, /service-journeys\.spec\.ts/, /pricing-progress\.spec\.ts/],
+      testMatch: [/mobile-app\.spec\.ts/, /service-journeys\.spec\.ts/, /pricing-progress\.spec\.ts/, /egypt-approval\.spec\.ts/],
       timeout: 90_000,
       use: { ...devices["Pixel 5"], baseURL: "http://localhost:8081" },
     },

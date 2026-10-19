@@ -116,11 +116,12 @@ export function validateSlots(slots, files) {
 
 // The three parallel arrays + the file list the backend expects, in one order.
 export function buildUploadParts(slots, files) {
-  const parts = { files: [], labels: [], travelerIndexes: [], requirementIds: [] };
+  const parts = { files: [], labels: [], travelerIndexes: [], requirementIds: [], keys: [] };
   for (const slot of slots) {
     const file = files.get(slot.key);
     if (!file) continue;
     parts.files.push(file);
+    parts.keys.push(slot.key);
     parts.labels.push(slot.label.slice(0, 120));
     parts.travelerIndexes.push(slot.travelerIndex === null ? "" : String(slot.travelerIndex));
     parts.requirementIds.push(slot.requirement.id);

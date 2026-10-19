@@ -214,3 +214,36 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus {outline:none;}
 /* Help (FAQ) rows are touch targets too. */
 .faq-section summary, .faq-item summary {min-height:48px;display:flex;align-items:center;cursor:pointer;}
 .section-head .link-btn {min-height:48px;padding-inline:8px;}
+
+/* Egypt security approval: three application steps. */
+.egypt-steps {display:flex;gap:6px;list-style:none;margin:0 0 14px;padding:0;}
+.egypt-step {flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;font-size:.8125rem;color:#56607a;min-width:0;}
+.egypt-step span:last-child {overflow-wrap:anywhere;}
+.egypt-step-dot {width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:#e8edf5;color:#082b58;}
+.egypt-step-current {color:#082b58;font-weight:700;}
+.egypt-step-current .egypt-step-dot {background:#082b58;color:#fff;box-shadow:0 0 0 3px #d6aa4b;}
+.egypt-step-done .egypt-step-dot {background:#d6aa4b;color:#051a36;}
+
+/* Passport capture: camera and gallery, preview, quality hints. */
+.passport-slot .slot-main {gap:6px;}
+.passport-actions {display:flex;flex-wrap:wrap;gap:8px;}
+.passport-actions .chip-btn {min-height:48px;}
+.passport-preview {display:block;width:100%;max-width:280px;max-height:200px;object-fit:contain;border-radius:10px;border:1px solid #d9e1ec;background:#f6f8fb;}
+.quality-warnings {border-radius:12px;background:#fff7e6;border:1px solid #f1d189;padding:10px 12px;color:#6b4a00;font-size:.875rem;}
+.quality-warnings ul {margin:6px 0;padding-inline-start:18px;}
+.slot-file-ok {color:#166534;}
+.choice-group {border:0;margin:0;padding:0;display:grid;gap:8px;}
+.choice-group legend {font-weight:700;color:#082b58;margin-bottom:6px;}
+.choice-row {display:flex;align-items:flex-start;gap:10px;min-height:48px;padding:10px 12px;border:1px solid #d9e1ec;border-radius:12px;background:#fff;}
+.choice-row input {margin-top:3px;}
+.choice-row small {display:block;color:#56607a;}
+
+/* Egypt request screen: files and travel preparation. */
+.egypt-files .egypt-file-btn {display:flex;align-items:center;gap:8px;width:100%;min-height:48px;margin-top:8px;}
+.egypt-status {display:flex;align-items:center;gap:6px;margin:4px 0;font-weight:700;}
+.egypt-status-done {color:#166534;}
+.egypt-todo {border-radius:12px;background:#fff7e6;border:1px solid #f1d189;padding:10px 12px;color:#6b4a00;}
+.egypt-todo ul {margin:6px 0 0;padding-inline-start:18px;}
+.egypt-flight {margin-top:12px;border-top:1px solid #e3e8f0;padding-top:12px;}
+.chip-row {display:flex;flex-wrap:wrap;gap:8px;}
+.chip-row .chip-btn {min-height:48px;}
