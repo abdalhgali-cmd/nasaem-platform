@@ -256,6 +256,10 @@ NOT TESTED:
 - staging backup/restore;
 - the Vercel check, which fails on every PR with "Account is blocked".
 
+## Phase 2 release gate (#97, #110)
+
+The decision and the full acceptance matrix are in `docs/RELEASE_GATE_PHASE2.md`. **Current decision: BLOCKED** (real staging backup and restore, real Android device, website host, #105–#108 not integrated yet). The matrix is to be re-run on the final combined SHA.
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.
