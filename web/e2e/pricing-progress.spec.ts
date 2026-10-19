@@ -18,6 +18,7 @@ test.describe.serial("pricing modes and interactive progress", () => {
   let appContext: BrowserContext;
   let app: Page;
   let office: Page;
+  let usdAccountId = "";
 
   test.beforeAll(async ({ browser }) => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -26,9 +27,17 @@ test.describe.serial("pricing modes and interactive progress", () => {
     app = await appContext.newPage();
     office = await (await browser.newContext({ locale: "ar" })).newPage();
     await loginAsSeededAdmin(office);
+    // The agency's USD account: the app asks for a transfer receipt only when
+    // there is an account to pay into.
+    const account = await office.request.post(`${BACKEND}/api/payment-accounts`, {
+      data: { name: "E2E pricing USD", bankName: "بنك اختبار التسعير", accountName: "نسائم الحرمين", accountNumber: `PPUSD${unique()}`, currency: "USD" },
+    });
+    expect(account.ok(), await account.text()).toBeTruthy();
+    usdAccountId = (await account.json()).data.id;
   });
 
   test.afterAll(async () => {
+    if (usdAccountId) await office?.request.patch(`${BACKEND}/api/payment-accounts/${usdAccountId}`, { data: { active: false } }).catch(() => undefined);
     await appContext?.close();
     await office?.context().close();
   });
@@ -65,12 +74,13 @@ test.describe.serial("pricing modes and interactive progress", () => {
     expect([stored.pricingMode, stored.priceUnit, stored.paymentAfterDocumentReview]).toEqual(["FIXED", perTraveler ? "PER_TRAVELER" : "PER_REQUEST", afterDocuments]);
   }
 
+  // First launch: the welcome's guest choice (remembered afterwards).
   async function home() {
     await app.goto("/index.html");
-    const skip = app.getByText("تخطي").first();
-    await skip.waitFor({ timeout: 10_000 }).catch(() => undefined);
-    if (await skip.isVisible().catch(() => false)) await skip.click();
-    await expect(app.locator(".home-hero")).toBeVisible();
+    const guest = app.locator("#continueAsGuest");
+    await guest.or(app.locator(".hc-top")).first().waitFor({ timeout: 15_000 });
+    if (await guest.isVisible().catch(() => false)) await guest.click();
+    await expect(app.locator(".hc-top")).toBeVisible();
   }
 
   async function nextStep() {
@@ -79,26 +89,22 @@ test.describe.serial("pricing modes and interactive progress", () => {
     await button.dispatchEvent("click");
   }
 
-  // Up to the review step: contact, travelers, each traveler's document.
+  // The one requirements screen, filled up to the send button: travellers
+  // (cards with their own documents), contact.
   async function fillRequest(visaName: string, travelers: string[]) {
     await home();
-    await app.locator('.shortcut[data-key="visas"]').click();
+    await app.locator('.hc-tile[data-key="visas"]').click();
     await app.locator(".package-card", { hasText: visaName }).click();
     await app.locator("#startRequestBtn").click();
+    await app.locator('[name="t_name_0"]').waitFor({ timeout: 15_000 });
+    for (let index = 1; index < travelers.length; index += 1) await app.locator("#addTravelerBtn").click();
+    for (const [index, traveler] of travelers.entries()) await app.fill(`[name="t_name_${index}"]`, traveler);
     await app.fill('[name="name"]', travelers[0]);
     await app.fill('[name="phone"]', phone);
     // Umrah asks for the guarantor's phone (required).
     if (await app.locator('[name="guarantorPhone"]').count()) await app.fill('[name="guarantorPhone"]', "+966501234567");
-    await app.fill("#travelerCount", String(travelers.length));
-    await app.dispatchEvent("#travelerCount", "change");
-    for (const [index, traveler] of travelers.entries()) await app.fill(`[name="t_name_${index}"]`, traveler);
-    await nextStep();
-    const review = app.getByText("راجع طلبك قبل الإرسال");
-    await app.locator("[data-slot-input]").first().or(review).waitFor();
     const keys = await app.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || ""));
     for (const key of keys) await app.locator(`[data-slot-input="${key}"]`).setInputFiles({ name: `doc-${key.slice(-4)}.png`, mimeType: "image/png", buffer: PNG });
-    if (keys.length) await nextStep();
-    await expect(review).toBeVisible();
   }
 
   async function sendAndGetReference() {
@@ -125,7 +131,10 @@ test.describe.serial("pricing modes and interactive progress", () => {
       await app.locator("#verifyCodeBtn").click();
     }
     await app.locator(`.request-row[data-id="${id}"]`).click({ timeout: 15_000 });
-    await expect(app.locator("#requestProgress")).toBeVisible({ timeout: 15_000 });
+    // The customer's view first; every server stage under «تفاصيل كل المراحل».
+    await expect(app.locator("#requestJourney")).toBeVisible({ timeout: 15_000 });
+    await app.locator("#requestJourney .journey-details summary").click();
+    await expect(app.locator("#requestProgress")).toBeVisible();
   }
 
   const circle = (key: string) => app.locator(`#requestProgress [role="tab"][data-step="${key}"]`);
@@ -148,14 +157,15 @@ test.describe.serial("pricing modes and interactive progress", () => {
     // ---- customer: details and documents, then the final total
     const travelers = [`مسافر ثابت ${unique()}`, `مرافق ${unique()}`];
     await fillRequest(visaName, travelers);
-    await expect(app.locator("#stepper")).toContainText("الإجمالي والتأكيد");
+    // The total and its confirmation sit on the same screen, beside the send button.
     const total = app.locator("#fixedTotalReview");
     await expect(total).toBeVisible();
     await expect(app.locator("#fixedTotalAmount")).toContainText("240");
     await expect(app.locator("#fixedTotalAmount")).toContainText("USD");
     await expect(total).toContainText("×");
     await expect(total).toContainText("يُفتح الدفع بعد اعتماد الوكالة لمستنداتك");
-    await expect(app.locator("#nextStepBtn")).toHaveText("تأكيد الطلب بهذا الإجمالي");
+    await expect(app.locator("#nextStepBtn")).toContainText("تأكيد الطلب بإجمالي");
+    await expect(app.locator("#nextStepBtn")).toContainText("240");
     await nextStep();
     await expect(app.locator("#stepErrors")).toContainText("أكّد الإجمالي النهائي");
     await app.locator("#confirmTotal").check();
@@ -168,8 +178,14 @@ test.describe.serial("pricing modes and interactive progress", () => {
     expect(Number(stored.invoice.amount)).toBe(240);
     expect(stored.allowedActions).not.toContain("ISSUE_QUOTE");
 
-    // ---- customer: connected circles, no quote circle, payment locked
+    // ---- customer: the moments first (documents under review is not a step),
+    // then the connected circles: no quote circle, payment locked
     await openCustomerRequest(id);
+    await expect(app.locator("#requestJourney .journey-stage")).toHaveCount(4);
+    // No stage label is internal review work (its status line may mention it).
+    expect(await app.locator("#requestJourney .journey-text b").allInnerTexts()).not.toContain("مراجعة المستندات والبيانات");
+    expect((await app.locator("#requestJourney .journey-text b").allInnerTexts()).some((label) => /مراجعة/.test(label))).toBe(false);
+    await expect(app.locator("#journeyActionBtn")).toHaveCount(0);
     await expect(app.locator("#requestProgress")).toHaveAttribute("data-pricing-mode", "FIXED");
     await expect(circle("QUOTE")).toHaveCount(0);
     await expect(app.locator("#requestProgress [role=tab]")).toHaveCount(6);
