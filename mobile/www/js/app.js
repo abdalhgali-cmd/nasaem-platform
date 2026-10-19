@@ -23,6 +23,7 @@ import { renderAboutScreen } from "./screens/about.js";
 import { renderLegalScreen } from "./screens/legal.js";
 import { renderServiceInfoScreen } from "./screens/service-info.js";
 import { launchRoute } from "./experience-core.js";
+import { inactivityExpired } from "./session-core.js";
 import { tapFeedback } from "./motion.js";
 import { CONFIG } from "./config.js";
 import { showEnvironmentBadge } from "./environment.js";
@@ -34,7 +35,12 @@ function registerAllScreens() {
   registerScreen("onboarding", renderOnboardingScreen, { chrome: false });
   registerScreen("welcome", (ctx) => renderWelcomeScreen({
     ...ctx,
-    params: { ...ctx.params, onContinueAsGuest: () => enterShell("home") },
+    params: {
+      ...ctx.params,
+      // The choice is remembered: the welcome is not shown again.
+      onContinueAsGuest: () => { markOnboardingDone(); enterShell("home"); },
+      onTrackRequest: () => { markOnboardingDone(); enterShell("requests"); },
+    },
   }), { chrome: false });
   registerScreen("about", renderAboutScreen);
   registerScreen("legal", renderLegalScreen);
@@ -90,12 +96,17 @@ async function showOnboarding({ replay = false } = {}) {
   await go("onboarding", { onFinish: () => enterShell(replay ? "account" : "home") }, { root: true });
 }
 
+async function showWelcome() {
+  navEl.hidden = true;
+  await go("welcome", {}, { root: true });
+}
+
 async function startFromStoredSession() {
   const stored = await auth.loadStoredSession();
   const onboardingDone = await isOnboardingDone();
   // Customers who already had a session before this version never need the intro.
   if (stored.kind !== "none" && !onboardingDone) markOnboardingDone();
-  if (launchRoute({ storedKind: stored.kind, onboardingDone }) === "onboarding") await showOnboarding();
+  if (launchRoute({ storedKind: stored.kind, onboardingDone }) === "welcome") await showWelcome();
   else await enterShell("home");
 
   // Saved account (no biometric lock): confirm it with the server without
@@ -155,6 +166,55 @@ function wireBackButton() {
   });
 }
 
+// Biometric accounts lock again after INACTIVITY_LOCK_MS in the background
+// or without a touch; an account or requests screen then goes back to its
+// root, which shows the locked state instead of the customer's data.
+function wireInactivityLock() {
+  let lastActive = Date.now();
+  let swallowClick = false;
+  // Only a biometric-protected account is locked; kept current so the
+  // touch handler can decide synchronously.
+  let lockable = false;
+  const refreshLockable = async () => { lockable = await auth.biometricLockEnabled(); };
+  refreshLockable();
+  auth.onAccountStateChange(refreshLockable);
+  const lock = async () => {
+    if (!(await auth.lockAfterInactivity())) return;
+    const tab = currentTab();
+    if (!navEl.hidden && (tab === "account" || tab === "requests")) goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
+  };
+  // The touch that wakes an idle signed-in app only locks it: it must not
+  // also run what it landed on before the lock is in place.
+  document.addEventListener("pointerdown", (event) => {
+    const idle = inactivityExpired(lastActive);
+    lastActive = Date.now();
+    if (!idle || !lockable || !auth.isAccountUnlocked()) return;
+    swallowClick = true;
+    event.preventDefault();
+    event.stopPropagation();
+    lock();
+  }, { capture: true });
+  document.addEventListener("click", (event) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true });
+  document.addEventListener("keydown", () => { lastActive = Date.now(); }, { capture: true, passive: true });
+  // An idle screen locks by itself too, without waiting for a touch.
+  setInterval(() => {
+    refreshLockable();
+    if (lockable && inactivityExpired(lastActive) && auth.isAccountUnlocked()) lock();
+  }, 30 * 1000);
+  const AppPlugin = window.Capacitor?.Plugins?.App;
+  AppPlugin?.addListener?.("pause", () => { lastActive = Date.now(); });
+  AppPlugin?.addListener?.("resume", () => {
+    const idle = inactivityExpired(lastActive);
+    lastActive = Date.now();
+    if (idle) lock();
+  });
+}
+
 function wireConnectivity() {
   const update = () => offlineBanner(!navigator.onLine);
   window.addEventListener("online", update);
@@ -169,12 +229,13 @@ async function boot() {
   wireBottomNav();
   wireBackButton();
   wireConnectivity();
+  wireInactivityLock();
   applySystemBarStyle();
   window.Capacitor?.Plugins?.App?.addListener?.("resume", applySystemBarStyle);
 
   // Signing in / creating an account lands on the account tab; signing out
   // returns to the public home. Neither is ever required to use the app.
-  setOnAuthenticated(() => enterShell("account"));
+  setOnAuthenticated(() => { markOnboardingDone(); enterShell("account"); });
   setOnLoggedOut(() => enterShell("home"));
   setOnReplayOnboarding(() => showOnboarding({ replay: true }));
   auth.setOnSessionEnded(() => toast(SESSION_ENDED_NOTICE));

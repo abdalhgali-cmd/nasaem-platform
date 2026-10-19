@@ -13,12 +13,14 @@ const unique = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9
 const localPhone = () => `09${unique().slice(-8)}`;
 const normalized = (phone: string) => `249${phone.slice(1)}`;
 
+// First launch shows the welcome (sign in or continue as a guest); a guest
+// choice is remembered, so later launches open the home screen directly.
 async function skipOnboarding(page: Page) {
   await page.goto("/index.html");
-  const skip = page.getByText("تخطي").first();
-  await skip.waitFor({ timeout: 15_000 }).catch(() => undefined);
-  if (await skip.isVisible().catch(() => false)) await skip.click();
-  await expect(page.locator(".home-hero")).toBeVisible();
+  const guest = page.locator("#continueAsGuest");
+  await guest.or(page.locator(".hc-top")).first().waitFor({ timeout: 15_000 });
+  if (await guest.isVisible().catch(() => false)) await guest.click();
+  await expect(page.locator(".hc-top")).toBeVisible();
 }
 
 // Fills the "agency questions" of step 1 (whatever the back-office configured).
@@ -39,21 +41,19 @@ async function answerAgencyQuestions(page: Page) {
   }
 }
 
+// The one requirements screen: travellers (added as cards), route, guarantor,
+// contact and the agency's questions. Documents are uploaded separately.
 async function fillData(page: Page, { name, phone, travelers }: { name: string; phone: string; travelers: string[] }) {
+  await page.locator('[name="t_name_0"]').waitFor({ timeout: 15_000 });
+  for (let index = 1; index < travelers.length; index += 1) await page.locator("#addTravelerBtn").click();
+  for (const [index, traveler] of travelers.entries()) await page.fill(`[name="t_name_${index}"]`, traveler);
   await page.fill('[name="name"]', name);
   await page.fill('[name="phone"]', phone);
   // Umrah asks for the guarantor's phone (required).
   if (await page.locator('[name="guarantorPhone"]').count()) await page.fill('[name="guarantorPhone"]', "+966501234567");
   // Egypt land variant: the entry point (the air route has editable defaults).
   if (await page.locator('[name="entryPort"]').count()) await page.fill('[name="entryPort"]', "أرقين");
-  await page.fill("#travelerCount", String(travelers.length));
-  await page.dispatchEvent("#travelerCount", "change");
-  for (const [index, traveler] of travelers.entries()) {
-    await page.fill(`[name="t_name_${index}"]`, traveler);
-    await page.fill(`[name="t_pass_${index}"]`, `P${unique()}${index}`);
-  }
   await answerAgencyQuestions(page);
-  await page.locator("#nextStepBtn").click();
 }
 
 async function uploadAllSlots(page: Page) {
@@ -72,8 +72,10 @@ async function submitFromReview(page: Page): Promise<string> {
   return (await reference.innerText()).trim();
 }
 
+// A home bento tile, then «ابدأ الطلب الآن» on its details page (Umrah and
+// the Egypt approval open their own screen directly, without that page).
 async function startFromShortcut(page: Page, key: string) {
-  await page.locator(`.shortcut[data-key="${key}"]`).click();
+  await page.locator(`.hc-tile[data-key="${key}"]`).click();
   await page.locator("#startRequestBtn").click();
 }
 
@@ -109,12 +111,23 @@ async function openTracking(page: Page, phone: string) {
 test.describe.serial("customer app: requests, documents, price and payment", () => {
   const family = { phone: localPhone(), id: "", travelers: ["عبدالله محمد", "فاطمة علي"] };
 
-  test("home shows the start button, six shortcuts' worth of published services, and no placeholder text", async ({ page }) => {
+  test("first launch offers sign-in and an obvious guest choice; home shows published services and no placeholder text", async ({ page }) => {
+    await page.goto("/index.html");
+    await expect(page.locator("#goLogin")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("#continueAsGuest")).toHaveText("المتابعة كزائر");
     await skipOnboarding(page);
-    await expect(page.getByRole("button", { name: "ابدأ طلبك الآن" })).toBeVisible();
-    await expect(page.locator(".shortcut").first()).toBeVisible();
+    await expect(page.locator("#homeBento .hc-tile").first()).toBeVisible();
+    await expect(page.locator("#homeBento")).not.toContainText("فنادق");
     const text = await page.locator("body").innerText();
     expect(text).not.toMatch(/lorem|placeholder|undefined|NaN|\[object/i);
+    // Hotels are postponed: not on home, not in the services list.
+    await page.locator('#bottomNav [data-tab="services"]').click();
+    await expect(page.locator(".svc-card").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".svc-card", { hasText: "الفنادق" })).toHaveCount(0);
+    // The guest choice is remembered: a restart opens home directly.
+    await page.reload();
+    await expect(page.locator(".hc-top")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("#continueAsGuest")).toHaveCount(0);
   });
 
   test("exchange rate: with no active SAR rate only the original price and an Arabic notice show; with one, the equivalent", async ({ page }) => {
@@ -168,15 +181,13 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await startFromShortcut(page, "family");
     await fillData(page, { name: "عبدالله محمد", phone: family.phone, travelers: family.travelers });
 
-    // step 2: nothing uploaded yet -> cannot continue, and it says exactly what is missing
+    // Nothing uploaded yet -> cannot send, and it says exactly what is missing
     await expect(page.locator("[data-slot-input]").first()).toBeAttached();
     await page.locator("#nextStepBtn").click();
     await expect(page.locator("#stepErrors")).toContainText("المسافر 2");
     await expect(page.locator("#stepErrors")).toContainText("فاطمة علي");
 
     await uploadAllSlots(page);
-    await page.locator("#nextStepBtn").click();
-    await expect(page.getByText("راجع طلبك قبل الإرسال")).toBeVisible();
     family.id = await submitFromReview(page);
     expect(family.id.length).toBeGreaterThan(10);
 
@@ -231,7 +242,7 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     // the sign-in screen opens with the number filled in.
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#logoutBtn").click();
-    await expect(page.locator(".home-hero")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".hc-top")).toBeVisible({ timeout: 15_000 });
     await page.locator('#bottomNav [data-tab="account"]').click();
     await page.locator("#guestRegisterBtn").click();
     await form.locator('[name="fullName"]').fill(name);
@@ -275,9 +286,9 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
 
   test("Egypt, unconfigured catalog: both variants shown as unavailable, no form, no fallback to the original item", async ({ page }) => {
     await skipOnboarding(page);
-    await page.locator('.shortcut[data-key="egypt"]').click();
-    await expect(page.locator("#egyptVariantPrices")).toContainText("غير متاحة للحجز حاليًا");
-    await page.locator("#startRequestBtn").click();
+    // No bookable variant: no price card on home, the plain tile opens the screen directly.
+    await expect(page.locator(".hc-tile-egypt")).toHaveCount(0);
+    await page.locator('.hc-tile[data-key="egypt"]').click();
     const cards = page.locator(".variant-card");
     await expect(cards).toHaveCount(2);
     await expect(cards.nth(0)).toContainText("جوي — مطار القاهرة");
@@ -303,27 +314,25 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     expect((await api.patch(`${BACKEND}/api/visa-types/${borderId}`, { data: { pricingMode: "FIXED", basePrice: 45000, currency: "SDG", priceUnit: "PER_REQUEST", active: true } })).ok()).toBeTruthy();
     try {
       await skipOnboarding(page);
-      await page.locator('.shortcut[data-key="egypt"]').click();
-      const infoPrices = page.locator("#egyptVariantPrices");
-      await expect(infoPrices).toContainText("120");
-      await expect(infoPrices).toContainText("45");
-      await expect(page.locator(".info-fact").first()).not.toContainText("50 ");
-      await page.locator("#startRequestBtn").click();
+      // Both entry methods with their own fixed price on the home card.
+      const homeCard = page.locator(".hc-tile-egypt");
+      await expect(homeCard).toContainText("120");
+      await expect(homeCard).toContainText("45");
 
       for (const [code, travelers, totalDigits, currency, mode] of [
         ["VISA-EGYPT-CLEARANCE-AIR", ["مسافر جوي"], "120", "USD", "AIR"],
         ["VISA-EGYPT-CLEARANCE-BORDER", ["مسافر بري", "مرافق بري"], "45", "SDG", "BORDER"],
       ] as const) {
+        // The entry method chosen on home opens preselected.
+        await page.locator(`[data-egypt-variant="${code}"]`).click();
         const cards = page.locator(".variant-card");
         await expect(cards).toHaveCount(2);
         await expect(cards.nth(0)).toContainText("جوي — مطار القاهرة");
         await expect(cards.nth(1)).toContainText("بري — المعبر");
-        await page.locator(`.variant-card[data-code="${code}"]`).click();
         await expect(page.locator(`.variant-card[data-code="${code}"]`)).toHaveAttribute("aria-checked", "true");
         await expect(page.locator("#egyptFaqHelp")).not.toHaveAttribute("open", "");
         await fillData(page, { name: "عميل مصر", phone: localPhone(), travelers: [...travelers] });
         await uploadAllSlots(page);
-        await page.locator("#nextStepBtn").click();
         await expect(page.locator("#fixedTotalAmount")).toContainText(totalDigits);
         await expect(page.locator("#fixedTotalAmount")).toContainText(currency);
         await page.locator("#confirmTotal").check();
@@ -336,11 +345,7 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
         expect(stored.intakeData.egyptEntryMode).toBe(mode);
         expect(stored.intakeData.egyptRoute).toEqual(mode === "AIR" ? { entryMode: "AIR", departureCity: "بورتسودان", arrivalAirport: "القاهرة" } : { entryMode: "BORDER", entryPort: "أرقين" });
         expect(stored.allowedActions).not.toContain("ISSUE_QUOTE");
-        if (mode === "AIR") {
-          await page.goto("/index.html");
-          await page.locator('.shortcut[data-key="egypt"]').click();
-          await page.locator("#startRequestBtn").click();
-        }
+        if (mode === "AIR") await skipOnboarding(page);
       }
     } finally {
       await api.patch(`${BACKEND}/api/visa-types/${airId}`, { data: { pricingMode: "QUOTE", active: false } });
@@ -348,19 +353,33 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     }
   });
 
-  test("Umrah: choose a package, then each pilgrim's own documents", async ({ page }) => {
-    await skipOnboarding(page);
-    await startFromShortcut(page, "umrah");
-    await page.locator(".package-card").first().click();
-    await fillData(page, { name: "محمد أحمد", phone: localPhone(), travelers: ["محمد أحمد", "آمنة سعيد"] });
-    await uploadAllSlots(page);
-    await page.locator("#nextStepBtn").click();
-    const reference = await submitFromReview(page);
+  test("Umrah: the package chosen on home, each pilgrim's own documents, the fixed total confirmed — no quote", async ({ page }) => {
     const api = await staff(page);
-    const request = await staffRequest(api, reference);
-    expect(request.travelers).toHaveLength(2);
-    const byTraveler = new Set(request.documents.map((d: { travelerId: string | null }) => d.travelerId).filter(Boolean));
-    expect(byTraveler.size).toBe(2);
+    const services = (await (await api.get(`${BACKEND}/api/services?limit=200`)).json()).data as Array<{ id: string; code: string; pricingMode?: string; basePrice?: string | number | null; currency?: string; priceUnit?: string; active?: boolean }>;
+    const pkg = services.find((s) => s.code === "SVC-UMRAH-VISA");
+    expect(pkg, "the seed creates the visa-only Umrah package").toBeTruthy();
+    const original = { pricingMode: pkg!.pricingMode ?? "QUOTE", basePrice: pkg!.basePrice ?? null, currency: pkg!.currency ?? "SAR", priceUnit: pkg!.priceUnit ?? "PER_REQUEST", active: pkg!.active ?? true };
+    // Test fixture price (the agency sets the real one in the back-office).
+    const fixed = await api.patch(`${BACKEND}/api/services/${pkg!.id}`, { data: { pricingMode: "FIXED", basePrice: 450, currency: "SAR", priceUnit: "PER_TRAVELER", active: true } });
+    expect(fixed.ok(), await fixed.text()).toBeTruthy();
+    try {
+      await skipOnboarding(page);
+      await page.locator(`[data-package-id="${pkg!.id}"]`).click();
+      await expect(page.locator(`.package-card[data-id="${pkg!.id}"]`)).toHaveAttribute("aria-checked", "true");
+      await fillData(page, { name: "محمد أحمد", phone: localPhone(), travelers: ["محمد أحمد", "آمنة سعيد"] });
+      await uploadAllSlots(page);
+      await expect(page.locator("#fixedTotalAmount")).toContainText("SAR");
+      await page.locator("#confirmTotal").check();
+      const reference = await submitFromReview(page);
+      const request = await staffRequest(api, reference);
+      expect(request.travelers).toHaveLength(2);
+      expect(request.pricingMode).toBe("FIXED");
+      expect(request.allowedActions).not.toContain("ISSUE_QUOTE");
+      const byTraveler = new Set(request.documents.map((d: { travelerId: string | null }) => d.travelerId).filter(Boolean));
+      expect(byTraveler.size).toBe(2);
+    } finally {
+      await api.patch(`${BACKEND}/api/services/${pkg!.id}`, { data: original });
+    }
   });
 
   test("staff review -> replaced document; price (frozen SDG) -> approval -> payment accounts -> receipt -> rejected with a reason -> accepted", async ({ page }) => {

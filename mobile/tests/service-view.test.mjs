@@ -106,3 +106,65 @@ test("approved mobile service directory is grouped without inventing entries or 
   ]);
   assert.equal(groupServiceDirectory({ services: [], visaTypes: [] }).length, 0);
 });
+
+test("home bento: published tiles in priority order, never hotels", async () => {
+  const { homeBentoTiles } = await import("../www/js/service-view.js");
+  const withHotel = { ...catalog, services: [...catalog.services, { id: "h", code: "SVC-HOTEL", name: "فنادق" }] };
+  assert.deepEqual(homeBentoTiles(withHotel).map((t) => t.key), ["flights", "ferries", "visas", "egypt"]);
+  assert.deepEqual(homeBentoTiles({ services: [], visaTypes: [] }), []);
+});
+
+test("service count is dynamic: hotels excluded, linked visa types not double-counted", async () => {
+  const { publishedServiceCount } = await import("../www/js/service-view.js");
+  const cat = {
+    services: [
+      { id: "s1", code: "SVC-FLIGHT" }, { id: "s2", code: "SVC-HOTEL" }, { id: "s3", code: "SVC-UMRAH" },
+      { id: "s4", code: "SVC-EGYPT-CLEARANCE" },
+    ],
+    visaTypes: [
+      { id: "v1", code: "VISA-UMRAH", category: "UMRAH", serviceId: "s3" },
+      { id: "v2", code: "VISA-EGYPT-CLEARANCE", category: "OTHER", serviceId: "s4" },
+      { id: "v3", code: "VISA-INTERNATIONAL", category: "INTERNATIONAL", serviceId: null },
+    ],
+  };
+  assert.equal(publishedServiceCount(cat), 4, "flight, umrah, egypt + unlinked international visa");
+  assert.equal(publishedServiceCount({ services: [], visaTypes: [] }), 0);
+  assert.equal(publishedServiceCount({ services: [], visaTypes: [{ id: "u", code: "VISA-UMRAH", category: "UMRAH" }] }), 1,
+    "Umrah published only as a visa type is still one service");
+  assert.equal(publishedServiceCount({ services: [{ id: "s3", code: "SVC-UMRAH" }], visaTypes: [{ id: "u", code: "VISA-UMRAH", category: "UMRAH" }] }), 1,
+    "an unlinked Umrah visa next to the Umrah service is not counted twice");
+});
+
+test("service count text follows Arabic number agreement", async () => {
+  const { serviceCountText } = await import("../www/js/service-view.js");
+  assert.equal(serviceCountText(1), "خدمة واحدة");
+  assert.equal(serviceCountText(2), "خدمتان");
+  assert.equal(serviceCountText(4), "4 خدمات");
+  assert.equal(serviceCountText(11), "11 خدمة");
+  assert.equal(serviceCountText(0), "0 خدمة");
+});
+
+test("a fixed-price service never shows quote copy: its own steps and note", async () => {
+  const { requestSteps, priceNote, FIXED_REQUEST_STEPS, REQUEST_STEPS, FINAL_PRICE_NOTE } = await import("../www/js/service-view.js");
+  const fixed = { pricingMode: "FIXED", basePrice: "450", currency: "SAR" };
+  assert.equal(requestSteps(fixed), FIXED_REQUEST_STEPS);
+  assert.deepEqual(FIXED_REQUEST_STEPS.map((step) => step.title), ["اختر الخدمة", "المتطلبات", "الدفع", "المتابعة"]);
+  assert.ok(!JSON.stringify(FIXED_REQUEST_STEPS).includes("موافقت"), "no price approval step");
+  assert.doesNotMatch(priceNote(fixed), /بعد أن تراجع الوكالة|مبدئي/);
+  // Quote (default) and a FIXED mode without a positive price keep the quote copy.
+  assert.equal(requestSteps({ pricingMode: "QUOTE", basePrice: "10" }), REQUEST_STEPS);
+  assert.equal(requestSteps({ pricingMode: "FIXED", basePrice: "0" }), REQUEST_STEPS);
+  assert.equal(priceNote({}), FINAL_PRICE_NOTE);
+});
+
+test("home featured list never offers an Umrah package outside the Umrah chooser", async () => {
+  const { homeFeaturedServices } = await import("../www/js/service-view.js");
+  const cat = {
+    services: [
+      { id: "u1", code: "SVC-UMRAH-VISA", category: "UMRAH_PACKAGE", basePrice: "1200", currency: "SAR" },
+      { id: "t1", code: "SVC-PKG-FAMILY", category: "package", basePrice: "2900", currency: "SAR" },
+    ],
+    visaTypes: [],
+  };
+  assert.deepEqual(homeFeaturedServices(cat, []).map((item) => item.id), ["t1"]);
+});

@@ -4,12 +4,13 @@
 export const ONBOARDING_KEY = "nasaem.onboarding.v1";
 
 // What the app opens at launch. The app is usable without an account: the
-// only thing that can come before the public home is the one-time
-// introduction. A stored account session (token or biometric-locked) never
-// blocks the home screen; it is verified in the background, and biometrics
-// are asked for only when account data is opened.
+// only thing that can come before the public home is the one-time welcome —
+// sign in, or continue as a guest (one tap), or create an account. Once a
+// choice is made it is remembered (ONBOARDING_KEY). A stored account session
+// (token or biometric-locked) never blocks the home screen; it is verified in
+// the background, and biometrics are asked for only when account data is opened.
 export function launchRoute({ storedKind, onboardingDone }) {
-  if (storedKind === "none" && !onboardingDone) return "onboarding";
+  if (storedKind === "none" && !onboardingDone) return "welcome";
   return "home";
 }
 
@@ -56,7 +57,7 @@ export function buildBannerSlides({ hero = null, sections = [], coupons = [] } =
     slides.push({ kind: "coupon", eyebrow: "كوبون متاح لك", title: coupon.code, text: couponText(coupon), icon: "star" });
   }
   if (!slides.length) {
-    slides.push({ kind: "brand", eyebrow: "نسائم الحرمين للسفر والسياحة", title: "رحلتك تبدأ معنا بثقة", text: "عمرة، طيران، تأشيرات، فنادق ورحلات بحرية — في مكان واحد.", icon: "plane" });
+    slides.push({ kind: "brand", eyebrow: "نسائم الحرمين للسفر والسياحة", title: "رحلتك تبدأ معنا بثقة", text: "عمرة، طيران، تأشيرات ورحلات بحرية — في مكان واحد.", icon: "plane" });
   }
   return slides.slice(0, 6);
 }
@@ -161,6 +162,17 @@ export function readPendingPayment(storage, now = Date.now()) {
     return parsed;
   } catch {
     return null;
+  }
+}
+
+// Clears the resume record only if it is this request's (a newer request's
+// record must survive an older upload finishing late).
+export function clearPendingPaymentFor(storage, id) {
+  try {
+    const parsed = JSON.parse(storage.getItem(PENDING_PAYMENT_KEY) || "null");
+    if (parsed?.id === id) storage.removeItem(PENDING_PAYMENT_KEY);
+  } catch {
+    // ignore
   }
 }
 

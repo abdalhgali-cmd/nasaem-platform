@@ -7,7 +7,7 @@ import * as tracking from "../tracking.js";
 import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
 import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "../payment-view.js";
-import { bindProgressTrack, progressBlockHtml } from "../progress-view.js";
+import { bindProgressTrack, journeyBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
 import { egyptVariantEntryMode, isEgyptClearanceItem } from "../egypt-view.js";
@@ -390,7 +390,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         <p>${esc(request.nextAction || "")}</p>
       </div>
 
-      ${progressBlockHtml(request.progress, esc, request)}
+      ${journeyBlockHtml(request.progress, esc, request)}
 
       ${pricing || payState.label ? `
         <div class="detail-block quote-block" id="quoteBlock">
@@ -552,9 +552,14 @@ async function uploadChecklistDocument({ panel, request, item, file, viaTracking
 async function showPaymentStep(panel, { requestId, currency, price, onUploaded }) {
   panel.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
   let accountsHtml;
+  // A receipt is not asked for when the agency confirmed it has no account for
+  // this currency. A failed lookup keeps the form: sending it re-verifies the
+  // phone (ensureTrackingAndRun) like before.
+  let hasAccount = true;
   try {
     const res = await tracking.getPaymentAccounts(currency);
     const accounts = res.data || [];
+    hasAccount = accounts.length > 0;
     accountsHtml = accounts.length
       ? accounts.map((account) => `
           <div class="payment-card">
@@ -573,7 +578,7 @@ async function showPaymentStep(panel, { requestId, currency, price, onUploaded }
       <h4>الدفع بالتحويل البنكي</h4>
       ${price ? `<p class="payment-amount">المبلغ المطلوب: <strong>${esc(price)}</strong></p>` : ""}
       ${accountsHtml}
-      <form id="receiptForm" class="form">
+      ${hasAccount ? `<form id="receiptForm" class="form">
         <label class="field">
           <span>إيصال التحويل (صورة أو PDF) *</span>
           <input name="file" type="file" accept="image/*,.pdf" required>
@@ -581,9 +586,9 @@ async function showPaymentStep(panel, { requestId, currency, price, onUploaded }
         <div class="upload-progress-wrap" id="receiptProgressWrap" hidden>
           <div class="upload-progress-bar"><div class="upload-progress-fill" id="receiptProgressFill"></div></div>
         </div>
-        <button type="submit" class="primary">رفع الإيصال للمراجعة</button>
+        <button type="submit" class="primary">إرسال إشعار التحويل</button>
         <small>بعد الرفع يصبح الدفع «قيد المراجعة» حتى تؤكد الوكالة استلام المبلغ.</small>
-      </form>
+      </form>` : ""}
     </div>`;
   panel.querySelectorAll("[data-copy]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -596,7 +601,7 @@ async function showPaymentStep(panel, { requestId, currency, price, onUploaded }
     });
   });
   const form = panel.querySelector("#receiptForm");
-  form.addEventListener("submit", async (event) => {
+  form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const file = new FormData(form).get("file");
     const problem = validateFile(file, null);

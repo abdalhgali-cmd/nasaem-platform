@@ -136,11 +136,103 @@ export function progressBlockHtml(progress, esc, request = null, selectedKey = n
     </div>`;
 }
 
+// ---- The customer's view: the server's stages grouped into the moments the
+// customer recognises (request → payment → issuing → ready). Agency-internal
+// work (document review, receipt review) is a sub-status of those moments,
+// never a step of its own. Nothing is inferred: every state and line comes
+// from the server's steps, and the full stage list stays one tap away.
+const CUSTOMER_GROUPS = Object.freeze([
+  { key: "REQUEST", label: "تم استلام الطلب", members: ["RECEIVED", "DOCUMENTS"] },
+  { key: "QUOTE", label: "عرض السعر", members: ["QUOTE"] },
+  { key: "PAY", label: "الدفع", members: ["PAYMENT", "PAYMENT_REVIEW"] },
+  { key: "EXECUTION", label: null, members: ["EXECUTION"] },
+  { key: "DONE", label: null, members: ["DELIVERY", "TRAVEL_PLAN"] },
+]);
+const GROUP_DEFAULT_DETAIL = {
+  DOCUMENTS: "نراجع مستنداتك.",
+  PAYMENT: "بانتظار التحويل ورفع إشعار التحويل.",
+  PAYMENT_REVIEW: "يراجع موظف الوكالة التحويل ويؤكده.",
+};
+// What the customer must do, most urgent first. «عرض المستندات» is not a
+// task, so it never takes this place.
+const ACTION_PRIORITY = ["DOCUMENTS", "PAYMENT", "PAYMENT_REVIEW", "QUOTE", "TRAVEL_PLAN", "DELIVERY"];
+
+export function customerJourney(progress, request = null) {
+  const steps = progressSteps(progress);
+  if (!steps.length) return null;
+  const byKey = new Map(steps.map((step) => [step.key, step]));
+  // A closed or finished request has no current stage on the server: then
+  // nothing is shown as in progress.
+  const open = steps.some((step) => step.state === "current");
+  const stages = [];
+  for (const group of CUSTOMER_GROUPS) {
+    const members = group.members.map((key) => byKey.get(key)).filter(Boolean);
+    if (!members.length) continue;
+    // In progress: the server's current step is here, or part of the moment
+    // is already done (e.g. the receipt is uploaded while the documents are
+    // still being reviewed). Its line is that of its first unfinished step.
+    const current = members.find((step) => step.state === "current");
+    const allDone = members.every((step) => step.state === "done");
+    const partly = open && !allDone && members.some((step) => step.state === "done");
+    const state = allDone ? "done" : current || partly ? "current" : "upcoming";
+    const label = group.label || members[0].label;
+    const pending = current || members.find((step) => step.state !== "done");
+    const detail = state === "current" && pending ? pending.status || GROUP_DEFAULT_DETAIL[pending.key] || "" : "";
+    stages.push({ key: group.key, label, state, detail });
+  }
+  const now = stages.find((stage) => stage.state === "current");
+  // The server's own one-line state of the whole request (e.g. «جارٍ إصدار
+  // التأشيرة», «بانتظار مراجعة إثبات التحويل»), else the current moment.
+  const headline = progress.label || now?.label || "";
+  let action = null;
+  for (const key of ACTION_PRIORITY) {
+    const step = byKey.get(key);
+    const candidate = step ? stepAction(step, request) : null;
+    if (candidate && candidate.label !== "عرض المستندات") { action = candidate; break; }
+  }
+  return { stages, headline, action };
+}
+
+export function journeyBlockHtml(progress, esc, request = null) {
+  const journey = customerJourney(progress, request);
+  if (!journey) return "";
+  return `
+    <div class="detail-block journey-block" id="requestJourney">
+      <p class="journey-headline" role="status">${esc(journey.headline)}</p>
+      ${journey.action ? `<button type="button" class="primary journey-action" id="journeyActionBtn" data-progress-target="${esc(journey.action.target)}" data-progress-mode="${esc(journey.action.mode)}">${esc(journey.action.label)}</button>` : ""}
+      <ol class="journey-stages" aria-label="مراحل طلبك">
+        ${journey.stages.map((stage) => `
+          <li class="journey-stage journey-stage-${stage.state}"${stage.state === "current" ? ' aria-current="step"' : ""}>
+            <span class="journey-dot" aria-hidden="true">${stage.state === "done" ? "✓" : ""}</span>
+            <span class="journey-text"><b>${esc(stage.label)}</b>${stage.state === "current" && stage.detail && stage.detail !== journey.headline ? `<small>${esc(stage.detail)}</small>` : ""}<span class="sr-only"> — ${stage.state === "done" ? "مكتملة" : stage.state === "current" ? "الآن" : "لاحقًا"}</span></span>
+          </li>`).join("")}
+      </ol>
+      <details class="journey-details">
+        <summary>تفاصيل كل المراحل</summary>
+        ${progressBlockHtml(progress, esc, request)}
+      </details>
+    </div>`;
+}
+
+// Runs a stage action button: `open` clicks the real control, `show` moves to it.
+export function runProgressAction(root, button) {
+  const target = root.querySelector(button.dataset.progressTarget);
+  if (!target) return;
+  if (button.dataset.progressMode === "open" && typeof target.click === "function") {
+    target.click();
+    return;
+  }
+  target.scrollIntoView?.({ block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  if (!target.hasAttribute("tabindex") && !/^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(target.tagName)) target.setAttribute("tabindex", "-1");
+  target.focus({ preventScroll: true });
+}
+
 const prefersReducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 // Wires selection, keyboard and the panel actions inside `root` (the
 // request detail screen). `rerender(key)` re-renders the panel for a key.
 export function bindProgressTrack(root, { request, progress, esc }) {
+  root.querySelector("#journeyActionBtn")?.addEventListener("click", (event) => runProgressAction(root, event.currentTarget));
   const block = root.querySelector("#requestProgress");
   if (!block) return;
   const tabs = () => [...block.querySelectorAll('[role="tab"]')];
@@ -165,17 +257,7 @@ export function bindProgressTrack(root, { request, progress, esc }) {
     const tab = event.target.closest('[role="tab"]');
     if (tab && block.contains(tab)) select(tab.dataset.step);
     const action = event.target.closest("[data-progress-target]");
-    if (action && panel.contains(action)) {
-      const target = root.querySelector(action.dataset.progressTarget);
-      if (!target) return;
-      if (action.dataset.progressMode === "open" && typeof target.click === "function") {
-        target.click();
-        return;
-      }
-      target.scrollIntoView?.({ block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth" });
-      if (!target.hasAttribute("tabindex") && !/^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(target.tagName)) target.setAttribute("tabindex", "-1");
-      target.focus({ preventScroll: true });
-    }
+    if (action && panel.contains(action)) runProgressAction(root, action);
   });
 
   block.addEventListener("keydown", (event) => {

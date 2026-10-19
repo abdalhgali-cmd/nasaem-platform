@@ -17,9 +17,11 @@ import {
   SDG_UNAVAILABLE_NOTICE,
   durationOf,
   groupRequirements,
-  REQUEST_STEPS,
-  FINAL_PRICE_NOTE,
+  requestSteps,
+  priceNote,
+  FIXED_REQUEST_STEPS,
 } from "../service-view.js";
+import { fixedPricing } from "../pricing-view.js";
 
 const START_TITLES = {
   umrah: "العمرة",
@@ -29,6 +31,9 @@ const START_TITLES = {
   egyptClearance: "الموافقة الأمنية لمصر",
   saudiFamilyVisit: "الزيارة العائلية",
 };
+
+// Every Egypt variant is booked only at its own fixed price (egypt-view.js).
+const FIXED_PRICE_NOTE_VARIANTS = "سعر ثابت لكل طريقة دخول: لا عرض سعر ولا موافقة لاحقة.";
 
 export function startRequest(item) {
   const screen = resolveServiceScreen(item);
@@ -60,6 +65,8 @@ export async function renderServiceInfoScreen({ bodyEl, setTitle, params }) {
   // the original item's single price (it applies to neither variant).
   const variants = isEgyptClearanceItem(item) ? egyptVariantOptions(cachedCatalog()) : [];
   const price = variants.length ? null : startingPrice(item);
+  // A fixed price is the exact amount (no «من»); a quoted one is a starting price.
+  const fixed = !variants.length && Boolean(fixedPricing(item));
   const duration = durationOf(item);
   const features = Array.isArray(item.features) ? item.features.filter((feature) => typeof feature === "string" && feature.trim()) : [];
 
@@ -75,14 +82,14 @@ export async function renderServiceInfoScreen({ bodyEl, setTitle, params }) {
       <section class="info-facts">
         <div class="info-fact">
           <small>السعر المعلن</small>
-          ${variants.length ? `<ul class="variant-prices" id="egyptVariantPrices">${variants.map((variant) => `<li><span>${esc(variant.name)}</span> <strong><bdi>${esc(variant.priceText)}</bdi></strong></li>`).join("")}</ul>` : price ? `<strong>من <bdi>${esc(priceText(price))}</bdi></strong>${sdgText(price) ? `<span><bdi>${esc(sdgText(price))}</bdi></span>` : sdgUnavailable(price) ? `<span>${esc(SDG_UNAVAILABLE_NOTICE)}</span>` : ""}` : `<strong>يُحدد بعد مراجعة طلبك</strong>`}
+          ${variants.length ? `<ul class="variant-prices" id="egyptVariantPrices">${variants.map((variant) => `<li><span>${esc(variant.name)}</span> <strong><bdi>${esc(variant.priceText)}</bdi>${variant.sdgText ? `<small><bdi>${esc(variant.sdgText)}</bdi></small>` : ""}</strong></li>`).join("")}</ul>` : price ? `<strong>${fixed ? "" : "من "}<bdi>${esc(priceText(price))}</bdi></strong>${sdgText(price) ? `<span><bdi>${esc(sdgText(price))}</bdi></span>` : sdgUnavailable(price) ? `<span>${esc(SDG_UNAVAILABLE_NOTICE)}</span>` : ""}` : `<strong>يُحدد بعد مراجعة طلبك</strong>`}
         </div>
         <div class="info-fact">
           <small>مدة الإنجاز</small>
           <strong>${duration ? esc(duration) : "تُحدد حسب الحالة"}</strong>
         </div>
       </section>
-      <p class="info-note">${icon("info", { size: 15 })} ${esc(FINAL_PRICE_NOTE)}</p>
+      <p class="info-note">${icon("info", { size: 15 })} ${esc(variants.length ? FIXED_PRICE_NOTE_VARIANTS : priceNote(item))}</p>
 
       ${features.length ? `<section class="info-card"><h3>${icon("star", { size: 18 })} ماذا تشمل الخدمة</h3><ul class="need-list">${features.map((feature) => `<li><span class="need-mark">${icon("check", { size: 14 })}</span><span>${esc(feature)}</span></li>`).join("")}</ul></section>` : ""}
 
@@ -91,7 +98,7 @@ export async function renderServiceInfoScreen({ bodyEl, setTitle, params }) {
       <section class="info-card">
         <h3>${icon("requests", { size: 18 })} خطوات الطلب</h3>
         <ol class="flow-steps">
-          ${REQUEST_STEPS.map((step, index) => `<li><span class="flow-dot">${index + 1}</span><div><b>${esc(step.title)}</b><p>${esc(step.text)}</p></div></li>`).join("")}
+          ${(variants.length ? FIXED_REQUEST_STEPS : requestSteps(item)).map((step, index) => `<li><span class="flow-dot">${index + 1}</span><div><b>${esc(step.title)}</b><p>${esc(step.text)}</p></div></li>`).join("")}
         </ol>
       </section>
     </div>

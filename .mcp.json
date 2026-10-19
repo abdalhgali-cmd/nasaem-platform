@@ -2,7 +2,19 @@
   "mcpServers": {
     "notebooklm": {
       "command": "npx",
-      "args": ["notebooklm-mcp@latest"]
+      "args": [
+        "notebooklm-mcp@latest"
+      ]
+    },
+    "codex": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "claude-codex-bridge@0.3.1",
+        "serve",
+        "codex"
+      ]
     }
   }
 }

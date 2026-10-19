@@ -35,9 +35,13 @@ export function renderWelcomeScreen({ bodyEl, params = {} }) {
         <p class="welcome-intro reveal" style="--i:4">العمرة والتأشيرات والطيران والبواخر في تطبيق واحد.</p>
       </div>
       <div class="welcome-actions">
-        <button class="primary welcome-login" id="goLogin">تسجيل الدخول</button>
-        <button class="secondary" id="goRegister">إنشاء حساب جديد</button>
-        <button class="welcome-guest" id="continueAsGuest">الدخول كزائر دون حساب</button>
+        <button class="primary welcome-login" id="goLogin">${icon("user", { size: 20 })}<span>تسجيل الدخول</span></button>
+        <button class="welcome-guest-cta" id="continueAsGuest">المتابعة كزائر</button>
+        <p class="welcome-guest-note">تقدّم طلبك وتتابعه برقم هاتفك، دون حساب.</p>
+        <div class="welcome-links">
+          <button type="button" class="link-btn" id="goRegister">إنشاء حساب</button>
+          <button type="button" class="link-btn" id="trackPrevious">تتبع طلب سابق</button>
+        </div>
       </div>
     </div>
   `;
@@ -45,13 +49,14 @@ export function renderWelcomeScreen({ bodyEl, params = {} }) {
   bodyEl.querySelector("#goRegister").addEventListener("click", () => go("register", {}, { title: "إنشاء حساب" }));
   bodyEl.querySelector("#welcomeAbout").addEventListener("click", () => go("about", {}, { title: "من نحن" }));
   bodyEl.querySelector("#continueAsGuest").addEventListener("click", () => params.onContinueAsGuest?.());
+  bodyEl.querySelector("#trackPrevious").addEventListener("click", () => (params.onTrackRequest || params.onContinueAsGuest)?.());
 }
 
 export function renderLoginScreen({ bodyEl, params = {} }) {
   bodyEl.innerHTML = `
     <form id="loginForm" class="form auth-form" novalidate>
       ${params.notice ? `<p class="session-notice" role="status" id="loginNotice">${esc(params.notice)}</p>` : ""}
-      <p class="auth-intro">سجّل الدخول لمتابعة طلباتك وإرسال طلبات جديدة.</p>
+      <p class="auth-intro">سجّل الدخول لعرض طلباتك وبياناتك المحفوظة. تقديم الطلبات ومتابعتها متاحة أيضًا دون حساب.</p>
       <label class="field">
         <span>رقم الهاتف أو البريد الإلكتروني *</span>
         <input name="identifier" required autocomplete="username" value="${esc(params.identifier || "")}">

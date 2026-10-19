@@ -1,3 +1,5 @@
+import { fixedPricing } from "./pricing-view.js";
+
 // Presentation rules for services (home shortcuts, services list, service
 // details). Pure functions, no DOM: unit-tested in tests/service-view.test.mjs.
 // Everything shown comes from the catalog the agency publishes (prices, text,
@@ -81,6 +83,38 @@ export function resolveShortcuts(catalog) {
   return out;
 }
 
+// Distinct services a customer can request, for «كل الخدمات (N)»: every
+// published Service (postponed hotels excluded) plus any visa type that has no
+// Service of its own. A visa type linked to a listed Service (serviceId) is the
+// same journey and is not counted twice. Umrah visa types belong to Umrah:
+// they add one journey only when no Umrah Service is published.
+export function publishedServiceCount(catalog) {
+  const services = (catalog?.services || []).filter((item) => !isPostponedHotel(item));
+  const ids = new Set(services.map((item) => item.id));
+  const unlinked = hubVisaTypes(catalog).filter((visaType) => !(visaType.serviceId && ids.has(visaType.serviceId)));
+  const umrahService = services.some((item) => String(item.code || "").toUpperCase().includes("UMRAH"));
+  const umrahVisaOnly = !umrahService && (catalog?.visaTypes || []).some((visaType) => String(visaType.category || "").toUpperCase() === "UMRAH");
+  return services.length + unlinked.length + (umrahVisaOnly ? 1 : 0);
+}
+
+// "خدمة واحدة" / "خدمتان" / "3 خدمات" / "11 خدمة" — Arabic number agreement.
+export function serviceCountText(count) {
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  if (n === 1) return "خدمة واحدة";
+  if (n === 2) return "خدمتان";
+  if (n >= 3 && n <= 10) return `${n} خدمات`;
+  return `${n} خدمة`;
+}
+
+// Home bento, in priority order after the Umrah feature tile. Only published
+// services appear (resolveShortcuts); hotels are not offered.
+export const HOME_BENTO_KEYS = Object.freeze(["flights", "ferries", "visas", "egypt", "family"]);
+
+export function homeBentoTiles(catalog) {
+  const shortcuts = resolveShortcuts(catalog);
+  return HOME_BENTO_KEYS.map((key) => shortcuts.find((shortcut) => shortcut.key === key)).filter(Boolean);
+}
+
 export function startingPrice(item) {
   const amount = Number(item?.basePrice);
   if (!(amount > 0)) return null;
@@ -129,13 +163,19 @@ export function featuredServices(catalog, limit = 4) {
 // Home shortcuts already expose the principal journeys and the visas hub.
 // "Featured" therefore uses only other priced Service records: no duplicate
 // shortcut cards and no individual VisaType duplicated outside its hub.
+// An Umrah package (umrah-view.js isUmrahPackage, repeated here to keep this
+// module free of imports from it): booked only through the Umrah chooser.
+const isUmrahPackageItem = (item) =>
+  String(item?.category || "").toUpperCase() === "UMRAH_PACKAGE" || String(item?.code || "").toUpperCase().startsWith("SVC-UMRAH-");
+
 export function homeFeaturedServices(catalog, shortcuts = resolveShortcuts(catalog), limit = 4) {
   const shortcutIds = new Set(shortcuts.map((shortcut) => shortcut.item?.id).filter(Boolean));
   const shortcutCodes = new Set(
     shortcuts.flatMap((shortcut) => shortcut.codes || []).map((code) => code.toUpperCase())
   );
   return featuredServices({ services: catalog?.services || [], visaTypes: [] }, Number.MAX_SAFE_INTEGER)
-    .filter((item) => !isPostponedHotel(item) && !shortcutIds.has(item.id) && !shortcutCodes.has((item.code || "").toUpperCase()))
+    // Umrah packages live on the Umrah card (fixed prices only), not here.
+    .filter((item) => !isPostponedHotel(item) && !isUmrahPackageItem(item) && !shortcutIds.has(item.id) && !shortcutCodes.has((item.code || "").toUpperCase()))
     .slice(0, limit);
 }
 
@@ -158,3 +198,22 @@ export const REQUEST_STEPS = Object.freeze([
 
 export const FINAL_PRICE_NOTE =
   "السعر المعروض هو السعر المبدئي المعلن. السعر النهائي وتعليمات الدفع تظهر لك بعد أن تراجع الوكالة طلبك.";
+
+// A fixed-price service (pricingMode FIXED with a positive price, set by the
+// agency): the price is final, so there is no quote and no approval step.
+export const FIXED_REQUEST_STEPS = Object.freeze([
+  { title: "اختر الخدمة", text: "السعر ثابت ومعلن قبل أن تبدأ." },
+  { title: "المتطلبات", text: "ارفع الجوازات والمستندات المطلوبة وأكّد الإجمالي." },
+  { title: "الدفع", text: "حوّل المبلغ إلى الحساب المعتمد وارفع إشعار التحويل." },
+  { title: "المتابعة", text: "تتابع طلبك حتى الإصدار والتسليم." },
+]);
+
+export const FIXED_PRICE_NOTE = "سعر ثابت: لا عرض سعر ولا موافقة لاحقة، وتدفع المبلغ نفسه.";
+
+export function requestSteps(item) {
+  return fixedPricing(item) ? FIXED_REQUEST_STEPS : REQUEST_STEPS;
+}
+
+export function priceNote(item) {
+  return fixedPricing(item) ? FIXED_PRICE_NOTE : FINAL_PRICE_NOTE;
+}
