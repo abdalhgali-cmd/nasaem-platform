@@ -66,6 +66,7 @@
   "GET /api/flight-bookings/admin/bank-accounts": ["ACCOUNTANT", "ADMIN", "SUPER_ADMIN"],
   "GET /api/flight-bookings/admin/list": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/flight-bookings/public/:id": "PUBLIC",
+  "GET /api/flight-providers/status": ["ADMIN", "SUPER_ADMIN"],
   "GET /api/flights": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/flights/admin/rates": ["ADMIN", "SUPER_ADMIN"],
   "GET /api/flights/admin/rates/history": ["ADMIN", "SUPER_ADMIN"],
