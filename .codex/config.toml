@@ -1,0 +1,28 @@
+# Claude Code bridge for Codex CLI.
+# Loaded only when Codex trusts this repository.
+# Requires Node.js >=18, authenticated Claude Code CLI and Codex CLI.
+# Package version pinned (0.3.1) inside .codex/claude-bridge.sh.
+# The launcher puts .codex/bin/claude (argument shim) first on PATH to work around
+# the bridge passing the prompt after the variadic --allowedTools flag, which breaks
+# claude_review_code / claude_explain_code / claude_review_plan / claude_plan_perf.
+# Resolved from the git root so it works when Codex starts in a subdirectory.
+[mcp_servers.claude]
+command = "bash"
+args = ["-c", "exec \"$(git rev-parse --show-toplevel)/.codex/claude-bridge.sh\""]
+tool_timeout_sec = 600
+startup_timeout_sec = 60
+
+# Per-tool approvals (Codex -> Claude). Read-only tools run without prompting;
+# anything that can change files or run with Claude's full toolset asks first.
+[mcp_servers.claude.tools.claude_review_code]
+approval_mode = "approve"
+[mcp_servers.claude.tools.claude_review_plan]
+approval_mode = "approve"
+[mcp_servers.claude.tools.claude_explain_code]
+approval_mode = "approve"
+[mcp_servers.claude.tools.claude_plan_perf]
+approval_mode = "approve"
+[mcp_servers.claude.tools.claude_query]
+approval_mode = "prompt"
+[mcp_servers.claude.tools.claude_implement]
+approval_mode = "prompt"
