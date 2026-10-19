@@ -14,6 +14,7 @@
 // request's row lock before notifying, and claims each row once.
 import prisma from "../../config/database.js";
 import { EGYPT_CLEARANCE_CODE, isEgyptClearanceCode } from "./egypt-clearance-variants.js";
+import { reconcileFlightInquiries } from "./linked-flight.service.js";
 import { calendarDaysUntil, dateOnlyString, reminderPlan, requestTravelDate, todayInKhartoum } from "./egypt-approval-rules.js";
 
 const STAFF_ROLES = ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"];
@@ -142,6 +143,8 @@ export function startTravelReminderWorker({ intervalMs = 5 * 60_000 } = {}) {
     running = true;
     try {
       const reconciled = await reconcileTravelSchedules();
+      const flights = await reconcileFlightInquiries();
+      if (flights.opened) console.log("[egypt-flight] inquiries opened", flights.opened);
       const result = await processDueTravelReminders();
       if (result.processed || reconciled.scheduled) console.log("[travel-reminders]", JSON.stringify({ ...result, ...reconciled }));
     } catch (error) {

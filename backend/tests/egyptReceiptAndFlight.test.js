@@ -196,6 +196,15 @@ describe("Egypt: book the flight through Nasaem", () => {
     assert.equal((await other.tracking.post(`/api/tracking/requests/${other.id}/egypt/flight`).send({ choice: "SOON" })).status, 400);
   });
 
+  test("a stored REQUEST without its inquiry (interrupted submission) is repaired once", async () => {
+    const req = await underReviewRequest();
+    await prisma.contactRequest.update({ where: { id: req.id }, data: { intakeData: { ...req.intakeData, egyptFlight: { choice: "REQUEST" } } } });
+    const { reconcileFlightInquiries } = await import("../src/modules/egypt-clearance/linked-flight.service.js");
+    await reconcileFlightInquiries();
+    await reconcileFlightInquiries();
+    assert.equal(await prisma.contactRequest.count({ where: { parentRequestId: req.id } }), 1);
+  });
+
   test("a ticket published on the linked inquiry shows on the approval request", async () => {
     const req = await underReviewRequest();
     await req.tracking.post(`/api/tracking/requests/${req.id}/egypt/flight`).send({ choice: "REQUEST" });

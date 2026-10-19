@@ -65,6 +65,9 @@ export async function recordFlightChoice(contactRequestId, scope, choice, { acto
   const result = await withLockedRequest(contactRequestId, scope, async (tx, request) => {
     const refusal = checkAction(ACTIONS.REQUEST_FLIGHT_BOOKING, request);
     if (refusal) refuseWith(refusal);
+    // The system only completes a REQUEST that is still the stored answer
+    // (the customer may have changed it meanwhile).
+    if (actor !== "CUSTOMER" && request.intakeData?.egyptFlight?.choice !== choice) return { skipped: true };
     const previous = request.intakeData?.egyptFlight?.choice || null;
     await tx.contactRequest.update({
       where: { id: contactRequestId },
@@ -80,7 +83,7 @@ export async function recordFlightChoice(contactRequestId, scope, choice, { acto
     });
     return { request, inquiry: opened.inquiry, created: opened.created, choice };
   });
-  if (result.error || result.refusal) return result;
+  if (result.error || result.refusal || result.skipped) return result;
   if (result.created) {
     await notifyAdmins({
       organizationId: result.request.organizationId,
@@ -94,11 +97,31 @@ export async function recordFlightChoice(contactRequestId, scope, choice, { acto
   return { choice: result.choice, inquiryId: result.inquiry?.id || null, created: result.created };
 }
 
-// At submission, when the customer already chose REQUEST on the form.
-export async function openLinkedFlightInquiry(contactRequestId) {
-  const request = await prisma.contactRequest.findUnique({ where: { id: contactRequestId }, select: { intakeData: true } });
-  if (request?.intakeData?.egyptFlight?.choice !== "REQUEST") return null;
-  return recordFlightChoice(contactRequestId, null, "REQUEST", { actor: "SUBMISSION" });
+// At submission, when the customer already chose REQUEST on the form (the
+// stored answer is re-checked under the lock).
+export async function openLinkedFlightInquiry(contactRequestId, { actor = "SUBMISSION" } = {}) {
+  return recordFlightChoice(contactRequestId, null, "REQUEST", { actor });
+}
+
+// Repair pass (run with the travel reminders): an open request whose stored
+// answer is REQUEST but has no inquiry (e.g. the process stopped right after
+// the submission) gets it now.
+export async function reconcileFlightInquiries({ limit = 50 } = {}) {
+  const missing = await prisma.contactRequest.findMany({
+    where: {
+      status: { not: "CLOSED" },
+      intakeData: { path: ["egyptFlight", "choice"], equals: "REQUEST" },
+      linkedRequests: { none: { linkKind: FLIGHT_LINK_KIND } },
+    },
+    select: { id: true },
+    take: limit,
+  });
+  let opened = 0;
+  for (const { id } of missing) {
+    const result = await openLinkedFlightInquiry(id, { actor: "RECONCILER" }).catch(() => null);
+    if (result?.created) opened += 1;
+  }
+  return { opened };
 }
 
 export async function recordMyFlightChoice(phoneNormalized, contactRequestId, choice) {

@@ -243,8 +243,15 @@ export async function sendPaymentReceiptEmail(contactRequestId, { manual = false
     }
     return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
   }
+  // Everything that can fail locally happens before the claim.
   const file = await getReceiptFile(contactRequestId);
-  if (!file) {
+  let content = null;
+  try {
+    content = file ? fs.readFileSync(file.absolutePath) : null;
+  } catch {
+    content = null;
+  }
+  if (!content) {
     await prisma.customerMessageDelivery.updateMany({ where: { id: delivery.id, ...claimable }, data: { status: "FAILED", nextAttemptAt: null, lastError: "RECEIPT_FILE_MISSING" } });
     return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
   }
@@ -254,12 +261,18 @@ export async function sendPaymentReceiptEmail(contactRequestId, { manual = false
     data: { status: "SENDING", attempts: { increment: 1 }, lastAttemptAt: now, nextAttemptAt: null },
   });
   if (claimed.count === 0) return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+  // The address as it is now that this worker owns the row (a correction
+  // committed before the claim is used; none can happen while SENDING).
+  const owned = await prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
 
   const result = await sendCustomerEmail({
-    to: delivery.recipient,
+    to: owned.recipient,
     subject: `إيصال سداد ${receipt.receiptNo} — نسائم الحرمين`,
     text: receiptEmailText(receipt),
-    attachments: [{ filename: file.fileName, contentType: "application/pdf", content: fs.readFileSync(file.absolutePath) }],
+    attachments: [{ filename: file.fileName, contentType: "application/pdf", content }],
+    // Automatic attempts of one message share a key; a staff re-send is a
+    // deliberate new message.
+    idempotencyKey: manual ? `${owned.id}:resend:${now.getTime()}` : owned.id,
   }).catch((error) => ({ status: "UNCERTAIN", reason: String(error?.message || error).slice(0, 200) }));
   const { attempts } = await prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id }, select: { attempts: true } });
   let data;
@@ -282,10 +295,13 @@ export async function resendPaymentReceiptEmail(contactRequestId, { recipient } 
   if (!delivery) return { error: "NO_RECEIPT" };
   if (delivery.status === "SENDING") return { error: "SENDING" };
   if (recipient !== undefined && !isValidRecipient(recipient)) return { error: "INVALID_RECIPIENT" };
-  await prisma.customerMessageDelivery.updateMany({
-    where: { id: delivery.id, status: { not: "SENDING" } },
+  // Compare-and-swap on the state just read: of two overlapping re-sends
+  // only one resets the row; the other is told a send is in progress.
+  const reset = await prisma.customerMessageDelivery.updateMany({
+    where: { id: delivery.id, status: delivery.status, updatedAt: delivery.updatedAt },
     data: { status: "PENDING", nextAttemptAt: null, ...(recipient !== undefined ? { recipient: recipient.trim() } : {}) },
   });
+  if (reset.count !== 1) return { error: "SENDING" };
   return { delivery: await sendPaymentReceiptEmail(contactRequestId, { manual: true }), previous: { status: delivery.status, recipient: delivery.recipient } };
 }
 

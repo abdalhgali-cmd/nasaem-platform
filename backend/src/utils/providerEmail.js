@@ -110,7 +110,10 @@ export async function sendProviderEmail({ to, subject, body, attachments = [] })
 // instead (tests, local development): nothing leaves the machine.
 const CUSTOMER_EMAIL_TIMEOUT_MS = 15_000;
 
-export async function sendCustomerEmail({ to, subject, text, attachments = [] }) {
+// Errors that happen before the request reaches the provider: safe to retry.
+const NOT_SENT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]);
+
+export async function sendCustomerEmail({ to, subject, text, attachments = [], idempotencyKey }) {
   if (!isValidRecipient(to)) return { status: "SKIPPED", reason: "INVALID_RECIPIENT" };
   if (isCaptureTransport()) {
     captured.push({
@@ -129,7 +132,9 @@ export async function sendCustomerEmail({ to, subject, text, attachments = [] })
   try {
     response = await fetch(process.env.PROVIDER_EMAIL_API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.PROVIDER_EMAIL_API_KEY}` },
+      // The same key on every attempt of one message lets a provider that
+      // supports it drop a duplicate.
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.PROVIDER_EMAIL_API_KEY}`, ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}) },
       body: JSON.stringify({
         to,
         subject,
@@ -140,7 +145,10 @@ export async function sendCustomerEmail({ to, subject, text, attachments = [] })
     });
   } catch (error) {
     if (error?.name === "TimeoutError" || error?.name === "AbortError") return { status: "UNCERTAIN", reason: "PROVIDER_EMAIL_TIMEOUT" };
-    return { status: "RETRY", reason: "PROVIDER_EMAIL_UNREACHABLE" };
+    // Only a failure before connecting is known not to have sent anything;
+    // a connection dropped mid-request may have been accepted.
+    if (NOT_SENT_CODES.has(error?.cause?.code)) return { status: "RETRY", reason: "PROVIDER_EMAIL_UNREACHABLE" };
+    return { status: "UNCERTAIN", reason: "PROVIDER_EMAIL_CONNECTION_LOST" };
   }
   if (response.ok) return { status: "ACCEPTED", transport: "api" };
   const retryable = response.status >= 500 || response.status === 429;
