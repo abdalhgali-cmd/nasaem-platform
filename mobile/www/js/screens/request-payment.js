@@ -10,7 +10,7 @@ import { icon } from "../icons.js";
 import { replace } from "../router.js";
 import { validateFile } from "../intake-core.js";
 import { formatAmount } from "../payment-view.js";
-import { savePendingPayment, clearPendingPayment } from "../experience-core.js";
+import { savePendingPayment, clearPendingPayment, clearPendingPaymentFor } from "../experience-core.js";
 
 function paymentPath(id) {
   return `/contact-requests/${encodeURIComponent(id)}/payment-access`;
@@ -148,7 +148,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
       // The customer left this screen during the upload: the receipt is in,
       // so the resume offer goes, but the screen they are on now stays.
       if (!bodyEl.isConnected) {
-        clearPendingPayment(localStorage);
+        clearPendingPaymentFor(localStorage, params.id);
         return;
       }
       finish(params, res.data?.request || summary);

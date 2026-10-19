@@ -177,3 +177,14 @@ test("an unfinished payment is kept on the device until finished or expired", as
   storage.setItem("nasaem.pendingPayment.v1", "{broken");
   assert.equal(readPendingPayment(storage), null);
 });
+
+test("a late upload clears only its own payment-resume record", async () => {
+  const { savePendingPayment, clearPendingPaymentFor, readPendingPayment } = await import("../www/js/experience-core.js");
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  savePendingPayment(storage, { id: "B", paymentAccess: { token: "t" } });
+  clearPendingPaymentFor(storage, "A");
+  assert.equal(readPendingPayment(storage)?.id, "B", "request B's record survives A's upload");
+  clearPendingPaymentFor(storage, "B");
+  assert.equal(readPendingPayment(storage), null);
+});

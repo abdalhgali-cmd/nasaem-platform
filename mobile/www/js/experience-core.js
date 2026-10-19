@@ -165,6 +165,17 @@ export function readPendingPayment(storage, now = Date.now()) {
   }
 }
 
+// Clears the resume record only if it is this request's (a newer request's
+// record must survive an older upload finishing late).
+export function clearPendingPaymentFor(storage, id) {
+  try {
+    const parsed = JSON.parse(storage.getItem(PENDING_PAYMENT_KEY) || "null");
+    if (parsed?.id === id) storage.removeItem(PENDING_PAYMENT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function clearPendingPayment(storage) {
   try {
     storage.removeItem(PENDING_PAYMENT_KEY);
