@@ -232,6 +232,14 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     } else if (r.paymentStatus === "UNDER_REVIEW" && r.status !== "CLOSED") {
       lines.push('<p class="muted small">تأكيد الدفع من صلاحيات المحاسبة أو الإدارة.</p>');
     }
+    // The paid receipt issued with the payment confirmation (not a tax invoice).
+    if (r.paymentReceipt) {
+      const mail = r.customerMessages?.[0];
+      lines.push(`<p data-cr-receipt="${escapeHtml(r.paymentReceipt.pdfStatus)}">إيصال السداد <span dir="ltr">${escapeHtml(r.paymentReceipt.receiptNo)}</span> · ${r.paymentReceipt.pdfStatus === "READY"
+        ? `<a href="/api/contact-requests/${encodeURIComponent(r.id)}/payment-receipt/file" target="_blank" rel="noopener">تحميل PDF</a>`
+        : escapeHtml(r.paymentReceipt.pdfStatus === "FAILED" ? "تعذر إنشاء الملف" : "جارٍ إنشاء الملف")}${mail ? ` · البريد: ${escapeHtml(RECEIPT_EMAIL_AR[mail.status] || mail.status)}` : ""}</p>`);
+    }
+    if (r.parentRequest) lines.push(`<p class="muted small">طلب حجز مرتبط بطلب الموافقة الأمنية <a href="#/requests/${encodeURIComponent(r.parentRequest.id)}" data-cr-open-linked="${escapeHtml(r.parentRequest.id)}" dir="ltr">${escapeHtml(crReference(r.parentRequest.id))}</a>.</p>`);
     return lines.join("");
   }
 
@@ -406,7 +414,15 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const travelers = (r.travelers || [])
       .map((t, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(t.fullName || t.name || "-")}</td><td dir="ltr">${escapeHtml(t.passportNo || "-")}</td><td>${escapeHtml(t.nationality || "-")}</td></tr>`)
       .join("");
-    const [assignment, extra] = await Promise.all([assignmentHtml(r), notesAndTimelineHtml(r)]);
+    const [assignment, extra, egypt] = await Promise.all([
+      assignmentHtml(r),
+      notesAndTimelineHtml(r),
+      // Egypt security approval: its own workspace (approval, travel date,
+      // tickets, circular, receipt, reminders).
+      isEgyptRequest(r)
+        ? api.get(`/contact-requests/${encodeURIComponent(r.id)}/egypt`).then((p) => egyptPanelHtml(p.data, r)).catch((error) => `<div class="alert error" role="alert">${escapeHtml(error.message)}</div>`)
+        : null,
+    ]);
     if (seq !== detailSeq) return;
     const link = `${window.location.origin}/admin-dashboard.html#/requests/${encodeURIComponent(r.id)}`;
     detailCard.innerHTML = `
@@ -440,6 +456,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       ${pricingHtml(r)}
       <h3>الدفع</h3>
       ${paymentHtml(r)}
+      ${egypt ? `<h3>الموافقة الأمنية لمصر</h3>${egypt}` : ""}
       <h3>التنفيذ</h3>
       ${executionHtml(r)}
       <h3>الملفات النهائية</h3>
@@ -504,6 +521,12 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const retry = t.closest("[data-cr-reopen-detail]");
     if (retry) return openDetail(retry.dataset.crReopenDetail);
     const base = `/contact-requests/${encodeURIComponent(openId)}`;
+    const linked = t.closest("[data-cr-open-linked]");
+    if (linked) {
+      event.preventDefault();
+      return openDetail(linked.dataset.crOpenLinked);
+    }
+    if (handleEgyptClick(t, { base, act })) return undefined;
     const accept = t.closest("[data-doc-accept]");
     if (accept) return act(accept, () => api.patch(`${base}/documents/${encodeURIComponent(accept.dataset.docAccept)}/status`, { status: "ACCEPTED" }), "تم قبول المستند.");
     const reject = t.closest("[data-doc-reject]");
@@ -529,6 +552,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const button = form.querySelector('button[type="submit"]');
     const base = `/contact-requests/${encodeURIComponent(openId)}`;
     const f = form.elements;
+    if (handleEgyptForm(form, { base, act, alert: (message) => showAlert(document.getElementById("cr-action-alert"), message) })) return undefined;
     switch (form.dataset.crForm) {
       case "invoice":
       case "offer": {

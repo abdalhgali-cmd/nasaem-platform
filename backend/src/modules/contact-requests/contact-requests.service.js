@@ -606,6 +606,11 @@ export async function getContactRequestById(id, organizationId, { role } = {}) {
       ...CONTACT_REQUEST_CASE_INCLUDE,
       customer: { select: { id: true, customerNo: true, fullName: true, phone: true, email: true, nationality: true } },
       selectedOffer: true,
+      // The paid receipt and its e-mail delivery (shown in the payment section).
+      paymentReceipt: { select: { receiptNo: true, pdfStatus: true, amount: true, currency: true, paidAt: true, customerEmail: true, lastError: true } },
+      customerMessages: { where: { kind: "PAYMENT_RECEIPT" }, select: { status: true, recipient: true, attempts: true, lastError: true, lastAttemptAt: true } },
+      linkedRequests: { select: { id: true, linkKind: true, status: true, paymentStatus: true } },
+      parentRequest: { select: { id: true, name: true } },
     },
   });
   if (!contactRequest) return null;

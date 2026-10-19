@@ -17,6 +17,7 @@
     <nav class="tabs" id="tabs" role="tablist" aria-label="أقسام لوحة التحكم">
       <button type="button" role="tab" id="tabbtn-overview" data-tab="overview" aria-controls="tab-overview">نظرة عامة</button>
       <button type="button" role="tab" id="tabbtn-requests" data-tab="requests" aria-controls="tab-requests">طلبات العملاء</button>
+      <button type="button" role="tab" id="tabbtn-egypt" data-tab="egypt" aria-controls="tab-egypt">الموافقة الأمنية لمصر</button>
       <button type="button" role="tab" id="tabbtn-orders" data-tab="orders" aria-controls="tab-orders">الطلبات</button>
       <button type="button" role="tab" id="tabbtn-flights" data-tab="flights" aria-controls="tab-flights">حجوزات الطيران</button>
       <button type="button" role="tab" id="tabbtn-customers" data-tab="customers" aria-controls="tab-customers">العملاء</button>
@@ -66,6 +67,8 @@
       </div>
       <div class="card hidden" id="cr-detail" aria-live="polite"></div>
     </section>
+
+    <section id="tab-egypt" role="tabpanel" aria-labelledby="tabbtn-egypt" class="hidden"></section>
 
     <section id="tab-orders" role="tabpanel" aria-labelledby="tabbtn-orders" class="hidden">
       <div class="card">
@@ -776,6 +779,7 @@
   <script src="/assets/api.js"></script>
   <script src="/assets/layout.js"></script>
   <script src="/assets/flight-bookings-view.js"></script>
+  <script src="/assets/egypt-view.js"></script>
   <script src="/assets/contact-requests-view.js"></script>
   <script src="/assets/admin-management.js"></script>
   <script src="/assets/admin-dashboard.js"></script>
