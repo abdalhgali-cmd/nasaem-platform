@@ -171,17 +171,39 @@ function wireBackButton() {
 // root, which shows the locked state instead of the customer's data.
 function wireInactivityLock() {
   let lastActive = Date.now();
-  const lockIfIdle = async () => {
-    const idle = inactivityExpired(lastActive);
-    lastActive = Date.now();
-    if (!idle || !(await auth.lockAfterInactivity())) return;
+  let swallowClick = false;
+  const lock = async () => {
+    if (!(await auth.lockAfterInactivity())) return;
     const tab = currentTab();
     if (!navEl.hidden && (tab === "account" || tab === "requests")) goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
   };
-  document.addEventListener("pointerdown", lockIfIdle, { capture: true, passive: true });
+  // The touch that wakes an idle signed-in app only locks it: it must not
+  // also run what it landed on before the lock is in place.
+  document.addEventListener("pointerdown", (event) => {
+    const idle = inactivityExpired(lastActive);
+    lastActive = Date.now();
+    if (!idle || !auth.isAccountUnlocked()) return;
+    swallowClick = true;
+    event.preventDefault();
+    event.stopPropagation();
+    lock();
+  }, { capture: true });
+  document.addEventListener("click", (event) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true });
+  document.addEventListener("keydown", () => { lastActive = Date.now(); }, { capture: true, passive: true });
+  // An idle screen locks by itself too, without waiting for a touch.
+  setInterval(() => { if (inactivityExpired(lastActive) && auth.isAccountUnlocked()) lock(); }, 30 * 1000);
   const AppPlugin = window.Capacitor?.Plugins?.App;
   AppPlugin?.addListener?.("pause", () => { lastActive = Date.now(); });
-  AppPlugin?.addListener?.("resume", lockIfIdle);
+  AppPlugin?.addListener?.("resume", () => {
+    const idle = inactivityExpired(lastActive);
+    lastActive = Date.now();
+    if (idle) lock();
+  });
 }
 
 function wireConnectivity() {

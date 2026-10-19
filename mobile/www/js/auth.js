@@ -21,6 +21,9 @@ const SESSION_CHECK_TIMEOUT_MS = 15000;
 
 let currentCustomer = null;
 let state = SessionState.NO_SESSION;
+// Bumped by every inactivity lock: a session check that started before the
+// lock can never make the account readable again.
+let lockGeneration = 0;
 let onSessionEnded = () => {};
 const listeners = new Set();
 
@@ -129,8 +132,11 @@ export async function lockAfterInactivity() {
   if (state !== SessionState.VALID && state !== SessionState.PENDING) return false;
   const { enabled } = await nativeBiometricStatus(TOKEN_KEY);
   if (!enabled) return false;
+  lockGeneration += 1;
   setSessionToken(null);
   currentCustomer = null;
+  // The phone-verified tracking session shows requests too: it goes with the lock.
+  forgetTrackingSession();
   setState(SessionState.LOCKED);
   return true;
 }
@@ -149,10 +155,13 @@ export async function unlockWithBiometric() {
  */
 export async function verifySession() {
   const token = getToken();
+  const generation = lockGeneration;
   setState(token ? SessionState.PENDING : SessionState.NO_SESSION);
   const result = await verifyToken(token, () =>
     api("/customer-auth/me", { timeoutMs: SESSION_CHECK_TIMEOUT_MS, skipSessionCheck: true })
   );
+  // Locked while the check was running: the answer no longer applies.
+  if (generation !== lockGeneration) return { state: SessionState.LOCKED };
   if (result.state === SessionState.VALID) {
     currentCustomer = result.customer;
     setState(SessionState.VALID);

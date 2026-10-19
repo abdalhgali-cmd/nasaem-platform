@@ -1,4 +1,4 @@
-import { esc, toast, skeletonList } from "../ui.js";
+import { esc, toast, skeletonList, confirmDialog } from "../ui.js";
 import { startingPrice, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE, shortDescription, durationOf } from "../service-view.js";
 import { isUmrahPackage, umrahPackageDetails, umrahPriceText, UMRAH_UNAVAILABLE } from "../umrah-view.js";
 import { icon } from "../icons.js";
@@ -16,7 +16,7 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   bodyEl.innerHTML = `
     <section class="section umrah-choose">
       <h2 class="umrah-title" id="umrahChooseTitle">اختر باقة العمرة</h2>
-      <p class="field-hint">السعر ثابت للمعتمر، ولا عرض سعر ولا موافقة لاحقة.</p>
+      <p class="field-hint">سعر ثابت ومعلن: لا عرض سعر ولا موافقة لاحقة.</p>
       <div id="packagesList" class="package-list" role="radiogroup" aria-labelledby="umrahChooseTitle">${skeletonList(3)}</div>
     </section>
 
@@ -47,7 +47,12 @@ export async function renderUmrahScreen({ bodyEl, params }) {
 
   packagesList.innerHTML = packages.map((pkg) => packageCard(pkg)).join("");
 
+  let currentId = null;
   const choose = (pkg) => {
+    if (pkg.id === currentId) return;
+    // Another package starts a new form: files already picked would be lost.
+    if (currentId && bodyEl.querySelector("#umrahIntakeMount .slot-ok") && !confirmDialog("تغيير الباقة يمسح الملفات التي رفعتها. هل تريد المتابعة؟")) return;
+    currentId = pkg.id;
     packagesList.querySelectorAll(".package-card").forEach((card) => {
       const selected = card.dataset.id === pkg.id;
       card.classList.toggle("selected", selected);
@@ -62,8 +67,15 @@ export async function renderUmrahScreen({ bodyEl, params }) {
     });
   });
 
-  const preselected = bookable.find((pkg) => pkg.id === packageId) || (bookable.length === 1 ? bookable[0] : null);
-  if (preselected) choose(preselected);
+  // An explicit choice from the home screen is honoured or reported, never
+  // swapped for another package; only without one is a sole package picked.
+  if (packageId) {
+    const requested = bookable.find((pkg) => pkg.id === packageId);
+    if (requested) choose(requested);
+    else packagesList.insertAdjacentHTML("beforebegin", `<p class="info-note" id="umrahPreselectGone">${icon("info", { size: 15 })} الباقة التي اخترتها لم تعد متاحة بسعر ثابت. اختر من الباقات التالية.</p>`);
+  } else if (bookable.length === 1) {
+    choose(bookable[0]);
+  }
 }
 
 function packageCard(pkg) {
@@ -91,7 +103,10 @@ function packageCard(pkg) {
 // has none of its own. The package's own fixed price is the total; the form
 // shows it beside the send button.
 function mountIntake(bodyEl, item, baseItem = null) {
-  const mount = bodyEl.querySelector("#umrahIntakeMount");
+  // A fresh container per choice: an earlier choice still loading finishes
+  // into its own detached container and can never replace this form.
+  const mount = document.createElement("div");
+  bodyEl.querySelector("#umrahIntakeMount").replaceChildren(mount);
   const fixed = umrahPriceText(item);
   const selection = {
     summary: `الباقة المختارة: ${item.name} — ${fixed}`,

@@ -65,8 +65,10 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
     bodyEl.innerHTML = `
       ${errorState(error.message)}
       <button type="button" class="secondary" id="paymentLaterBtn">متابعة بدون الدفع الآن</button>`;
-    // Offline: the payment link is still valid; elsewise it is not reusable.
-    bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, null, { keepPending: error?.status === 0 }));
+    // Only a definitive refusal of the payment link drops the resume; offline,
+    // rate-limited or a server error leave it for later.
+    const refused = [401, 403, 404, 410].includes(error?.status);
+    bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, null, { keepPending: !refused }));
     return;
   }
 
@@ -131,6 +133,8 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
       return;
     }
     sending = true;
+    // Leaving mid-upload would race the upload's own completion.
+    bodyEl.querySelector("#paymentLaterBtn").disabled = true;
     const button = form.querySelector("#sendReceiptBtn");
     setLoading(button, true, "جارٍ الإرسال…");
     const progressWrap = bodyEl.querySelector("#directReceiptProgressWrap");
@@ -144,6 +148,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
       finish(params, res.data?.request || summary);
     } catch (error) {
       sending = false;
+      bodyEl.querySelector("#paymentLaterBtn").disabled = false;
       setLoading(button, false);
       progressWrap.hidden = true;
       toast(error.message, { tone: "error" });

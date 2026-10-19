@@ -173,6 +173,17 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => writeDraft(storageKey, state.values), 400);
   };
+  // A pending write must never bring back a draft that was just removed.
+  const dropDraft = () => {
+    clearTimeout(saveTimer);
+    clearDraft(storageKey);
+  };
+  // While sending, the form is frozen (one payload per submission key). After
+  // a «fixed price no longer available» refusal it stays closed.
+  let submitting = false;
+  let pricingBlocked = false;
+  // What is on screen depends on the answers: the questions AND the upload slots.
+  const visibleSignature = () => [...answerRequirements().map((requirement) => requirement.id), "|", ...slots().map((slot) => slot.key)].join(",");
 
   bodyEl.innerHTML = `
     <div class="intake intake-single">
@@ -188,7 +199,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   const stepActions = bodyEl.querySelector("#stepActions");
 
   bodyEl.querySelector("#discardDraftBtn")?.addEventListener("click", () => {
-    clearDraft(storageKey);
+    dropDraft();
     renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection });
   });
 
@@ -333,23 +344,24 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         <div class="upload-progress-bar"><div id="uploadProgressFill" class="upload-progress-fill"></div></div>
         <span id="uploadProgressLabel">0%</span>
       </div>`;
-    stepBody.dataset.visible = answerRequirements().map((requirement) => requirement.id).join(",");
+    stepBody.dataset.visible = visibleSignature();
     renderActions();
   }
 
   function renderActions() {
     const current = pricing();
     const total = current ? fixedTotalSummary(current, state.values.travelers.length).totalText : "";
-    stepActions.innerHTML = `<button type="button" class="primary" id="nextStepBtn">${current ? `تأكيد الطلب بإجمالي <bdi>${esc(total)}</bdi>` : "إرسال الطلب للوكالة"}</button>`;
+    stepActions.innerHTML = `<button type="button" class="primary" id="nextStepBtn" ${pricingBlocked ? "disabled" : ""}>${current ? `تأكيد الطلب بإجمالي <bdi>${esc(total)}</bdi>` : "إرسال الطلب للوكالة"}</button>`;
     stepActions.querySelector("#nextStepBtn").addEventListener("click", submit);
   }
 
   // One set of listeners for the whole form (it is re-drawn in place).
   stepBody.addEventListener("input", (event) => {
-    if (event.target.matches?.("[data-slot-input]")) return;
+    if (submitting || event.target.matches?.("[data-slot-input]")) return;
     syncData();
   });
   stepBody.addEventListener("change", (event) => {
+    if (submitting) return;
     const input = event.target;
     if (input.matches?.("[data-slot-input]")) {
       const slot = slots().find((candidate) => candidate.key === input.dataset.slotInput);
@@ -370,14 +382,14 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     if (input.id === "confirmTotal") return;
     syncData();
     // An answer can reveal or hide another question (conditional requirements).
-    const visibleNow = answerRequirements().map((requirement) => requirement.id).join(",");
-    if (visibleNow !== stepBody.dataset.visible) {
+    if (visibleSignature() !== stepBody.dataset.visible) {
       const focused = document.activeElement?.getAttribute?.("name");
       renderForm();
       if (focused) stepBody.querySelector(`[name="${CSS.escape(focused)}"]`)?.focus();
     }
   });
   stepBody.addEventListener("click", (event) => {
+    if (submitting) return;
     const removeFile = event.target.closest?.("[data-slot-remove]");
     if (removeFile) {
       syncData();
@@ -420,14 +432,19 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   }
 
   async function submit() {
+    if (submitting || pricingBlocked) return;
     const messages = validateAll();
     const fixed = pricing() ? fixedTotalSummary(pricing(), state.values.travelers.length) : null;
     if (fixed && !stepBody.querySelector("#confirmTotal")?.checked) messages.push("أكّد الإجمالي النهائي قبل إرسال الطلب.");
     showErrors(messages);
     if (messages.length) return;
 
-    const v = state.values;
+    // An immutable snapshot of what is sent; the form is frozen meanwhile.
+    const v = JSON.parse(JSON.stringify(state.values));
     const notes = String(v.notes || "").trim();
+    submitting = true;
+    clearTimeout(saveTimer);
+    stepBody.setAttribute("inert", "");
     const parts = buildUploadParts(slots(), state.files);
     const submitBtn = stepActions.querySelector("#nextStepBtn");
     setLoading(submitBtn, true, "جارٍ الإرسال…");
@@ -473,9 +490,11 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         if (progressLabel) progressLabel.textContent = `${percent}%`;
       });
       // Only now - with the server's confirmation in hand - is the draft dropped.
-      clearDraft(storageKey);
+      dropDraft();
       showSubmitted(outcome, { serviceName: item.name, phone: v.phone, travelerCount: travelers.length, payNow: Boolean(fixed && !pricing()?.paymentAfterDocumentReview) });
     } catch (error) {
+      submitting = false;
+      stepBody.removeAttribute("inert");
       setLoading(submitBtn, false);
       if (progressWrap) progressWrap.hidden = true;
       saveDraft();
@@ -485,6 +504,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       // Umrah packages and Egypt variants are booked only at a fixed price:
       // never fall back to a quoted request for them.
       if (error instanceof ApiError && error.code === "PRICING_MODE_CHANGED" && fixedOnly) {
+        pricingBlocked = true;
         submitBtn.disabled = true;
         showErrors(["لم يعد السعر الثابت لهذا الخيار متاحًا، ولم يُرسل طلبك. ارجع واختر من جديد أو تواصل مع الوكالة."]);
         return;
