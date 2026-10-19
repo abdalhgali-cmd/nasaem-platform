@@ -165,10 +165,16 @@ export function customerJourney(progress, request = null) {
   for (const group of CUSTOMER_GROUPS) {
     const members = group.members.map((key) => byKey.get(key)).filter(Boolean);
     if (!members.length) continue;
+    // In progress: the server's current step is here, or part of the moment
+    // is already done (e.g. the receipt is uploaded while the documents are
+    // still being reviewed). Its line is that of its first unfinished step.
     const current = members.find((step) => step.state === "current");
-    const state = current ? "current" : members.every((step) => step.state === "done") ? "done" : "upcoming";
+    const allDone = members.every((step) => step.state === "done");
+    const partly = !allDone && members.some((step) => step.state === "done");
+    const state = allDone ? "done" : current || partly ? "current" : "upcoming";
     const label = group.label || members[0].label;
-    const detail = current ? current.status || GROUP_DEFAULT_DETAIL[current.key] || "" : "";
+    const pending = current || members.find((step) => step.state !== "done");
+    const detail = state === "current" && pending ? pending.status || GROUP_DEFAULT_DETAIL[pending.key] || "" : "";
     stages.push({ key: group.key, label, state, detail });
   }
   const now = stages.find((stage) => stage.state === "current");
@@ -181,7 +187,7 @@ export function customerJourney(progress, request = null) {
     const candidate = step ? stepAction(step, request) : null;
     if (candidate && candidate.label !== "عرض المستندات") { action = candidate; break; }
   }
-  return { stages, headline, detail: now && now.detail !== headline ? now.detail : "", action };
+  return { stages, headline, action };
 }
 
 export function journeyBlockHtml(progress, esc, request = null) {
@@ -190,7 +196,6 @@ export function journeyBlockHtml(progress, esc, request = null) {
   return `
     <div class="detail-block journey-block" id="requestJourney">
       <p class="journey-headline" role="status">${esc(journey.headline)}</p>
-      ${journey.detail ? `<p class="journey-detail">${esc(journey.detail)}</p>` : ""}
       ${journey.action ? `<button type="button" class="primary journey-action" id="journeyActionBtn" data-progress-target="${esc(journey.action.target)}" data-progress-mode="${esc(journey.action.mode)}">${esc(journey.action.label)}</button>` : ""}
       <ol class="journey-stages" aria-label="مراحل طلبك">
         ${journey.stages.map((stage) => `

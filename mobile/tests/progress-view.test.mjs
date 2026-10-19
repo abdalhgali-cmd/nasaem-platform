@@ -105,3 +105,14 @@ test("journey block keeps every server stage one tap away and escapes server tex
   assert.doesNotMatch(html, /<b>x<\/b>/);
   assert.equal(journeyBlockHtml(null, esc), "");
 });
+
+test("customer journey: a receipt sent while documents are still reviewed shows payment in progress", async () => {
+  const { customerJourney } = await import("../www/js/progress-view.js");
+  const progress = fixedSteps({ label: "بانتظار مراجعة إثبات التحويل", RECEIVED: "done", DOCUMENTS: "current", PAYMENT: "done", PAYMENT_REVIEW: "upcoming", EXECUTION: "upcoming", DELIVERY: "upcoming" });
+  progress.steps[3].status = "الإيصال قيد مراجعة الوكالة؛ لم يُقبل الدفع بعد.";
+  const journey = customerJourney(progress, { status: "NEW", allowedActions: [] });
+  const pay = journey.stages.find((s) => s.key === "PAY");
+  assert.equal(pay.state, "current", "partly done = in progress, never «not started»");
+  assert.equal(pay.detail, "الإيصال قيد مراجعة الوكالة؛ لم يُقبل الدفع بعد.");
+  assert.equal(journey.stages.find((s) => s.key === "EXECUTION").state, "upcoming");
+});

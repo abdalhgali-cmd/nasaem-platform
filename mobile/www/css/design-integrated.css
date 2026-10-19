@@ -183,7 +183,6 @@ button.hc-egypt-option:active {background:#dbe5f2;}
 /* Request tracking: the customer's moments, the task first, every server stage one tap away. */
 .journey-block {display:grid;gap:10px;}
 .journey-headline {margin:0;font-size:1.25rem;font-weight:800;line-height:1.4;color:#082b58;}
-.journey-detail {margin:0;font-size:.875rem;color:#56607a;}
 .journey-action {min-height:48px;}
 .journey-stages {list-style:none;margin:4px 0 0;padding:0;display:grid;gap:0;}
 .journey-stage {position:relative;display:flex;gap:12px;align-items:flex-start;padding:0 0 16px;}
@@ -211,3 +210,7 @@ button.hc-egypt-option:active {background:#dbe5f2;}
 
 /* Programmatic focus on a screen title is for screen readers, not a visual ring. */
 h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus {outline:none;}
+
+/* Help (FAQ) rows are touch targets too. */
+.faq-section summary, .faq-item summary {min-height:48px;display:flex;align-items:center;cursor:pointer;}
+.section-head .link-btn {min-height:48px;padding-inline:8px;}
