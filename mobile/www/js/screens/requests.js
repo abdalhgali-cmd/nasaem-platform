@@ -552,8 +552,10 @@ async function uploadChecklistDocument({ panel, request, item, file, viaTracking
 async function showPaymentStep(panel, { requestId, currency, price, onUploaded }) {
   panel.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
   let accountsHtml;
-  // A receipt is only asked for when there is an account to transfer to.
-  let hasAccount = false;
+  // A receipt is not asked for when the agency confirmed it has no account for
+  // this currency. A failed lookup keeps the form: sending it re-verifies the
+  // phone (ensureTrackingAndRun) like before.
+  let hasAccount = true;
   try {
     const res = await tracking.getPaymentAccounts(currency);
     const accounts = res.data || [];

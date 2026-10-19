@@ -199,6 +199,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   const stepActions = bodyEl.querySelector("#stepActions");
 
   bodyEl.querySelector("#discardDraftBtn")?.addEventListener("click", () => {
+    if (submitting) return;
     dropDraft();
     renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection });
   });

@@ -172,6 +172,12 @@ function wireBackButton() {
 function wireInactivityLock() {
   let lastActive = Date.now();
   let swallowClick = false;
+  // Only a biometric-protected account is locked; kept current so the
+  // touch handler can decide synchronously.
+  let lockable = false;
+  const refreshLockable = async () => { lockable = await auth.biometricLockEnabled(); };
+  refreshLockable();
+  auth.onAccountStateChange(refreshLockable);
   const lock = async () => {
     if (!(await auth.lockAfterInactivity())) return;
     const tab = currentTab();
@@ -182,7 +188,7 @@ function wireInactivityLock() {
   document.addEventListener("pointerdown", (event) => {
     const idle = inactivityExpired(lastActive);
     lastActive = Date.now();
-    if (!idle || !auth.isAccountUnlocked()) return;
+    if (!idle || !lockable || !auth.isAccountUnlocked()) return;
     swallowClick = true;
     event.preventDefault();
     event.stopPropagation();
@@ -196,7 +202,10 @@ function wireInactivityLock() {
   }, { capture: true });
   document.addEventListener("keydown", () => { lastActive = Date.now(); }, { capture: true, passive: true });
   // An idle screen locks by itself too, without waiting for a touch.
-  setInterval(() => { if (inactivityExpired(lastActive) && auth.isAccountUnlocked()) lock(); }, 30 * 1000);
+  setInterval(() => {
+    refreshLockable();
+    if (lockable && inactivityExpired(lastActive) && auth.isAccountUnlocked()) lock();
+  }, 30 * 1000);
   const AppPlugin = window.Capacitor?.Plugins?.App;
   AppPlugin?.addListener?.("pause", () => { lastActive = Date.now(); });
   AppPlugin?.addListener?.("resume", () => {

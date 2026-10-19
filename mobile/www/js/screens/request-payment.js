@@ -145,6 +145,12 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
     try {
       const res = await apiUpload(`${paymentPath(params.id)}/receipt`, payload, (percent) => { progressFill.style.width = `${percent}%`; }, headers);
       toast("تم إرسال إشعار التحويل للمراجعة");
+      // The customer left this screen during the upload: the receipt is in,
+      // so the resume offer goes, but the screen they are on now stays.
+      if (!bodyEl.isConnected) {
+        clearPendingPayment(localStorage);
+        return;
+      }
       finish(params, res.data?.request || summary);
     } catch (error) {
       sending = false;

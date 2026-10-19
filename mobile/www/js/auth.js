@@ -11,7 +11,7 @@ import {
 } from "./secure-store.js";
 import { removeItem as removePreference } from "./storage.js";
 import { SessionState, verifyToken, shouldRenew, isSessionEndError } from "./session-core.js";
-import { forgetTrackingSession } from "./tracking.js";
+import { forgetTrackingSession, clearTrackingSession } from "./tracking.js";
 
 export { SessionState };
 
@@ -135,10 +135,21 @@ export async function lockAfterInactivity() {
   lockGeneration += 1;
   setSessionToken(null);
   currentCustomer = null;
-  // The phone-verified tracking session shows requests too: it goes with the lock.
-  forgetTrackingSession();
+  // The phone-verified tracking session shows requests too: it goes with the
+  // lock, from memory and from the device (a restart must not bring it back).
   setState(SessionState.LOCKED);
+  await clearTrackingSession().catch(() => forgetTrackingSession());
   return true;
+}
+
+// Whether this device's account is protected by biometric login (the only
+// accounts the inactivity lock applies to).
+export async function biometricLockEnabled() {
+  try {
+    return Boolean((await nativeBiometricStatus(TOKEN_KEY)).enabled);
+  } catch {
+    return false;
+  }
 }
 
 /** Step 1b when biometric login is on: the fingerprint releases the token. */
