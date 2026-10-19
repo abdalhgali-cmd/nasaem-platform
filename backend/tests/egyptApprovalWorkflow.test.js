@@ -237,6 +237,10 @@ describe("Egypt travel date and reminders", () => {
     const perUser = new Map();
     for (const n of notifications) perUser.set(n.userId, (perUser.get(n.userId) || 0) + 1);
     assert.ok(perUser.size > 0, "staff were notified");
+    assert.ok(notifications[0].message.includes(req.id), "the request reference");
+    assert.ok(notifications[0].message.includes("دخول جوي"));
+    assert.ok(notifications[0].message.includes("الموافقة: لم تصدر"));
+    assert.ok(notifications[0].message.includes("التعميم لم يصدر"), "a missing circular is highlighted");
     assert.ok([...perUser.values()].every((count) => count === 1), "each staff member once");
     // Same date again (no change): nothing new is scheduled.
     await employee.patch(`/api/contact-requests/${req.id}/egypt/travel-date`).send({ entryDate: addDays(1), reason: "تأكيد" });
@@ -291,6 +295,12 @@ describe("Egypt staff queue", () => {
     assert.equal(soonRow.imminent, true);
     assert.equal(soonRow.stage, "APPROVAL_IN_PROGRESS");
     assert.equal(res.body.data.rows.find((row) => row.id === dateless.id).missingDate, true);
+    assert.equal(soonRow.nextAction, "إصدار الموافقة ورفع صورتها");
+    assert.equal(soonRow.ticketStatus, "MISSING");
+    const within = await employee.get("/api/contact-requests/egypt/queue?filter=WITHIN_3_DAYS");
+    assert.ok(within.body.data.rows.some((row) => row.id === soon.id));
+    assert.ok(!within.body.data.rows.some((row) => row.id === later.id));
+    assert.equal((await employee.get("/api/contact-requests/egypt/queue?filter=NOPE")).status, 400);
     const other = await otherOrgEmployee.get("/api/contact-requests/egypt/queue");
     assert.ok(!other.body.data.rows.some((row) => created.includes(row.id)), "another organization sees none of them");
     const workspace = await employee.get(`/api/contact-requests/${soon.id}/egypt`);

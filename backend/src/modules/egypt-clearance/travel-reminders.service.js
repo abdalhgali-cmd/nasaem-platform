@@ -15,7 +15,7 @@
 import prisma from "../../config/database.js";
 import { EGYPT_CLEARANCE_CODE, isEgyptClearanceCode } from "./egypt-clearance-variants.js";
 import { reconcileFlightInquiries } from "./linked-flight.service.js";
-import { calendarDaysUntil, dateOnlyString, reminderPlan, requestTravelDate, todayInKhartoum } from "./egypt-approval-rules.js";
+import { calendarDaysUntil, circularState, dateOnlyString, isApprovalIssued, reminderPlan, requestTravelDate, todayInKhartoum, travelPreparation } from "./egypt-approval-rules.js";
 
 const STAFF_ROLES = ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"];
 
@@ -47,13 +47,26 @@ export async function syncTravelReminders(tx, request, { now = new Date() } = {}
   });
 }
 
-function reminderText(request, reminder) {
+const CIRCULAR_AR = { NOT_STARTED: "لم يبدأ", PROCESSING: "قيد التجهيز", ISSUED: "صدر" };
+
+// Everything staff need to act from the notification itself; the
+// notification carries the request id, which opens the request directly.
+export function reminderText(request, reminder, now = new Date()) {
   const date = dateOnlyString(reminder.travelDate);
-  const days = calendarDaysUntil(date);
+  const days = calendarDaysUntil(date, now);
   const when = days === 0 ? "اليوم" : days === 1 ? "غدًا" : `بعد ${days} أيام`;
+  const preparation = travelPreparation(request);
+  const circular = circularState(request).status;
+  const parts = [
+    `يسافر ${request.name} ${when} (${date}) — ${preparation.entryMode === "BORDER" ? "دخول بري" : preparation.entryMode === "AIR" ? "دخول جوي" : "طريقة الدخول غير محددة"}.`,
+    `الطلب: ${request.id}.`,
+    `الموافقة: ${isApprovalIssued(request) ? "صدرت" : "لم تصدر"} · التعميم: ${CIRCULAR_AR[circular]}.`,
+  ];
+  if (preparation.missing.length) parts.push(`ناقص: ${preparation.missing.map((m) => m.message).join(" ")}`);
+  if (circular !== "ISSUED") parts.push("تنبيه: التعميم لم يصدر بعد.");
   return {
     title: reminder.kind === "URGENT" ? "عاجل: سفر قريب لطلب موافقة أمنية" : "تذكير: سفر بعد 3 أيام",
-    message: `يسافر ${request.name} ${when} (${date}) — طلب الموافقة الأمنية ${request.id}. راجع التذكرة/المنفذ والتعميم.`,
+    message: parts.join(" "),
   };
 }
 
@@ -70,7 +83,14 @@ async function deliverReminder(reminderId, contactRequestId, now) {
     if (!reminder || reminder.status !== "SCHEDULED" || reminder.dueAt > now) return "SKIPPED";
     const request = await tx.contactRequest.findUnique({
       where: { id: contactRequestId },
-      select: { id: true, name: true, status: true, organizationId: true, travelEntryDate: true, travelScheduleRevision: true, intakeData: true, visaType: { select: { code: true } } },
+      select: {
+        id: true, name: true, status: true, organizationId: true, travelEntryDate: true, travelScheduleRevision: true, intakeData: true, circularProcessingAt: true,
+        visaType: { select: { code: true } },
+        travelers: { select: { id: true } },
+        documents: { where: { supersededAt: null }, select: { id: true, status: true, supersededAt: true, label: true } },
+        deliverables: { where: { publishedAt: { not: null }, supersededAt: null }, select: { id: true, kind: true, publishedAt: true, supersededAt: true, travelerIds: true, label: true } },
+        linkedRequests: { select: { id: true, linkKind: true, deliverables: { where: { publishedAt: { not: null }, supersededAt: null }, select: { id: true, label: true, publishedAt: true, supersededAt: true } } } },
+      },
     });
     const sameDate = request && requestTravelDate(request) === dateOnlyString(reminder.travelDate);
     if (!request || request.status === "CLOSED" || !sameDate || reminder.revision !== request.travelScheduleRevision) {
@@ -80,7 +100,7 @@ async function deliverReminder(reminderId, contactRequestId, now) {
     const claimed = await tx.travelReminder.updateMany({ where: { id: reminderId, status: "SCHEDULED", revision: reminder.revision }, data: { status: "SENT", sentAt: new Date() } });
     if (claimed.count !== 1) return "SKIPPED";
     const staff = await tx.user.findMany({ where: { organizationId: request.organizationId, role: { in: STAFF_ROLES }, status: "ACTIVE" }, select: { id: true } });
-    const text = reminderText(request, reminder);
+    const text = reminderText(request, reminder, now);
     const type = reminder.kind === "URGENT" ? "EGYPT_TRAVEL_REMINDER_URGENT" : "EGYPT_TRAVEL_REMINDER";
     if (staff.length) {
       await tx.notification.createMany({ data: staff.map((user) => ({ ...text, type, userId: user.id, contactRequestId: request.id })) });

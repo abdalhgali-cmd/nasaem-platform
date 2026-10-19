@@ -11,6 +11,16 @@ const EGYPT_CIRCULAR_AR = { NOT_STARTED: "لم يبدأ", PROCESSING: "قيد ا
 const EGYPT_FLIGHT_AR = { REQUEST: "يطلب الحجز عبر نسائم", BOOKED: "حجز بنفسه", LATER: "سيقرر لاحقًا" };
 const EGYPT_REMINDER_AR = { SCHEDULED: "مجدول", SENT: "أُرسل", CANCELLED: "أُلغي", SUPERSEDED: "استُبدل بتاريخ أحدث" };
 const EGYPT_REMINDER_KIND_AR = { THREE_DAY: "قبل 3 أيام", URGENT: "عاجل" };
+const EGYPT_FILTER_AR = {
+  PAYMENT_PENDING: "الدفع معلق",
+  PAYMENT_VERIFIED: "الدفع مؤكد",
+  AWAITING_TRAVEL_DETAILS: "بانتظار بيانات السفر",
+  AWAITING_TICKET: "بانتظار التذكرة",
+  WITHIN_3_DAYS: "سفر خلال 3 أيام",
+  URGENT: "متأخر أو عاجل",
+};
+const EGYPT_PAYMENT_AR = { NOT_REQUIRED: "لا يوجد سعر", AWAITING_TRANSFER: "بانتظار التحويل", UNDER_REVIEW: "إيصال للمراجعة", CONFIRMED: "مؤكد" };
+const EGYPT_TICKET_AR = { AVAILABLE: "متوفرة", BOOKING_REQUESTED: "طلب حجز عبر نسائم", MISSING: "غير مرفوعة" };
 const RECEIPT_EMAIL_AR = { PENDING: "بانتظار الإرسال", SENDING: "جارٍ الإرسال", ACCEPTED: "قبله مزود البريد", UNCERTAIN: "غير مؤكد — راجع قبل إعادة الإرسال", FAILED: "فشل", SKIPPED: "لم يُرسل" };
 const RECEIPT_ERROR_AR = { NO_RECIPIENT: "لا يوجد بريد إلكتروني للعميل", NOT_CONFIGURED: "خدمة البريد غير مهيأة", RECEIPT_PDF_FAILED: "تعذر إنشاء ملف الإيصال", WAITING_FOR_PDF: "بانتظار ملف الإيصال" };
 const QUALITY_AR = {
@@ -46,15 +56,17 @@ function egyptDateBadge(row) {
 
 function egyptQueueRowHtml(row) {
   return `<tr data-egypt-id="${escapeHtml(row.id)}" tabindex="0">
-    <td><a href="#/requests/${encodeURIComponent(row.id)}" dir="ltr">${escapeHtml(row.id.slice(-8).toUpperCase())}</a></td>
+    <td><a href="#/requests/${encodeURIComponent(row.id)}" dir="ltr">${escapeHtml(row.id.slice(-8).toUpperCase())}</a><div class="muted small">${formatDate(row.createdAt)}</div></td>
     <td>${escapeHtml(row.name)}<div class="muted small" dir="ltr">${escapeHtml(row.phone)}</div></td>
     <td>${escapeHtml(EGYPT_ENTRY_AR[row.entryMode] || "-")}<div class="muted small">${escapeHtml(row.travelerCount)} مسافر</div></td>
-    <td>${egyptDateBadge(row)}</td>
-    <td><span class="badge">${escapeHtml(row.stageLabel)}</span>${row.preparationMissing.length && row.approvalIssued ? `<div class="muted small">ناقص: ${escapeHtml(row.preparationMissing.join("، "))}</div>` : ""}</td>
+    <td>${escapeHtml(EGYPT_PAYMENT_AR[row.paymentStatus] || row.paymentStatus)}</td>
     <td>${row.approvalIssued ? `صدرت${row.approvalIssuedOn ? ` <span dir="ltr">${escapeHtml(row.approvalIssuedOn)}</span>` : ""}` : "لم تصدر"}</td>
+    <td>${egyptDateBadge(row)}</td>
+    <td>${escapeHtml(row.ticketStatus ? EGYPT_TICKET_AR[row.ticketStatus] : "—")}${row.flightInquiryId ? ` · <a href="#/requests/${encodeURIComponent(row.flightInquiryId)}">طلب الحجز</a>` : ""}</td>
     <td>${escapeHtml(EGYPT_CIRCULAR_AR[row.circularStatus] || "-")}</td>
-    <td>${escapeHtml(EGYPT_FLIGHT_AR[row.flightChoice] || "-")}${row.flightInquiryId ? ` · <a href="#/requests/${encodeURIComponent(row.flightInquiryId)}">طلب الحجز</a>` : ""}</td>
-    <td>${row.documentsFlagged ? `<span class="badge status-PROCESSING">${escapeHtml(row.documentsFlagged)} صورة تحتاج تدقيقًا</span>` : "-"}</td>
+    <td>${row.documentIssues?.length ? `<span class="small">${escapeHtml(row.documentIssues.join(" "))}</span>` : row.documentsFlagged ? `<span class="badge status-PROCESSING">${escapeHtml(row.documentsFlagged)} صورة تحتاج تدقيقًا</span>` : "—"}</td>
+    <td>${escapeHtml(row.assignedUser?.fullName || "غير مُسند")}</td>
+    <td><strong class="small">${escapeHtml(row.nextAction || "")}</strong><div class="muted small">${escapeHtml(row.stageLabel)}</div></td>
   </tr>`;
 }
 
@@ -70,6 +82,7 @@ function createEgyptQueueView({ root, onOpen }) {
         <div class="field"><label for="egypt-view">العرض</label>
           <select id="egypt-view"><option value="schedule">جدول السفر</option><option value="queue">الأحدث أولًا</option></select></div>
         <div class="field"><label for="egypt-stage">المرحلة</label><select id="egypt-stage"><option value="">كل المراحل</option></select></div>
+        <div class="field"><label for="egypt-filter">تصفية تشغيلية</label><select id="egypt-filter"><option value="">بدون</option>${Object.entries(EGYPT_FILTER_AR).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}</select></div>
         <div class="field"><label for="egypt-entry">طريقة الدخول</label>
           <select id="egypt-entry"><option value="">الكل</option><option value="AIR">جوي</option><option value="BORDER">بري</option></select></div>
         <div class="field"><label for="egypt-from">سفر من</label><input id="egypt-from" type="date" /></div>
@@ -79,7 +92,7 @@ function createEgyptQueueView({ root, onOpen }) {
       <div id="egypt-counts" class="stack wrap"></div>
       <div class="table-scroll">
         <table class="stack-table">
-          <thead><tr><th>المرجع</th><th>العميل</th><th>الدخول</th><th>تاريخ السفر</th><th>المرحلة</th><th>الموافقة</th><th>التعميم</th><th>الطيران</th><th>صور الجواز</th></tr></thead>
+          <thead><tr><th>المرجع</th><th>العميل</th><th>الدخول</th><th>الدفع</th><th>الموافقة</th><th>تاريخ السفر</th><th>التذكرة</th><th>التعميم</th><th>المستندات</th><th>المسؤول</th><th>الإجراء التالي</th></tr></thead>
           <tbody id="egypt-body"></tbody>
         </table>
       </div>
@@ -90,11 +103,11 @@ function createEgyptQueueView({ root, onOpen }) {
   async function load() {
     const current = ++seq;
     const params = new URLSearchParams({ view: $("egypt-view").value });
-    for (const [key, id] of [["stage", "egypt-stage"], ["entryMode", "egypt-entry"], ["from", "egypt-from"], ["to", "egypt-to"], ["search", "egypt-search"]]) {
+    for (const [key, id] of [["stage", "egypt-stage"], ["filter", "egypt-filter"], ["entryMode", "egypt-entry"], ["from", "egypt-from"], ["to", "egypt-to"], ["search", "egypt-search"]]) {
       const value = $(id).value.trim();
       if (value) params.set(key, value);
     }
-    $("egypt-body").innerHTML = '<tr><td colspan="9" class="muted">جارٍ التحميل...</td></tr>';
+    $("egypt-body").innerHTML = '<tr><td colspan="11" class="muted">جارٍ التحميل...</td></tr>';
     try {
       const { data } = await api.get(`/contact-requests/egypt/queue?${params}`);
       if (current !== seq) return;
@@ -102,16 +115,20 @@ function createEgyptQueueView({ root, onOpen }) {
       if (stageSelect.options.length === 1) {
         stageSelect.insertAdjacentHTML("beforeend", Object.entries(data.stageLabels).map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join(""));
       }
-      $("egypt-counts").innerHTML = Object.entries(data.counts)
-        .filter(([, count]) => count > 0)
-        .map(([key, count]) => `<span class="badge" data-egypt-count="${escapeHtml(key)}">${escapeHtml(data.stageLabels[key])}: ${escapeHtml(count)}</span>`)
-        .join(" ");
-      $("egypt-body").innerHTML = data.rows.length ? data.rows.map(egyptQueueRowHtml).join("") : '<tr><td colspan="9" class="muted">لا توجد طلبات مطابقة.</td></tr>';
+      $("egypt-counts").innerHTML = [
+        ...Object.entries(data.counts)
+          .filter(([, count]) => count > 0)
+          .map(([key, count]) => `<span class="badge" data-egypt-count="${escapeHtml(key)}">${escapeHtml(data.stageLabels[key])}: ${escapeHtml(count)}</span>`),
+        ...Object.entries(data.filterCounts || {})
+          .filter(([key, count]) => count > 0 && (key === "WITHIN_3_DAYS" || key === "URGENT"))
+          .map(([key, count]) => `<span class="badge ${key === "URGENT" ? "status-REJECTED" : "status-PROCESSING"}" data-egypt-count="${escapeHtml(key)}">${escapeHtml(EGYPT_FILTER_AR[key])}: ${escapeHtml(count)}</span>`),
+      ].join(" ");
+      $("egypt-body").innerHTML = data.rows.length ? data.rows.map(egyptQueueRowHtml).join("") : '<tr><td colspan="11" class="muted">لا توجد طلبات مطابقة.</td></tr>';
       $("egypt-truncated").classList.toggle("hidden", !data.truncated);
       if (typeof labelStackTable === "function") labelStackTable(root.querySelector("table"));
     } catch (error) {
       if (current !== seq) return;
-      $("egypt-body").innerHTML = `<tr><td colspan="9"><div class="alert error" role="alert">${escapeHtml(error.message)}</div></td></tr>`;
+      $("egypt-body").innerHTML = `<tr><td colspan="11"><div class="alert error" role="alert">${escapeHtml(error.message)}</div></td></tr>`;
     }
   }
 
@@ -173,6 +190,7 @@ function egyptPanelHtml(ws, r) {
     <p><span class="badge">${escapeHtml(ws.stageLabel)}</span> · الدخول: <strong>${escapeHtml(EGYPT_ENTRY_AR[ws.entryMode] || "-")}</strong>
       ${ws.entryMode === "AIR" ? ` · من ${escapeHtml(route.departureCity || "-")} إلى ${escapeHtml(route.arrivalAirport || "-")}` : ws.entryMode === "BORDER" ? ` · المنفذ: ${escapeHtml(route.entryPort || "غير محدد")}` : ""}</p>
     <p>تاريخ السفر: ${egyptDateBadge(ws)}</p>
+    <p data-egypt-next="1">الإجراء التالي: <strong>${escapeHtml(ws.nextAction || "-")}</strong></p>
     ${ws.approvalIssued && !ws.preparationComplete ? `<p class="alert warning" data-egypt-prep-missing="1">تجهيز السفر ناقص (الموافقة تبقى صادرة): ${escapeHtml(ws.preparationMissing.join("، "))}</p>` : ""}
 
     <h4>الموافقة الأمنية</h4>

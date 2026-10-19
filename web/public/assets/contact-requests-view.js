@@ -420,7 +420,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       notesAndTimelineHtml(r),
       // Egypt security approval: its own workspace (approval, travel date,
       // tickets, circular, receipt, reminders).
-      isEgyptRequest(r)
+      isEgyptRequest(r) && can("work")
         ? api.get(`/contact-requests/${encodeURIComponent(r.id)}/egypt`).then((p) => egyptPanelHtml(p.data, r)).catch((error) => `<div class="alert error" role="alert">${escapeHtml(error.message)}</div>`)
         : null,
     ]);

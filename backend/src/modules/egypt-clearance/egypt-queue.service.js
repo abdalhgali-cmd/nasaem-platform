@@ -2,8 +2,9 @@
 // one organization. Every stage is derived from the request's stored facts
 // with the same rules the customer sees (egypt-approval-rules.js).
 import prisma from "../../config/database.js";
+import { evaluateReadiness } from "../contact-request-workflow/workflow-policy.js";
 import { EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "./egypt-clearance-variants.js";
-import { approvalIssuedOn, calendarDaysUntil, circularState, isApprovalIssued, linkedFlightInquiry, travelPreparation, REMINDER_DAYS_BEFORE } from "./egypt-approval-rules.js";
+import { approvalIssuedOn, calendarDaysUntil, circularState, isApprovalIssued, linkedFlightInquiry, travelPreparation, travelTickets, REMINDER_DAYS_BEFORE } from "./egypt-approval-rules.js";
 
 const EGYPT_CODES = [EGYPT_CLEARANCE_CODE, ...EGYPT_CLEARANCE_VARIANTS.map((variant) => variant.code)];
 export const EGYPT_QUEUE_STAGES = Object.freeze([
@@ -33,7 +34,7 @@ const QUEUE_INCLUDE = {
   visaType: { select: { code: true, name: true } },
   travelers: { select: { id: true, fullName: true }, orderBy: { sortOrder: "asc" } },
   deliverables: { where: { publishedAt: { not: null }, supersededAt: null }, select: { id: true, kind: true, publishedAt: true, supersededAt: true, travelerIds: true, issuedOn: true, label: true, version: true } },
-  documents: { where: { supersededAt: null }, select: { id: true, status: true, supersededAt: true, label: true, classification: true, qualitySignal: true } },
+  documents: { where: { supersededAt: null }, select: { id: true, status: true, supersededAt: true, label: true, classification: true, qualitySignal: true, requirementId: true, travelerId: true } },
   linkedRequests: { select: { id: true, linkKind: true, status: true, paymentStatus: true, createdAt: true, deliverables: { where: { publishedAt: { not: null }, supersededAt: null }, select: { id: true, label: true, publishedAt: true, supersededAt: true } } } },
   customerMessages: { where: { kind: "PAYMENT_RECEIPT" }, select: { status: true, channel: true } },
   paymentReceipt: { select: { receiptNo: true, pdfStatus: true } },
@@ -62,6 +63,35 @@ export function scheduleFlags(travelDate, status, now = new Date()) {
     missingDate: false,
   };
 }
+
+// What staff should do next, from the same facts (one line for the queue).
+export function nextStaffAction(request, row) {
+  if (row.stage === "CLOSED") return "لا إجراء — الطلب مغلق";
+  if (request.paymentStatus === "UNDER_REVIEW") return "مراجعة إيصال الدفع وتأكيده";
+  if (request.paymentStatus !== "CONFIRMED") return "بانتظار تحويل العميل";
+  if (!row.approvalIssued) return row.documentsFlagged ? "تدقيق صور الجواز ثم إصدار الموافقة" : "إصدار الموافقة ورفع صورتها";
+  if (row.circularStatus === "ISSUED") return row.overdue ? "تأكيد السفر وإغلاق الطلب" : "متابعة السفر";
+  if (!row.preparationComplete) return `استكمال بيانات السفر: ${row.preparationMissing.join("، ")}`;
+  return row.circularStatus === "PROCESSING" ? "رفع ملف التعميم" : "بدء تجهيز التعميم";
+}
+
+export function ticketStatus(request, preparation) {
+  if (preparation.entryMode !== "AIR") return null;
+  const tickets = travelTickets(request);
+  if (tickets.length) return "AVAILABLE";
+  if (request.intakeData?.egyptFlight?.choice === "REQUEST") return "BOOKING_REQUESTED";
+  return "MISSING";
+}
+
+// Operational filters of the queue (in addition to the stage).
+export const EGYPT_QUEUE_FILTERS = Object.freeze({
+  PAYMENT_PENDING: (row) => row.paymentStatus !== "CONFIRMED" && row.status !== "CLOSED",
+  PAYMENT_VERIFIED: (row) => row.paymentStatus === "CONFIRMED",
+  AWAITING_TRAVEL_DETAILS: (row) => row.approvalIssued && !row.preparationComplete,
+  AWAITING_TICKET: (row) => row.ticketStatus === "MISSING" || row.ticketStatus === "BOOKING_REQUESTED",
+  WITHIN_3_DAYS: (row) => row.imminent,
+  URGENT: (row) => row.overdue || (row.imminent && row.circularStatus !== "ISSUED"),
+});
 
 export function toQueueRow(request, now = new Date()) {
   const preparation = travelPreparation(request);
@@ -94,14 +124,22 @@ export function toQueueRow(request, now = new Date()) {
     documentsFlagged: flagged,
     assignedUser: request.assignedUser || null,
     createdAt: request.createdAt,
+    ticketStatus: ticketStatus(request, preparation),
+    // Required documents still missing, rejected or waiting for review.
+    documentIssues: evaluateReadiness(request).reasons.filter((r) => r.code.startsWith("DOCUMENTS_")).map((r) => r.message),
     ...scheduleFlags(preparation.travelDate, request.status, now),
   };
+}
+
+function withNextAction(request, now) {
+  const row = toQueueRow(request, now);
+  return { ...row, nextAction: nextStaffAction(request, row) };
 }
 
 // filters: stage, entryMode (AIR|BORDER), from/to (travel date, YYYY-MM-DD),
 // search (name, phone, reference), view "schedule" (by nearest travel date,
 // dateless last) or default (newest first). Closed requests only on demand.
-export async function listEgyptQueue(organizationId, { stage, entryMode, from, to, search, view, includeClosed = false, now = new Date() } = {}) {
+export async function listEgyptQueue(organizationId, { stage, filter, entryMode, from, to, search, view, includeClosed = false, now = new Date() } = {}) {
   const term = typeof search === "string" ? search.trim() : "";
   const requests = await prisma.contactRequest.findMany({
     where: {
@@ -121,8 +159,10 @@ export async function listEgyptQueue(organizationId, { stage, entryMode, from, t
   });
   const truncated = requests.length > QUEUE_LIMIT;
   if (truncated) requests.length = QUEUE_LIMIT;
-  let rows = requests.map((request) => toQueueRow(request, now));
+  const all = requests.map((request) => withNextAction(request, now));
+  let rows = all;
   if (stage) rows = rows.filter((row) => row.stage === stage);
+  if (filter && EGYPT_QUEUE_FILTERS[filter]) rows = rows.filter(EGYPT_QUEUE_FILTERS[filter]);
   if (entryMode) rows = rows.filter((row) => row.entryMode === entryMode);
   if (view === "schedule") {
     rows.sort((a, b) => {
@@ -133,8 +173,9 @@ export async function listEgyptQueue(organizationId, { stage, entryMode, from, t
     });
   }
   const counts = Object.fromEntries(EGYPT_QUEUE_STAGES.map((key) => [key, 0]));
-  for (const row of requests.map((request) => toQueueRow(request, now))) counts[row.stage] += 1;
-  return { rows, counts, stageLabels: EGYPT_STAGE_LABELS, truncated };
+  for (const row of all) counts[row.stage] += 1;
+  const filterCounts = Object.fromEntries(Object.entries(EGYPT_QUEUE_FILTERS).map(([key, test]) => [key, all.filter(test).length]));
+  return { rows, counts, filterCounts, stageLabels: EGYPT_STAGE_LABELS, truncated };
 }
 
 // The Egypt part of the staff workspace for one request.
@@ -144,14 +185,14 @@ export async function getEgyptWorkspace(contactRequestId, organizationId) {
     include: {
       ...QUEUE_INCLUDE,
       deliverables: { orderBy: [{ kind: "asc" }, { version: "desc" }], select: { id: true, kind: true, version: true, label: true, fileName: true, mimeType: true, issuedOn: true, publishedAt: true, supersededAt: true, travelerIds: true, createdAt: true } },
-      documents: { where: { supersededAt: null, classification: "CUSTOMER_DOCUMENT" }, select: { id: true, label: true, status: true, supersededAt: true, qualitySignal: true, travelerId: true } },
+      documents: { where: { supersededAt: null }, select: { id: true, label: true, status: true, supersededAt: true, qualitySignal: true, travelerId: true, requirementId: true, classification: true } },
       travelReminders: { orderBy: { createdAt: "desc" }, take: 20 },
       customerMessages: { where: { kind: "PAYMENT_RECEIPT" }, select: { id: true, status: true, channel: true, recipient: true, attempts: true, lastError: true, lastAttemptAt: true, nextAttemptAt: true } },
       paymentReceipt: true,
     },
   });
   if (!request) return null;
-  const row = toQueueRow(request);
+  const row = withNextAction(request, new Date());
   const typed = (kind) => request.deliverables.filter((d) => d.kind === kind);
   return {
     ...row,

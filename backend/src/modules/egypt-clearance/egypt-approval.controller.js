@@ -2,12 +2,13 @@ import { z } from "zod";
 import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
 import { travelerIdsField } from "../contact-request-deliverables/contact-request-deliverables.validators.js";
 import { attachEgyptTicket, discardUpload, editEgyptTravelDate, issueEgyptApproval, issueEgyptCircular, startEgyptCircular } from "./egypt-approval.service.js";
-import { EGYPT_QUEUE_STAGES, getEgyptWorkspace, listEgyptQueue } from "./egypt-queue.service.js";
+import { EGYPT_QUEUE_FILTERS, EGYPT_QUEUE_STAGES, getEgyptWorkspace, listEgyptQueue } from "./egypt-queue.service.js";
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ بصيغة YYYY-MM-DD");
 
 const queueSchema = z.object({
   stage: z.enum(EGYPT_QUEUE_STAGES).optional(),
+  filter: z.enum(Object.keys(EGYPT_QUEUE_FILTERS)).optional(),
   entryMode: z.enum(["AIR", "BORDER"]).optional(),
   from: dateOnly.optional(),
   to: dateOnly.optional(),
