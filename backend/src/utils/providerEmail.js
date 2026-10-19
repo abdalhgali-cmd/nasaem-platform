@@ -95,3 +95,54 @@ export async function sendProviderEmail({ to, subject, body, attachments = [] })
     return { sent: false, reason: "PROVIDER_EMAIL_UNREACHABLE" };
   }
 }
+
+// Customer e-mail (e.g. the paid receipt with its PDF) over the same HTTP
+// mail API as provider e-mail. Outcomes the outbox can act on, never a
+// success it cannot stand behind:
+//   { status: "ACCEPTED" }            the API accepted the message
+//   { status: "SKIPPED", reason }     invalid recipient / not configured
+//   { status: "RETRY", reason }       refused for a reason that may pass (5xx,
+//                                     429, unreachable before sending)
+//   { status: "FAILED", reason }      refused for good (other 4xx)
+//   { status: "UNCERTAIN", reason }   timed out after sending: the message
+//                                     may have gone out; never re-sent blindly
+// PROVIDER_EMAIL_TRANSPORT=capture records the full message in memory
+// instead (tests, local development): nothing leaves the machine.
+const CUSTOMER_EMAIL_TIMEOUT_MS = 15_000;
+
+export async function sendCustomerEmail({ to, subject, text, attachments = [] }) {
+  if (!isValidRecipient(to)) return { status: "SKIPPED", reason: "INVALID_RECIPIENT" };
+  if (isCaptureTransport()) {
+    captured.push({
+      to,
+      subject,
+      body: text,
+      attachmentCount: attachments.length,
+      attachments: attachments.map(({ filename, contentType, content }) => ({ filename, contentType, size: content?.length || 0 })),
+      sentAt: new Date(),
+      kind: "CUSTOMER",
+    });
+    return { status: "ACCEPTED", transport: "capture" };
+  }
+  if (!isConfigured()) return { status: "SKIPPED", reason: "NOT_CONFIGURED" };
+  let response;
+  try {
+    response = await fetch(process.env.PROVIDER_EMAIL_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.PROVIDER_EMAIL_API_KEY}` },
+      body: JSON.stringify({
+        to,
+        subject,
+        text,
+        attachments: attachments.map(({ filename, contentType, content }) => ({ filename, contentType, content: Buffer.from(content).toString("base64") })),
+      }),
+      signal: AbortSignal.timeout(CUSTOMER_EMAIL_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error?.name === "TimeoutError" || error?.name === "AbortError") return { status: "UNCERTAIN", reason: "PROVIDER_EMAIL_TIMEOUT" };
+    return { status: "RETRY", reason: "PROVIDER_EMAIL_UNREACHABLE" };
+  }
+  if (response.ok) return { status: "ACCEPTED", transport: "api" };
+  const retryable = response.status >= 500 || response.status === 429;
+  return { status: retryable ? "RETRY" : "FAILED", reason: `PROVIDER_EMAIL_HTTP_${response.status}` };
+}

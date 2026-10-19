@@ -49,6 +49,7 @@ import {
   postEgyptCircularProcessing,
   postEgyptTicket,
 } from "../egypt-clearance/egypt-approval.controller.js";
+import { downloadStaffReceipt, resendReceipt } from "../egypt-clearance/egypt-customer.controller.js";
 import { getCaseWarnings } from "../case-intelligence/case-intelligence.controller.js";
 import { getTimeline } from "../case-timeline/case-timeline.controller.js";
 import {
@@ -331,6 +332,9 @@ router.post("/:id/egypt/approval", requireAuth, requireRole(...EGYPT_WORK), requ
 router.post("/:id/egypt/circular/processing", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, postEgyptCircularProcessing);
 router.post("/:id/egypt/circular", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, requireFeatureEnabled("DOCUMENTS"), handleDeliverableUpload, postEgyptCircular);
 router.post("/:id/egypt/tickets", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, requireFeatureEnabled("DOCUMENTS"), handleDeliverableUpload, postEgyptTicket);
+// The paid receipt PDF and its e-mail re-send (finance and case staff).
+router.get("/:id/payment-receipt/file", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), requireContactRequestOrganization, downloadStaffReceipt);
+router.post("/:id/payment-receipt/resend", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), requireContactRequestOrganization, resendReceipt);
 router.patch("/:id/egypt/travel-date", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, patchEgyptTravelDate);
 // Publishes a prepared (draft) final file to the customer.
 router.post(

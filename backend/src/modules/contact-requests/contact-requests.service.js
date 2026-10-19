@@ -24,7 +24,11 @@ import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { syncTravelReminders } from "../egypt-clearance/travel-reminders.service.js";
-import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
+import { createReceiptInTransaction } from "../payment-receipts/payment-receipts.service.js";
+import { sanitizeQualitySignal } from "../egypt-clearance/document-quality.js";
+import { openLinkedFlightInquiry } from "../egypt-clearance/linked-flight.service.js";
+import { deliverPaymentReceipt } from "../customer-messages/customer-messages.service.js";
+import { applyEgyptEntryMode, egyptVariantBookingError, isEgyptClearanceCode, resolveEgyptRoute, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 
@@ -161,6 +165,10 @@ async function createContactRequestOnce(data, req, files) {
   // files tagged with a requirementId whose ocrEnabled is set (see the
   // validation loop below, which also builds requirementsById).
   const ocrResults = new Array(files.length).fill(null);
+  // Egypt security approval: minimal retention — only an MRZ-found signal.
+  const ocrSignalOnly = data.visaTypeId
+    ? isEgyptClearanceCode((await prisma.visaType.findUnique({ where: { id: data.visaTypeId }, select: { code: true } }))?.code)
+    : false;
 
   if (documentRequirementIds.some(Boolean)) {
     const requirementsById = new Map((requirementsSnapshot || []).map((r) => [r.id, r]));
@@ -195,7 +203,7 @@ async function createContactRequestOnce(data, req, files) {
         return { error: "MAX_FILES_REACHED", details: { requirementId, maxFiles: requirement.maxFiles } };
       }
 
-      ocrResults[i] = await maybeRunPassportOcr(requirement, file);
+      ocrResults[i] = await maybeRunPassportOcr(requirement, file, { signalOnly: ocrSignalOnly });
     }
   }
 
@@ -232,6 +240,8 @@ async function createContactRequestOnce(data, req, files) {
     if (route.error) return route;
     egyptRoute = route.route;
   }
+  const egyptFlight = egyptRoute && data.egyptFlightChoice ? { choice: data.egyptFlightChoice, updatedAt: new Date().toISOString() } : null;
+  const qualitySignals = files.map((_, index) => sanitizeQualitySignal(data.documentQuality?.[index]));
 
   // Fixed catalog price: recomputed here from the catalog and compared with
   // the total the customer confirmed; a mismatch creates nothing (409).
@@ -269,6 +279,7 @@ async function createContactRequestOnce(data, req, files) {
             ...(egyptEntryMode ? { egyptEntryMode } : {}),
             ...(umrahContacts ? { umrahContacts } : {}),
             ...(egyptRoute ? { egyptRoute } : {}),
+            ...(egyptFlight ? { egyptFlight } : {}),
           }
         : undefined,
     requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
@@ -300,6 +311,7 @@ async function createContactRequestOnce(data, req, files) {
                     label: documentLabels[index] || file.originalname,
                     requirementId: documentRequirementIds[index] || null,
                     ocrResult: ocrResults[index] ?? undefined,
+                    qualitySignal: qualitySignals[index] ?? undefined,
                     fileName: file.originalname,
                     storagePath: prepareFileForStorage(file),
                     mimeType: file.mimetype,
@@ -339,6 +351,7 @@ async function createContactRequestOnce(data, req, files) {
                   requirementId: documentRequirementIds[index] || null,
                   travelerId,
                   ocrResult: ocrResults[index] ?? undefined,
+                  qualitySignal: qualitySignals[index] ?? undefined,
                   fileName: file.originalname,
                   storagePath: prepareFileForStorage(file),
                   mimeType: file.mimetype,
@@ -352,6 +365,10 @@ async function createContactRequestOnce(data, req, files) {
         });
 
   await announceNewContactRequest(contactRequest, { documentCount: files.length, req, customerId: req.customer?.id });
+  // Egypt: "book my flight through Nasaem" opens the linked booking inquiry.
+  if (egyptFlight?.choice === "REQUEST") {
+    await openLinkedFlightInquiry(contactRequest.id).catch((error) => console.error("[egypt-flight] inquiry not opened", error?.message));
+  }
 
   return contactRequest;
 }
@@ -990,11 +1007,17 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
       where: { contactRequestId, classification: "FINANCIAL_DOCUMENT", status: "PENDING", supersededAt: null },
       data: { status: "ACCEPTED", reviewedByUserId: userId, reviewedAt: now },
     });
-    await auditInTransaction(tx, { userId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED", entityId: contactRequestId, organizationId: contactRequest.organizationId });
-    return { updated };
+    // The paid receipt and its e-mail outbox row commit with the payment
+    // itself (payment-receipts.service.js); PDF and e-mail follow after.
+    const receipt = await createReceiptInTransaction(tx, contactRequest, { userId, paidAt: now });
+    await auditInTransaction(tx, { userId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED", entityId: contactRequestId, organizationId: contactRequest.organizationId, ...(receipt?.receiptNo ? { newValue: { receiptNo: receipt.receiptNo } } : {}) });
+    return { updated, receipt };
   });
   if (result.error || result.refusal) return result;
   const { updated } = result;
+  // Not awaited: a slow PDF or mail API never delays the staff response; the
+  // reconciler retries whatever this does not finish.
+  if (result.receipt) deliverPaymentReceipt(contactRequestId).catch((error) => console.error("[payment-receipts] delivery failed", error?.message));
 
   // Release E: payment confirmation closes "check payment" and can open
   // "process application".

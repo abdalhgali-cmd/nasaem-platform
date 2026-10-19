@@ -63,6 +63,13 @@ export const createContactRequestSchema = z.object({
   departureCity: z.string().trim().max(120).optional().or(z.literal("")),
   arrivalAirport: z.string().trim().max(120).optional().or(z.literal("")),
   entryPort: z.string().trim().max(120).optional().or(z.literal("")),
+  // Egypt clearance: whether the customer wants Nasaem to book the flight
+  // (a linked booking inquiry is opened; never a fare or a booking), already
+  // booked it, or decides later.
+  egyptFlightChoice: z.enum(["REQUEST", "BOOKED", "LATER"]).optional().or(z.literal("")),
+  // Parallel to `documents`: image-quality hints measured on the device
+  // (egypt-clearance/document-quality.js sanitizes them). Hints only.
+  documentQuality: z.preprocess(parseIfJsonString, z.array(z.any()).max(40).optional()),
   // Free-form structured answers from the wizard's "service data" step
   // (traveler list, package/visa-specific notes, ...) — intentionally
   // unstructured server-side (see schema.prisma's ContactRequest.intakeData

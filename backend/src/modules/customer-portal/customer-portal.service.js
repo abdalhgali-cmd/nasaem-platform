@@ -272,10 +272,10 @@ export async function getMyRequestById(customerId, requestId) {
   return { ...toCustomerRequest(request), timeline };
 }
 
-export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId, travelerId }) {
+export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId, travelerId, quality }) {
   const request = await prisma.contactRequest.findFirst({ where: { id: requestId, customerId }, select: { id: true } });
   if (!request) return { error: "NOT_FOUND" };
-  return createContactRequestDocument(requestId, { label, file, requirementId, travelerId });
+  return createContactRequestDocument(requestId, { label, file, requirementId, travelerId, quality });
 }
 
 export async function getMyRequestDeliverableFile(customerId, requestId, deliverableId) {

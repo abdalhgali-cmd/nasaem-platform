@@ -215,10 +215,10 @@ async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
   });
 }
 
-export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file, requirementId, travelerId }) {
+export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file, requirementId, travelerId, quality }) {
   const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
   if (!contactRequest) return { error: "NOT_FOUND" };
-  return createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId });
+  return createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, quality });
 }
 
 export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, file) {
