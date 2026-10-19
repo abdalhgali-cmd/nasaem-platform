@@ -6,6 +6,34 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
+## Mobile customer journeys — Concept C and simplified flows (2026-10-19, branch `feat/mobile-home-concept-c-20261019`, base `integration/phase2-completion-20261017` `40e928f`)
+
+Claude Code implemented; Codex reviewed through MCP (read-only tools only, no `codex_implement`).
+
+**VERIFIED**
+- Home: Concept C bento (`faedc31` cherry-picked), Umrah card listing the published kinds with their fixed SAR price and the server's SDG (tap opens that package), Egypt card with both entry prices (USD + server SDG), live service count, hotels hidden, white 4-tab navigation.
+- Request form: one «المتطلبات» screen (traveller cards with their own passport slots, guarantor/request documents, contact, agency questions, fixed total + explicit confirmation beside the send button). Payload to `POST /contact-requests` unchanged.
+- Umrah and Egypt bookable only at a fixed price on every path (home, services list, preselection, drafts); no quote fallback. Fixed-price services show Choose → Requirements → Pay → Track, never quote copy.
+- Payment: «إرسال إشعار التحويل», resume kept after «سأحوّل لاحقًا», no receipt upload when no account exists for the currency.
+- Tracking: customer moments (request → payment → issuing → ready), the customer's own task first, every server stage under «تفاصيل كل المراحل».
+- First launch: sign in or «المتابعة كزائر» (remembered); biometric accounts lock after 5 min idle/background; pinch-zoom allowed; focus moves to each screen title.
+- Codex: gap review + plan review + 6 code-review rounds; 23 confirmed findings fixed; last rounds: no confirmed findings.
+- Mobile unit tests 107/107, `npm run check` ok; web typecheck ok.
+- Playwright `mobile-app` project on a disposable local PostgreSQL + real backend: `mobile-app.spec` 11/11, `service-journeys.spec` 6/6, `pricing-progress.spec` 5/5.
+
+**NOT TESTED / BLOCKED**
+- Android APK not built here: `dl.google.com` (Android SDK) is blocked by this environment's network policy. The repository's `android-apk.yml` builds the signed QA APK on the pull request.
+- No real-device test; screenshots are Chromium renders of the web bundle.
+- Hotels e2e journey removed: hotel discovery was already hidden on the base branch by agency decision (now asserted absent instead).
+
+**Owner decisions / follow-ups**
+- Staging data: set FIXED prices on the Umrah packages and Egypt variants in the back-office (seeded as QUOTE → shown as unavailable).
+- Server copy (cross-surface, not in this branch): after payment confirmation it says «تم قبول الدفع، بانتظار بدء التنفيذ»; Egypt execution says «جارٍ استخراج الموافقة الأمنية» instead of «جاري إصدار الموافقة».
+- Egypt travel plan is still a post-payment customer step (collecting it at intake changes the staff workflow).
+- Customer passport OCR (today staff-only) could prefill traveller names.
+
+**NEXT:** review the PR into `integration/phase2-completion-20261017`, install the QA APK from its workflow run, real-device check at 360/390 dp and 130% font.
+
 ## Issue #98 — homepage service selection (2026-10-17)
 
 | Item | Status | Evidence |
