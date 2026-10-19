@@ -155,6 +155,10 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     // Egypt passport slots: quality hints and preview per slot key.
     quality: new Map(),
     previews: new Map(),
+    // Per slot: the selection whose analysis may still apply (a newer pick
+    // or a removal makes an older result void), and the slots being checked.
+    analysisGen: new Map(),
+    analyzing: new Set(),
     values: {
       name: customer?.fullName || "",
       phone: customer?.phone || "",
@@ -183,6 +187,19 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
 
   const answerRequirements = () => requirements.filter((requirement) => requirement.type !== "DOCUMENT" && requirementApplies(requirement, state.values.answers));
   const slots = () => buildDocumentSlots(requirements, state.values.answers, state.values.travelers);
+
+  const revokePreview = (key) => {
+    const url = state.previews.get(key);
+    if (url) URL.revokeObjectURL(url);
+    state.previews.delete(key);
+  };
+  const revokeAllPreviews = () => [...state.previews.keys()].forEach(revokePreview);
+  // A new pick or a removal voids any analysis still running for the slot.
+  const bumpAnalysis = (key) => {
+    state.analysisGen.set(key, (state.analysisGen.get(key) || 0) + 1);
+    state.analyzing.delete(key);
+    return state.analysisGen.get(key);
+  };
 
   let saveTimer = 0;
   const saveDraft = () => {
@@ -217,6 +234,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   bodyEl.querySelector("#discardDraftBtn")?.addEventListener("click", () => {
     if (submitting) return;
     dropDraft();
+    revokeAllPreviews();
     renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist });
   });
 
@@ -438,7 +456,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         const checking = row?.querySelector(".slot-checking");
         if (checking) checking.hidden = false;
         const capture = input.dataset.capture === "CAMERA" ? "CAMERA" : "UPLOAD";
+        const generation = bumpAnalysis(slot.key);
+        state.analyzing.add(slot.key);
         analyzePassportFile(file).then((result) => {
+          // Only the latest pick for this slot counts, and never mid-send.
+          if (state.analysisGen.get(slot.key) !== generation) return;
+          state.analyzing.delete(slot.key);
           if (submitting) return;
           if (!result.ok) {
             const errorEl = stepBody.querySelector(`[data-slot="${CSS.escape(slot.key)}"] .slot-error`);
@@ -447,8 +470,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
             if (checkingNow) checkingNow.hidden = true;
             return;
           }
-          const old = state.previews.get(slot.key);
-          if (old) URL.revokeObjectURL(old);
+          revokePreview(slot.key);
           state.files.set(slot.key, file);
           state.quality.set(slot.key, { warnings: result.warnings, checks: result.checks, capture, acceptedWithWarnings: result.warnings.length > 0 });
           if (!result.pdf && typeof URL.createObjectURL === "function") state.previews.set(slot.key, URL.createObjectURL(file));
@@ -477,11 +499,10 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     const removeFile = event.target.closest?.("[data-slot-remove]");
     if (removeFile) {
       syncData();
+      bumpAnalysis(removeFile.dataset.slotRemove);
       state.files.delete(removeFile.dataset.slotRemove);
       state.quality.delete(removeFile.dataset.slotRemove);
-      const preview = state.previews.get(removeFile.dataset.slotRemove);
-      if (preview) URL.revokeObjectURL(preview);
-      state.previews.delete(removeFile.dataset.slotRemove);
+      revokePreview(removeFile.dataset.slotRemove);
       renderForm();
       return;
     }
@@ -501,6 +522,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       const hasFiles = [...state.files.keys()].some((key) => key.endsWith(`::${index}`));
       if (hasFiles && !confirmDialog(`إزالة ${travelerWord} ${index + 1} ومستنداته؟`)) return;
       state.files = removeTravelerFiles(state.files, index);
+      // The quality hints and previews move with their passports.
+      for (const key of [...state.previews.keys()]) if (key.endsWith(`::${index}`)) revokePreview(key);
+      // Checks still running for this traveler or a later one (whose slots move) are void.
+      for (const key of [...state.analysisGen.keys()]) if (Number(String(key).split("::")[1]) >= index) bumpAnalysis(key);
+      state.quality = removeTravelerFiles(state.quality, index);
+      state.previews = removeTravelerFiles(state.previews, index);
       state.values.travelers = state.values.travelers.filter((_, position) => position !== index);
       saveDraft();
       renderForm();
@@ -525,6 +552,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     const messages = validateAll();
     const fixed = pricing() ? fixedTotalSummary(pricing(), state.values.travelers.length) : null;
     if (fixed && !stepBody.querySelector("#confirmTotal")?.checked) messages.push("أكّد الإجمالي النهائي قبل إرسال الطلب.");
+    if (state.analyzing.size) messages.push("انتظر انتهاء فحص صورة الجواز ثم أرسل.");
     showErrors(messages);
     if (messages.length) return;
 
@@ -583,6 +611,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       });
       // Only now - with the server's confirmation in hand - is the draft dropped.
       dropDraft();
+      revokeAllPreviews();
       showSubmitted(outcome, { serviceName: item.name, phone: v.phone, travelerCount: travelers.length, payNow: Boolean(fixed && !pricing()?.paymentAfterDocumentReview), steps: egyptMode ? "EGYPT" : null });
     } catch (error) {
       submitting = false;
