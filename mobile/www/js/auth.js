@@ -118,6 +118,23 @@ const PROMPT_TEXT = {
   cancel: "استخدام كلمة المرور",
 };
 
+/**
+ * Inactivity lock: with biometric login on, the account goes back to LOCKED —
+ * the token leaves memory (only its fingerprint-protected copy stays) and the
+ * customer's data is no longer readable until the fingerprint releases it and
+ * the server re-verifies it. Without biometric login there is nothing to
+ * unlock with, so nothing changes. Returns whether it locked.
+ */
+export async function lockAfterInactivity() {
+  if (state !== SessionState.VALID && state !== SessionState.PENDING) return false;
+  const { enabled } = await nativeBiometricStatus(TOKEN_KEY);
+  if (!enabled) return false;
+  setSessionToken(null);
+  currentCustomer = null;
+  setState(SessionState.LOCKED);
+  return true;
+}
+
 /** Step 1b when biometric login is on: the fingerprint releases the token. */
 export async function unlockWithBiometric() {
   const token = await nativeUnlockBiometric(TOKEN_KEY, PROMPT_TEXT);

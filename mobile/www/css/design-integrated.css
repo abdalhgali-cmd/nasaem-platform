@@ -179,3 +179,35 @@ button.hc-egypt-option:active {background:#dbe5f2;}
 .add-traveler {width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:10px;}
 .slot-pick, .slot-remove, .copy-row .chip-btn {min-height:48px;}
 .traveler-remove {min-height:48px;}
+
+/* Request tracking: the customer's moments, the task first, every server stage one tap away. */
+.journey-block {display:grid;gap:10px;}
+.journey-headline {margin:0;font-size:1.25rem;font-weight:800;line-height:1.4;color:#082b58;}
+.journey-detail {margin:0;font-size:.875rem;color:#56607a;}
+.journey-action {min-height:48px;}
+.journey-stages {list-style:none;margin:4px 0 0;padding:0;display:grid;gap:0;}
+.journey-stage {position:relative;display:flex;gap:12px;align-items:flex-start;padding:0 0 16px;}
+.journey-stage:not(:last-child)::after {content:"";position:absolute;inset-inline-start:10px;top:24px;bottom:2px;width:2px;background:#e2e7ef;}
+.journey-stage-done:not(:last-child)::after {background:#d6aa4b;}
+.journey-dot {flex:none;width:22px;height:22px;border-radius:50%;border:2px solid #cfd6e2;background:#fff;display:grid;place-items:center;font-size:.75rem;font-weight:800;color:#051a36;}
+.journey-stage-done .journey-dot {background:#d6aa4b;border-color:#d6aa4b;}
+.journey-stage-current .journey-dot {background:#082b58;border-color:#082b58;box-shadow:0 0 0 5px rgba(8,43,88,.12);}
+.journey-text {display:grid;gap:2px;min-width:0;}
+.journey-text b {font-size:.9375rem;font-weight:700;color:#0f1f3a;}
+.journey-stage-upcoming .journey-text b {color:#56607a;font-weight:600;}
+.journey-text small {font-size:.8125rem;color:#56607a;}
+.journey-details summary {min-height:48px;display:flex;align-items:center;font-weight:700;color:#082b58;cursor:pointer;}
+.journey-details .progress-block {margin:0;border:0;padding:0;}
+@media (prefers-reduced-motion:reduce) {.journey-stage-current .journey-dot {box-shadow:none;}}
+
+/* Welcome: sign in or continue as a guest, side by side in weight. */
+.welcome-screen .primary.welcome-login {display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;background:#fff;color:#082b58;box-shadow:none;}
+.welcome-guest-cta {min-height:52px;border:0;border-radius:14px;background:#d6aa4b;color:#051a36;font:inherit;font-size:1rem;font-weight:700;cursor:pointer;}
+.welcome-guest-cta:active, .welcome-screen .primary.welcome-login:active {transform:scale(.98);}
+.welcome-guest-note {margin:-2px 0 0;text-align:center;font-size:.8125rem;color:#c9d6e8;}
+.welcome-links {display:flex;justify-content:space-between;gap:8px;}
+.welcome-links .link-btn {min-height:48px;padding:0 6px;color:#fff;font-weight:700;}
+@media (prefers-reduced-motion:reduce) {.welcome-guest-cta:active, .welcome-screen .primary.welcome-login:active {transform:none;}}
+
+/* Programmatic focus on a screen title is for screen readers, not a visual ring. */
+h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus {outline:none;}

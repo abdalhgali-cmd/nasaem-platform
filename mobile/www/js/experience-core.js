@@ -4,12 +4,13 @@
 export const ONBOARDING_KEY = "nasaem.onboarding.v1";
 
 // What the app opens at launch. The app is usable without an account: the
-// only thing that can come before the public home is the one-time
-// introduction. A stored account session (token or biometric-locked) never
-// blocks the home screen; it is verified in the background, and biometrics
-// are asked for only when account data is opened.
+// only thing that can come before the public home is the one-time welcome —
+// sign in, or continue as a guest (one tap), or create an account. Once a
+// choice is made it is remembered (ONBOARDING_KEY). A stored account session
+// (token or biometric-locked) never blocks the home screen; it is verified in
+// the background, and biometrics are asked for only when account data is opened.
 export function launchRoute({ storedKind, onboardingDone }) {
-  if (storedKind === "none" && !onboardingDone) return "onboarding";
+  if (storedKind === "none" && !onboardingDone) return "welcome";
   return "home";
 }
 

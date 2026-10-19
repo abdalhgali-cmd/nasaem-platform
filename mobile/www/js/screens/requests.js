@@ -7,7 +7,7 @@ import * as tracking from "../tracking.js";
 import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
 import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "../payment-view.js";
-import { bindProgressTrack, progressBlockHtml } from "../progress-view.js";
+import { bindProgressTrack, journeyBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
 import { egyptVariantEntryMode, isEgyptClearanceItem } from "../egypt-view.js";
@@ -390,7 +390,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         <p>${esc(request.nextAction || "")}</p>
       </div>
 
-      ${progressBlockHtml(request.progress, esc, request)}
+      ${journeyBlockHtml(request.progress, esc, request)}
 
       ${pricing || payState.label ? `
         <div class="detail-block quote-block" id="quoteBlock">

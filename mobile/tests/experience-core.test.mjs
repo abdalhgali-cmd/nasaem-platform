@@ -6,7 +6,7 @@ import { launchRoute, firstName, greeting, buildBannerSlides, nextSlide, ONBOARD
 import { AGENCY, mergeAgencySettings, whatsappLink, telLink } from "../www/js/agency.js";
 
 test("launch: intro only on a first launch with nothing stored; otherwise the public home", () => {
-  assert.equal(launchRoute({ storedKind: "none", onboardingDone: false }), "onboarding");
+  assert.equal(launchRoute({ storedKind: "none", onboardingDone: false }), "welcome", "first launch: sign in or continue as guest");
   assert.equal(launchRoute({ storedKind: "none", onboardingDone: true }), "home");
 });
 
