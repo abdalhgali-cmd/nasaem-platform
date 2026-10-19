@@ -1,53 +1,19 @@
 import prisma from "../../config/database.js";
 import { trackingScope } from "../../utils/publicOrganization.js";
-import { logActivity } from "../../utils/activityLog.js";
 import { createContactRequestDocument } from "../contact-request-documents/contact-request-documents.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
 import { EGYPT_TRAVEL_TASK_KEYS, EGYPT_TRAVEL_TASK_TITLES } from "./egypt-travel-tasks.js";
-import { ACTIONS, checkAction, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
-import { refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
+import { ACTIONS, checkAction } from "../contact-request-workflow/workflow-policy.js";
+import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 
 import { isEgyptClearanceCode, variantEntryMode } from "../egypt-clearance/egypt-clearance-variants.js";
-const KHARTOUM_TIME_ZONE = "Africa/Khartoum";
+import { calendarDaysUntil, isApprovalIssued, parseDateOnly, requestTravelDate } from "../egypt-clearance/egypt-approval-rules.js";
+import { syncTravelReminders } from "../egypt-clearance/travel-reminders.service.js";
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function localDateParts(date, timeZone = KHARTOUM_TIME_ZONE) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const parts = formatter.formatToParts(date);
-  const year = Number(parts.find((part) => part.type === "year")?.value);
-  const month = Number(parts.find((part) => part.type === "month")?.value);
-  const day = Number(parts.find((part) => part.type === "day")?.value);
-  return { year, month, day };
-}
-
-function parseDateOnly(value) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const utc = new Date(Date.UTC(year, month - 1, day));
-  if (
-    utc.getUTCFullYear() !== year ||
-    utc.getUTCMonth() !== month - 1 ||
-    utc.getUTCDate() !== day
-  ) {
-    return null;
-  }
-  return { year, month, day, utc };
-}
-
+// Dates are Africa/Khartoum calendar days (egypt-approval-rules.js).
 export function calendarDaysUntilEntry(entryDate, now = new Date()) {
-  const parsed = parseDateOnly(entryDate);
-  if (!parsed) return null;
-  const today = localDateParts(now);
-  const todayUtc = Date.UTC(today.year, today.month - 1, today.day);
-  return Math.floor((parsed.utc.getTime() - todayUtc) / MS_PER_DAY);
+  return calendarDaysUntil(entryDate, now);
 }
 
 // The customer supplies a date, not an exact arrival time. We therefore
@@ -76,11 +42,11 @@ function bookingTaskKey(entryMode) {
 }
 
 // Tasks are found by their stable systemKey; the title is only for display.
-async function syncEgyptTravelTasks(contactRequestId, plan) {
+export async function syncEgyptTravelTasks(db, contactRequestId, plan) {
   const bookingKeys = [EGYPT_TRAVEL_TASK_KEYS.BOOKING_AIR, EGYPT_TRAVEL_TASK_KEYS.BOOKING_BORDER];
 
   if (plan.bookingStatus === "NEEDS_NASAEM") {
-    await prisma.caseTask.updateMany({
+    await db.caseTask.updateMany({
       where: {
         contactRequestId,
         status: "OPEN",
@@ -91,7 +57,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
       data: { status: "CANCELLED" },
     });
 
-    const existing = await prisma.caseTask.findFirst({
+    const existing = await db.caseTask.findFirst({
       where: {
         contactRequestId,
         status: "OPEN",
@@ -102,7 +68,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
       select: { id: true },
     });
     if (!existing) {
-      await prisma.caseTask.create({
+      await db.caseTask.create({
         data: {
           contactRequestId,
           type: "OTHER",
@@ -113,7 +79,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
       });
     }
   } else {
-    await prisma.caseTask.updateMany({
+    await db.caseTask.updateMany({
       where: {
         contactRequestId,
         status: "OPEN",
@@ -129,7 +95,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
   if (plan.circularStatus === "READY_FOR_CIRCULAR") {
     const parsed = parseDateOnly(plan.entryDate);
     const dueAt = parsed ? new Date(parsed.utc.getTime() - 3 * MS_PER_DAY) : null;
-    const existingCircular = await prisma.caseTask.findFirst({
+    const existingCircular = await db.caseTask.findFirst({
       where: {
         contactRequestId,
         status: "OPEN",
@@ -140,9 +106,9 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
       select: { id: true },
     });
     if (existingCircular) {
-      await prisma.caseTask.update({ where: { id: existingCircular.id }, data: { dueAt } });
+      await db.caseTask.update({ where: { id: existingCircular.id }, data: { dueAt } });
     } else {
-      await prisma.caseTask.create({
+      await db.caseTask.create({
         data: {
           contactRequestId,
           type: "OTHER",
@@ -154,7 +120,7 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
       });
     }
   } else {
-    await prisma.caseTask.updateMany({
+    await db.caseTask.updateMany({
       where: {
         contactRequestId,
         status: "OPEN",
@@ -167,6 +133,43 @@ async function syncEgyptTravelTasks(contactRequestId, plan) {
   }
 }
 
+// Writes a travel date as the request's canonical date, inside the caller's
+// locked transaction: the typed column, the plan kept in intakeData for
+// older clients, a new schedule revision when the date changes, the
+// circular task and the staff reminders — all from the same state.
+// `plan` is the full egyptTravel object to store.
+export async function applyTravelPlanInTransaction(tx, locked, plan) {
+  const previousDate = requestTravelDate(locked);
+  const dateChanged = previousDate !== plan.entryDate;
+  const updated = await tx.contactRequest.update({
+    where: { id: locked.id },
+    data: {
+      intakeData: { ...(locked.intakeData || {}), egyptTravel: plan },
+      travelEntryDate: plan.entryDate ? new Date(`${plan.entryDate}T00:00:00.000Z`) : null,
+      ...(dateChanged ? { travelScheduleRevision: { increment: 1 } } : {}),
+    },
+    select: { id: true, status: true, intakeData: true, travelEntryDate: true, travelScheduleRevision: true, visaType: { select: { code: true } } },
+  });
+  await syncEgyptTravelTasks(tx, locked.id, plan);
+  await syncTravelReminders(tx, updated);
+  return { updated, previousDate, dateChanged };
+}
+
+// The circular status for a plan as it would be stored on `request`.
+export function travelPlanFor(request, { entryMode, bookingStatus, entryDate, ticketDocumentId }) {
+  const circular = deriveEgyptCircularStatus({ entryDate, bookingStatus, approvalIssued: isApprovalIssued(request) });
+  return {
+    ...(request.intakeData?.egyptTravel || {}),
+    entryMode,
+    bookingStatus,
+    entryDate,
+    ticketDocumentId,
+    circularStatus: circular.status,
+    daysUntilEntry: circular.daysUntilEntry,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export async function saveMyEgyptTravelPlan(
   phoneNormalized,
   contactRequestId,
@@ -177,7 +180,8 @@ export async function saveMyEgyptTravelPlan(
     where: { id: contactRequestId, ...trackingScope(phoneNormalized) },
     include: {
       visaType: { select: { code: true } },
-      deliverables: { select: { id: true, publishedAt: true } },
+      deliverables: { select: { id: true, kind: true, publishedAt: true, supersededAt: true, travelerIds: true } },
+      travelers: { select: { id: true } },
     },
   });
 
@@ -214,42 +218,25 @@ export async function saveMyEgyptTravelPlan(
     ticketDocumentId = null;
   }
 
-  const circular = deriveEgyptCircularStatus({
-    entryDate,
-    bookingStatus,
-    approvalIssued: publishedDeliverables(request).length > 0,
-  });
-
-  const plan = {
-    entryMode,
-    bookingStatus,
-    entryDate,
-    ticketDocumentId,
-    circularStatus: circular.status,
-    daysUntilEntry: circular.daysUntilEntry,
-    updatedAt: new Date().toISOString(),
-  };
-
   // Written under the request's row lock, re-checking that it is still
-  // open and merging into the intakeData stored at that moment.
+  // open (and that the circular was not issued meanwhile) and merging into
+  // the intakeData stored at that moment.
   const saved = await withLockedRequest(contactRequestId, null, async (tx, locked) => {
     const refusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, locked);
     if (refusal) refuseWith(refusal);
-    await tx.contactRequest.update({
-      where: { id: contactRequestId },
-      data: { intakeData: { ...(locked.intakeData || {}), egyptTravel: plan } },
+    const plan = travelPlanFor(locked, { entryMode, bookingStatus, entryDate, ticketDocumentId });
+    const { previousDate } = await applyTravelPlanInTransaction(tx, locked, plan);
+    await auditInTransaction(tx, {
+      action: "EGYPT_CLEARANCE_TRAVEL_PLAN_UPDATED",
+      entityId: contactRequestId,
+      organizationId: locked.organizationId,
+      oldValue: { entryDate: previousDate, bookingStatus: currentPlan?.bookingStatus ?? null },
+      newValue: { entryDate, bookingStatus, entryMode, by: "CUSTOMER" },
     });
-    return { ok: true };
+    return { plan };
   });
   if (saved.error || saved.refusal) return saved;
-
-  await syncEgyptTravelTasks(contactRequestId, plan);
-
-  logActivity({
-    action: "EGYPT_CLEARANCE_TRAVEL_PLAN_UPDATED",
-    entity: "ContactRequest",
-    entityId: contactRequestId,
-  });
+  const { plan } = saved;
 
   await notifyAdmins({
     organizationId: request.organizationId,

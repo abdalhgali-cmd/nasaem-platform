@@ -10,7 +10,7 @@ import { createNotification, notifyRequestCustomer } from "../../utils/notificat
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { resolveUmrahContacts } from "../umrah/umrah-packages.js";
-import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, publishedDeliverables, allowedActions } from "../contact-request-workflow/workflow-policy.js";
+import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -23,6 +23,7 @@ import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
+import { syncTravelReminders } from "../egypt-clearance/travel-reminders.service.js";
 import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
@@ -429,7 +430,7 @@ export function computeReadiness(contactRequest) {
   // Release F: a case already sent to a provider is waiting on them, not
   // on us — that outranks "ready to process", which it no longer is.
   const awaitingProvider = (contactRequest.providerSubmissions || []).some((s) => s.status !== "FAILED");
-  const delivered = evaluateDelivery(contactRequest).complete && publishedDeliverables(contactRequest).length > 0;
+  const delivered = evaluateDelivery(contactRequest).complete && deliveryDeliverables(contactRequest).length > 0;
 
   let queue = "READY_FOR_PROCESSING";
   if (contactRequest.status === "CLOSED") queue = "COMPLETED";
@@ -832,6 +833,9 @@ export async function updateContactRequestStatus(id, { status, outcome, outcomeN
           : { status, outcome: null, outcomeNote: null, closedAt: null },
     });
     const reopened = existing.status === "CLOSED" && updated.status !== "CLOSED";
+    // Egypt travel reminders: a closed request gets none; a reopened one is
+    // scheduled again from its travel date.
+    if (existing.status !== updated.status) await syncTravelReminders(tx, { ...existing, ...updated });
     await auditInTransaction(tx, {
       userId,
       action: reopened ? "CONTACT_REQUEST_REOPENED" : "CONTACT_REQUEST_STATUS_CHANGED",
