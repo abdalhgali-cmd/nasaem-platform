@@ -163,13 +163,19 @@ export function featuredServices(catalog, limit = 4) {
 // Home shortcuts already expose the principal journeys and the visas hub.
 // "Featured" therefore uses only other priced Service records: no duplicate
 // shortcut cards and no individual VisaType duplicated outside its hub.
+// An Umrah package (umrah-view.js isUmrahPackage, repeated here to keep this
+// module free of imports from it): booked only through the Umrah chooser.
+const isUmrahPackageItem = (item) =>
+  String(item?.category || "").toUpperCase() === "UMRAH_PACKAGE" || String(item?.code || "").toUpperCase().startsWith("SVC-UMRAH-");
+
 export function homeFeaturedServices(catalog, shortcuts = resolveShortcuts(catalog), limit = 4) {
   const shortcutIds = new Set(shortcuts.map((shortcut) => shortcut.item?.id).filter(Boolean));
   const shortcutCodes = new Set(
     shortcuts.flatMap((shortcut) => shortcut.codes || []).map((code) => code.toUpperCase())
   );
   return featuredServices({ services: catalog?.services || [], visaTypes: [] }, Number.MAX_SAFE_INTEGER)
-    .filter((item) => !isPostponedHotel(item) && !shortcutIds.has(item.id) && !shortcutCodes.has((item.code || "").toUpperCase()))
+    // Umrah packages live on the Umrah card (fixed prices only), not here.
+    .filter((item) => !isPostponedHotel(item) && !isUmrahPackageItem(item) && !shortcutIds.has(item.id) && !shortcutCodes.has((item.code || "").toUpperCase()))
     .slice(0, limit);
 }
 

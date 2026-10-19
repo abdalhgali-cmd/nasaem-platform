@@ -156,3 +156,15 @@ test("a fixed-price service never shows quote copy: its own steps and note", asy
   assert.equal(requestSteps({ pricingMode: "FIXED", basePrice: "0" }), REQUEST_STEPS);
   assert.equal(priceNote({}), FINAL_PRICE_NOTE);
 });
+
+test("home featured list never offers an Umrah package outside the Umrah chooser", async () => {
+  const { homeFeaturedServices } = await import("../www/js/service-view.js");
+  const cat = {
+    services: [
+      { id: "u1", code: "SVC-UMRAH-VISA", category: "UMRAH_PACKAGE", basePrice: "1200", currency: "SAR" },
+      { id: "t1", code: "SVC-PKG-FAMILY", category: "package", basePrice: "2900", currency: "SAR" },
+    ],
+    visaTypes: [],
+  };
+  assert.deepEqual(homeFeaturedServices(cat, []).map((item) => item.id), ["t1"]);
+});
