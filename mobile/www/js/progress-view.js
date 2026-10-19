@@ -161,6 +161,9 @@ export function customerJourney(progress, request = null) {
   const steps = progressSteps(progress);
   if (!steps.length) return null;
   const byKey = new Map(steps.map((step) => [step.key, step]));
+  // A closed or finished request has no current stage on the server: then
+  // nothing is shown as in progress.
+  const open = steps.some((step) => step.state === "current");
   const stages = [];
   for (const group of CUSTOMER_GROUPS) {
     const members = group.members.map((key) => byKey.get(key)).filter(Boolean);
@@ -170,7 +173,7 @@ export function customerJourney(progress, request = null) {
     // still being reviewed). Its line is that of its first unfinished step.
     const current = members.find((step) => step.state === "current");
     const allDone = members.every((step) => step.state === "done");
-    const partly = !allDone && members.some((step) => step.state === "done");
+    const partly = open && !allDone && members.some((step) => step.state === "done");
     const state = allDone ? "done" : current || partly ? "current" : "upcoming";
     const label = group.label || members[0].label;
     const pending = current || members.find((step) => step.state !== "done");

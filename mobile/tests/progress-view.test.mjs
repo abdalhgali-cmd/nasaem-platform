@@ -116,3 +116,10 @@ test("customer journey: a receipt sent while documents are still reviewed shows 
   assert.equal(pay.detail, "الإيصال قيد مراجعة الوكالة؛ لم يُقبل الدفع بعد.");
   assert.equal(journey.stages.find((s) => s.key === "EXECUTION").state, "upcoming");
 });
+
+test("customer journey: a closed request shows nothing as in progress", async () => {
+  const { customerJourney } = await import("../www/js/progress-view.js");
+  const journey = customerJourney(fixedSteps({ label: "تم إلغاء الطلب", RECEIVED: "done", DOCUMENTS: "upcoming", PAYMENT: "done", PAYMENT_REVIEW: "upcoming", EXECUTION: "upcoming", DELIVERY: "upcoming" }), { status: "CLOSED", allowedActions: [] });
+  assert.ok(!journey.stages.some((s) => s.state === "current"));
+  assert.equal(journey.headline, "تم إلغاء الطلب");
+});
