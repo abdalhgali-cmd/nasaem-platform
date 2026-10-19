@@ -2,7 +2,7 @@ import { esc, toast, skeletonList, confirmDialog } from "../ui.js";
 import { startingPrice, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE, shortDescription, durationOf } from "../service-view.js";
 import { isUmrahPackage, umrahPackageDetails, umrahPriceText, UMRAH_UNAVAILABLE } from "../umrah-view.js";
 import { icon } from "../icons.js";
-import { loadPackages } from "../catalog.js";
+import { loadCatalog, loadPackages } from "../catalog.js";
 import { loadAgency, whatsappLink } from "../agency.js";
 import { renderIntakeScreen } from "./intake.js";
 
@@ -11,8 +11,17 @@ import { renderIntakeScreen } from "./intake.js";
 // requirements form right below it. A package without a fixed price cannot be
 // booked: it is shown as unavailable, never as «price later».
 // `params.packageId`: a package already chosen on the home screen.
+// The Umrah service (or its visa type) whose checklist a package without its
+// own falls back to — never another package.
+async function umrahBaseItem(item) {
+  if (item && !isUmrahPackage(item)) return item;
+  const catalog = await loadCatalog();
+  const items = [...(catalog.services || []), ...(catalog.visaTypes || [])];
+  return items.find((candidate) => candidate.code === "SVC-UMRAH") || items.find((candidate) => candidate.code === "VISA-UMRAH") || null;
+}
+
 export async function renderUmrahScreen({ bodyEl, params }) {
-  const { item, packageId = null } = params;
+  const { packageId = null } = params;
   bodyEl.innerHTML = `
     <section class="section umrah-choose">
       <h2 class="umrah-title" id="umrahChooseTitle">اختر باقة العمرة</h2>
@@ -25,8 +34,9 @@ export async function renderUmrahScreen({ bodyEl, params }) {
 
   const packagesList = bodyEl.querySelector("#packagesList");
   let packages;
+  let item;
   try {
-    packages = (await loadPackages()).filter(isUmrahPackage);
+    [packages, item] = await Promise.all([loadPackages().then((list) => list.filter(isUmrahPackage)), umrahBaseItem(params.item)]);
   } catch (error) {
     packagesList.innerHTML = `<p class="field-hint">تعذر تحميل الباقات: ${esc(error.message)}</p>`;
     toast(error.message, { tone: "error" });
@@ -112,7 +122,7 @@ function mountIntake(bodyEl, item, baseItem = null) {
     summary: `الباقة المختارة: ${item.name} — ${fixed}`,
     details: { type: "UMRAH_PACKAGE", packageId: item.id, name: item.name, basePrice: startingPrice(item)?.amount ?? null, currency: startingPrice(item)?.currency ?? null },
   };
-  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection, fallbackRequirementsItem: baseItem, showSelection: false })
+  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection, fallbackRequirementsItem: baseItem, showSelection: false, requireChecklist: true })
     .then(() => mount.scrollIntoView({ behavior: "smooth", block: "start" }))
     .catch((error) => toast(error.message, { tone: "error" }));
 }

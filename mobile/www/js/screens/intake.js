@@ -100,7 +100,9 @@ async function fetchRequirements(item) {
 // e.g. a flight — { summary, details }. It is shown and sent with the request.
 // `initialTravelers`: how many travelers the customer already said (flights).
 // `showSelection`: false when the choice is already visible on the same screen (Umrah).
-export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null, fallbackRequirementsItem = null, initialTravelers = 1, showSelection = true }) {
+// `requireChecklist`: the service cannot be requested without documents
+// (Umrah): an empty checklist is a configuration gap, not "nothing needed".
+export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null, fallbackRequirementsItem = null, initialTravelers = 1, showSelection = true, requireChecklist = false }) {
   setTitle(`طلب ${item.name}`);
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل متطلبات الخدمة…</p></div>`;
 
@@ -110,6 +112,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     // A package the agency has not given its own checklist falls back to the
     // checklist of the parent service (e.g. the Umrah service's passport/sponsor).
     if (!requirements.length && fallbackRequirementsItem) requirements = await fetchRequirements(fallbackRequirementsItem);
+    if (!requirements.length && requireChecklist) throw new ApiError("لم تُحدِّد الوكالة مستندات هذه الخدمة بعد.", { status: 0, code: "NO_CHECKLIST" });
   } catch (error) {
     // Without the checklist we can't tell the customer what to send, so the
     // form is not offered at all — only a retry.
@@ -117,11 +120,11 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       <div class="empty-state" id="requirementsError" role="alert">
         ${icon("alert", { size: 28 })}
         <h3>تعذّر تحميل متطلبات الخدمة</h3>
-        <p>${esc(error?.status === 0 ? "تحقق من اتصالك بالإنترنت ثم أعد المحاولة." : "حدث خطأ في الخادم. أعد المحاولة بعد قليل.")} لن نعرض النموذج قبل التأكد من المستندات المطلوبة لهذه الخدمة.</p>
+        <p>${esc(error?.code === "NO_CHECKLIST" ? "لم تُحدِّد الوكالة مستندات هذه الخدمة بعد؛ تواصل معنا أو أعد المحاولة لاحقًا." : error?.status === 0 ? "تحقق من اتصالك بالإنترنت ثم أعد المحاولة." : "حدث خطأ في الخادم. أعد المحاولة بعد قليل.")} لن نعرض النموذج قبل التأكد من المستندات المطلوبة لهذه الخدمة.</p>
         <button type="button" class="primary" id="retryRequirementsBtn">إعادة المحاولة</button>
       </div>`;
     bodyEl.querySelector("#retryRequirementsBtn").addEventListener("click", () =>
-      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection })
+      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist })
     );
     return;
   }
@@ -201,7 +204,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   bodyEl.querySelector("#discardDraftBtn")?.addEventListener("click", () => {
     if (submitting) return;
     dropDraft();
-    renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection });
+    renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist });
   });
 
   function showErrors(messages) {

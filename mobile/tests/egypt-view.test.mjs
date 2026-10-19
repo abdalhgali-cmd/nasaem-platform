@@ -67,3 +67,10 @@ test("Egypt variant cards: the server's SDG equivalent or the notice, never a co
   const [unpublished] = egyptVariantOptions({ services: [], visaTypes: [] });
   assert.equal(unpublished.sdgText, "");
 });
+
+test("screen routing: Umrah service, visa type and packages go to the Umrah chooser; tour packages do not", () => {
+  assert.equal(resolveServiceScreen({ code: "SVC-UMRAH", category: "umrah" }), "umrah");
+  assert.equal(resolveServiceScreen({ code: "VISA-UMRAH", category: "UMRAH" }), "umrah");
+  assert.equal(resolveServiceScreen({ code: "SVC-UMRAH-AIR", category: "UMRAH_PACKAGE" }), "umrah");
+  assert.equal(resolveServiceScreen({ code: "SVC-PKG-FAMILY", category: "package" }), "serviceDetail");
+});

@@ -52,7 +52,8 @@ function umrahService() {
 
 export function openServiceItem(item, extra = {}) {
   if (isUmrahPackage(item)) {
-    go("umrah", { item: umrahService() || item, packageId: item.id, ...extra }, { title: "العمرة", tab: "services" });
+    // The Umrah screen resolves the Umrah service itself when it is not cached.
+    go("umrah", { item: umrahService(), packageId: item.id, ...extra }, { title: "العمرة", tab: "services" });
     return;
   }
   if (isUmrahEntry(item)) {
