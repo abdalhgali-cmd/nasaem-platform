@@ -2,13 +2,14 @@ import { api } from "../api.js";
 import { esc, skeletonGrid } from "../ui.js";
 import { icon, iconForService } from "../icons.js";
 import { getCustomer, isAccountUnlocked } from "../auth.js";
-import { loadCatalog, loadHomepage } from "../catalog.js";
+import { loadCatalog, loadHomepage, loadPackages } from "../catalog.js";
 import { go, goToTab } from "../router.js";
 import { openServiceById, openServiceItem, VISAS_HUB_CODE } from "./services.js";
 import { homeBentoTiles, publishedServiceCount, serviceCountText, hubVisaTypes, homeFeaturedServices, startingPrice, priceText, sdgText, durationOf } from "../service-view.js";
 import { firstName, greeting, buildBannerSlides, nextSlide, readPendingPayment } from "../experience-core.js";
 import { prefersReducedMotion, stagger, watchSnapIndex, scrollToSlide, tapFeedback } from "../motion.js";
 import { loadAgency, whatsappLink } from "../agency.js";
+import { umrahKindOffers } from "../umrah-view.js";
 
 // Order.status (richer enum) vs ContactRequest.status (NEW/CONTACTED/CLOSED
 // only — see requests.js's REQUEST_STATUS_AR/REQUEST_OUTCOME_AR for why).
@@ -259,8 +260,30 @@ function umrahTile() {
     <div class="hc-tile hc-tile-feature">
       <span class="hc-tile-icon">${icon("umrah", { size: 24 })}</span>
       <span class="hc-feature-copy"><strong>خدمات العمرة</strong><small>تأشيرة فقط أو عمرة مع خدمات بالطيران أو البحر</small></span>
+      <ul class="hc-umrah-kinds" id="homeUmrahKinds" aria-label="أنواع العمرة وأسعارها" hidden></ul>
       <button type="button" class="hc-feature-cta" id="homeUmrahBtn">اطلب الخدمة ${icon("chevron-start", { size: 18 })}</button>
     </div>`;
+}
+
+// The published Umrah kinds with their real prices (/services/public/packages).
+// Without packages, or if they fail to load, the card keeps its description.
+async function fillUmrahKinds(bento) {
+  const list = bento.querySelector("#homeUmrahKinds");
+  if (!list) return;
+  try {
+    const offers = umrahKindOffers(await loadPackages());
+    if (!offers.length) return;
+    list.innerHTML = offers.map((offer) => `
+      <li class="hc-umrah-kind">
+        <span class="hc-umrah-kind-label">${esc(offer.label)}</span>
+        ${offer.priceText
+          ? `<span class="hc-umrah-kind-price"><bdi>${esc(offer.priceText)}</bdi>${offer.sdgText ? `<small><bdi>${esc(offer.sdgText)}</bdi></small>` : ""}</span>`
+          : `<span class="hc-umrah-kind-price is-pending">السعر بعد مراجعة الوكالة</span>`}
+      </li>`).join("");
+    list.hidden = false;
+  } catch {
+    list.hidden = true;
+  }
 }
 
 async function loadCatalogSection(bodyEl, { allServices }) {
@@ -292,6 +315,7 @@ async function loadCatalogSection(bodyEl, { allServices }) {
         </button>` : "",
     ].join("");
     stagger(bento);
+    if (umrah) fillUmrahKinds(bento);
     bento.querySelector("#homeUmrahBtn")?.addEventListener("click", () => { tapFeedback(); openServiceItem(umrah); });
     bento.querySelector("#allServicesFromHome")?.addEventListener("click", () => { tapFeedback(); allServices(); });
     bento.querySelectorAll(".hc-tile[data-key]").forEach((button) => {

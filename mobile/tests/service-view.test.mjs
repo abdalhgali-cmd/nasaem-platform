@@ -129,6 +129,10 @@ test("service count is dynamic: hotels excluded, linked visa types not double-co
   };
   assert.equal(publishedServiceCount(cat), 4, "flight, umrah, egypt + unlinked international visa");
   assert.equal(publishedServiceCount({ services: [], visaTypes: [] }), 0);
+  assert.equal(publishedServiceCount({ services: [], visaTypes: [{ id: "u", code: "VISA-UMRAH", category: "UMRAH" }] }), 1,
+    "Umrah published only as a visa type is still one service");
+  assert.equal(publishedServiceCount({ services: [{ id: "s3", code: "SVC-UMRAH" }], visaTypes: [{ id: "u", code: "VISA-UMRAH", category: "UMRAH" }] }), 1,
+    "an unlinked Umrah visa next to the Umrah service is not counted twice");
 });
 
 test("service count text follows Arabic number agreement", async () => {

@@ -84,12 +84,15 @@ export function resolveShortcuts(catalog) {
 // Distinct services a customer can request, for «كل الخدمات (N)»: every
 // published Service (postponed hotels excluded) plus any visa type that has no
 // Service of its own. A visa type linked to a listed Service (serviceId) is the
-// same journey and is not counted twice. Umrah visa types belong to Umrah.
+// same journey and is not counted twice. Umrah visa types belong to Umrah:
+// they add one journey only when no Umrah Service is published.
 export function publishedServiceCount(catalog) {
   const services = (catalog?.services || []).filter((item) => !isPostponedHotel(item));
   const ids = new Set(services.map((item) => item.id));
   const unlinked = hubVisaTypes(catalog).filter((visaType) => !(visaType.serviceId && ids.has(visaType.serviceId)));
-  return services.length + unlinked.length;
+  const umrahService = services.some((item) => String(item.code || "").toUpperCase().includes("UMRAH"));
+  const umrahVisaOnly = !umrahService && (catalog?.visaTypes || []).some((visaType) => String(visaType.category || "").toUpperCase() === "UMRAH");
+  return services.length + unlinked.length + (umrahVisaOnly ? 1 : 0);
 }
 
 // "خدمة واحدة" / "خدمتان" / "3 خدمات" / "11 خدمة" — Arabic number agreement.

@@ -42,25 +42,35 @@ button, .bottom-nav button, .icon-btn, .chip-btn, .ob-skip { touch-action:manipu
 .hc-top {display:flex;align-items:center;gap:12px;padding:calc(16px + var(--safe-top)) 16px 8px;}
 .hc-mark {flex:none;width:44px;height:44px;border-radius:50%;background:#fff;padding:2px;object-fit:contain;border:1px solid #e2e7ef;}
 .hc-greeting {flex:1;min-width:0;}
-.hc-greeting small {display:block;font-size:13px;line-height:1.5;color:#56607a;}
-.hc-greeting h1 {margin:0;font-size:22px;line-height:1.35;font-weight:800;color:#0f1f3a;}
+.hc-greeting small {display:block;font-size:0.8125rem;line-height:1.5;color:#56607a;}
+.hc-greeting h1 {margin:0;font-size:1.375rem;line-height:1.35;font-weight:800;color:#0f1f3a;}
 .hc-icon-btn {position:relative;flex:0 0 48px;width:48px;height:48px;min-width:48px;min-height:48px;display:grid;place-items:center;border-radius:14px;background:#fff;border:1px solid #e2e7ef;color:#082b58;}
 .hc-search-wrap {padding:4px 16px 0;}
-.hc-search {width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:0 16px;border-radius:14px;background:#fff;border:1px solid #e2e7ef;color:#56607a;font-size:15px;text-align:start;}
+.hc-search {width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:0 16px;border-radius:14px;background:#fff;border:1px solid #e2e7ef;color:#56607a;font-size:0.9375rem;text-align:start;}
 .hc-bento-wrap {container-type:inline-size;padding:16px 16px 0;}
 .hc-bento {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(104px,auto);gap:10px;}
-.hc-tile {min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:10px;padding:14px;border-radius:20px;background:#fff;border:1px solid #e2e7ef;color:#0f1f3a;text-align:start;font-size:14px;font-weight:600;line-height:1.45;overflow-wrap:break-word;transition:transform .14s ease-out,background-color .14s ease-out;}
+.hc-tile {min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:10px;padding:14px;border-radius:20px;background:#fff;border:1px solid #e2e7ef;color:#0f1f3a;text-align:start;font-size:0.875rem;font-weight:600;line-height:1.45;overflow-wrap:break-word;transition:transform .14s ease-out,background-color .14s ease-out;}
 button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 .hc-tile-icon {width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:#eaf0f8;color:#082b58;}
 .hc-tile-label {min-width:0;}
-.hc-tile-label small {display:block;font-size:13px;font-weight:400;color:#56607a;}
-.hc-tile-feature {grid-column:span 2;grid-row:span 2;background:#082b58;border-color:#082b58;color:#fff;padding:16px;}
+.hc-tile-label small {display:block;font-size:0.8125rem;font-weight:400;color:#56607a;}
+/* Full width: the feature carries the published Umrah kinds and prices,
+   so the service tiles beside it would only be stretched. */
+.hc-tile-feature {grid-column:1 / -1;background:#082b58;border-color:#082b58;color:#fff;padding:16px;}
 .hc-tile-feature .hc-tile-icon {background:rgba(255,255,255,.12);color:#fff;}
 .hc-feature-copy {display:grid;gap:3px;}
-.hc-feature-copy strong {font-size:20px;line-height:1.35;font-weight:800;}
-.hc-feature-copy small {font-size:13px;line-height:1.5;color:rgba(255,255,255,.86);font-weight:400;}
-.hc-feature-cta {min-height:48px;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:14px;background:#d6aa4b;color:#051a36;font-size:15px;font-weight:800;border:0;transition:transform .14s ease-out;}
+.hc-feature-copy strong {font-size:1.25rem;line-height:1.35;font-weight:800;}
+.hc-feature-copy small {font-size:0.8125rem;line-height:1.5;color:rgba(255,255,255,.86);font-weight:400;}
+.hc-feature-cta {min-height:max(48px,3rem);display:flex;align-items:center;justify-content:center;gap:6px;border-radius:14px;background:#d6aa4b;color:#051a36;font-size:0.9375rem;font-weight:800;border:0;transition:transform .14s ease-out;}
 .hc-feature-cta:active {transform:scale(.97);}
+/* The published Umrah kinds and their real prices, inside the feature tile. */
+.hc-umrah-kinds {list-style:none;margin:0;padding:0;display:grid;gap:6px;}
+.hc-umrah-kinds[hidden] {display:none;}
+.hc-umrah-kind {display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 10px;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.1);font-size:0.8125rem;line-height:1.45;}
+.hc-umrah-kind-label {font-weight:600;color:#fff;}
+.hc-umrah-kind-price {font-weight:700;color:#ecd08b;text-align:end;}
+.hc-umrah-kind-price small {display:block;font-size:0.75rem;font-weight:400;color:rgba(255,255,255,.8);}
+.hc-umrah-kind-price.is-pending {font-weight:400;color:rgba(255,255,255,.86);}
 .hc-tile-wide {grid-column:1 / -1;flex-direction:row;align-items:center;gap:12px;}
 .hc-tile-wide .hc-tile-label {flex:1;}
 .hc-tile-wide > svg:last-child {color:#8b94a7;flex:none;}
@@ -68,21 +78,20 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 .hc-tile-all .hc-tile-icon {background:#fff;}
 .hc-bento > :not(.hc-tile) {grid-column:1 / -1;}
 /* Narrow box (e.g. 360px with large system text): two columns; the feature
-   and closing tiles take the full width. */
-@container (max-width:304px) {
+   and closing tiles take the full width. In rem so 130% text switches too. */
+@container (max-width:19rem) {
   .hc-bento {grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(88px,auto);}
-  .hc-tile-feature {grid-row:auto;}
   .hc-tile-all {grid-column:1 / -1;flex-direction:row;align-items:center;gap:12px;}
 }
 .home-banner {margin:20px 16px 10px;}
 .home-journey {container-type:inline-size;margin:12px 0 0;padding-top:12px!important;}
-.home-journey .section-head h2 {font-size:17px;font-weight:800;color:#0f1f3a;}
+.home-journey .section-head h2 {font-size:1.0625rem;font-weight:800;color:#0f1f3a;}
 .home-journey-grid {list-style:none;margin:0;padding:12px 10px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;border:1px solid #e2e7ef;background:#fff;border-radius:20px;}
-.home-journey-grid li {min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;line-height:1.5;font-size:12px;color:var(--text-muted);}
+.home-journey-grid li {min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;line-height:1.5;font-size:0.75rem;color:var(--text-muted);}
 .home-journey-grid li span {display:grid;place-items:center;border-radius:50%;width:30px;height:30px;background:#082b58;color:#fff;font-weight:800;}
 .home-journey-grid li:first-child span {background:#d6aa4b;color:#051a36;}
-.home-journey-grid li strong {font-size:12px;font-weight:700;overflow-wrap:break-word;}
-@container (max-width:344px) {
+.home-journey-grid li strong {font-size:0.75rem;font-weight:700;overflow-wrap:break-word;}
+@container (max-width:22rem) {
   .home-journey-grid {grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
   .home-journey-grid li {flex-direction:row;justify-content:flex-start;text-align:start;padding:7px;min-height:48px;background:#f3f5f9;border-radius:10px;}
   .home-journey-grid li span {flex:none;}
@@ -101,11 +110,14 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 .svc-node {border-radius:12px;}
 .svc-card {border-radius:16px;min-height:72px;}
 .svc-card:focus-visible {outline-color:#d6aa4b;}
-/* 48px accessibility targets, and a dark fixed navigation as in concept B. */
-.bottom-nav {background:#051a36;border-top:1px solid rgba(214,170,75,.35);backdrop-filter:none;}
-.bottom-nav button {min-height:48px;color:rgba(255,255,255,.8);font-size:12px;}
-.bottom-nav button.active {color:#ecd08b;}
-.bottom-nav .nav-indicator::before {background:#d6aa4b;}
+/* Concept C navigation: white, four labelled icons, a pale pill behind the
+   active icon and 48px targets. */
+.bottom-nav {background:#fff;border-top:1px solid #e2e7ef;backdrop-filter:none;padding:.35rem .5rem calc(.45rem + var(--safe-bottom));}
+.bottom-nav button {min-height:48px;gap:2px;color:#56607a;font-size:.75rem;font-weight:600;line-height:1.3;}
+.bottom-nav button.active {color:#082b58;font-weight:700;}
+.bottom-nav .nav-icon {width:3.25rem;height:2rem;align-items:center;justify-content:center;border-radius:999px;transition:background-color .14s ease-out;}
+.bottom-nav button.active .nav-icon {background:#eaf0f8;transform:none;}
+.bottom-nav .nav-indicator {display:none;}
 .icon-btn {min-width:48px;min-height:48px;width:48px;height:48px;flex-basis:48px;}
 .screen-head-spacer {width:48px;}
 @media (prefers-reduced-motion:reduce) {

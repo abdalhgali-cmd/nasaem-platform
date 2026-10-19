@@ -1,6 +1,6 @@
 import { esc, toast, skeletonList } from "../ui.js";
 import { startingPrice, priceText, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE, shortDescription, durationOf } from "../service-view.js";
-import { umrahPackageDetails, umrahPriceText } from "../umrah-view.js";
+import { isUmrahPackage, umrahPackageDetails, umrahPriceText } from "../umrah-view.js";
 import { icon } from "../icons.js";
 import { loadPackages } from "../catalog.js";
 import { renderIntakeScreen } from "./intake.js";
@@ -24,10 +24,7 @@ export async function renderUmrahScreen({ bodyEl, params }) {
 
   const packagesList = bodyEl.querySelector("#packagesList");
   try {
-    const packages = (await loadPackages()).filter((pkg) =>
-      String(pkg.category || "").toUpperCase() === "UMRAH_PACKAGE" ||
-      String(pkg.code || "").toUpperCase().startsWith("SVC-UMRAH-")
-    );
+    const packages = (await loadPackages()).filter(isUmrahPackage);
     if (!packages.length) {
       packagesList.innerHTML = `
         <p class="field-hint">لا توجد باقات عمرة منشورة حالياً.</p>
