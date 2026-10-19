@@ -7,6 +7,8 @@ import { logActivity } from "../../utils/activityLog.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { notifyRequestCustomer } from "../../utils/notifications.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
+import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { sanitizeQualitySignal } from "../egypt-clearance/document-quality.js";
 import { describeRequest, notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
 
 import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
@@ -61,9 +63,10 @@ async function validateRequirementUpload(contactRequest, requirementId, file, tr
   return { requirement };
 }
 
-export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, classification, silent = false }) {
+export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, classification, silent = false, quality }) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
+    include: { visaType: { select: { code: true } } },
   });
 
   if (!contactRequest) {
@@ -93,7 +96,9 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
     requirement = validation.requirement;
   }
 
-  const ocrResult = await maybeRunPassportOcr(requirement, file);
+  // Egypt security approval: minimal retention, only an MRZ-found signal.
+  const ocrResult = await maybeRunPassportOcr(requirement, file, { signalOnly: isEgyptClearanceCode(contactRequest.visaType?.code) });
+  const qualitySignal = sanitizeQualitySignal(quality);
 
   // Smart Case Operations — Release A (document versioning / replacement
   // flow). A new upload for the same requirement+traveler that currently
@@ -127,6 +132,7 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
           // that know better (e.g. a payment receipt) pass something else.
           ...(classification ? { classification } : {}),
           ocrResult: ocrResult ?? undefined,
+          qualitySignal: qualitySignal ?? undefined,
           fileName: file.originalname,
           // Relative to the uploads root, not the absolute server path — same
           // convention as documents.controller.js, so API responses never leak

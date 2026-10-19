@@ -24,6 +24,7 @@ export const CAPABILITIES_FILE = path.join(backendRoot, "release-compatibility.j
 export const STAFF_SESSION_MIGRATION = "20261010120000_staff_session_revocation";
 export const PAYMENT_REFUNDS_MIGRATION = "20261010130000_payment_refunds_idempotency";
 export const EXPLICIT_PRICING_MIGRATION = "20261014100000_explicit_pricing_mode";
+export const EGYPT_APPROVAL_MIGRATION = "20261019090000_egypt_approval_workflow";
 
 // Once a migration has been applied, any build serving that database must
 // declare these capabilities. The guard capability is required too, so a
@@ -34,6 +35,9 @@ const REQUIRED_CAPABILITIES = {
   // A build without it would let staff re-quote a fixed price the customer
   // already accepted, and open payment before the document review.
   [EXPLICIT_PRICING_MIGRATION]: ["migration-compatibility-guard-v1", "fixed-pricing-v1"],
+  // A build without it would count a circular or a ticket as the Egypt
+  // approval, and ignore the canonical travel date and the paid receipts.
+  [EGYPT_APPROVAL_MIGRATION]: ["migration-compatibility-guard-v1", "egypt-approval-workflow-v1"],
 };
 
 export function readLocalMigrations(dir = MIGRATIONS_DIR) {

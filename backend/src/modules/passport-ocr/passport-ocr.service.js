@@ -254,7 +254,12 @@ const IMAGE_MIME_PREFIX = "image/";
 // Never throws and never blocks the upload: a failed/absent extraction
 // (bad photo, non-passport document, OCR error) just means no result is
 // attached — the upload itself still succeeds.
-export async function maybeRunPassportOcr(requirement, file) {
+//
+// signalOnly (Egypt security approval: minimal retention): nothing read from
+// the passport is kept — only whether a checksum-valid passport MRZ was
+// found ({ signalOnly: true, mrz: "VALID" | "NOT_READ" }). A missing or
+// unreadable MRZ is a hint for staff review, never a refusal.
+export async function maybeRunPassportOcr(requirement, file, { signalOnly = false } = {}) {
   if (!requirement?.ocrEnabled || !file.mimetype.startsWith(IMAGE_MIME_PREFIX)) {
     return null;
   }
@@ -264,12 +269,15 @@ export async function maybeRunPassportOcr(requirement, file) {
   // not just one entry point.
   if (!(await isFeatureEnabled("PASSPORT_OCR"))) return null;
 
+  let result = null;
   try {
     const buffer = file.buffer || (await fs.readFile(file.path));
-    return await extractPassportData(buffer);
+    result = await extractPassportData(buffer);
   } catch {
-    return null;
+    result = null;
   }
+  if (signalOnly) return { signalOnly: true, mrz: result ? "VALID" : "NOT_READ" };
+  return result;
 }
 
 export async function terminateOcrWorker() {

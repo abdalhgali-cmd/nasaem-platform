@@ -16,7 +16,8 @@ import { getContactRequestDeliverableFile } from "../contact-request-deliverable
 import path from "path";
 import { notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
 import { ACTIONS, allowedActions, checkAction, paymentLockReasons, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
-import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
+import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
+import { egyptOverview, isApprovalIssued } from "../egypt-clearance/egypt-approval-rules.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-checklist.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -130,6 +131,8 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
       // For the completion policy only (Egypt travel tasks); not sent to the customer.
       tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true, systemKey: true } },
+      linkedRequests: WORKFLOW_INCLUDE.linkedRequests,
+      paymentReceipt: { select: { receiptNo: true, pdfStatus: true } },
     },
   });
 
@@ -165,7 +168,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       const liveCircular = deriveEgyptCircularStatus({
         entryDate: storedEgyptTravel.entryDate,
         bookingStatus: storedEgyptTravel.bookingStatus,
-        approvalIssued: publishedDeliverables(request).length > 0,
+        approvalIssued: isApprovalIssued(request),
       });
       liveEgyptTravel = {
         ...storedEgyptTravel,
@@ -175,7 +178,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
     }
 
     // Who recorded execution and their note are staff-only.
-    const { executionStartedByUserId, executionNote, tasks, ...customerRequest } = request;
+    const { executionStartedByUserId, executionNote, tasks, linkedRequests, paymentReceipt, ...customerRequest } = request;
 
     return {
       ...customerRequest,
@@ -196,6 +199,8 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       paymentAccounts: paymentCurrency && isPaymentOpen(request)
         ? paymentAccounts.filter((account) => account.currency === paymentCurrency)
         : [],
+      // Egypt security approval: its own timeline and typed files.
+      egypt: egyptOverview(request, { receipt: paymentReceipt }),
       paymentRejection: request.paymentStatus === "AWAITING_TRANSFER" && request.paymentRejectionReason
         ? { reason: request.paymentRejectionReason, at: request.paymentRejectedAt }
         : null,
@@ -210,10 +215,10 @@ async function findOwnedContactRequest(phoneNormalized, contactRequestId) {
   });
 }
 
-export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file, requirementId, travelerId }) {
+export async function uploadMyDocument(phoneNormalized, contactRequestId, { label, file, requirementId, travelerId, quality }) {
   const contactRequest = await findOwnedContactRequest(phoneNormalized, contactRequestId);
   if (!contactRequest) return { error: "NOT_FOUND" };
-  return createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId });
+  return createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, quality });
 }
 
 export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, file) {

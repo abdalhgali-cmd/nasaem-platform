@@ -40,6 +40,16 @@ import {
   patchProviderSubmission,
   storeProviderSubmission,
 } from "../provider-submissions/provider-submissions.controller.js";
+import {
+  getEgyptQueue,
+  getEgyptRequestWorkspace,
+  patchEgyptTravelDate,
+  postEgyptApproval,
+  postEgyptCircular,
+  postEgyptCircularProcessing,
+  postEgyptTicket,
+} from "../egypt-clearance/egypt-approval.controller.js";
+import { downloadStaffReceipt, resendReceipt } from "../egypt-clearance/egypt-customer.controller.js";
 import { getCaseWarnings } from "../case-intelligence/case-intelligence.controller.js";
 import { getTimeline } from "../case-timeline/case-timeline.controller.js";
 import {
@@ -312,6 +322,20 @@ router.post(
   handleDeliverableUpload,
   storeDeliverable
 );
+// Egypt security approval: the queue / travel schedule, the request's Egypt
+// workspace, and its typed files (approval, circular PDF, tickets) and travel
+// date. Same roles that publish final files.
+const EGYPT_WORK = ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"];
+router.get("/egypt/queue", requireAuth, requireRole(...EGYPT_WORK), getEgyptQueue);
+router.get("/:id/egypt", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, getEgyptRequestWorkspace);
+router.post("/:id/egypt/approval", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, requireFeatureEnabled("DOCUMENTS"), handleDeliverableUpload, postEgyptApproval);
+router.post("/:id/egypt/circular/processing", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, postEgyptCircularProcessing);
+router.post("/:id/egypt/circular", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, requireFeatureEnabled("DOCUMENTS"), handleDeliverableUpload, postEgyptCircular);
+router.post("/:id/egypt/tickets", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, requireFeatureEnabled("DOCUMENTS"), handleDeliverableUpload, postEgyptTicket);
+// The paid receipt PDF and its e-mail re-send (finance and case staff).
+router.get("/:id/payment-receipt/file", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), requireContactRequestOrganization, downloadStaffReceipt);
+router.post("/:id/payment-receipt/resend", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), requireContactRequestOrganization, resendReceipt);
+router.patch("/:id/egypt/travel-date", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, patchEgyptTravelDate);
 // Publishes a prepared (draft) final file to the customer.
 router.post(
   "/:id/deliverables/:deliverableId/publish",

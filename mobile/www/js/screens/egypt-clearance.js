@@ -1,7 +1,7 @@
-import { esc } from "../ui.js";
+import { esc, confirmDialog } from "../ui.js";
 import { icon } from "../icons.js";
 import { loadCatalog, loadPublicSettings, parseFaq } from "../catalog.js";
-import { EGYPT_UNAVAILABLE, egyptVariantOptions } from "../egypt-view.js";
+import { EGYPT_UNAVAILABLE, egyptStepsHtml, egyptVariantOptions } from "../egypt-view.js";
 import { renderIntakeScreen } from "./intake.js";
 
 // Egypt security approval (موافقة حربي). Order of the screen: the variant
@@ -10,13 +10,15 @@ import { renderIntakeScreen } from "./intake.js";
 // collapsed). A variant without a published fixed price is shown as
 // unavailable; new bookings never fall back to the original item or a quote.
 export async function renderEgyptClearanceScreen({ bodyEl, params }) {
-  const { item } = params;
+  // `variantCode`: an entry method already chosen on the home screen.
+  const { item, variantCode = null } = params;
   bodyEl.innerHTML = `
     <div class="service-hero service-hero-egypt service-hero-compact">
       <div class="service-hero-icon">${icon("shield-check", { size: 30 })}</div>
       <h2>الموافقة الأمنية لمصر</h2>
-      <p>اختر نوع الموافقة وطريقة الدخول، ثم أكمل بيانات المسافر والمستندات.</p>
+      <p>سعر ثابت، ولا يلزم شراء تذكرة من نسائم.</p>
     </div>
+    <div id="egyptStepsMount">${egyptStepsHtml(1, esc)}</div>
     <section class="section" id="egyptVariants" hidden></section>
     <div id="egyptIntakeMount"></div>
     <div id="egyptFaq"></div>
@@ -35,18 +37,28 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
   }
   const bookable = options.filter((option) => option.bookable);
 
+  let currentCode = null;
   const choose = async (option) => {
+    if (option.code === currentCode) return;
+    // Another entry method starts a new form: files already picked would be lost.
+    if (currentCode && mount.querySelector(".slot-ok") && !confirmDialog("تغيير طريقة الدخول يمسح الملفات التي رفعتها. هل تريد المتابعة؟")) return;
+    currentCode = option.code;
+    bodyEl.querySelector("#egyptStepsMount").innerHTML = egyptStepsHtml(2, esc);
     variantsEl.querySelectorAll("[data-code]").forEach((button) => {
       const selected = button.dataset.code === option.code;
       button.classList.toggle("selected", selected);
       button.setAttribute("aria-checked", String(selected));
     });
-    await renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item: option.item });
+    // A fresh container per choice: an earlier choice still loading finishes
+    // into its own detached container and can never replace this form.
+    const form = document.createElement("div");
+    mount.replaceChildren(form);
+    await renderIntakeScreen({ bodyEl: form, setTitle: () => {}, item: option.item });
   };
 
   variantsEl.hidden = false;
   variantsEl.innerHTML = `
-    <h3 id="egyptVariantsTitle">نوع الموافقة وطريقة الدخول</h3>
+    <h3 id="egyptVariantsTitle">طريقة الدخول</h3>
     <div class="variant-list" role="radiogroup" aria-labelledby="egyptVariantsTitle">
       ${options
         .map(
@@ -54,6 +66,7 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
             <button type="button" class="variant-card${option.bookable ? "" : " variant-unavailable"}" role="radio" aria-checked="false" data-code="${esc(option.code)}" ${option.bookable ? "" : 'disabled aria-disabled="true"'}>
               <strong>${esc(option.name)}</strong>
               <span class="variant-price${option.bookable ? "" : " variant-price-quote"}"><bdi>${esc(option.priceText)}</bdi></span>
+              ${option.sdgText ? `<small class="variant-sdg"><bdi>${esc(option.sdgText)}</bdi></small>` : ""}
             </button>`
         )
         .join("")}
@@ -66,9 +79,15 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
     mount.innerHTML = `<p class="info-note" id="egyptUnavailable">${esc(EGYPT_UNAVAILABLE)}. يرجى التواصل مع الوكالة.</p>`;
     return;
   }
-  const preselected = bookable.find((option) => option.item.id === item?.id);
+  // An explicit choice from the home screen is honoured or reported, never
+  // swapped for the other entry method.
+  if (variantCode && !bookable.some((option) => option.code === variantCode)) {
+    mount.innerHTML = `<p class="info-note" id="egyptPreselectGone">طريقة الدخول التي اخترتها غير متاحة الآن بسعر ثابت. اختر من الخيارات أعلاه.</p>`;
+    return;
+  }
+  const preselected = bookable.find((option) => option.code === variantCode) || bookable.find((option) => option.item.id === item?.id) || (!variantCode && bookable.length === 1 ? bookable[0] : null);
   if (preselected) await choose(preselected);
-  else mount.innerHTML = `<p class="field-hint" id="egyptChooseHint">اختر نوع الموافقة أولًا لعرض المتطلبات والسعر.</p>`;
+  else mount.innerHTML = `<p class="field-hint" id="egyptChooseHint">اختر طريقة الدخول لعرض المتطلبات.</p>`;
 }
 
 async function loadFaq(el) {

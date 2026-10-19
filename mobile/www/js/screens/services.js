@@ -2,7 +2,9 @@ import { esc, skeletonGrid, skeletonList, errorState, emptyState } from "../ui.j
 import { startingPrice, priceText, sdgText, durationOf, shortDescription, serviceDirectoryItems, groupServiceDirectory, hubVisaTypes, VISAS_HUB_ITEM } from "../service-view.js";
 import { stagger } from "../motion.js";
 import { icon, iconForService } from "../icons.js";
-import { loadCatalog, resolveServiceScreen } from "../catalog.js";
+import { loadCatalog, cachedCatalog } from "../catalog.js";
+import { isUmrahPackage } from "../umrah-view.js";
+import { isEgyptClearanceItem } from "../egypt-view.js";
 import { go } from "../router.js";
 import { renderIntakeScreen } from "./intake.js";
 
@@ -34,8 +36,34 @@ export async function openServiceById(id, catalogHint) {
 
 // Opening a service shows its details first (price, duration, what is
 // needed, steps) with a fixed "start the request" button; the request form
-// itself is the dedicated screen resolveServiceScreen() picks.
-export function openServiceItem(item) {
+// itself is the dedicated screen resolveServiceScreen() picks. Umrah and the
+// Egypt approval skip the details page: their own screen already shows each
+// option's fixed price and what it includes, so it would only add a tap.
+// `extra` (e.g. { packageId }) preselects an option there.
+// An Umrah package found in any list opens the same chooser, with that
+// package selected, so it is never booked outside its fixed price.
+const isUmrahEntry = (item) => ["SVC-UMRAH", "VISA-UMRAH"].includes(String(item?.code || "").toUpperCase()) || String(item?.category || "").toLowerCase() === "umrah";
+
+function umrahService() {
+  const catalog = cachedCatalog();
+  const items = [...(catalog?.services || []), ...(catalog?.visaTypes || [])];
+  return items.find((candidate) => candidate.code === "SVC-UMRAH") || items.find((candidate) => candidate.code === "VISA-UMRAH") || null;
+}
+
+export function openServiceItem(item, extra = {}) {
+  if (isUmrahPackage(item)) {
+    // The Umrah screen resolves the Umrah service itself when it is not cached.
+    go("umrah", { item: umrahService(), packageId: item.id, ...extra }, { title: "العمرة", tab: "services" });
+    return;
+  }
+  if (isUmrahEntry(item)) {
+    go("umrah", { item, ...extra }, { title: "العمرة", tab: "services" });
+    return;
+  }
+  if (isEgyptClearanceItem(item)) {
+    go("egyptClearance", { item, ...extra }, { title: "الموافقة الأمنية لمصر", tab: "services" });
+    return;
+  }
   go("serviceInfo", { item }, { title: item.name, tab: "services" });
 }
 

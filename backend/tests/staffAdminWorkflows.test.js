@@ -48,9 +48,9 @@ const visibleTabs = (document) => [...document.querySelectorAll("#tabs [data-tab
 describe("dashboard sections per role", () => {
   test("each role sees its sections; EMPLOYEE and ACCOUNTANT reach customer requests", async () => {
     const expected = {
-      SUPER_ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
-      ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
-      EMPLOYEE: ["requests", "orders", "flights", "customers"],
+      SUPER_ADMIN: ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"],
+      ADMIN: ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"],
+      EMPLOYEE: ["requests", "egypt", "orders", "flights", "customers"],
       ACCOUNTANT: ["requests", "orders", "flights", "customers", "payments"],
       CONTENT_MANAGER: ["management"],
     };
@@ -195,9 +195,9 @@ describe("keyboard and small screens", () => {
     first.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
     await settle(30);
     const selected = document.querySelector("#tabs [aria-selected=true]");
-    assert.equal(selected.dataset.tab, "orders");
+    assert.equal(selected.dataset.tab, "egypt");
     assert.equal(document.activeElement, selected);
-    assert.equal(document.getElementById("tab-orders").classList.contains("hidden"), false);
+    assert.equal(document.getElementById("tab-egypt").classList.contains("hidden"), false);
     selected.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true }));
     await settle(30);
     assert.equal(document.querySelector("#tabs [aria-selected=true]").dataset.tab, "customers", "End skips hidden tabs");

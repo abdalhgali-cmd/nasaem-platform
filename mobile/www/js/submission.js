@@ -49,8 +49,8 @@ export function submitFailureMessage(error) {
 // step (screens/request-payment.js), then to the confirmation; any other
 // request goes to the confirmation (screens/intake.js
 // renderRequestSubmittedScreen).
-export function showSubmitted(outcome, { serviceName, phone, travelerCount, payNow = false }) {
-  const params = { id: outcome.id, customerConfirmation: outcome.customerConfirmation, serviceName, phone, travelerCount };
+export function showSubmitted(outcome, { serviceName, phone, travelerCount, payNow = false, steps = null }) {
+  const params = { id: outcome.id, customerConfirmation: outcome.customerConfirmation, serviceName, phone, travelerCount, ...(steps ? { steps } : {}) };
   if (payNow && outcome.paymentAccess) {
     go("requestPayment", { ...params, paymentAccess: outcome.paymentAccess }, { title: "الدفع" });
     return;

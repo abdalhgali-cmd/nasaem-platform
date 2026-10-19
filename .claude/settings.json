@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__codex__codex_review_code",
+      "mcp__codex__codex_review_plan",
+      "mcp__codex__codex_explain_code",
+      "mcp__codex__codex_plan_perf"
+    ],
+    "ask": [
+      "mcp__codex__codex_query"
+    ],
+    "deny": [
+      "mcp__codex__codex_implement"
+    ]
+  }
+}

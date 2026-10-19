@@ -1,6 +1,6 @@
 import { umrahIncludesTickets } from "../umrah/umrah-packages.js";
 import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
-import { completionBlockers, egyptTravelBlockers, evaluateDelivery, evaluateReadiness, executionBlockers, isFixedPrice, paymentLockReasons, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { completionBlockers, egyptTravelBlockers, evaluateDelivery, evaluateReadiness, executionBlockers, isFixedPrice, paymentLockReasons, deliveryDeliverables } from "../contact-request-workflow/workflow-policy.js";
 
 // One service-aware description of where a request stands, shared by the
 // staff back-office, the customer app (account and phone tracking) and the
@@ -132,7 +132,7 @@ export function deriveRequestProgress(request) {
   const kind = deriveServiceKind(request);
   const copy = serviceCopy(kind, request);
   const { status, outcome, paymentStatus, invoice, offers, selectedOfferId } = request;
-  const published = publishedDeliverables(request);
+  const published = deliveryDeliverables(request);
   const delivery = evaluateDelivery(request);
   const readiness = evaluateReadiness(request);
   const executionStartedAt = request.executionStartedAt || null;

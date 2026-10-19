@@ -92,14 +92,20 @@ export async function uploadDocument(requestId, form, onProgress) {
   return trackingUpload(`/tracking/requests/${requestId}/documents`, form, onProgress);
 }
 
-export async function saveEgyptTravelPlan(requestId, { entryMode, bookingStatus, entryDate }, file, onProgress) {
+export async function saveEgyptTravelPlan(requestId, { entryMode, bookingStatus, entryDate, entryPort }, file, onProgress) {
   const form = new FormData();
   // A variant request has no entry method to send (the variant is it).
   if (entryMode) form.set("entryMode", entryMode);
+  if (entryPort) form.set("entryPort", entryPort);
   form.set("bookingStatus", bookingStatus);
   form.set("entryDate", entryDate);
   if (file) form.append("file", file);
   return trackingUpload(`/tracking/requests/${requestId}/egypt-travel-plan`, form, onProgress);
+}
+
+// Egypt: «book my flight through Nasaem» (REQUEST | BOOKED | LATER).
+export async function recordFlightChoice(requestId, choice) {
+  return api(`/tracking/requests/${requestId}/egypt/flight`, { method: "POST", headers: { ...(await trackingHeaders()), "Content-Type": "application/json" }, body: JSON.stringify({ choice }) });
 }
 
 async function trackingUpload(path, form, onProgress) {
