@@ -146,11 +146,26 @@ function postReceipt({
       resolve({ status: xhr.status, payload });
     };
     const fail = () => reject(new UploadNetworkError("network"));
+    // A stalled connection ends as a network failure (then the server's
+    // state is checked before a retry is offered), never an endless upload.
+    xhr.timeout = UPLOAD_TIMEOUT_MS;
     xhr.onerror = fail;
     xhr.ontimeout = fail;
     xhr.onabort = fail;
     xhr.send(form);
   });
+}
+
+const UPLOAD_TIMEOUT_MS = 120_000;
+
+// A reconciliation call that fails (offline again) answers "not settled":
+// the busy state is always released and a retry offered.
+async function settledSafely(check: () => Promise<boolean>): Promise<boolean> {
+  try {
+    return await check();
+  } catch {
+    return false;
+  }
 }
 
 const OFFLINE_MESSAGE = "تعذّر الاتصال. تحقق من الإنترنت ثم اضغط «إعادة المحاولة»؛ الإشعار المختار ما زال جاهزًا.";
@@ -272,19 +287,19 @@ export function BankTransferPayment({
         // Show the current accounts and amount, keep the receipt already
         // picked, and say why.
         setPicked("");
-        await refreshOptions();
+        await refreshOptions().catch(() => undefined);
         setNotice(payload?.message || "تغيّرت بيانات الدفع؛ راجع الحساب والمبلغ ثم أرسل الإشعار مرة أخرى.");
         setBusy(false);
         return;
       }
       // Already submitted (an earlier attempt whose reply was lost): what
       // the server holds now decides, never a second receipt.
-      if (status === 409 && (await checkAlreadySubmitted())) return;
+      if (status === 409 && (await settledSafely(checkAlreadySubmitted))) return;
       setError(payload?.message || "تعذّر رفع إشعار التحويل، حاول مرة أخرى");
       setFailedOnce(true);
       setBusy(false);
     } catch (failure) {
-      if (failure instanceof UploadNetworkError && (await checkAlreadySubmitted())) return;
+      if (failure instanceof UploadNetworkError && (await settledSafely(checkAlreadySubmitted))) return;
       setError(failure instanceof UploadNetworkError ? OFFLINE_MESSAGE : "تعذّر رفع إشعار التحويل، حاول مرة أخرى");
       setFailedOnce(true);
       setBusy(false);
