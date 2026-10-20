@@ -11,8 +11,9 @@ export const KHARTOUM_TIME_ZONE = "Africa/Khartoum";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 // Africa/Khartoum is UTC+2 all year (no daylight saving since 2017).
 const KHARTOUM_UTC_OFFSET_HOURS = 2;
-// The three-day reminder is raised at 09:00 Khartoum time.
-const REMINDER_LOCAL_HOUR = 9;
+// Default lead reminder: 3 days before, at 09:00 Khartoum time
+// (administrators can change both: alert-settings.service.js).
+export const REMINDER_LOCAL_HOUR = 9;
 export const REMINDER_DAYS_BEFORE = 3;
 
 export const DELIVERABLE_KINDS = Object.freeze({ GENERAL: "GENERAL", APPROVAL: "APPROVAL", CIRCULAR: "CIRCULAR", TICKET: "TICKET" });
@@ -63,17 +64,18 @@ export function calendarDaysUntil(entryDate, now = new Date()) {
 }
 
 // When the staff reminder for a travel date is due, and which kind:
-//   THREE_DAY at 09:00 Khartoum time, three calendar days before the date;
-//   URGENT at once when that moment has already passed (the date is less
-//   than three days away, or it is the reminder day after 09:00) and the
-//   date is today or later. A past date has no reminder (null).
-export function reminderPlan(entryDate, now = new Date()) {
+//   THREE_DAY (the lead reminder; the kind keeps its historical name) at
+//   `localHour`:00 Khartoum time, `daysBefore` calendar days before the date
+//   (administrator settings, default 3 days at 09:00);
+//   URGENT at once when that moment has already passed and the date is
+//   today or later. A past date has no reminder (null).
+export function reminderPlan(entryDate, now = new Date(), { daysBefore = REMINDER_DAYS_BEFORE, localHour = REMINDER_LOCAL_HOUR } = {}) {
   const date = dateOnlyString(entryDate);
   const parsed = parseDateOnly(date);
   if (!parsed) return null;
   const days = calendarDaysUntil(date, now);
   if (days === null || days < 0) return null;
-  const dueAt = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day - REMINDER_DAYS_BEFORE, REMINDER_LOCAL_HOUR - KHARTOUM_UTC_OFFSET_HOURS));
+  const dueAt = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day - daysBefore, localHour - KHARTOUM_UTC_OFFSET_HOURS));
   if (now.getTime() < dueAt.getTime()) return { travelDate: date, kind: "THREE_DAY", dueAt, daysUntil: days };
   return { travelDate: date, kind: "URGENT", dueAt: new Date(now.getTime()), daysUntil: days };
 }

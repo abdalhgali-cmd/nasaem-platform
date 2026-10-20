@@ -727,6 +727,28 @@ export async function getOperationsQueueSummary(organizationId) {
 // when set, must be real, active staff in this same organization — never
 // trusted as an opaque id, same posture as every other cross-entity
 // reference in this module.
+export const CASE_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"];
+
+// Staff priority and due date of a case (work queues and SLA; never shown to
+// the customer). `dueAt` null clears it. Audited with the old and new values.
+export async function setContactRequestPriority(id, { priority, dueAt }, actingUserId, organizationId) {
+  const before = await prisma.contactRequest.findFirst({ where: { id, organizationId }, select: { id: true, priority: true, dueAt: true } });
+  if (!before) return { error: "NOT_FOUND" };
+  const data = {};
+  if (priority !== undefined) data.priority = priority;
+  if (dueAt !== undefined) data.dueAt = dueAt;
+  const updated = await prisma.contactRequest.update({ where: { id }, data, select: { id: true, priority: true, dueAt: true } });
+  logActivity({
+    userId: actingUserId,
+    action: "CONTACT_REQUEST_PRIORITY_UPDATED",
+    entity: "ContactRequest",
+    entityId: id,
+    oldValue: { priority: before.priority, dueAt: before.dueAt },
+    newValue: { priority: updated.priority, dueAt: updated.dueAt },
+  });
+  return { contactRequest: updated };
+}
+
 export async function assignContactRequest(id, assignedUserId, actingUserId, organizationId) {
   const contactRequest = await prisma.contactRequest.findFirst({ where: { id, organizationId } });
   if (!contactRequest) return { error: "NOT_FOUND" };

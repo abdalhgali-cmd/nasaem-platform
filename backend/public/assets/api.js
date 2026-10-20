@@ -166,6 +166,7 @@ const api = {
   get: (path, options = {}) => apiRequest(path, { ...options, method: "GET" }),
   post: (path, body, options = {}) => apiRequest(path, { ...options, method: "POST", body }),
   patch: (path, body, options = {}) => apiRequest(path, { ...options, method: "PATCH", body }),
+  put: (path, body, options = {}) => apiRequest(path, { ...options, method: "PUT", body }),
   delete: (path, options = {}) => apiRequest(path, { ...options, method: "DELETE" }),
   upload: (path, formData, options = {}) => apiRequest(path, { ...options, method: "POST", body: formData }),
   // Raw form used by older scripts: body must already be FormData, a plain

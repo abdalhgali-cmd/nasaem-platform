@@ -15,6 +15,8 @@
 import prisma from "../../config/database.js";
 import { EGYPT_CLEARANCE_CODE, isEgyptClearanceCode } from "./egypt-clearance-variants.js";
 import { reconcileFlightInquiries } from "./linked-flight.service.js";
+import { processOperationalAlerts } from "./operational-alerts.service.js";
+import { alertSettings } from "./alert-settings.service.js";
 import { calendarDaysUntil, circularState, dateOnlyString, isApprovalIssued, reminderPlan, requestTravelDate, todayInKhartoum, travelPreparation } from "./egypt-approval-rules.js";
 
 const STAFF_ROLES = ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"];
@@ -23,11 +25,12 @@ function dateValue(dateString) {
   return new Date(`${dateString}T00:00:00.000Z`);
 }
 
-export async function syncTravelReminders(tx, request, { now = new Date() } = {}) {
+export async function syncTravelReminders(tx, request, { now = new Date(), settings = null } = {}) {
   const id = request.id;
   const open = request.status !== "CLOSED" && isEgyptClearanceCode(request.visaType?.code);
   const date = open ? requestTravelDate(request) : null;
-  const plan = date ? reminderPlan(date, now) : null;
+  const lead = settings || (await alertSettings(tx));
+  const plan = date ? reminderPlan(date, now, { daysBefore: lead.travelReminderDaysBefore, localHour: lead.travelReminderLocalHour }) : null;
   if (!plan) {
     await tx.travelReminder.updateMany({ where: { contactRequestId: id, status: "SCHEDULED" }, data: { status: "CANCELLED" } });
     return null;
@@ -65,7 +68,7 @@ export function reminderText(request, reminder, now = new Date()) {
   if (preparation.missing.length) parts.push(`ناقص: ${preparation.missing.map((m) => m.message).join(" ")}`);
   if (circular !== "ISSUED") parts.push("تنبيه: التعميم لم يصدر بعد.");
   return {
-    title: reminder.kind === "URGENT" ? "عاجل: سفر قريب لطلب موافقة أمنية" : "تذكير: سفر بعد 3 أيام",
+    title: reminder.kind === "URGENT" ? "عاجل: سفر قريب لطلب موافقة أمنية" : `تذكير: سفر ${when}`,
     message: parts.join(" "),
   };
 }
@@ -136,6 +139,28 @@ export async function reconcileTravelSchedules({ now = new Date(), limit = 100 }
   return { scheduled };
 }
 
+// After an administrator changes the reminder lead time: every open Egypt
+// request with a future travel date is re-planned under its row lock, the
+// same way a date change re-plans it (a reminder already sent for a date is
+// never sent again).
+export async function rescheduleTravelReminders({ now = new Date() } = {}) {
+  const settings = await alertSettings();
+  const today = new Date(`${todayInKhartoum(now)}T00:00:00.000Z`);
+  const open = await prisma.contactRequest.findMany({
+    where: { status: { not: "CLOSED" }, travelEntryDate: { gte: today }, visaType: { code: { startsWith: EGYPT_CLEARANCE_CODE } } },
+    select: { id: true },
+  });
+  let rescheduled = 0;
+  for (const { id } of open) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "ContactRequest" WHERE id = ${id} FOR UPDATE`;
+      const request = await tx.contactRequest.findUnique({ where: { id }, select: { id: true, status: true, travelEntryDate: true, travelScheduleRevision: true, intakeData: true, visaType: { select: { code: true } } } });
+      if (request && (await syncTravelReminders(tx, request, { now, settings }))) rescheduled += 1;
+    });
+  }
+  return { rescheduled };
+}
+
 export async function processDueTravelReminders({ now = new Date(), limit = 50 } = {}) {
   const due = await prisma.travelReminder.findMany({
     where: { status: "SCHEDULED", dueAt: { lte: now } },
@@ -166,6 +191,8 @@ export function startTravelReminderWorker({ intervalMs = 5 * 60_000 } = {}) {
       const flights = await reconcileFlightInquiries();
       if (flights.opened) console.log("[egypt-flight] inquiries opened", flights.opened);
       const result = await processDueTravelReminders();
+      const alerts = await processOperationalAlerts();
+      if (Object.keys(alerts.outcomes).length) console.log("[operational-alerts]", JSON.stringify(alerts.outcomes));
       if (result.processed || reconciled.scheduled) console.log("[travel-reminders]", JSON.stringify({ ...result, ...reconciled }));
     } catch (error) {
       console.error("[travel-reminders] run failed", error?.message);
