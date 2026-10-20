@@ -74,3 +74,18 @@ test("screen routing: Umrah service, visa type and packages go to the Umrah choo
   assert.equal(resolveServiceScreen({ code: "SVC-UMRAH-AIR", category: "UMRAH_PACKAGE" }), "umrah");
   assert.equal(resolveServiceScreen({ code: "SVC-PKG-FAMILY", category: "package" }), "serviceDetail");
 });
+
+
+test("resumed payment restores Egypt progress steps from the server for older saved requests", async () => {
+  const { isEgyptPaymentJourney, egyptStepsHtml } = await import("../www/js/egypt-view.js");
+  assert.equal(isEgyptPaymentJourney({ steps: "EGYPT" }, {}), true);
+  assert.equal(isEgyptPaymentJourney({}, { visaTypeCode: "VISA-EGYPT-CLEARANCE-BORDER" }), true);
+  assert.equal(isEgyptPaymentJourney({}, { visaTypeCode: "VISA-EGYPT-CLEARANCE-AIR" }), true);
+  assert.equal(isEgyptPaymentJourney({}, { visaTypeCode: "VISA-EGYPT-CLEARANCE" }), true);
+  assert.equal(isEgyptPaymentJourney({}, { visaTypeCode: "VISA-FAMILY-VISIT" }), false);
+  assert.equal(isEgyptPaymentJourney({}, {}), false);
+  const markup = egyptStepsHtml(3);
+  assert.match(markup, /طريقة الدخول/);
+  assert.match(markup, /البيانات والجوازات/);
+  assert.match(markup, /aria-current="step"/);
+});
