@@ -18,6 +18,12 @@ export function isEgyptClearanceItem(item) {
   return EGYPT_CODES.has(String(item?.code || "").toUpperCase());
 }
 
+// A request-scoped payment summary identifies the original service even when
+// the app resumes a saved payment record from an older APK without "steps".
+export function isEgyptPaymentJourney(params = {}, summary = {}) {
+  return params.steps === "EGYPT" || isEgyptClearanceItem({ code: summary.visaTypeCode });
+}
+
 // Published (active) variants, air first. Empty when the agency has not
 // activated them yet: the original single item is used then.
 export function egyptVariants(catalog) {

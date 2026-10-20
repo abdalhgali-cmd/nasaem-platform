@@ -86,6 +86,7 @@ describe("payment straight after submission", () => {
     assert.equal(summary.status, 200, JSON.stringify(summary.body));
     assert.equal(summary.body.data.amount, "200");
     assert.equal(summary.body.data.currency, "USD");
+    assert.equal(summary.body.data.visaTypeCode, visaType.code, "payment summary identifies the original service without revealing documents");
     assert.equal(summary.body.data.paymentOpen, true);
     assert.equal(summary.body.data.paymentStatus, "AWAITING_TRANSFER");
     assert.ok(summary.body.data.accounts.some((row) => row.id === account.id && row.accountNumber === account.accountNumber));
@@ -251,7 +252,7 @@ describe("payment access token: scope and limits", () => {
     assert.equal(res.status, 200);
     assert.deepEqual(Object.keys(res.body.data).sort(), [
       "accounts", "amount", "amountSdg", "currency", "expiresAt", "id", "lockReasons", "paymentOpen",
-      "paymentStatus", "paymentStatusLabel", "rejectionReason", "service", "statusLabel",
+      "paymentStatus", "paymentStatusLabel", "rejectionReason", "service", "statusLabel", "visaTypeCode",
     ]);
     const text = JSON.stringify(res.body);
     assert.ok(!/phone|passport|documents|travelers|storagePath|fileName/i.test(text.replace(/"accounts"/, "")), text);

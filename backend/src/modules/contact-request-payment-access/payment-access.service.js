@@ -92,6 +92,10 @@ export async function getPaymentAccessSummary(contactRequestId, token) {
     data: {
       id: request.id,
       service: request.service,
+      // Allows a resumed payment screen to restore the correct service
+      // stepper from the authenticated request-scoped payment link.
+      // Only a public catalog code is returned; no tracking details leak.
+      visaTypeCode: request.visaType?.code || null,
       statusLabel: deriveTrackingStatusLabel(request),
       paymentStatus: request.paymentStatus,
       paymentStatusLabel: PAYMENT_STATUS_LABELS[request.paymentStatus] || request.paymentStatus,

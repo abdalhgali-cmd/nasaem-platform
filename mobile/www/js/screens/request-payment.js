@@ -7,11 +7,12 @@
 import { api, apiUpload } from "../api.js";
 import { esc, toast, setLoading, errorState } from "../ui.js";
 import { icon } from "../icons.js";
-import { replace } from "../router.js";
+import { replace, goToTab } from "../router.js";
+import { setTrackingPrefill } from "../tracking.js";
 import { validateFile } from "../intake-core.js";
 import { formatAmount } from "../payment-view.js";
 import { savePendingPayment, clearPendingPayment, clearPendingPaymentFor } from "../experience-core.js";
-import { egyptStepsHtml } from "../egypt-view.js";
+import { egyptStepsHtml, isEgyptPaymentJourney } from "../egypt-view.js";
 
 function paymentPath(id) {
   return `/contact-requests/${encodeURIComponent(id)}/payment-access`;
@@ -29,6 +30,7 @@ function finish(params, summary, { keepPending = false } = {}) {
       serviceName: params.serviceName,
       phone: params.phone,
       travelerCount: params.travelerCount,
+      steps: params.steps || null,
       paymentSummary: summary || null,
     },
     { title: "تم استلام طلبك" }
@@ -48,14 +50,16 @@ function accountCard(account, currency) {
 
 export async function renderRequestPaymentScreen({ bodyEl, params }) {
   const access = params.paymentAccess;
-  savePendingPayment(localStorage, {
+  const pending = {
     id: params.id,
     paymentAccess: access,
     customerConfirmation: params.customerConfirmation,
     serviceName: params.serviceName,
     phone: params.phone,
     travelerCount: params.travelerCount,
-  });
+    steps: params.steps || null,
+  };
+  savePendingPayment(localStorage, pending);
   const headers = { "X-Payment-Access": access?.token || "" };
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
 
@@ -73,12 +77,21 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
     return;
   }
 
+  // Restore the service's journey after restart, including older pending
+  // records saved before we persisted "steps". The server returns only the
+  // authenticated request's public visa type code, never private tracking data.
+  const egyptPayment = isEgyptPaymentJourney(params, summary);
+  if (egyptPayment && pending.steps !== "EGYPT") {
+    pending.steps = "EGYPT";
+    savePendingPayment(localStorage, pending);
+  }
+  const paymentParams = { ...params, steps: egyptPayment ? "EGYPT" : params.steps || null };
   const amountText = formatAmount(summary.amount, summary.currency);
   const sdgText = summary.currency !== "SDG" && Number(summary.amountSdg) > 0 ? formatAmount(summary.amountSdg, "SDG") : "";
   const accounts = summary.accounts || [];
 
   bodyEl.innerHTML = `
-    ${params.steps === "EGYPT" ? egyptStepsHtml(3, esc) : ""}
+    ${egyptPayment ? egyptStepsHtml(3, esc) : ""}
     <div class="detail-block payment-step" data-testid="direct-payment-step">
       ${params.resumed ? `<p class="field-hint" id="paymentResumed">طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.</p>` : ""}
       <p class="field-hint">طلبك محفوظ برقم <code dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ إلى الحساب المعتمد ثم ارفع إشعار التحويل.</p>
@@ -105,7 +118,9 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
             <small>يؤكد موظف الوكالة استلام المبلغ، وحتى ذلك تكون حالة الدفع «بانتظار مراجعة التحويل».</small>
           </form>` : ""}`
         : `<p class="field-hint"><b>${esc(summary.paymentStatusLabel || "")}</b></p>${(summary.lockReasons || []).map((reason) => `<p class="field-hint">${esc(reason)}</p>`).join("")}`}
-      <button type="button" class="secondary" id="paymentLaterBtn">${summary.paymentOpen ? "سأحوّل لاحقًا" : "متابعة"}</button>
+      <button type="button" class="secondary" id="paymentLaterBtn">${summary.paymentOpen ? accounts.length ? "سأحوّل لاحقًا" : "متابعة بدون دفع الآن" : "متابعة"}</button>
+      <button type="button" class="secondary" id="trackRequestNowBtn">عرض مراحل الطلب في طلباتي</button>
+      <p class="field-hint">يمكنك متابعة مراحل الطلب من «طلباتي» بعد التحقق من رقم الهاتف، حتى لو لم تدفع بعد.</p>
       ${summary.paymentOpen ? `<p class="field-hint">يبقى «أكمل الدفع» ظاهرًا في الرئيسية حتى ترفع الإشعار.</p>` : ""}
     </div>`;
 
@@ -119,7 +134,11 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
       }
     });
   });
-  bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, summary, { keepPending: Boolean(summary.paymentOpen) }));
+  bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(paymentParams, summary, { keepPending: Boolean(summary.paymentOpen) }));
+  bodyEl.querySelector("#trackRequestNowBtn").addEventListener("click", () => {
+    if (params.phone) setTrackingPrefill(params.phone);
+    goToTab("requests", "requests", { title: "طلباتي" });
+  });
 
   const form = bodyEl.querySelector("#directReceiptForm");
   if (!form) return;
@@ -153,7 +172,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
         clearPendingPaymentFor(localStorage, params.id);
         return;
       }
-      finish(params, res.data?.request || summary);
+      finish(paymentParams, res.data?.request || summary);
     } catch (error) {
       sending = false;
       bodyEl.querySelector("#paymentLaterBtn").disabled = false;
