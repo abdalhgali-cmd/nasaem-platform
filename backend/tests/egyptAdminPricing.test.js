@@ -168,11 +168,14 @@ test("a price that would not survive storage (sub-cent) is refused, and a varian
     const refused = await agent.patch(url).send({ usdRateToSdg: 9200, air: { priceUsd: 85, active: true }, border: { priceUsd: 155, active: false } });
     assert.equal(refused.status, 409, JSON.stringify(refused.body));
     assert.equal((await prisma.visaType.findUnique({ where: { code: codes[0] } })).active, air.active, "nothing changed");
-    const audit = await prisma.activityLog.count({ where: { action: "EGYPT_PRICING_UPDATED", createdAt: { gte: new Date(Date.now() - 5000) } } });
+    // Counted from a fixed point in time (a sliding window could drop an
+    // earlier test's row on a slow runner).
+    const since = new Date();
+    const audit = await prisma.activityLog.count({ where: { action: "EGYPT_PRICING_UPDATED", createdAt: { gte: since } } });
     // Saving with the variant inactive is allowed and audited in the same transaction.
     const saved = await agent.patch(url).send({ usdRateToSdg: 9200, air: { priceUsd: 85, active: false }, border: { priceUsd: 155, active: false } });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
-    assert.equal(await prisma.activityLog.count({ where: { action: "EGYPT_PRICING_UPDATED", createdAt: { gte: new Date(Date.now() - 5000) } } }), audit + 1);
+    assert.equal(await prisma.activityLog.count({ where: { action: "EGYPT_PRICING_UPDATED", createdAt: { gte: since } } }), audit + 1);
   } finally {
     await prisma.visaRequirement.updateMany({ where: { id: { in: documents.map((d) => d.id) } }, data: { active: true } });
     await restore();
