@@ -16,6 +16,15 @@ export const flightDetailsFields = {
 
 export const FLIGHT_DETAIL_KEYS = Object.keys(flightDetailsFields);
 
+// Staff corrections: an empty or null value clears the field (omitted keeps it).
+const clearable = (schema) => z.preprocess((value) => (value === "" ? null : value), schema.nullable().optional());
+export const staffFlightDetailsFields = {
+  flightNumber: clearable(z.string().trim().toUpperCase().regex(/^[A-Z0-9]{2,3}\s?\d{1,5}[A-Z]?$/, "رقم الرحلة غير صالح (مثال: SD 345)")),
+  airline: clearable(z.string().trim().min(2).max(80)),
+  departureTime: clearable(time),
+  arrivalTime: clearable(time),
+};
+
 export function hasFlightDetails(values) {
   return FLIGHT_DETAIL_KEYS.some((key) => values?.[key]);
 }

@@ -201,6 +201,7 @@ function egyptFlightDetailsHtml(ws, open) {
       </div>
       <div class="field"><label for="egypt-flight-reason">ملاحظة التعديل (تُسجَّل)</label><input id="egypt-flight-reason" name="reason" maxlength="300" /></div>
       <label class="inline"><input type="checkbox" name="verified" ${f.verifiedAt ? "checked" : ""} /> تم التحقق من البيانات مقابل التذكرة</label>
+      ${ws.circularStatus === "ISSUED" ? '<p class="muted small">تغيير بيانات الرحلة بعد صدور التعميم يسحب التعميم الحالي ويعيده إلى «قيد التجهيز».</p>' : ""}
       <button type="submit" class="btn secondary">حفظ بيانات الرحلة</button>
     </form>` : ""}`;
 }
@@ -326,11 +327,10 @@ function handleEgyptForm(form, { base, act, alert }) {
       return true;
     }
     case "egypt-flight-details": {
+      // Every flight field is sent: an emptied field clears the stored value.
       const body = { verified: f.verified.checked };
-      for (const key of ["flightNumber", "airline", "departureTime", "arrivalTime", "reason"]) {
-        const v = f[key].value.trim();
-        if (v) body[key] = v;
-      }
+      for (const key of ["flightNumber", "airline", "departureTime", "arrivalTime"]) body[key] = f[key].value.trim() || null;
+      if (f.reason.value.trim()) body.reason = f.reason.value.trim();
       act(button, () => api.patch(`${base}/egypt/flight-details`, body), body.verified ? "تم حفظ بيانات الرحلة والتحقق منها." : "تم حفظ بيانات الرحلة.");
       return true;
     }

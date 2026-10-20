@@ -133,6 +133,26 @@ describe("flight details", () => {
     assert.equal((await employee.patch(`/api/contact-requests/${req.id}/egypt/flight-details`).send({ verified: true, extra: 1 })).status, 400);
   });
 
+  test("staff can clear a field; a flight correction after the circular withdraws it to processing", async () => {
+    const req = await paidRequest({ entryDate: addDays(9) });
+    assert.equal((await issueApproval(req.id)).status, 201);
+    await employee.post(`/api/contact-requests/${req.id}/egypt/tickets`).attach("file", PDF(), { filename: "t.pdf", contentType: "application/pdf" });
+    const set = await employee.patch(`/api/contact-requests/${req.id}/egypt/flight-details`).send({ flightNumber: "SD 345", arrivalTime: "10:45", verified: true });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    const cleared = await employee.patch(`/api/contact-requests/${req.id}/egypt/flight-details`).send({ arrivalTime: null, verified: true });
+    assert.equal(cleared.body.data.flightDetails.arrivalTime, null, "explicitly cleared");
+    assert.equal(cleared.body.data.flightDetails.flightNumber, "SD 345", "omitted fields kept");
+
+    assert.equal((await employee.post(`/api/contact-requests/${req.id}/egypt/circular`).attach("file", PDF(), { filename: "c.pdf", contentType: "application/pdf" })).status, 201);
+    const same = await employee.patch(`/api/contact-requests/${req.id}/egypt/flight-details`).send({ verified: true });
+    assert.equal(same.body.data.circularWithdrawn, false, "re-verifying the same values keeps the circular");
+    const changed = await employee.patch(`/api/contact-requests/${req.id}/egypt/flight-details`).send({ flightNumber: "MS 852", verified: true, reason: "تغيير الرحلة" });
+    assert.equal(changed.body.data.circularWithdrawn, true);
+    const mine = await req.tracking.request(req.id);
+    assert.equal(mine.egypt.circular.status, "PROCESSING");
+    assert.equal(mine.egypt.circular.files.length, 0, "the outdated circular is no longer offered");
+  });
+
   test("overland requests have no flight details; the accountant role cannot verify", async () => {
     const req = await paidRequest({ visa: borderVisa, route: { entryMode: "BORDER", entryPort: "أرقين" } });
     const res = await employee.patch(`/api/contact-requests/${req.id}/egypt/flight-details`).send({ flightNumber: "SD 1", verified: true });

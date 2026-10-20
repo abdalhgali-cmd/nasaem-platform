@@ -334,11 +334,13 @@ export async function verifyEgyptFlightDetails(contactRequestId, organizationId,
     const travel = request.intakeData?.egyptTravel || {};
     const before = travel.flightDetails || null;
     const merged = { ...(before || {}) };
+    // Omitted: kept; null: cleared.
     for (const key of FLIGHT_DETAIL_KEYS) if (values[key] !== undefined) merged[key] = values[key];
     if (!hasFlightDetails(merged)) refuseWith({ status: 400, code: "FLIGHT_DETAILS_REQUIRED", message: "أدخل رقم الرحلة أو بياناتها أولًا." });
+    const valuesChanged = !before || FLIGHT_DETAIL_KEYS.some((key) => (before[key] || null) !== (merged[key] || null));
     const details = {
       ...merged,
-      source: before && FLIGHT_DETAIL_KEYS.every((key) => (before[key] || null) === (merged[key] || null)) ? before.source || "CUSTOMER" : "STAFF",
+      source: valuesChanged ? "STAFF" : before.source || "CUSTOMER",
       verifiedAt: verified ? new Date().toISOString() : null,
       verifiedByUserId: verified ? userId : null,
     };
@@ -346,15 +348,23 @@ export async function verifyEgyptFlightDetails(contactRequestId, organizationId,
       where: { id: contactRequestId },
       data: { intakeData: { ...(request.intakeData || {}), egyptTravel: { ...travel, flightDetails: details } } },
     });
+    // A circular issued with the old flight values no longer matches them:
+    // withdrawn and back to processing, as for a travel-date change.
+    let circularWithdrawn = false;
+    if (before && valuesChanged && circularState(request).status === "ISSUED") {
+      await tx.contactRequestDeliverable.updateMany({ where: { contactRequestId, kind: DELIVERABLE_KINDS.CIRCULAR, supersededAt: null }, data: { supersededAt: new Date() } });
+      await tx.contactRequest.update({ where: { id: contactRequestId }, data: { circularProcessingAt: new Date() } });
+      circularWithdrawn = true;
+    }
     await auditInTransaction(tx, {
       userId,
       action: "EGYPT_FLIGHT_DETAILS_VERIFIED",
       entityId: contactRequestId,
       organizationId,
       oldValue: { flightDetails: before },
-      newValue: { flightDetails: details, reason: reason || null },
+      newValue: { flightDetails: details, reason: reason || null, circularWithdrawn },
     });
-    return { flightDetails: details };
+    return { flightDetails: details, circularWithdrawn };
   });
 }
 

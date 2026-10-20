@@ -2,7 +2,7 @@ import { z } from "zod";
 import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
 import { travelerIdsField } from "../contact-request-deliverables/contact-request-deliverables.validators.js";
 import { attachEgyptTicket, discardUpload, editEgyptTravelDate, issueEgyptApproval, issueEgyptCircular, startEgyptCircular, verifyEgyptFlightDetails } from "./egypt-approval.service.js";
-import { flightDetailsFields } from "./flight-details.js";
+import { staffFlightDetailsFields } from "./flight-details.js";
 import { EGYPT_QUEUE_FILTERS, EGYPT_QUEUE_STAGES, getEgyptWorkspace, listEgyptQueue } from "./egypt-queue.service.js";
 import { ALERT_DEFAULTS, alertSettings, saveAlertSettings } from "./alert-settings.service.js";
 import { rescheduleTravelReminders } from "./travel-reminders.service.js";
@@ -156,7 +156,7 @@ export async function patchCasePriority(req, res, next) {
 }
 
 const flightDetailsSchema = z.object({
-  ...flightDetailsFields,
+  ...staffFlightDetailsFields,
   verified: z.boolean(),
   reason: z.string().trim().max(300).optional(),
 }).strict();
