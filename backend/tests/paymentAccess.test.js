@@ -95,7 +95,7 @@ describe("payment straight after submission", () => {
     const uploaded = await uploadWith(id, paymentAccess.token);
     assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
     assert.equal(uploaded.body.data.request.paymentStatus, "UNDER_REVIEW");
-    assert.equal(uploaded.body.data.request.paymentStatusLabel, "بانتظار مراجعة التحويل");
+    assert.equal(uploaded.body.data.request.paymentStatusLabel, "بانتظار مراجعة الدفع");
     assert.equal(uploaded.body.data.request.paymentOpen, false, "no second receipt while one is under review");
     assert.deepEqual(uploaded.body.data.request.accounts, []);
 
@@ -251,8 +251,8 @@ describe("payment access token: scope and limits", () => {
     const res = await access(id, paymentAccess.token);
     assert.equal(res.status, 200);
     assert.deepEqual(Object.keys(res.body.data).sort(), [
-      "accounts", "amount", "amountSdg", "currency", "expiresAt", "id", "lockReasons", "paymentOpen",
-      "paymentStatus", "paymentStatusLabel", "rejectionReason", "service", "statusLabel", "visaTypeCode",
+      "accounts", "amount", "amountSdg", "currency", "exchangeRateToSdg", "expiresAt", "id", "invoiceVersion", "lockReasons", "paymentOpen",
+      "paymentStatus", "paymentStatusLabel", "rejectionReason", "service", "settlementOptions", "statusLabel", "visaTypeCode",
     ]);
     const text = JSON.stringify(res.body);
     assert.ok(!/phone|passport|documents|travelers|storagePath|fileName/i.test(text.replace(/"accounts"/, "")), text);

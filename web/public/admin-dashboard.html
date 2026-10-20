@@ -227,7 +227,9 @@
       <div id="mgmt-alert"></div>
 
       <!-- Payment accounts: what a customer is shown to pay into, after they
-           approve a price. Only the account for the price's own currency is shown. -->
+           approve a price. Accounts in the price's own currency are shown; an SDG
+           account marked «يقبل المقابل بالجنيه» is also offered for the SDG
+           amount frozen on a foreign-currency invoice. -->
       <div id="mgmt-payment-accounts" class="hidden">
         <div class="card hidden" id="payment-account-create-card">
           <h2 id="pa-form-title">حساب دفع جديد</h2>
@@ -240,6 +242,8 @@
             <div class="field"><label for="pa-currency">العملة *</label>
               <select id="pa-currency"><option value="SDG">SDG</option><option value="SAR">SAR</option><option value="USD">USD</option><option value="AED">AED</option><option value="EGP">EGP</option><option value="QAR">QAR</option></select></div>
             <div class="field"><label for="pa-order">الترتيب</label><input id="pa-order" type="number" min="0" value="0" /></div>
+            <div class="field" id="pa-foreign-field"><label><input id="pa-foreign" type="checkbox" /> يقبل المقابل بالجنيه لفواتير العملات الأخرى</label>
+              <p class="muted small">لحسابات SDG فقط. عند تفعيله يُعرض هذا الحساب على العميل لسداد فاتورة بالدولار (أو غيره) بالمبلغ بالجنيه المثبّت على الفاتورة عند إصدارها، بسعر الصرف المسجّل فيها. الفاتورة الأصلية لا تتغيّر.</p></div>
           </div>
           <p class="muted small">تغيير رقم الحساب يغيّر المكان الذي يحوّل إليه العملاء، ويُسجَّل في سجل النشاط باسمك.</p>
           <div class="stack">
@@ -250,7 +254,7 @@
         <div class="card">
           <h2>حسابات الدفع</h2>
           <div class="table-scroll"><table>
-            <thead><tr><th>الاسم</th><th>البنك</th><th>صاحب الحساب</th><th>الرقم</th><th>العملة</th><th>الحالة</th><th></th></tr></thead>
+            <thead><tr><th>الاسم</th><th>البنك</th><th>صاحب الحساب</th><th>الرقم</th><th>العملة</th><th>المقابل بالجنيه</th><th>الحالة</th><th></th></tr></thead>
             <tbody id="payment-accounts-body"></tbody>
           </table></div>
         </div>

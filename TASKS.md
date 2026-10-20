@@ -301,6 +301,15 @@ NOT TESTED:
 - staging backup/restore;
 - the Vercel check, which fails on every PR with "Account is blocked".
 
+## Issue #132 — Egypt payment: agency-approved SDG settlement, receipt capture, staff review (2026-10-20, PR #133, branch `feat/egypt-payment-receipt-20261020`, base #131)
+
+- VERIFIED (GitHub Actions on `a699839`): backend tests, frontend typecheck + build, Playwright E2E, CI backup/restore drill (synthetic), build-apk — all success. QA APK: run 39406973933, artifact `Nasaem-AlHaramain-release-apk` (id 12257592686).
+- VERIFIED locally: backend 965/965; mobile unit 126/126; new `tests/invoiceSettlement.test.js` 13/13; E2E `payment-settlement.spec.ts` (360/390 px, camera → PDF replace, offline retry, admin download, token isolation).
+- Additive migration `20261020090000_payment_settlement` (PaymentAccount.acceptsForeignInvoices default false; ContactRequestDocument.paymentSettlement; PaymentReceipt.settlement*).
+- NOT TESTED: real Android device camera/gallery/PDF; staging (unreachable from the agent environment, no Railway credentials; no verified real backup/restore).
+- BLOCKED (owner): a real SDG bank account must be marked «يقبل المقابل بالجنيه» in admin before the SDG option appears; no bank data was created. Vercel status «Account is blocked» (account, not code).
+- PENDING: customer website still uploads without account choice (legacy, invoice currency); Codex review (usage limit, retry scheduled).
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.

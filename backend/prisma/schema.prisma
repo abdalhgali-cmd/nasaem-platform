@@ -189,17 +189,22 @@ model Currency {
 }
 
 model PaymentAccount {
-  id            String   @id @default(cuid())
-  name          String
-  bankName      String
-  accountName   String
-  accountNumber String?
-  iban          String?
-  currency      String
-  active        Boolean  @default(true)
-  sortOrder     Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                     String   @id @default(cuid())
+  name                   String
+  bankName               String
+  accountName            String
+  accountNumber          String?
+  iban                   String?
+  currency               String
+  // SDG accounts only: the agency explicitly accepts, into this account, the
+  // Sudanese-pound equivalent frozen on an invoice issued in another currency
+  // (e.g. a USD fixed price). Off by default: without it a receipt is only
+  // accepted in the invoice's own currency.
+  acceptsForeignInvoices Boolean  @default(false)
+  active                 Boolean  @default(true)
+  sortOrder              Int      @default(0)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   @@index([currency])
   @@index([active])
@@ -1487,37 +1492,37 @@ model IntakeDraft {
 }
 
 model ContactRequestDocument {
-  id               String                       @id @default(cuid())
+  id                String                       @id @default(cuid())
   // Nullable since Release B: a document uploaded during an intake draft
   // has no ContactRequest yet (draftId below holds it instead), and is
   // re-pointed here when the draft is submitted. Every pre-existing row
   // keeps its value, and every existing query by contactRequestId is
   // unaffected.
-  contactRequestId String?
-  draftId          String?
-  label            String
-  fileName         String
-  storagePath      String
-  mimeType         String
-  sizeBytes        Int
-  status           ContactRequestDocumentStatus @default(PENDING)
-  reviewNote       String?
-  reviewedByUserId String?
-  reviewedAt       DateTime?
+  contactRequestId  String?
+  draftId           String?
+  label             String
+  fileName          String
+  storagePath       String
+  mimeType          String
+  sizeBytes         Int
+  status            ContactRequestDocumentStatus @default(PENDING)
+  reviewNote        String?
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
   // Smart Case Operations — Release A. Which traveler this document belongs
   // to (null for a CUSTOMER/CASE-scoped document, e.g. a general payment
   // receipt). onDelete: SetNull — deleting a traveler record must never
   // delete the customer's already-uploaded file.
-  travelerId       String?
+  travelerId        String?
   // Versioning: when a rejected document is replaced by a new upload for the
   // same requirement+traveler, the OLD row gets supersededAt set instead of
   // being deleted or mutated — history is preserved, and "the current
   // version" is simply the row (per requirement+traveler) with
   // supersededAt null. Null on every pre-existing row (all still current).
-  supersededAt     DateTime?
+  supersededAt      DateTime?
   // Smart Case Operations — Release F. Gates whether this document may
   // leave the platform in a provider package; see DocumentClassification.
-  classification   DocumentClassification       @default(CUSTOMER_DOCUMENT)
+  classification    DocumentClassification       @default(CUSTOMER_DOCUMENT)
   // Platform 3.0 Phase 6 (Attachment Engine) — links this upload to the
   // specific VisaRequirement checklist item it satisfies, so the upload
   // can actually be validated against that requirement's own allowedMime/
@@ -1526,19 +1531,24 @@ model ContactRequestDocument {
   // checklist (plain contact form, general attachments) keep working
   // unchanged. onDelete: SetNull — deleting a requirement definition must
   // never delete a customer's already-uploaded document.
-  requirementId    String?
+  requirementId     String?
   // Platform 3.0 Phase 7 (Passport OCR Configuration) — set only when the
   // linked VisaRequirement has ocrEnabled and the uploaded file is an
   // image. Purely informational/additive: nothing here is ever written
   // back onto authoritative data, and a failed/absent extraction never
   // blocks the upload itself (see maybeRunPassportOcr).
-  ocrResult        Json?
+  ocrResult         Json?
   // Image-quality hints for staff (blur, glare, darkness, crop, page check)
   // measured on the customer's device. Hints only — never a reason to refuse
   // a file — and never any text read from the passport.
-  qualitySignal    Json?
-  createdAt        DateTime                     @default(now())
-  updatedAt        DateTime                     @updatedAt
+  qualitySignal     Json?
+  // Transfer receipts (FINANCIAL_DOCUMENT): what the customer says they paid,
+  // validated by the server against the agency's eligible account and the
+  // invoice version at upload — account snapshot, currency, amount, invoice
+  // amount/currency/version, frozen rate. A claim to verify, never "paid".
+  paymentSettlement Json?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
 
   contactRequest      ContactRequest?              @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
   draft               IntakeDraft?                 @relation(fields: [draftId], references: [id], onDelete: Cascade)
@@ -1771,27 +1781,32 @@ model TravelReminder {
 // re-tried by the reconciler; its email goes through CustomerMessageDelivery
 // (kind PAYMENT_RECEIPT, channel EMAIL).
 model PaymentReceipt {
-  id                String    @id @default(cuid())
-  contactRequestId  String    @unique
-  receiptNo         String    @unique
-  amount            Decimal   @db.Decimal(12, 2)
-  currency          String
-  exchangeRateToSdg Decimal?  @db.Decimal(18, 6)
-  amountSdg         Decimal?  @db.Decimal(14, 2)
-  rateFixedAt       DateTime?
-  customerName      String
-  customerEmail     String?
-  serviceName       String
-  travelerCount     Int       @default(1)
-  paidAt            DateTime
-  confirmedByUserId String?
-  pdfStatus         String    @default("PENDING")
-  storagePath       String?
-  sizeBytes         Int?
-  pdfAttempts       Int       @default(0)
-  lastError         String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  contactRequestId   String    @unique
+  receiptNo          String    @unique
+  amount             Decimal   @db.Decimal(12, 2)
+  currency           String
+  exchangeRateToSdg  Decimal?  @db.Decimal(18, 6)
+  amountSdg          Decimal?  @db.Decimal(14, 2)
+  rateFixedAt        DateTime?
+  customerName       String
+  customerEmail      String?
+  serviceName        String
+  travelerCount      Int       @default(1)
+  paidAt             DateTime
+  // How the confirmed payment was settled when it differs from the invoice
+  // currency (the frozen SDG equivalent into an agency SDG account). Null:
+  // settled in the invoice currency.
+  settlementCurrency String?
+  settlementAmount   Decimal?  @db.Decimal(14, 2)
+  confirmedByUserId  String?
+  pdfStatus          String    @default("PENDING")
+  storagePath        String?
+  sizeBytes          Int?
+  pdfAttempts        Int       @default(0)
+  lastError          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
 

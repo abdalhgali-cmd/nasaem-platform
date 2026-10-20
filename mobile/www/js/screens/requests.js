@@ -10,6 +10,7 @@ import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable,
 import { bindProgressTrack, journeyBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
+import { bindCopyButtons, bindReceiptPicker, isAlreadySubmitted, needsRefresh, noSettlementAccountHtml, normalizeSettlementOptions, receiptPickerHtml, selectedSettlementAccount, settlementOptionsHtml } from "../payment-receipt.js";
 import { egyptVariantEntryMode, isEgyptClearanceItem } from "../egypt-view.js";
 import { egyptFilesHtml, egyptPrepHtml, isEgyptOverview } from "../egypt-journey.js";
 
@@ -357,23 +358,26 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
 
   const viaTracking = params.source === "tracking";
 
-  async function load() {
+  // `reopenPayment`: after a refused receipt (the accounts or the invoice
+  // changed), reopen the payment step with fresh options and the receipt kept.
+  async function load(options) {
+    const reopenPayment = options?.reopenPayment || null;
     try {
       if (viaTracking) {
         const list = await tracking.listTrackedRequests();
         const found = list.find((request) => request.id === params.requestId);
         if (!found) throw new ApiError("الطلب غير متاح لهذا الرقم", { status: 404 });
-        renderDetail(fromTracking(found), { viaTracking: true });
+        renderDetail(fromTracking(found), { viaTracking: true, reopenPayment });
         return;
       }
       const res = await api(`/customer/requests/${params.requestId}`);
-      renderDetail(res.data);
+      renderDetail(res.data, { reopenPayment });
     } catch (error) {
       bodyEl.innerHTML = errorState(error.message, { onRetry: load });
     }
   }
 
-  function renderDetail(request, { viaTracking = false } = {}) {
+  function renderDetail(request, { viaTracking = false, reopenPayment = null } = {}) {
     const pricing = pricingOf(request);
     const price = pricing ? formatAmount(pricing.amount, pricing.currency) : "";
     const sdgLine = sdgEquivalent(pricing);
@@ -462,9 +466,12 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
       ensureTrackingAndRun(panel, () => tracking.rejectInvoice(request.id, request.invoice?.version), { onDone: () => { toast("تم رفض العرض"); load(); } });
     });
     // Both open the same payment step: amount, accounts and receipt upload together.
-    const openPaymentStep = () => showPaymentStep(panel, { requestId: request.id, currency: pricing?.currency, price, onUploaded: load });
+    const openPaymentStep = () => showPaymentStep(panel, { request, currency: pricing?.currency, price, onUploaded: load });
     bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", openPaymentStep);
     bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", openPaymentStep);
+    if (reopenPayment && bodyEl.querySelector("#uploadReceiptBtn, #paymentInfoBtn")) {
+      showPaymentStep(panel, { request, currency: pricing?.currency, price, onUploaded: load, ...reopenPayment });
+    }
     bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load, egyptVariantEntryMode(request.visaType), request));
     bodyEl.querySelectorAll("[data-flight-choice]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -571,78 +578,109 @@ async function uploadChecklistDocument({ panel, request, item, file, viaTracking
   }
 }
 
-// The payment step in one place: the amount and currency, the agency's
-// accounts for that currency (bank, holder, number with a copy button) and
-// the receipt upload. A receipt only puts the payment under review; it is
-// never "paid" until staff confirm it (backend uploadPaymentReceipt).
-async function showPaymentStep(panel, { requestId, currency, price, onUploaded }) {
+// The payment step in one place: the amount, the agency accounts that may
+// take it (the invoice currency, or the frozen SDG equivalent where the agency
+// allows it; bank, holder, number with a copy button) and the receipt —
+// camera, gallery or PDF, previewed before it is sent. A receipt only puts the
+// payment under review; it is never "paid" until staff confirm it (backend
+// uploadPaymentReceipt).
+async function showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt = null, notice = "" }) {
+  const requestId = request.id;
   panel.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
-  let accountsHtml;
-  // A receipt is not asked for when the agency confirmed it has no account for
-  // this currency. A failed lookup keeps the form: sending it re-verifies the
-  // phone (ensureTrackingAndRun) like before.
-  let hasAccount = true;
-  try {
-    const res = await tracking.getPaymentAccounts(currency);
-    const accounts = res.data || [];
-    hasAccount = accounts.length > 0;
-    accountsHtml = accounts.length
-      ? accounts.map((account) => `
-          <div class="payment-card">
-            <strong>${esc(account.bankName || account.name || "حساب الدفع")}</strong>
-            ${account.accountName ? `<span>صاحب الحساب: ${esc(account.accountName)}</span>` : ""}
-            ${account.accountNumber ? `<div class="copy-row"><code>${esc(account.accountNumber)}</code><button type="button" class="chip-btn" data-copy="${esc(account.accountNumber)}">نسخ رقم الحساب</button></div>` : ""}
-            ${account.iban ? `<div class="copy-row"><code>${esc(account.iban)}</code><button type="button" class="chip-btn" data-copy="${esc(account.iban)}">نسخ IBAN</button></div>` : ""}
-            <small>${esc(account.currency || currency)}</small>
-          </div>`).join("")
-      : emptyState({ icon: "wallet", title: "بيانات الدفع غير متاحة حالياً", hint: "تواصل مع الوكالة قبل التحويل." });
-  } catch (error) {
-    accountsHtml = errorState(error.message);
+  const payable = request.invoice || (request.offers || []).find((offer) => offer.id === request.selectedOfferId) || {};
+  let options = Array.isArray(request.paymentSettlementOptions) && request.paymentSettlementOptions.length ? request.paymentSettlementOptions : null;
+  let loadError = null;
+  if (!options) {
+    // Older server, or a view without the options: the invoice-currency accounts.
+    try {
+      const res = await tracking.getPaymentAccounts(currency);
+      options = normalizeSettlementOptions({ settlementOptions: request.paymentSettlementOptions, accounts: res.data || [], amount: payable.amount, currency });
+    } catch (error) {
+      loadError = error;
+      options = [];
+    }
   }
   panel.innerHTML = `
-    <div class="detail-block payment-step">
+    <div class="detail-block payment-step" data-testid="tracking-payment-step">
       <h4>الدفع بالتحويل البنكي</h4>
-      ${price ? `<p class="payment-amount">المبلغ المطلوب: <strong>${esc(price)}</strong></p>` : ""}
-      ${accountsHtml}
-      ${hasAccount ? `<form id="receiptForm" class="form">
-        <label class="field">
-          <span>إيصال التحويل (صورة أو PDF) *</span>
-          <input name="file" type="file" accept="image/*,.pdf" required>
-        </label>
-        <div class="upload-progress-wrap" id="receiptProgressWrap" hidden>
-          <div class="upload-progress-bar"><div class="upload-progress-fill" id="receiptProgressFill"></div></div>
-        </div>
-        <button type="submit" class="primary">إرسال إشعار التحويل</button>
-        <small>بعد الرفع يصبح الدفع «قيد المراجعة» حتى تؤكد الوكالة استلام المبلغ.</small>
-      </form>` : ""}
+      ${price ? `<p class="payment-amount">قيمة الفاتورة: <strong>${esc(price)}</strong></p>` : ""}
+      ${loadError
+        ? errorState(loadError.message)
+        : options.length
+          ? `<p class="field-hint">اختر الحساب الذي ستحوّل إليه، وحوّل المبلغ الظاهر عليه بالضبط.</p>
+             ${settlementOptionsHtml(options, esc, { invoiceAmount: payable.amount, invoiceCurrency: payable.currency || currency })}
+             <form id="receiptForm" class="form" novalidate>
+               ${receiptPickerHtml(esc, icon)}
+               <button type="submit" class="primary" id="receiptSubmitBtn">إرسال إشعار التحويل</button>
+               <small>بعد الرفع تصبح حالة الدفع «بانتظار مراجعة الدفع» حتى تؤكد الوكالة استلام المبلغ.</small>
+             </form>`
+          : noSettlementAccountHtml(esc, payable.currency || currency)}
     </div>`;
-  panel.querySelectorAll("[data-copy]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(button.dataset.copy);
-        toast("تم النسخ");
-      } catch {
-        toast("انسخ الرقم يدويًا", { tone: "error" });
-      }
-    });
-  });
+  bindCopyButtons(panel, toast);
   const form = panel.querySelector("#receiptForm");
-  form?.addEventListener("submit", async (event) => {
+  if (!form) return;
+  const picker = bindReceiptPicker(form, { esc, icon, validate: (file) => validateFile(file, null), initialFile: keptReceipt });
+  if (notice) picker.showError(notice);
+  let sending = false;
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const file = new FormData(form).get("file");
-    const problem = validateFile(file, null);
-    if (problem) {
-      toast(problem, { tone: "error" });
-      return;
-    }
-    const submitBtn = form.querySelector("button[type=submit]");
+    if (sending) return;
+    const accountId = selectedSettlementAccount(panel);
+    if (!accountId) return picker.showError("اختر الحساب الذي حوّلت إليه.");
+    const file = picker.file;
+    if (!file) return picker.showError("صوّر إشعار التحويل أو اختر صورته أو ملف PDF.");
+    picker.showError("");
+    sending = true;
+    const submitBtn = form.querySelector("#receiptSubmitBtn");
     setLoading(submitBtn, true, "جارٍ الرفع…");
-    const progressWrap = panel.querySelector("#receiptProgressWrap");
-    const progressFill = panel.querySelector("#receiptProgressFill");
-    progressWrap.hidden = false;
-    await ensureTrackingAndRun(panel, () => tracking.uploadPaymentReceipt(requestId, file, (percent) => { progressFill.style.width = `${percent}%`; }), {
-      onDone: () => { toast("تم رفع الإيصال، والدفع الآن قيد المراجعة"); onUploaded(); },
+    picker.setBusy(true);
+    const settlement = { accountId, invoiceVersion: request.invoice?.version };
+    const upload = async () => {
+      try {
+        await tracking.uploadPaymentReceipt(requestId, file, (percent) => picker.setProgress(percent), settlement);
+      } catch (error) {
+        // The receipt is already in (a lost response, a second tap elsewhere):
+        // the reload shows «بانتظار مراجعة الدفع».
+        if (isAlreadySubmitted(error)) return;
+        picker.dispose();
+        // The accounts or the invoice changed since this screen was loaded:
+        // reload the request (fresh options), keep the picked receipt, say why.
+        if (needsRefresh(error)) {
+          refreshAfter = error;
+          return;
+        }
+        if (!panel.contains(form)) {
+          // The phone check replaced the form: bring it back with the receipt
+          // still chosen, so the customer can retry.
+          retryAfter = error;
+          return;
+        }
+        if (panel.contains(form)) {
+          sending = false;
+          setLoading(submitBtn, false);
+          submitBtn.textContent = "إعادة المحاولة";
+          picker.setBusy(false);
+          picker.showError(error.offline ? "تعذّر الاتصال. تحقق من الإنترنت ثم اضغط «إعادة المحاولة»؛ الإشعار المختار ما زال جاهزًا." : error.message);
+        }
+        throw error;
+      }
+    };
+    let refreshAfter = null;
+    let retryAfter = null;
+    await ensureTrackingAndRun(panel, upload, {
+      onDone: () => {
+        if (refreshAfter || retryAfter) {
+          const failure = refreshAfter || retryAfter;
+          toast(failure.message, { tone: "error" });
+          if (refreshAfter) return onUploaded({ reopenPayment: { keptReceipt: file, notice: failure.message } });
+          return showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt: file, notice: failure.message });
+        }
+        picker.dispose();
+        toast("تم رفع الإشعار — بانتظار مراجعة الدفع");
+        onUploaded();
+      },
     });
+    sending = false;
   });
 }
 

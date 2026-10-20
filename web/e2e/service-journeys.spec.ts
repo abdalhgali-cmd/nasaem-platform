@@ -368,9 +368,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       // ---- customer: payment details and receipt (one panel)
       await expect(app.locator("#uploadReceiptBtn")).toBeVisible({ timeout: 15_000 });
       await app.locator("#uploadReceiptBtn").click();
-      await app.locator('#receiptForm input[name="file"]').setInputFiles({ name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });
-      await app.locator("#receiptForm button").click();
-      await expect(app.locator(".pay-state")).toContainText("قيد المراجعة", { timeout: 15_000 });
+      await app.locator('[name="settlementAccountId"]').first().check();
+      await app.locator('#receiptForm [data-receipt-input="PDF"]').setInputFiles({ name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });
+      await app.locator("#receiptSubmitBtn").click();
+      await expect(app.locator(".pay-state")).toContainText("بانتظار مراجعة الدفع", { timeout: 15_000 });
 
       // ---- staff: reject with a reason (once), then accept
       if (journey.rejectFirstReceipt) {
@@ -395,9 +396,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         await openCustomerRequest(id);
         await expect(app.locator(".pay-state-bad")).toContainText("المبلغ غير مطابق");
         await app.locator("#uploadReceiptBtn").click();
-        await app.locator('#receiptForm input[name="file"]').setInputFiles({ name: "receipt2.pdf", mimeType: "application/pdf", buffer: PDF });
-        await app.locator("#receiptForm button").click();
-        await expect(app.locator(".pay-state")).toContainText("قيد المراجعة", { timeout: 15_000 });
+        await app.locator('[name="settlementAccountId"]').first().check();
+        await app.locator('#receiptForm [data-receipt-input="PDF"]').setInputFiles({ name: "receipt2.pdf", mimeType: "application/pdf", buffer: PDF });
+        await app.locator("#receiptSubmitBtn").click();
+        await expect(app.locator(".pay-state")).toContainText("بانتظار مراجعة الدفع", { timeout: 15_000 });
         await openStaffRequest(id, travelers[0]);
       }
       await expect(detail.locator('[data-cr-form="start-execution"]')).toHaveCount(0);

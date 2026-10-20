@@ -236,9 +236,10 @@ test.describe.serial("pricing modes and interactive progress", () => {
     const action = panel().locator("[data-progress-target]");
     await expect(action).toHaveText("رفع إثبات الدفع");
     await action.click();
-    await app.locator('#receiptForm input[name="file"]').setInputFiles({ name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });
-    await app.locator("#receiptForm button").click();
-    await expect(app.locator(".pay-state")).toContainText("قيد المراجعة", { timeout: 15_000 });
+    await app.locator('[name="settlementAccountId"]').first().check();
+    await app.locator('#receiptForm [data-receipt-input="PDF"]').setInputFiles({ name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });
+    await app.locator("#receiptSubmitBtn").click();
+    await expect(app.locator(".pay-state")).toContainText("بانتظار مراجعة الدفع", { timeout: 15_000 });
 
     // a receipt upload is not an accepted payment
     await openCustomerRequest(id);
@@ -258,7 +259,7 @@ test.describe.serial("pricing modes and interactive progress", () => {
     await expect(panel()).toContainText("بدأ التنفيذ ولم يكتمل بعد");
   });
 
-  test("fixed price, payment open: straight to the payment screen, receipt → «بانتظار مراجعة التحويل», never paid", async () => {
+  test("fixed price, payment open: straight to the payment screen, receipt → «بانتظار مراجعة الدفع», never paid", async () => {
     test.setTimeout(180_000);
     const visaName = `تأشيرة دفع مباشر ${unique()}`;
     const visaId = await createVisa(visaName, 90, true);
@@ -284,13 +285,14 @@ test.describe.serial("pricing modes and interactive progress", () => {
       await expect(step).toBeVisible({ timeout: 30_000 });
       await expect(app.locator("#directPaymentAmount")).toContainText("USD");
       await expect(step.getByTestId("payment-account").filter({ hasText: accountNumber })).toContainText("بنك التطبيق للاختبار");
-      await step.locator('input[name="file"]').setInputFiles({ name: "transfer.pdf", mimeType: "application/pdf", buffer: PDF });
+      await step.getByTestId("payment-account").filter({ hasText: accountNumber }).locator('[name="settlementAccountId"]').check();
+      await step.locator('[data-receipt-input="PDF"]').setInputFiles({ name: "transfer.pdf", mimeType: "application/pdf", buffer: PDF });
       const uploaded = app.waitForResponse((r) => r.url().includes("/payment-access/receipt"));
       await app.locator("#sendReceiptBtn").click();
       expect((await uploaded).status()).toBe(201);
 
       await expect(app.locator("#requestReference")).toBeVisible({ timeout: 15_000 });
-      await expect(app.locator("#submittedPaymentStatus")).toHaveText("بانتظار مراجعة التحويل");
+      await expect(app.locator("#submittedPaymentStatus")).toHaveText("بانتظار مراجعة الدفع");
       const id = (await app.locator("#requestReference").innerText()).trim();
       await home();
       await expect(app.locator("#resumePaymentBtn")).toHaveCount(0);

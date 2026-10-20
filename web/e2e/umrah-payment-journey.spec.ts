@@ -126,7 +126,7 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     expect((await uploaded).status()).toBe(201);
 
     await expect(page.getByRole("heading", { name: "تم استلام طلبك", exact: true })).toBeVisible();
-    await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة التحويل");
+    await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة الدفع");
     // Finished: a later refresh shows the form again, not the old payment.
     await page.reload();
     await expect(page.getByTestId("payment-step")).toHaveCount(0);

@@ -17,13 +17,14 @@ import { WORKFLOW_INCLUDE } from "../contact-request-workflow/workflow-lock.js";
 import { paymentLockReasons } from "../contact-request-workflow/workflow-policy.js";
 import { deriveTrackingStatusLabel } from "../contact-request-tracking/contact-request-tracking.status.js";
 import { recordPaymentReceipt } from "../contact-request-tracking/contact-request-tracking.service.js";
+import { loadSettlementOptions } from "../payment-settlement/payment-settlement.service.js";
 
 export const PAYMENT_ACCESS_TTL_MS = 72 * 60 * 60 * 1000;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
 
 export const PAYMENT_STATUS_LABELS = Object.freeze({
   AWAITING_TRANSFER: "بانتظار التحويل",
-  UNDER_REVIEW: "بانتظار مراجعة التحويل",
+  UNDER_REVIEW: "بانتظار مراجعة الدفع",
   CONFIRMED: "تم تأكيد السداد",
   NOT_REQUIRED: "لا يتطلب دفعًا",
 });
@@ -81,13 +82,13 @@ export async function getPaymentAccessSummary(contactRequestId, token) {
   const invoice = request.invoice && request.invoice.status === "APPROVED" ? request.invoice : null;
   const locks = request.status === "CLOSED" ? [] : paymentLockReasons(request);
   const open = Boolean(invoice) && request.status !== "CLOSED" && locks.length === 0 && request.paymentStatus === "AWAITING_TRANSFER";
-  const accounts = open
-    ? await prisma.paymentAccount.findMany({
-        where: { active: true, currency: invoice.currency },
-        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-        select: { id: true, name: true, bankName: true, accountName: true, accountNumber: true, iban: true, currency: true },
-      })
-    : [];
+  // Every way the agency accepts this invoice now: its own currency, and the
+  // frozen SDG equivalent into an account the agency marked for it.
+  const settlementOptions = open ? await loadSettlementOptions(prisma, invoice) : [];
+  // Kept for app versions that read `accounts` (invoice currency only).
+  const accounts = settlementOptions
+    .filter((option) => option.kind === "INVOICE_CURRENCY")
+    .map(({ id, name, bankName, accountName, accountNumber, iban, currency }) => ({ id, name, bankName, accountName, accountNumber, iban, currency }));
   return {
     data: {
       id: request.id,
@@ -106,12 +107,15 @@ export async function getPaymentAccessSummary(contactRequestId, token) {
       lockReasons: locks.map((reason) => reason.message),
       rejectionReason: request.paymentStatus === "AWAITING_TRANSFER" ? request.paymentRejectionReason || null : null,
       accounts,
+      settlementOptions,
+      invoiceVersion: invoice?.version ?? null,
+      exchangeRateToSdg: invoice?.exchangeRateToSdg != null ? String(invoice.exchangeRateToSdg) : null,
       expiresAt: request.paymentAccessExpiresAt?.toISOString() ?? null,
     },
   };
 }
 
-export async function uploadReceiptWithPaymentAccess(contactRequestId, token, file) {
+export async function uploadReceiptWithPaymentAccess(contactRequestId, token, file, settlementChoice = {}) {
   if (!isWellFormedPaymentToken(token)) return { error: "NOT_FOUND" };
-  return recordPaymentReceipt(contactRequestId, accessScope(token), file);
+  return recordPaymentReceipt(contactRequestId, accessScope(token), file, settlementChoice);
 }

@@ -9,7 +9,7 @@ import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 //     customer sees an Arabic message (not «Failed to fetch»), retries, and
 //     lands on the same request's payment step — one request only.
 //  2. A receipt already reached the server and the reply was lost: the step
-//     checks the server and finishes («بانتظار مراجعة التحويل»), no second
+//     checks the server and finishes («بانتظار مراجعة الدفع»), no second
 //     receipt.
 //  3. Staff reject the receipt: /track shows the reason, a new receipt goes
 //     back under review, and the payment is never confirmed by the customer.
@@ -94,7 +94,7 @@ test("payment recovery: lost reply on submit and on receipt, then rejection and 
     await page.route(`${BACKEND}/api/contact-requests/${id}/payment-access/receipt`, (route) => route.abort("connectionreset"));
     await step.getByTestId("payment-receipt-input").setInputFiles(FIXTURE);
     await step.getByRole("button", { name: "إرسال الطلب للمراجعة" }).click();
-    await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة التحويل", { timeout: 15_000 });
+    await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة الدفع", { timeout: 15_000 });
     let detail = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
     expect(detail.paymentStatus).toBe("UNDER_REVIEW");
     expect((detail.documents as Array<{ classification: string | null }>).filter((d) => d.classification === "FINANCIAL_DOCUMENT")).toHaveLength(1);
