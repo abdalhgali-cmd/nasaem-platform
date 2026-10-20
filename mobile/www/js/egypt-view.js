@@ -3,6 +3,7 @@
 // a catalog visa type with its own configured price; nothing here invents or
 // reuses another item's price. Pure, unit-tested without a DOM.
 import { fixedPricing, moneyText } from "./pricing-view.js";
+import { startingPrice, sdgText, SDG_UNAVAILABLE_NOTICE } from "./service-view.js";
 
 // Short type labels (the catalog name of a variant is the agency's own).
 export const EGYPT_VARIANTS = Object.freeze([
@@ -33,7 +34,7 @@ export function egyptVariantOptions(catalog) {
   return EGYPT_VARIANTS.map((variant) => {
     const item = published.find((candidate) => String(candidate.code || "").toUpperCase() === variant.code) || null;
     const bookable = Boolean(item && fixedPricing(item));
-    return { ...variant, item: bookable ? item : null, bookable, priceText: bookable ? variantPriceText(item).text : EGYPT_UNAVAILABLE };
+    return { ...variant, item: bookable ? item : null, bookable, priceText: bookable ? variantPriceText(item).text : EGYPT_UNAVAILABLE, sdgText: bookable ? variantSdgText(item) : "" };
   });
 }
 
@@ -44,6 +45,14 @@ export function variantPriceText(item) {
   if (!pricing) return { text: "يُحدَّد السعر بعد مراجعة الطلب", fixed: false };
   const unit = pricing.priceUnit === "PER_TRAVELER" ? "للمسافر" : "للطلب";
   return { text: `${moneyText(pricing.unitPrice, pricing.currency)} ${unit}`, fixed: true, currency: pricing.currency };
+}
+
+// The variant's SDG line: the server's own conversion (priceSdg, from the
+// agency's active rate), or the notice that none is available. Never computed here.
+export function variantSdgText(item) {
+  const price = startingPrice(item);
+  if (!price || price.currency === "SDG") return "";
+  return sdgText(price) || SDG_UNAVAILABLE_NOTICE;
 }
 
 // SELECT requirement options as {value, label}: the API stores objects
@@ -70,4 +79,17 @@ export function validateEgyptRoute(entryMode, { departureCity, arrivalAirport, e
   }
   if (entryMode === "BORDER") return String(entryPort || "").trim() ? [] : ["أدخل منفذ الدخول."];
   return [];
+}
+
+// The three steps of an Egypt application: entry method → details and
+// passports → payment. `current` is 1, 2 or 3.
+export function egyptStepsHtml(current, esc = (value) => value) {
+  const labels = ["طريقة الدخول", "البيانات والجوازات", "الدفع"];
+  return `<ol class="egypt-steps" aria-label="خطوات الطلب">${labels
+    .map((label, index) => {
+      const step = index + 1;
+      const state = step < current ? "done" : step === current ? "current" : "upcoming";
+      return `<li class="egypt-step egypt-step-${state}"${state === "current" ? ' aria-current="step"' : ""}><span class="egypt-step-dot" aria-hidden="true">${state === "done" ? "✓" : step}</span><span>${esc(label)}</span></li>`;
+    })
+    .join("")}</ol>`;
 }

@@ -498,14 +498,14 @@ model Customer {
 }
 
 model Service {
-  id                 String   @id @default(cuid())
-  code               String   @unique
-  name               String
-  category           String
-  description        String?
-  basePrice          Decimal  @db.Decimal(12, 2)
-  currency           String   @default("SAR")
-  active             Boolean  @default(true)
+  id                         String   @id @default(cuid())
+  code                       String   @unique
+  name                       String
+  category                   String
+  description                String?
+  basePrice                  Decimal  @db.Decimal(12, 2)
+  currency                   String   @default("SAR")
+  active                     Boolean  @default(true)
   // Platform 3.0 Phase 3 (Dynamic Service Catalog) — admin-configurable
   // display metadata. iconKey/imageKey mirror HomepageSection's pattern
   // exactly: iconKey is validated against the shared ICON_KEYS allow-list
@@ -513,10 +513,10 @@ model Service {
   // (`service-image-<id>`) set only after a successful image upload.
   // features is a small array of short bullet strings, not a separate
   // table — nothing here needs its own identity, ordering or relations.
-  sortOrder          Int      @default(0)
-  iconKey            String?
-  imageKey           String?
-  features           Json?
+  sortOrder                  Int      @default(0)
+  iconKey                    String?
+  imageKey                   String?
+  features                   Json?
   // Admin-managed hero visual identity for a service's dedicated/landing
   // page — same SiteAsset-key pattern as imageKey above, just a second slot
   // for the large above-the-fold banner instead of the small catalog-card
@@ -525,14 +525,14 @@ model Service {
   // a page's decorative motion (a bundled CSS animation by default, or the
   // uploaded motionVideoKey clip when one is set) — kept separate from
   // motionVideoKey so an admin can enable motion without needing an upload.
-  heroImageKey       String?
-  heroImageMobileKey String?
-  motionEnabled      Boolean  @default(false)
-  motionVideoKey     String?
+  heroImageKey               String?
+  heroImageMobileKey         String?
+  motionEnabled              Boolean  @default(false)
+  motionVideoKey             String?
   // Platform 3.0 Phase 8 (Security Approvals) — same free-text rationale
   // as VisaType.processingTime: wording varies too much ("same day",
   // "3-5 working days", ...) to force a fixed shape.
-  processingTime     String?
+  processingTime             String?
   // How the final price is decided, set explicitly by the agency (never
   // inferred from basePrice): "QUOTE" (default) — the agency issues a quote
   // after reviewing the request and the customer approves that exact
@@ -542,11 +542,11 @@ model Service {
   // paymentAfterDocumentReview: for FIXED, payment opens only once the
   // documents are approved, at the same accepted price.
   // Plain strings validated in code (services/visa-types validators).
-  pricingMode                String  @default("QUOTE")
-  priceUnit                  String  @default("PER_REQUEST")
-  paymentAfterDocumentReview Boolean @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  pricingMode                String   @default("QUOTE")
+  priceUnit                  String   @default("PER_REQUEST")
+  paymentAfterDocumentReview Boolean  @default(false)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
 
   orderItems      OrderItem[]
   workflows       Workflow[]
@@ -561,15 +561,15 @@ model Service {
 }
 
 model VisaType {
-  id             String   @id @default(cuid())
-  code           String   @unique
-  name           String
-  country        String
-  description    String?
-  basePrice      Decimal  @db.Decimal(12, 2)
-  currency       String   @default("SAR")
-  active         Boolean  @default(true)
-  serviceId      String?
+  id                         String   @id @default(cuid())
+  code                       String   @unique
+  name                       String
+  country                    String
+  description                String?
+  basePrice                  Decimal  @db.Decimal(12, 2)
+  currency                   String   @default("SAR")
+  active                     Boolean  @default(true)
+  serviceId                  String?
   // Platform 3.0 Phase 4 (Dynamic Visa Management) — admin-configurable
   // fields extending the existing model in place. `name` stays the
   // existing (Arabic) display name used everywhere already; nameEn is the
@@ -578,13 +578,13 @@ model VisaType {
   // to force a fixed shape); entryType is validated against a small enum
   // at the API layer only (utils/enums.js), same pattern as `category`
   // elsewhere in this schema — avoids a migration if the set ever grows.
-  nameEn         String?
-  type           String?
-  processingTime String?
-  stayDuration   String?
-  validity       String?
-  entryType      String?
-  sortOrder      Int      @default(0)
+  nameEn                     String?
+  type                       String?
+  processingTime             String?
+  stayDuration               String?
+  validity                   String?
+  entryType                  String?
+  sortOrder                  Int      @default(0)
   // Platform 3.0 (Visa Categorization) — which top-level public section
   // this visa type belongs to (INTERNATIONAL / UMRAH / FAMILY_VISIT /
   // OTHER for everything else, e.g. work visas, Egypt clearance).
@@ -593,15 +593,15 @@ model VisaType {
   // on Service) so the category set can grow without a migration. This is
   // the authoritative classification the public API filters on — it must
   // never be inferred/hidden in the frontend.
-  category       String   @default("OTHER")
+  category                   String   @default("OTHER")
   // Same explicit pricing configuration as Service (see there); a visa
   // type's own setting applies to requests for it.
   // Plain strings validated in code (services/visa-types validators).
-  pricingMode                String  @default("QUOTE")
-  priceUnit                  String  @default("PER_REQUEST")
-  paymentAfterDocumentReview Boolean @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  pricingMode                String   @default("QUOTE")
+  priceUnit                  String   @default("PER_REQUEST")
+  paymentAfterDocumentReview Boolean  @default(false)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
 
   service         Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   contactRequests ContactRequest[]
@@ -1259,45 +1259,45 @@ enum ContactRequestPaymentStatus {
 }
 
 model ContactRequest {
-  id                   String                      @id @default(cuid())
+  id                       String                      @id @default(cuid())
   // Client-generated key for one submission (the mobile app keeps it across
   // retries): a retried POST returns the request already created instead of
   // a duplicate. Null for every submission that doesn't send one.
-  submissionKey        String?                     @unique
+  submissionKey            String?                     @unique
   // Request-scoped payment access issued once the request is created with an
   // accepted fixed price: lets the same customer see the agency's account for
   // this request's currency and upload the transfer receipt straight after
   // submitting, without a separate phone-code sign-in. Only the SHA-256 hash
   // of the token is stored; it expires and opens nothing but this request's
   // payment step.
-  paymentAccessTokenHash String?                   @unique
-  paymentAccessExpiresAt DateTime?
-  name                 String
-  phone                String
-  phoneNormalized      String                      @default("")
-  email                String?
-  service              String?
-  serviceId            String?
-  visaTypeId           String?
-  travelerCount        Int?
-  intakeData           Json?
+  paymentAccessTokenHash   String?                     @unique
+  paymentAccessExpiresAt   DateTime?
+  name                     String
+  phone                    String
+  phoneNormalized          String                      @default("")
+  email                    String?
+  service                  String?
+  serviceId                String?
+  visaTypeId               String?
+  travelerCount            Int?
+  intakeData               Json?
   // Platform 3.0 Phase 5 — a point-in-time copy of the selected visa
   // type's active VisaRequirement checklist, captured at submission (see
   // createContactRequest). Later edits to the live requirement templates
   // must never change what an already-submitted request's checklist says.
-  requirementsSnapshot Json?
-  message              String
-  status               ContactRequestStatus        @default(NEW)
-  outcome              ContactRequestOutcome?
-  outcomeNote          String?
-  closedAt             DateTime?
-  paymentStatus        ContactRequestPaymentStatus @default(NOT_REQUIRED)
-  paymentConfirmedAt   DateTime?
+  requirementsSnapshot     Json?
+  message                  String
+  status                   ContactRequestStatus        @default(NEW)
+  outcome                  ContactRequestOutcome?
+  outcomeNote              String?
+  closedAt                 DateTime?
+  paymentStatus            ContactRequestPaymentStatus @default(NOT_REQUIRED)
+  paymentConfirmedAt       DateTime?
   // Set when staff reject the transfer receipt: the request goes back to
   // AWAITING_TRANSFER and the customer sees the reason until a new receipt
   // is uploaded (which clears both fields).
-  paymentRejectionReason String?
-  paymentRejectedAt      DateTime?
+  paymentRejectionReason   String?
+  paymentRejectedAt        DateTime?
   // Recorded by staff when work on the paid request actually starts
   // (ticket issuance, visa processing, hotel confirmation, ...). Customers
   // see the service-specific execution stage only once this is set.
@@ -1321,40 +1321,59 @@ model ContactRequest {
   executionStartedAt       DateTime?
   executionStartedByUserId String?
   executionNote            String?
-  createdAt            DateTime                    @default(now())
-  updatedAt            DateTime                    @updatedAt
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
 
   organizationId String @default("org_nasaem_default")
 
-  customerId          String?
+  customerId             String?
   // Smart Case Operations — Release C groundwork. Which staff member owns
   // this case — mirrors Order.assignedUserId's existing pattern exactly
   // (same onDelete: SetNull — an employee leaving must never delete their
   // past cases, just unassign them). Null means unassigned (the only value
   // every request had before this release).
-  assignedUserId      String?
+  assignedUserId         String?
   // Smart Case Operations — Release E (SLA). When this case is expected to
   // be finished. Null means "no expectation recorded" — never a guess, and
   // never surfaced to a customer as a promise (see deriveSlaState).
-  dueAt               DateTime?
-  organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  serviceRef          Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  visaType            VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
-  customer            Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  assignedUser        User?                       @relation("ContactRequestAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  invoice             Invoice?
-  documents           ContactRequestDocument[]
-  deliverables        ContactRequestDeliverable[]
-  offers              ContactRequestOffer[]       @relation("ContactRequestOffers")
-  selectedOfferId     String?                     @unique
-  selectedOffer       ContactRequestOffer?        @relation("SelectedOffer", fields: [selectedOfferId], references: [id], onDelete: SetNull)
-  travelers           Traveler[]
-  providerSubmissions ProviderSubmission[]
-  tasks               CaseTask[]
-  notes               CaseNote[]
-  notifications       Notification[]
-  customerMessages    CustomerMessageDelivery[]
+  dueAt                  DateTime?
+  // Egypt security approval. The canonical travel (entry) date: one typed,
+  // indexed date that schedules the staff reminders and the travel queue
+  // (intakeData.egyptTravel.entryDate is kept equal for older clients).
+  // travelScheduleRevision increases on every change of that date so a
+  // reminder computed for an older date is never sent.
+  travelEntryDate        DateTime?                   @db.Date
+  travelScheduleRevision Int                         @default(0)
+  // Set when staff start processing the circular (التعميم); the circular
+  // itself is a staff-uploaded CIRCULAR deliverable, never generated.
+  circularProcessingAt   DateTime?
+  // A request opened from another one (e.g. the flight booking inquiry
+  // linked to an Egypt approval). linkKind says why; one per parent and kind.
+  parentRequestId        String?
+  linkKind               String?
+  organization           Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parentRequest          ContactRequest?             @relation("LinkedRequests", fields: [parentRequestId], references: [id], onDelete: SetNull)
+  linkedRequests         ContactRequest[]            @relation("LinkedRequests")
+  travelReminders        TravelReminder[]
+  paymentReceipt         PaymentReceipt?
+  serviceRef             Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  visaType               VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
+  customer               Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedUser           User?                       @relation("ContactRequestAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  invoice                Invoice?
+  documents              ContactRequestDocument[]
+  deliverables           ContactRequestDeliverable[]
+  offers                 ContactRequestOffer[]       @relation("ContactRequestOffers")
+  selectedOfferId        String?                     @unique
+  selectedOffer          ContactRequestOffer?        @relation("SelectedOffer", fields: [selectedOfferId], references: [id], onDelete: SetNull)
+  travelers              Traveler[]
+  providerSubmissions    ProviderSubmission[]
+  tasks                  CaseTask[]
+  notes                  CaseNote[]
+  notifications          Notification[]
+  customerMessages       CustomerMessageDelivery[]
 
+  @@unique([parentRequestId, linkKind])
   @@index([status])
   @@index([createdAt])
   @@index([phoneNormalized])
@@ -1363,6 +1382,7 @@ model ContactRequest {
   @@index([visaTypeId])
   @@index([organizationId])
   @@index([assignedUserId])
+  @@index([travelEntryDate])
 }
 
 // Smart Case Operations — Release A. A person the request/case is for, once
@@ -1513,6 +1533,10 @@ model ContactRequestDocument {
   // back onto authoritative data, and a failed/absent extraction never
   // blocks the upload itself (see maybeRunPassportOcr).
   ocrResult        Json?
+  // Image-quality hints for staff (blur, glare, darkness, crop, page check)
+  // measured on the customer's device. Hints only — never a reason to refuse
+  // a file — and never any text read from the passport.
+  qualitySignal    Json?
   createdAt        DateTime                     @default(now())
   updatedAt        DateTime                     @updatedAt
 
@@ -1531,15 +1555,33 @@ model ContactRequestDocument {
   @@index([travelerId])
 }
 
+// What a final file is. GENERAL: the service's final output (visa, ticket
+// of a flight request, ...). The Egypt approval has typed files: APPROVAL
+// (the security approval itself — the only kind that counts as the approval
+// and as its delivery), CIRCULAR (the staff-uploaded circular PDF) and
+// TICKET (a travel ticket attached to the approval request). Each kind is
+// versioned: a newer file supersedes the older one for the same travelers.
+enum DeliverableKind {
+  GENERAL
+  APPROVAL
+  CIRCULAR
+  TICKET
+}
+
 model ContactRequestDeliverable {
-  id               String   @id @default(cuid())
-  contactRequestId String
-  label            String
-  fileName         String
-  storagePath      String
-  mimeType         String
-  sizeBytes        Int
-  uploadedByUserId String
+  id                String          @id @default(cuid())
+  contactRequestId  String
+  kind              DeliverableKind @default(GENERAL)
+  version           Int             @default(1)
+  supersededAt      DateTime?
+  // APPROVAL only: the issue date written on the approval (date only).
+  issuedOn          DateTime?       @db.Date
+  label             String
+  fileName          String
+  storagePath       String
+  mimeType          String
+  sizeBytes         Int
+  uploadedByUserId  String
   // Null while the file is only prepared (a draft): drafts are never listed,
   // announced or downloadable for the customer. Set once, when staff publish
   // it (after payment and the recorded start of execution).
@@ -1550,24 +1592,25 @@ model ContactRequestDeliverable {
   // only when every traveler is covered by a published file. Empty means
   // "the request as a whole" and counts only for a request with at most one
   // traveler (legacy files keep their empty list; see the migration).
-  travelerIds       String[] @default([])
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  travelerIds       String[]        @default([])
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
   uploadedBy     User           @relation("ContactRequestDeliverableUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
 
   @@index([contactRequestId])
+  @@index([contactRequestId, kind])
   @@index([uploadedByUserId])
 }
 
 model ContactRequestOffer {
-  id               String   @id @default(cuid())
-  contactRequestId String
-  carrier          String
-  description      String?
-  amount           Decimal  @db.Decimal(12, 2)
-  currency         String   @default("SAR")
+  id                String    @id @default(cuid())
+  contactRequestId  String
+  carrier           String
+  description       String?
+  amount            Decimal   @db.Decimal(12, 2)
+  currency          String    @default("SAR")
   // Exchange rate frozen when the price was issued (1 unit of `currency` in
   // SDG) and the resulting Sudanese-pound equivalent. Null when no rate was
   // configured at that moment; never recomputed afterwards, so the price the
@@ -1575,9 +1618,9 @@ model ContactRequestOffer {
   exchangeRateToSdg Decimal?  @db.Decimal(18, 6)
   amountSdg         Decimal?  @db.Decimal(14, 2)
   rateFixedAt       DateTime?
-  createdByUserId  String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdByUserId   String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   contactRequest ContactRequest  @relation("ContactRequestOffers", fields: [contactRequestId], references: [id], onDelete: Cascade)
   createdBy      User            @relation("ContactRequestOfferCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
@@ -1594,29 +1637,29 @@ enum InvoiceStatus {
 }
 
 model Invoice {
-  id               String        @id @default(cuid())
-  contactRequestId String        @unique
-  amount           Decimal       @db.Decimal(12, 2)
-  currency         String        @default("SAR")
+  id                String        @id @default(cuid())
+  contactRequestId  String        @unique
+  amount            Decimal       @db.Decimal(12, 2)
+  currency          String        @default("SAR")
   // Exchange rate frozen when the price was issued (1 unit of `currency` in
   // SDG) and the resulting Sudanese-pound equivalent. Null when no rate was
   // configured at that moment; never recomputed afterwards, so the price the
   // customer approved never changes under them.
-  exchangeRateToSdg Decimal?  @db.Decimal(18, 6)
-  amountSdg         Decimal?  @db.Decimal(14, 2)
+  exchangeRateToSdg Decimal?      @db.Decimal(18, 6)
+  amountSdg         Decimal?      @db.Decimal(14, 2)
   rateFixedAt       DateTime?
-  description      String?
-  status           InvoiceStatus @default(PENDING)
+  description       String?
+  status            InvoiceStatus @default(PENDING)
   // Incremented on every revision of the price. A customer approves or
   // rejects one exact version (the one displayed to them); a decision on
   // any other version is refused.
-  version          Int           @default(1)
+  version           Int           @default(1)
   // Null for a fixed catalog price accepted by the customer at submission
   // (no staff member issued it).
-  createdByUserId  String?
-  decidedAt        DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdByUserId   String?
+  decidedAt         DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
   createdBy      User?          @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
@@ -1694,4 +1737,63 @@ model RevokedStaffToken {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+// Staff reminder that an Egypt approval traveller travels soon (3 calendar
+// days before the travel date, Africa/Khartoum; URGENT at once when the date
+// is already closer). One row per (request, travel date, kind): a reminder
+// already SENT for that date is never sent again. A changed date supersedes
+// the rows of the old date; a closed request cancels them.
+// status: SCHEDULED | SENT | CANCELLED | SUPERSEDED. kind: THREE_DAY | URGENT.
+model TravelReminder {
+  id               String    @id @default(cuid())
+  contactRequestId String
+  travelDate       DateTime  @db.Date
+  kind             String
+  revision         Int
+  dueAt            DateTime
+  status           String    @default("SCHEDULED")
+  sentAt           DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([contactRequestId, travelDate, kind])
+  @@index([status, dueAt])
+}
+
+// The paid receipt («إيصال سداد / Payment Receipt») recorded in the same
+// transaction that confirms a request's payment. Amount, currency, exchange
+// rate and customer details are frozen at that moment. It is a payment
+// receipt, not a tax invoice: no tax registration or VAT is invented. The
+// PDF is produced after commit (pdfStatus PENDING -> READY | FAILED) and
+// re-tried by the reconciler; its email goes through CustomerMessageDelivery
+// (kind PAYMENT_RECEIPT, channel EMAIL).
+model PaymentReceipt {
+  id                String    @id @default(cuid())
+  contactRequestId  String    @unique
+  receiptNo         String    @unique
+  amount            Decimal   @db.Decimal(12, 2)
+  currency          String
+  exchangeRateToSdg Decimal?  @db.Decimal(18, 6)
+  amountSdg         Decimal?  @db.Decimal(14, 2)
+  rateFixedAt       DateTime?
+  customerName      String
+  customerEmail     String?
+  serviceName       String
+  travelerCount     Int       @default(1)
+  paidAt            DateTime
+  confirmedByUserId String?
+  pdfStatus         String    @default("PENDING")
+  storagePath       String?
+  sizeBytes         Int?
+  pdfAttempts       Int       @default(0)
+  lastError         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  @@index([pdfStatus])
 }

@@ -6,6 +6,51 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
+## Egypt security approval — complete customer & staff workflow (2026-10-19, branch `feat/egypt-approval-workflow-20261019`, stacked on `feat/mobile-home-concept-c-20261019` `8794eb2` / PR #127)
+
+| Item | Status / evidence |
+|---|---|
+| Migration `20261019090000_egypt_approval_workflow` (additive; typed versioned files `DeliverableKind`, canonical `travelEntryDate` + schedule revision, `TravelReminder`, `PaymentReceipt`, linked requests, document quality hints; exception-safe backfills) + capability `egypt-approval-workflow-v1` | VERIFIED on disposable DB (malformed-date backfill checked by hand). NOT applied to staging/production |
+| Approval issuance (dated, per-traveler, file verified on disk before status), versions/supersession, circular processing + PDF-only upload (needs approval + complete travel preparation), staff ticket upload, staff travel-date edit with reason + audit | `egyptApprovalWorkflow.test.js` 15/15 |
+| 3-day staff reminders (09:00 Africa/Khartoum, URGENT when closer, deduplicated, superseded on date change, cancelled on close, revision-checked under lock, reconciler for backfilled dates); notification text with entry/approval/circular/missing | `egyptApprovalRules.test.js` 7/7 + workflow tests |
+| Paid receipt «إيصال سداد» (not a tax invoice) created atomically with payment confirmation, PDF (pdfkit + Amiri OFL, RTL checked by rendering), e-mail outbox with retries/UNCERTAIN/SKIPPED, audited staff re-send, ownership-scoped downloads | `egyptReceiptAndFlight.test.js` 12/12 (capture transport only — no real e-mail) |
+| Linked flight booking inquiry (one per approval, QUOTE, no fare/PNR), repair pass; passport device hints (sanitized) and Egypt signal-only OCR | same file |
+| Admin: Egypt tab (queue / travel schedule, filters, next action) + request workspace | `egyptAdminDashboard.test.js` 2/2, staff admin suites |
+| App: 3 steps, passport camera/upload with preview + layered checks, invoice e-mail, flight question, six-step timeline, files, «تجهيز السفر والتعميم» | mobile unit 119/119; `web/e2e/egypt-approval.spec.ts` 4/4 local (browser bundle, NOT a device) |
+| Backend full suite | 944/944 local before the mobile milestone |
+| Codex reviews | plan + 4 code reviews; findings fixed (see PR) |
+| Real Android device, real e-mail provider, staging | NOT TESTED / BLOCKED (no device, no mail credentials, no staging approval) |
+
+## Mobile customer journeys — Concept C and simplified flows (2026-10-19, branch `feat/mobile-home-concept-c-20261019`, base `integration/phase2-completion-20261017` `40e928f`)
+
+Claude Code implemented; Codex reviewed through MCP (read-only tools only, no `codex_implement`).
+
+**VERIFIED**
+- Home: Concept C bento (`faedc31` cherry-picked), Umrah card listing the published kinds with their fixed SAR price and the server's SDG (tap opens that package), Egypt card with both entry prices (USD + server SDG), live service count, hotels hidden, white 4-tab navigation.
+- Request form: one «المتطلبات» screen (traveller cards with their own passport slots, guarantor/request documents, contact, agency questions, fixed total + explicit confirmation beside the send button). Payload to `POST /contact-requests` unchanged.
+- Umrah and Egypt bookable only at a fixed price on every path (home, services list, preselection, drafts); no quote fallback. Fixed-price services show Choose → Requirements → Pay → Track, never quote copy.
+- Payment: «إرسال إشعار التحويل», resume kept after «سأحوّل لاحقًا», no receipt upload when no account exists for the currency.
+- Tracking: customer moments (request → payment → issuing → ready), the customer's own task first, every server stage under «تفاصيل كل المراحل».
+- First launch: sign in or «المتابعة كزائر» (remembered); biometric accounts lock after 5 min idle/background; pinch-zoom allowed; focus moves to each screen title.
+- Codex: gap review + plan review + 9 code-review rounds; 24 confirmed findings fixed; final round on `1abc29b`: no confirmed findings.
+- Mobile unit tests 109/109, `npm run check` ok; web typecheck ok.
+- Playwright `mobile-app` project (mobile-app 11, service-journeys 6, pricing-progress 5) on a fresh disposable PostgreSQL + real backend: **22/22 on `1abc29b`**.
+- Full CI e2e command (all 4 projects) on `93a0b35`: 109/110; the one failure (`mobile-web` flight-search, website code this branch does not touch) passed 2/2 on rerun.
+- Real-backend screenshots (welcome → home → Umrah → payment + receipt → guest OTP tracking → Egypt) at 360/390 px and 130% text: no horizontal overflow, no page errors; a real-stack run found and fixed the "receipt in while documents are reviewed" tracker state.
+
+**NOT TESTED / BLOCKED**
+- Android APK not built here: `dl.google.com` (Android SDK) is blocked by this environment's network policy. The repository's `android-apk.yml` builds the signed QA APK on the pull request.
+- No real-device test; screenshots are Chromium renders of the web bundle.
+- Hotels e2e journey removed: hotel discovery was already hidden on the base branch by agency decision (now asserted absent instead).
+
+**Owner decisions / follow-ups**
+- Staging data: set FIXED prices on the Umrah packages and Egypt variants in the back-office (seeded as QUOTE → shown as unavailable).
+- Server copy (cross-surface, not in this branch): after payment confirmation it says «تم قبول الدفع، بانتظار بدء التنفيذ»; Egypt execution says «جارٍ استخراج الموافقة الأمنية» instead of «جاري إصدار الموافقة».
+- Egypt travel plan is still a post-payment customer step (collecting it at intake changes the staff workflow).
+- Customer passport OCR (today staff-only) could prefill traveller names.
+
+**NEXT:** review the PR into `integration/phase2-completion-20261017`, install the QA APK from its workflow run, real-device check at 360/390 dp and 130% font.
+
 ## Issue #98 — homepage service selection (2026-10-17)
 
 | Item | Status | Evidence |

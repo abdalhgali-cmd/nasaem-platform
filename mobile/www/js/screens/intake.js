@@ -1,22 +1,30 @@
 import { api, ApiError } from "../api.js";
-import { esc, toast, setLoading } from "../ui.js";
+import { esc, toast, setLoading, confirmDialog } from "../ui.js";
 import { icon } from "../icons.js";
 import { goToTab } from "../router.js";
 import { getCustomer, isAccountUnlocked } from "../auth.js";
 import { newSubmissionKey, submitRequestForm, submitFailureMessage, showSubmitted } from "../submission.js";
 import { confirmationNotice, parseRequirementsResponse } from "../experience-core.js";
 import {
-  MAX_DOCUMENTS, MAX_TRAVELERS, requirementApplies, travelerLabel, buildDocumentSlots, validateFile, validateContact,
+  MAX_TRAVELERS, requirementApplies, buildDocumentSlots, validateFile, validateContact, removeTravelerFiles,
   validateTravelers, validateSlots, buildUploadParts, collectAnswers, missingAnswers, draftKey, serializeDraft, parseDraft,
 } from "../intake-core.js";
 import { setTrackingPrefill } from "../tracking.js";
 import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-view.js";
-import { umrahNeedsGuarantor, validateUmrahContacts } from "../umrah-view.js";
+import { isUmrahPackage, umrahNeedsGuarantor, validateUmrahContacts } from "../umrah-view.js";
 import { EGYPT_AIR_ROUTE_DEFAULTS, egyptVariantEntryMode, validateEgyptRoute } from "../egypt-view.js";
 import { selectOptions } from "../egypt-view.js";
+import { QUALITY_MESSAGES, analyzePassportFile } from "../passport-quality.js";
+
+// Egypt: a passport slot offers the camera and the gallery, with a preview
+// and on-device quality hints (passport-quality.js).
+function isPassportSlot(slot) {
+  const requirement = slot.requirement || {};
+  return requirement.attachmentType === "passport_copy" || /جواز/.test(requirement.name || "");
+}
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ALLOWED_DOC_ACCEPT = "image/*,.pdf";
-const STEP_TITLES = { data: "البيانات", docs: "المستندات", review: "المراجعة" };
 
 function formatBytes(bytes) {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} ميغابايت`;
@@ -78,27 +86,6 @@ function answerInput(requirement, value) {
     </label>`;
 }
 
-function travelerFieldset(index, traveler) {
-  return `
-    <fieldset class="traveler-card" data-traveler="${index}">
-      <legend>المسافر ${index + 1}${index === 0 ? " (صاحب الطلب)" : ""}</legend>
-      <label class="field">
-        <span>الاسم كما في جواز السفر *</span>
-        <input name="t_name_${index}" value="${esc(traveler.fullName || "")}" autocomplete="off">
-      </label>
-      <div class="field-row">
-        <label class="field">
-          <span>رقم الجواز</span>
-          <input name="t_pass_${index}" value="${esc(traveler.passportNo || "")}" autocomplete="off" dir="ltr">
-        </label>
-        <label class="field">
-          <span>الجنسية</span>
-          <input name="t_nat_${index}" value="${esc(traveler.nationality || "")}">
-        </label>
-      </div>
-    </fieldset>`;
-}
-
 // Resolves to the service's checklist ([] only when the server confirmed it
 // is empty, or the item has no checklist at all). Throws when it couldn't be
 // loaded: the form is then not shown, so nothing is submitted unchecked.
@@ -110,14 +97,21 @@ async function fetchRequirements(item) {
   return requirements;
 }
 
-// The one requirement-driven request screen behind every service's "ابدأ
-// الطلب" button. Three steps: data (contact, travelers, the agency's own
-// questions) -> documents (one slot per document and, where the agency asks
-// for it, per traveler) -> review and send. The fields are never generic: they
-// come from that service's checklist, managed in the back-office.
+// The one requirement-driven request screen behind every service: everything
+// the request needs on ONE screen, in the order the customer has it to hand —
+// the travelers (each with their own documents), the trip details, the
+// request-wide documents (for Umrah: the guarantor), how to reach the
+// customer, the agency's own questions, and for a fixed price the total with
+// an explicit confirmation beside the send button. The fields are never
+// generic: they come from that service's checklist, managed in the
+// back-office.
 // `selection` (optional): what the customer already picked before the form,
 // e.g. a flight — { summary, details }. It is shown and sent with the request.
-export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null, fallbackRequirementsItem = null }) {
+// `initialTravelers`: how many travelers the customer already said (flights).
+// `showSelection`: false when the choice is already visible on the same screen (Umrah).
+// `requireChecklist`: the service cannot be requested without documents
+// (Umrah): an empty checklist is a configuration gap, not "nothing needed".
+export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null, fallbackRequirementsItem = null, initialTravelers = 1, showSelection = true, requireChecklist = false }) {
   setTitle(`طلب ${item.name}`);
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل متطلبات الخدمة…</p></div>`;
 
@@ -127,6 +121,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     // A package the agency has not given its own checklist falls back to the
     // checklist of the parent service (e.g. the Umrah service's passport/sponsor).
     if (!requirements.length && fallbackRequirementsItem) requirements = await fetchRequirements(fallbackRequirementsItem);
+    if (!requirements.length && requireChecklist) throw new ApiError("لم تُحدِّد الوكالة مستندات هذه الخدمة بعد.", { status: 0, code: "NO_CHECKLIST" });
   } catch (error) {
     // Without the checklist we can't tell the customer what to send, so the
     // form is not offered at all — only a retry.
@@ -134,11 +129,11 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       <div class="empty-state" id="requirementsError" role="alert">
         ${icon("alert", { size: 28 })}
         <h3>تعذّر تحميل متطلبات الخدمة</h3>
-        <p>${esc(error?.status === 0 ? "تحقق من اتصالك بالإنترنت ثم أعد المحاولة." : "حدث خطأ في الخادم. أعد المحاولة بعد قليل.")} لن نعرض النموذج قبل التأكد من المستندات المطلوبة لهذه الخدمة.</p>
+        <p>${esc(error?.code === "NO_CHECKLIST" ? "لم تُحدِّد الوكالة مستندات هذه الخدمة بعد؛ تواصل معنا أو أعد المحاولة لاحقًا." : error?.status === 0 ? "تحقق من اتصالك بالإنترنت ثم أعد المحاولة." : "حدث خطأ في الخادم. أعد المحاولة بعد قليل.")} لن نعرض النموذج قبل التأكد من المستندات المطلوبة لهذه الخدمة.</p>
         <button type="button" class="primary" id="retryRequirementsBtn">إعادة المحاولة</button>
       </div>`;
     bodyEl.querySelector("#retryRequirementsBtn").addEventListener("click", () =>
-      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem })
+      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist })
     );
     return;
   }
@@ -148,55 +143,85 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   // One key for this form, reused on every retry (no duplicate requests).
   const submissionKey = newSubmissionKey();
   const storageKey = draftKey(item);
-
-  const state = {
-    step: "data",
-    files: new Map(),
-    values: {
-      name: customer?.fullName || "",
-      phone: customer?.phone || "",
-      email: customer?.email || "",
-      notes: `طلب ${item.name}`,
-      travelers: [{ fullName: customer?.fullName || "", passportNo: "", nationality: "" }],
-      answers: {},
-      guarantorPhone: "",
-      extraContactName: "",
-      extraContactPhone: "",
-      departureCity: EGYPT_AIR_ROUTE_DEFAULTS.departureCity,
-      arrivalAirport: EGYPT_AIR_ROUTE_DEFAULTS.arrivalAirport,
-      entryPort: "",
-    },
-  };
   const needsGuarantor = umrahNeedsGuarantor(item);
   // Egypt clearance variant: its entry method decides the route fields.
   const egyptMode = egyptVariantEntryMode(item);
+  const travelerWord = needsGuarantor ? "المعتمر" : "المسافر";
+  const fixedOnly = Boolean(egyptMode) || isUmrahPackage(item);
+  const startCount = Math.max(1, Math.min(maxTravelers, Math.floor(Number(initialTravelers) || 1)));
+
+  const state = {
+    files: new Map(),
+    // Egypt passport slots: quality hints and preview per slot key.
+    quality: new Map(),
+    previews: new Map(),
+    // Per slot: the selection whose analysis may still apply (a newer pick
+    // or a removal makes an older result void), and the slots being checked.
+    analysisGen: new Map(),
+    analyzing: new Set(),
+    values: {
+      name: customer?.fullName || "",
+      phone: customer?.phone || "",
+      // Not asked on the form; a signed-in customer's own address still goes with the request.
+      email: customer?.email || "",
+      notes: "",
+      travelers: Array.from({ length: startCount }, (_, index) => ({ fullName: index === 0 ? customer?.fullName || "" : "", passportNo: "", nationality: "" })),
+      answers: {},
+      guarantorPhone: "",
+      departureCity: EGYPT_AIR_ROUTE_DEFAULTS.departureCity,
+      arrivalAirport: EGYPT_AIR_ROUTE_DEFAULTS.arrivalAirport,
+      entryPort: "",
+      flightChoice: "",
+    },
+  };
   const draft = readDraft(storageKey);
   const restored = Boolean(draft);
   if (draft) Object.assign(state.values, draft.values, { travelers: draft.values.travelers?.length ? draft.values.travelers : state.values.travelers });
   state.values.travelers = state.values.travelers.slice(0, maxTravelers);
 
-  // Fixed catalog price (explicit agency setting): the review step shows the
-  // final total and the order is confirmed at that total. Updated if the
+  // Fixed catalog price (explicit agency setting): the total is shown beside
+  // the send button and the order is confirmed at that total. Updated if the
   // server answers that the price changed meanwhile.
   let pricingItem = item;
   const pricing = () => fixedPricing(pricingItem);
 
-  const hasDocumentRequirements = requirements.some((requirement) => requirement.type === "DOCUMENT");
   const answerRequirements = () => requirements.filter((requirement) => requirement.type !== "DOCUMENT" && requirementApplies(requirement, state.values.answers));
   const slots = () => buildDocumentSlots(requirements, state.values.answers, state.values.travelers);
-  const steps = () => ["data", ...(hasDocumentRequirements ? ["docs"] : []), "review"];
+
+  const revokePreview = (key) => {
+    const url = state.previews.get(key);
+    if (url) URL.revokeObjectURL(url);
+    state.previews.delete(key);
+  };
+  const revokeAllPreviews = () => [...state.previews.keys()].forEach(revokePreview);
+  // A new pick or a removal voids any analysis still running for the slot.
+  const bumpAnalysis = (key) => {
+    state.analysisGen.set(key, (state.analysisGen.get(key) || 0) + 1);
+    state.analyzing.delete(key);
+    return state.analysisGen.get(key);
+  };
 
   let saveTimer = 0;
   const saveDraft = () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => writeDraft(storageKey, state.values), 400);
   };
+  // A pending write must never bring back a draft that was just removed.
+  const dropDraft = () => {
+    clearTimeout(saveTimer);
+    clearDraft(storageKey);
+  };
+  // While sending, the form is frozen (one payload per submission key). After
+  // a «fixed price no longer available» refusal it stays closed.
+  let submitting = false;
+  let pricingBlocked = false;
+  // What is on screen depends on the answers: the questions AND the upload slots.
+  const visibleSignature = () => [...answerRequirements().map((requirement) => requirement.id), "|", ...slots().map((slot) => slot.key)].join(",");
 
   bodyEl.innerHTML = `
-    <div class="intake">
-      <ol class="stepper" id="stepper" aria-label="خطوات الطلب"></ol>
-      ${selection ? `<section class="selection-card"><h3>${icon("check-circle", { size: 18 })} اختيارك</h3><p>${esc(selection.summary)}</p></section>` : ""}
-      ${restored ? `<p class="draft-note" id="draftNote">${icon("info", { size: 15 })} استعدنا ما كتبته سابقًا في هذا الطلب. الملفات تُختار من جديد. <button type="button" class="link-btn" id="discardDraftBtn">ابدأ من جديد</button></p>` : ""}
+    <div class="intake intake-single">
+      ${selection && showSelection ? `<section class="selection-card"><h3>${icon("check-circle", { size: 18 })} اختيارك</h3><p>${esc(selection.summary)}</p></section>` : ""}
+      ${restored ? `<p class="draft-note" id="draftNote">${icon("info", { size: 15 })} استعدنا ما كتبته سابقًا. الملفات تُختار من جديد. <button type="button" class="link-btn" id="discardDraftBtn">ابدأ من جديد</button></p>` : ""}
       <div id="stepBody"></div>
       <p class="step-errors" id="stepErrors" role="alert" hidden></p>
       <div class="step-actions" id="stepActions"></div>
@@ -205,11 +230,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   const stepBody = bodyEl.querySelector("#stepBody");
   const stepErrors = bodyEl.querySelector("#stepErrors");
   const stepActions = bodyEl.querySelector("#stepActions");
-  const stepper = bodyEl.querySelector("#stepper");
 
   bodyEl.querySelector("#discardDraftBtn")?.addEventListener("click", () => {
-    clearDraft(storageKey);
-    renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem });
+    if (submitting) return;
+    dropDraft();
+    revokeAllPreviews();
+    renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist });
   });
 
   function showErrors(messages) {
@@ -220,38 +246,28 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
 
   // ---- reading the visible fields back into state
   function syncData() {
-    // Only the data step has these inputs; on other steps the stored values stand.
-    if (!bodyEl.querySelector('[name="name"]')) return;
-    const read = (name) => bodyEl.querySelector(`[name="${name}"]`)?.value ?? "";
+    const read = (name) => stepBody.querySelector(`[name="${name}"]`)?.value ?? "";
+    if (!stepBody.querySelector('[name="name"]')) return;
     state.values.name = read("name").trim();
     state.values.phone = read("phone").trim();
-    state.values.email = read("email").trim();
-    if (needsGuarantor) {
-      state.values.guarantorPhone = read("guarantorPhone").trim();
-      state.values.extraContactName = read("extraContactName").trim();
-      state.values.extraContactPhone = read("extraContactPhone").trim();
-    }
+    if (needsGuarantor) state.values.guarantorPhone = read("guarantorPhone").trim();
     if (egyptMode === "AIR") {
       state.values.departureCity = read("departureCity").trim();
       state.values.arrivalAirport = read("arrivalAirport").trim();
+      state.values.flightChoice = stepBody.querySelector('[name="flightChoice"]:checked')?.value || "";
     } else if (egyptMode === "BORDER") {
       state.values.entryPort = read("entryPort").trim();
     }
-    const count = Math.max(1, Math.min(maxTravelers, Number(read("travelerCount")) || state.values.travelers.length));
-    const travelers = [];
-    for (let i = 0; i < count; i += 1) {
-      const existing = state.values.travelers[i] || {};
-      travelers.push({
-        fullName: bodyEl.querySelector(`[name="t_name_${i}"]`) ? read(`t_name_${i}`).trim() : existing.fullName || "",
-        passportNo: bodyEl.querySelector(`[name="t_pass_${i}"]`) ? read(`t_pass_${i}`).trim() : existing.passportNo || "",
-        nationality: bodyEl.querySelector(`[name="t_nat_${i}"]`) ? read(`t_nat_${i}`).trim() : existing.nationality || "",
-      });
-    }
-    state.values.travelers = travelers;
+    if (egyptMode && stepBody.querySelector('[name="email"]')) state.values.email = read("email").trim();
+    state.values.travelers = state.values.travelers.map((traveler, index) => ({
+      ...traveler,
+      fullName: stepBody.querySelector(`[name="t_name_${index}"]`) ? read(`t_name_${index}`).trim() : traveler.fullName || "",
+    }));
+    if (stepBody.querySelector('[name="notes"]')) state.values.notes = read("notes");
     const raw = {};
     for (const requirement of requirements) {
       if (requirement.type === "DOCUMENT") continue;
-      const el = bodyEl.querySelector(`[name="req_${requirement.id}"]`);
+      const el = stepBody.querySelector(`[name="req_${requirement.id}"]`);
       if (el) raw[requirement.id] = el.value;
       else if (state.values.answers[requirement.id] !== undefined) raw[requirement.id] = state.values.answers[requirement.id];
     }
@@ -259,213 +275,67 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     saveDraft();
   }
 
-  // ---- step renderers
-  function renderStepper() {
-    const list = steps();
-    stepper.innerHTML = list
-      .map((key, index) => `<li class="${key === state.step ? "current" : list.indexOf(state.step) > index ? "done" : ""}"><span class="step-dot">${list.indexOf(state.step) > index ? icon("check", { size: 14 }) : index + 1}</span><span class="step-name">${key === "review" && pricing() ? "الإجمالي والتأكيد" : STEP_TITLES[key]}</span></li>`)
-      .join("");
-  }
-
-  function renderActions() {
-    const list = steps();
-    const index = list.indexOf(state.step);
-    const last = index === list.length - 1;
-    stepActions.innerHTML = `
-      ${index > 0 ? `<button type="button" class="secondary" id="backStepBtn">السابق</button>` : ""}
-      <button type="button" class="primary" id="nextStepBtn">${last ? (pricing() ? "تأكيد الطلب بهذا الإجمالي" : "إرسال الطلب للوكالة") : "التالي"}</button>`;
-    stepActions.querySelector("#backStepBtn")?.addEventListener("click", () => goStep(list[index - 1], { validate: false }));
-    stepActions.querySelector("#nextStepBtn").addEventListener("click", () => (last ? submit() : goStep(list[index + 1], { validate: true })));
-  }
-
-  function renderData() {
-    const v = state.values;
-    stepBody.innerHTML = `
-      <section class="form-section">
-        <h3>بيانات التواصل</h3>
-        <p class="field-hint">لا تحتاج إلى حساب. نستخدم رقم هاتفك للتواصل معك ولمتابعة طلبك برمز تحقق عبر واتساب.</p>
-        <label class="field"><span>${needsGuarantor ? "اسم مقدم الطلب *" : "الاسم الكامل *"}</span><input name="name" value="${esc(v.name)}" autocomplete="name"></label>
-        <div class="field-row">
-          <label class="field"><span>رقم الهاتف *</span><input name="phone" inputmode="tel" dir="ltr" value="${esc(v.phone)}" autocomplete="tel"></label>
-          <label class="field"><span>البريد الإلكتروني (اختياري)</span><input name="email" type="email" dir="ltr" value="${esc(v.email)}" autocomplete="email"></label>
-        </div>
-      </section>
-      ${needsGuarantor ? `
-        <section class="form-section" id="umrahContactsSection">
-          <h3>الضامن وجهة اتصال إضافية</h3>
-          <label class="field"><span>رقم هاتف الضامن *</span><input name="guarantorPhone" inputmode="tel" dir="ltr" value="${esc(v.guarantorPhone || "")}" autocomplete="off"></label>
-          <p class="field-hint">صاحب الإقامة التي ترفعها في خطوة المستندات.</p>
-          <div class="field-row">
-            <label class="field"><span>جهة اتصال إضافية (اختياري)</span><input name="extraContactName" value="${esc(v.extraContactName || "")}" autocomplete="off"></label>
-            <label class="field"><span>هاتفها</span><input name="extraContactPhone" inputmode="tel" dir="ltr" value="${esc(v.extraContactPhone || "")}" autocomplete="off"></label>
-          </div>
-        </section>` : ""}
-      ${egyptMode === "AIR" ? `
-        <section class="form-section" id="egyptRouteSection">
-          <h3>خط السير</h3>
-          <div class="field-row">
-            <label class="field"><span>جهة القدوم *</span><input name="departureCity" maxlength="80" value="${esc(v.departureCity || "")}"></label>
-            <label class="field"><span>مطار الوصول *</span><input name="arrivalAirport" maxlength="80" value="${esc(v.arrivalAirport || "")}"></label>
-          </div>
-        </section>` : egyptMode === "BORDER" ? `
-        <section class="form-section" id="egyptRouteSection">
-          <h3>خط السير</h3>
-          <label class="field"><span>منفذ الدخول *</span><input name="entryPort" maxlength="80" value="${esc(v.entryPort || "")}" placeholder="اسم المنفذ البري"></label>
-        </section>` : ""}
-      <section class="form-section">
-        <h3>المسافرون</h3>
-        <label class="field">
-          <span>عدد المسافرين *</span>
-          <input id="travelerCount" name="travelerCount" type="number" min="1" max="${maxTravelers}" value="${v.travelers.length}" ${allowMultipleTravelers ? "" : "readonly"}>
-        </label>
-        <div id="travelersBox">${v.travelers.map((traveler, index) => travelerFieldset(index, traveler)).join("")}</div>
-        <p class="field-hint">لكل مسافر مستنداته الخاصة في الخطوة التالية، ولا يمكن رفع مستند مسافر على مسافر آخر.</p>
-      </section>
-      ${answerRequirements().length ? `
-        <section class="form-section" id="answersSection">
-          <h3>معلومات يطلبها فريق الوكالة</h3>
-          ${answerRequirements().map((requirement) => answerInput(requirement, v.answers[requirement.id])).join("")}
-        </section>` : ""}`;
-
-    const countInput = stepBody.querySelector("#travelerCount");
-    countInput.addEventListener("change", () => {
-      syncData();
-      const count = Math.max(1, Math.min(maxTravelers, Number(countInput.value) || 1));
-      while (state.values.travelers.length < count) state.values.travelers.push({ fullName: "", passportNo: "", nationality: "" });
-      state.values.travelers = state.values.travelers.slice(0, count);
-      // A removed traveler's files go with them.
-      for (const key of [...state.files.keys()]) {
-        const [, index] = key.split("::");
-        if (index !== undefined && Number(index) >= count) state.files.delete(key);
-      }
-      renderData();
-      saveDraft();
-    });
-    stepBody.addEventListener("input", saveDraftSoon);
-    stepBody.addEventListener("change", () => {
-      syncData();
-      // An answer can reveal or hide another question (conditional requirements).
-      const visibleNow = answerRequirements().map((requirement) => requirement.id).join(",");
-      if (visibleNow !== stepBody.dataset.visible) {
-        stepBody.dataset.visible = visibleNow;
-        const focused = document.activeElement?.getAttribute?.("name");
-        renderData();
-        if (focused) stepBody.querySelector(`[name="${CSS.escape(focused)}"]`)?.focus();
-      }
-    });
-    stepBody.dataset.visible = answerRequirements().map((requirement) => requirement.id).join(",");
-  }
-
-  function saveDraftSoon() {
-    syncData();
-  }
-
-  function slotRow(slot) {
+  function passportSlotRow(slot, label) {
     const file = state.files.get(slot.key);
+    const quality = state.quality.get(slot.key);
+    const preview = state.previews.get(slot.key);
     const requirement = slot.requirement;
     return `
-      <div class="slot ${file ? "slot-ok" : ""}" data-slot="${esc(slot.key)}">
+      <div class="slot passport-slot ${file ? "slot-ok" : ""}" data-slot="${esc(slot.key)}">
         <div class="slot-main">
-          <b>${esc(slot.label)}${requirement.required ? ' <i class="req-star">*</i>' : ' <small>(اختياري)</small>'}</b>
-          ${requirement.description ? `<span class="field-hint">${esc(requirement.description)}</span>` : ""}
-          <span class="slot-file">${file ? `${icon("check", { size: 14 })} ${esc(file.name)} · ${formatBytes(file.size)}` : "لم يُختر ملف بعد"}</span>
+          <b>${esc(label)}${requirement.required ? ' <i class="req-star">*</i>' : ' <small>(اختياري)</small>'}</b>
+          <span class="field-hint">صفحة البيانات كاملة (التي فيها صورتك)، واضحة ودون انعكاس ضوء.</span>
+          ${preview ? `<img class="passport-preview" src="${esc(preview)}" alt="معاينة صورة الجواز">` : file ? `<span class="slot-file">${icon("document", { size: 14 })} ${esc(file.name)} · ${formatBytes(file.size)}</span>` : ""}
+          ${quality?.warnings?.length ? `<div class="quality-warnings" role="status"><b>ملاحظات على الصورة</b><ul>${quality.warnings.map((code) => `<li>${esc(QUALITY_MESSAGES[code] || "")}</li>`).join("")}</ul><small>يمكنك إعادة التصوير، أو إرسالها كما هي وسيراجعها الموظف.</small></div>` : file ? `<span class="slot-file slot-file-ok">${icon("check", { size: 14 })} الصورة جاهزة للإرسال</span>` : ""}
           <span class="field-error slot-error" hidden></span>
+          <span class="field-hint slot-checking" hidden>جارٍ فحص الصورة…</span>
         </div>
-        <div class="slot-actions">
-          <label class="chip-btn slot-pick">${icon("upload", { size: 16 })}<span>${file ? "تغيير" : "اختيار"}</span>
-            <input type="file" class="sr-only" accept="${requirement.allowedMimeTypes?.length ? esc(requirement.allowedMimeTypes.join(",")) : ALLOWED_DOC_ACCEPT}" data-slot-input="${esc(slot.key)}">
+        <div class="slot-actions passport-actions">
+          <label class="chip-btn slot-pick">${icon("camera", { size: 16 })}<span>${file ? "إعادة التصوير" : "تصوير الجواز"}</span>
+            <input type="file" class="sr-only" accept="image/*" capture="environment" data-slot-input="${esc(slot.key)}" data-capture="CAMERA" aria-label="تصوير ${esc(slot.label)}">
+          </label>
+          <label class="chip-btn slot-pick">${icon("upload", { size: 16 })}<span>${file ? "استبدال" : "رفع صورة الجواز"}</span>
+            <input type="file" class="sr-only" accept="image/jpeg,image/png,image/webp,.pdf" data-slot-input="${esc(slot.key)}" data-capture="UPLOAD" aria-label="رفع ${esc(slot.label)}">
           </label>
           ${file ? `<button type="button" class="chip-btn slot-remove" data-slot-remove="${esc(slot.key)}">${icon("close", { size: 14 })}<span>إزالة</span></button>` : ""}
         </div>
       </div>`;
   }
 
-  function renderDocs() {
-    const list = slots();
-    // Group: each traveler's documents together, then the request-wide ones.
-    const groups = [];
-    state.values.travelers.forEach((_, index) => {
-      const own = list.filter((slot) => slot.travelerIndex === index);
-      if (own.length) groups.push({ title: travelerLabel(state.values.travelers, index), slots: own });
-    });
-    const shared = list.filter((slot) => slot.travelerIndex === null);
-    if (shared.length) groups.push({ title: "مستندات الطلب", slots: shared });
-    const total = list.filter((slot) => state.files.get(slot.key)).length;
-    stepBody.innerHTML = `
-      <p class="field-hint">صورة واضحة أو ملف PDF، حتى 10 ميغابايت للملف. المرفقات الآن: ${total} من ${MAX_DOCUMENTS} كحد أقصى.</p>
-      ${groups.map((group) => `<section class="form-section"><h3>${esc(group.title)}</h3>${group.slots.map(slotRow).join("")}</section>`).join("")}`;
-    stepBody.querySelectorAll("[data-slot-input]").forEach((input) => {
-      input.addEventListener("change", () => {
-        const slot = list.find((candidate) => candidate.key === input.dataset.slotInput);
-        const file = input.files?.[0];
-        if (!slot || !file) return;
-        const error = validateFile(file, slot.requirement);
-        if (error) {
-          const row = input.closest(".slot");
-          const errorEl = row.querySelector(".slot-error");
-          errorEl.textContent = error;
-          errorEl.hidden = false;
-          input.value = "";
-          return;
-        }
-        state.files.set(slot.key, file);
-        renderDocs();
-      });
-    });
-    stepBody.querySelectorAll("[data-slot-remove]").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.files.delete(button.dataset.slotRemove);
-        renderDocs();
-      });
-    });
+  function slotRow(slot, label = slot.requirement.name) {
+    if (egyptMode && isPassportSlot(slot)) return passportSlotRow(slot, label);
+    const file = state.files.get(slot.key);
+    const requirement = slot.requirement;
+    return `
+      <div class="slot ${file ? "slot-ok" : ""}" data-slot="${esc(slot.key)}">
+        <div class="slot-main">
+          <b>${esc(label)}${requirement.required ? ' <i class="req-star">*</i>' : ' <small>(اختياري)</small>'}</b>
+          ${requirement.description ? `<span class="field-hint">${esc(requirement.description)}</span>` : ""}
+          <span class="slot-file">${file ? `${icon("check", { size: 14 })} ${esc(file.name)} · ${formatBytes(file.size)}` : "صورة واضحة أو PDF"}</span>
+          <span class="field-error slot-error" hidden></span>
+        </div>
+        <div class="slot-actions">
+          <label class="chip-btn slot-pick">${icon("upload", { size: 16 })}<span>${file ? "تغيير" : "رفع"}</span>
+            <input type="file" class="sr-only" accept="${requirement.allowedMimeTypes?.length ? esc(requirement.allowedMimeTypes.join(",")) : ALLOWED_DOC_ACCEPT}" data-slot-input="${esc(slot.key)}" aria-label="${esc(slot.label)}">
+          </label>
+          ${file ? `<button type="button" class="chip-btn slot-remove" data-slot-remove="${esc(slot.key)}">${icon("close", { size: 14 })}<span>إزالة</span></button>` : ""}
+        </div>
+      </div>`;
   }
 
-  function renderReview() {
-    const v = state.values;
-    const list = slots();
-    const fileFor = (slot) => state.files.get(slot.key);
-    stepBody.innerHTML = `
-      <section class="form-section review">
-        <h3>راجع طلبك قبل الإرسال</h3>
-        <div class="review-row"><span>الخدمة</span><b>${esc(item.name)}</b></div>
-        <div class="review-row"><span>الاسم</span><b>${esc(v.name)}</b></div>
-        <div class="review-row"><span>الهاتف</span><b dir="ltr">${esc(v.phone)}</b></div>
-        ${v.email ? `<div class="review-row"><span>البريد</span><b dir="ltr">${esc(v.email)}</b></div>` : ""}
-        ${needsGuarantor ? `<div class="review-row"><span>هاتف الضامن</span><b dir="ltr" id="reviewGuarantorPhone">${esc(v.guarantorPhone)}</b></div>` : ""}
-        ${needsGuarantor && v.extraContactPhone ? `<div class="review-row"><span>جهة اتصال إضافية</span><b>${esc(v.extraContactName ? `${v.extraContactName} — ` : "")}<bdi>${esc(v.extraContactPhone)}</bdi></b></div>` : ""}
-        ${egyptMode === "AIR" ? `<div class="review-row"><span>خط السير</span><b id="reviewEgyptRoute">${esc(v.departureCity)} ← ${esc(v.arrivalAirport)}</b></div>` : ""}
-        ${egyptMode === "BORDER" ? `<div class="review-row"><span>منفذ الدخول</span><b id="reviewEgyptRoute">${esc(v.entryPort)}</b></div>` : ""}
-      </section>
-      ${v.travelers.map((traveler, index) => `
-        <section class="form-section review">
-          <h3>${esc(travelerLabel(v.travelers, index))}</h3>
-          ${traveler.passportNo ? `<div class="review-row"><span>رقم الجواز</span><b dir="ltr">${esc(traveler.passportNo)}</b></div>` : ""}
-          ${traveler.nationality ? `<div class="review-row"><span>الجنسية</span><b>${esc(traveler.nationality)}</b></div>` : ""}
-          ${list.filter((slot) => slot.travelerIndex === index).map((slot) => `<div class="review-row"><span>${esc(slot.requirement.name)}</span><b>${fileFor(slot) ? esc(fileFor(slot).name) : "لم يُرفع"}</b></div>`).join("")}
-        </section>`).join("")}
-      ${list.some((slot) => slot.travelerIndex === null) ? `
-        <section class="form-section review">
-          <h3>مستندات الطلب</h3>
-          ${list.filter((slot) => slot.travelerIndex === null).map((slot) => `<div class="review-row"><span>${esc(slot.requirement.name)}</span><b>${fileFor(slot) ? esc(fileFor(slot).name) : "لم يُرفع"}</b></div>`).join("")}
-        </section>` : ""}
-      ${answerRequirements().some((requirement) => v.answers[requirement.id] !== undefined) ? `
-        <section class="form-section review">
-          <h3>معلومات إضافية</h3>
-          ${answerRequirements().filter((requirement) => v.answers[requirement.id] !== undefined).map((requirement) => `<div class="review-row"><span>${esc(requirement.name)}</span><b>${esc(typeof v.answers[requirement.id] === "boolean" ? (v.answers[requirement.id] ? "نعم" : "لا") : v.answers[requirement.id])}</b></div>`).join("")}
-        </section>` : ""}
-      <section class="form-section">
-        <label class="field"><span>ملاحظات إضافية</span><textarea name="notes" rows="3">${esc(v.notes)}</textarea></label>
-        <p class="field-hint">لا يُعد الطلب مُرسلًا إلا بعد أن يظهر لك رقم الطلب.${pricing() ? "" : " السعر النهائي وتعليمات الدفع تصلك بعد مراجعة الوكالة."}</p>
-      </section>
-      ${totalReviewHtml()}
-      <div id="uploadProgressWrap" class="upload-progress-wrap" hidden>
-        <div class="upload-progress-bar"><div id="uploadProgressFill" class="upload-progress-fill"></div></div>
-        <span id="uploadProgressLabel">0%</span>
-      </div>`;
-    stepBody.querySelector('[name="notes"]').addEventListener("input", (event) => {
-      state.values.notes = event.target.value;
-      saveDraft();
-    });
+  function travelerCard(traveler, index, list) {
+    const own = list.filter((slot) => slot.travelerIndex === index);
+    const canRemove = index > 0 && state.values.travelers.length > 1;
+    return `
+      <fieldset class="traveler-card" data-traveler="${index}">
+        <legend>${travelerWord} ${index + 1}</legend>
+        ${canRemove ? `<button type="button" class="link-btn traveler-remove" data-remove-traveler="${index}">${icon("close", { size: 14 })} إزالة</button>` : ""}
+        <label class="field">
+          <span>الاسم كما في جواز السفر *</span>
+          <input name="t_name_${index}" value="${esc(traveler.fullName || "")}" autocomplete="off">
+        </label>
+        ${own.map((slot) => slotRow(slot)).join("")}
+      </fieldset>`;
   }
 
   // Fixed price: the final total, how it is made up and when it is paid,
@@ -478,58 +348,220 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     return `
       <section class="form-section review total-review" id="fixedTotalReview" aria-labelledby="fixedTotalTitle">
         <h3 id="fixedTotalTitle">الإجمالي النهائي</h3>
-        <div class="review-row"><span>${esc(summary.breakdown)}</span><b id="fixedTotalAmount"><bdi>${esc(summary.totalText)}</bdi></b></div>
-        ${summary.sdgText ? `<p class="field-hint" id="fixedTotalSdg">${esc(summary.sdgText)}</p>` : ""}
+        <div class="review-row"><span>${current.priceUnit === "PER_TRAVELER"
+          ? `<bdi>${esc(summary.unitPriceText)}</bdi> × ${summary.units} ${needsGuarantor ? (summary.units === 1 ? "معتمر" : "معتمرين") : summary.units === 1 ? "مسافر" : "مسافرين"}`
+          : "سعر ثابت للطلب"}</span><b id="fixedTotalAmount"><bdi>${esc(summary.totalText)}</bdi></b></div>
+        ${summary.sdgAmountText ? `<p class="field-hint" id="fixedTotalSdg">ما يعادل <bdi>${esc(summary.sdgAmountText)}</bdi> بسعر الصرف المعتمد من الوكالة</p>`
+          : summary.sdgText ? `<p class="field-hint" id="fixedTotalSdg">${esc(summary.sdgText)}</p>` : ""}
         <p class="field-hint">${esc(summary.payment)}</p>
         <label class="confirm-check"><input type="checkbox" id="confirmTotal"> <span>أؤكد طلبي بإجمالي <bdi>${esc(summary.totalText)}</bdi>.</span></label>
       </section>`;
   }
 
-  function validateStep(step) {
-    if (step === "data") {
-      syncData();
-      const messages = [
-        ...Object.values(validateContact(state.values)),
-        ...(needsGuarantor ? validateUmrahContacts(state.values) : []),
-        ...validateEgyptRoute(egyptMode, state.values),
-        ...Object.values(validateTravelers(state.values.travelers)),
-        ...missingAnswers(requirements, state.values.answers).filter((m) => answerRequirements().some((r) => r.id === m.key)).map((m) => m.message),
-      ];
-      return messages;
-    }
-    if (step === "docs") return validateSlots(slots(), state.files).map((problem) => problem.message);
-    return [];
+  function renderForm() {
+    const v = state.values;
+    const list = slots();
+    const shared = list.filter((slot) => slot.travelerIndex === null);
+    const fixed = Boolean(pricing());
+    stepBody.innerHTML = `
+      <section class="form-section" id="travelersSection">
+        <h3>${needsGuarantor ? "المعتمرون وجوازاتهم" : "المسافرون"}</h3>
+        <div id="travelersBox">${v.travelers.map((traveler, index) => travelerCard(traveler, index, list)).join("")}</div>
+        ${v.travelers.length < maxTravelers ? `<button type="button" class="secondary add-traveler" id="addTravelerBtn">${icon("plus", { size: 18 })} أضف ${travelerWord === "المعتمر" ? "معتمرًا" : "مسافرًا"}</button>` : ""}
+      </section>
+      ${egyptMode === "AIR" ? `
+        <section class="form-section" id="egyptRouteSection">
+          <h3>خط السير</h3>
+          <div class="field-row">
+            <label class="field"><span>جهة القدوم *</span><input name="departureCity" maxlength="80" value="${esc(v.departureCity || "")}"></label>
+            <label class="field"><span>مطار الوصول *</span><input name="arrivalAirport" maxlength="80" value="${esc(v.arrivalAirport || "")}"></label>
+          </div>
+          <p class="field-hint">عدّلهما إن كانت رحلتك من مكان آخر.</p>
+        </section>
+        <section class="form-section" id="egyptFlightSection">
+          <fieldset class="choice-group">
+            <legend>هل ترغب في حجز تذكرة الطيران عبر نسائم الحرمين؟</legend>
+            <label class="choice-row"><input type="radio" name="flightChoice" value="REQUEST" ${v.flightChoice === "REQUEST" ? "checked" : ""}> <span>نعم، أريد الحجز عبر نسائم <small>(يُرسل طلب منفصل وتتواصل معك الوكالة بالسعر)</small></span></label>
+            <label class="choice-row"><input type="radio" name="flightChoice" value="BOOKED" ${v.flightChoice === "BOOKED" ? "checked" : ""}> <span>حجزت تذكرتي بالفعل</span></label>
+            <label class="choice-row"><input type="radio" name="flightChoice" value="LATER" ${v.flightChoice === "LATER" ? "checked" : ""}> <span>لاحقًا</span></label>
+          </fieldset>
+          <p class="field-hint">الموافقة الأمنية لا تتطلب شراء التذكرة من نسائم.</p>
+        </section>` : egyptMode === "BORDER" ? `
+        <section class="form-section" id="egyptRouteSection">
+          <h3>خط السير</h3>
+          <label class="field"><span>منفذ الدخول *</span><input name="entryPort" maxlength="80" value="${esc(v.entryPort || "")}" placeholder="اسم المنفذ البري"></label>
+        </section>` : ""}
+      ${needsGuarantor || shared.length ? `
+        <section class="form-section" id="${needsGuarantor ? "umrahContactsSection" : "sharedDocsSection"}">
+          <h3>${needsGuarantor ? "الضامن" : "مستندات الطلب"}</h3>
+          ${shared.map((slot) => slotRow(slot)).join("")}
+          ${needsGuarantor ? `<label class="field"><span>رقم هاتف الضامن *</span><input name="guarantorPhone" inputmode="tel" dir="ltr" value="${esc(v.guarantorPhone || "")}" autocomplete="off"></label>` : ""}
+        </section>` : ""}
+      <section class="form-section" id="contactSection">
+        <h3>للتواصل معك</h3>
+        <label class="field"><span>${needsGuarantor ? "اسم مقدم الطلب *" : "اسمك *"}</span><input name="name" value="${esc(v.name)}" autocomplete="name"></label>
+        <label class="field"><span>رقم هاتفك (واتساب) *</span><input name="phone" inputmode="tel" dir="ltr" value="${esc(v.phone)}" autocomplete="tel"></label>
+        <p class="field-hint">بهذا الرقم تتابع طلبك برمز تحقق عبر واتساب، دون حساب.</p>
+        ${egyptMode ? `<label class="field"><span>البريد الإلكتروني (لإرسال إيصال السداد)</span><input name="email" type="email" inputmode="email" dir="ltr" autocomplete="email" maxlength="200" value="${esc(v.email || "")}"></label>
+        <p class="field-hint">اختياري. يصلك إيصال السداد عليه بعد تأكيد الدفع، ويبقى متاحًا في صفحة الطلب.</p>` : ""}
+      </section>
+      ${answerRequirements().length ? `
+        <section class="form-section" id="answersSection">
+          <h3>معلومات يطلبها فريق الوكالة</h3>
+          ${answerRequirements().map((requirement) => answerInput(requirement, v.answers[requirement.id])).join("")}
+        </section>` : ""}
+      ${fixed ? "" : `
+        <section class="form-section">
+          <label class="field"><span>ملاحظات (اختياري)</span><textarea name="notes" rows="3">${esc(v.notes)}</textarea></label>
+          <p class="field-hint">السعر النهائي وتعليمات الدفع تصلك بعد مراجعة الوكالة.</p>
+        </section>`}
+      ${totalReviewHtml()}
+      <div id="uploadProgressWrap" class="upload-progress-wrap" hidden>
+        <div class="upload-progress-bar"><div id="uploadProgressFill" class="upload-progress-fill"></div></div>
+        <span id="uploadProgressLabel">0%</span>
+      </div>`;
+    stepBody.dataset.visible = visibleSignature();
+    renderActions();
   }
 
-  function goStep(step, { validate }) {
-    if (validate) {
-      const messages = validateStep(state.step);
-      showErrors(messages);
-      if (messages.length) return;
-    } else {
-      if (state.step === "data") syncData();
-      showErrors([]);
+  function renderActions() {
+    const current = pricing();
+    const total = current ? fixedTotalSummary(current, state.values.travelers.length).totalText : "";
+    stepActions.innerHTML = `<button type="button" class="primary" id="nextStepBtn" ${pricingBlocked ? "disabled" : ""}>${current ? `تأكيد الطلب بإجمالي <bdi>${esc(total)}</bdi>` : "إرسال الطلب للوكالة"}</button>`;
+    stepActions.querySelector("#nextStepBtn").addEventListener("click", submit);
+  }
+
+  // One set of listeners for the whole form (it is re-drawn in place).
+  stepBody.addEventListener("input", (event) => {
+    if (submitting || event.target.matches?.("[data-slot-input]")) return;
+    syncData();
+  });
+  stepBody.addEventListener("change", (event) => {
+    if (submitting) return;
+    const input = event.target;
+    if (input.matches?.("[data-slot-input]")) {
+      const slot = slots().find((candidate) => candidate.key === input.dataset.slotInput);
+      const file = input.files?.[0];
+      if (!slot || !file) return;
+      const error = validateFile(file, slot.requirement);
+      if (error) {
+        const errorEl = input.closest(".slot")?.querySelector(".slot-error");
+        if (errorEl) { errorEl.textContent = error; errorEl.hidden = false; }
+        input.value = "";
+        return;
+      }
+      syncData();
+      if (egyptMode && isPassportSlot(slot)) {
+        const row = input.closest(".slot");
+        const checking = row?.querySelector(".slot-checking");
+        if (checking) checking.hidden = false;
+        const capture = input.dataset.capture === "CAMERA" ? "CAMERA" : "UPLOAD";
+        const generation = bumpAnalysis(slot.key);
+        state.analyzing.add(slot.key);
+        analyzePassportFile(file).then((result) => {
+          // Only the latest pick for this slot counts, and never mid-send.
+          if (state.analysisGen.get(slot.key) !== generation) return;
+          state.analyzing.delete(slot.key);
+          if (submitting) return;
+          if (!result.ok) {
+            const errorEl = stepBody.querySelector(`[data-slot="${CSS.escape(slot.key)}"] .slot-error`);
+            if (errorEl) { errorEl.textContent = result.error; errorEl.hidden = false; }
+            const checkingNow = stepBody.querySelector(`[data-slot="${CSS.escape(slot.key)}"] .slot-checking`);
+            if (checkingNow) checkingNow.hidden = true;
+            return;
+          }
+          revokePreview(slot.key);
+          state.files.set(slot.key, file);
+          state.quality.set(slot.key, { warnings: result.warnings, checks: result.checks, capture, acceptedWithWarnings: result.warnings.length > 0 });
+          if (!result.pdf && typeof URL.createObjectURL === "function") state.previews.set(slot.key, URL.createObjectURL(file));
+          else state.previews.delete(slot.key);
+          renderForm();
+        });
+        input.value = "";
+        return;
+      }
+      state.files.set(slot.key, file);
+      renderForm();
+      return;
     }
-    state.step = step;
-    showErrors([]);
-    renderStepper();
-    if (step === "data") renderData();
-    else if (step === "docs") renderDocs();
-    else renderReview();
-    renderActions();
-    bodyEl.scrollIntoView({ block: "start" });
+    if (input.id === "confirmTotal") return;
+    if (input.name === "flightChoice") { syncData(); return; }
+    syncData();
+    // An answer can reveal or hide another question (conditional requirements).
+    if (visibleSignature() !== stepBody.dataset.visible) {
+      const focused = document.activeElement?.getAttribute?.("name");
+      renderForm();
+      if (focused) stepBody.querySelector(`[name="${CSS.escape(focused)}"]`)?.focus();
+    }
+  });
+  stepBody.addEventListener("click", (event) => {
+    if (submitting) return;
+    const removeFile = event.target.closest?.("[data-slot-remove]");
+    if (removeFile) {
+      syncData();
+      bumpAnalysis(removeFile.dataset.slotRemove);
+      state.files.delete(removeFile.dataset.slotRemove);
+      state.quality.delete(removeFile.dataset.slotRemove);
+      revokePreview(removeFile.dataset.slotRemove);
+      renderForm();
+      return;
+    }
+    if (event.target.closest?.("#addTravelerBtn")) {
+      syncData();
+      if (state.values.travelers.length >= maxTravelers) return;
+      state.values.travelers = [...state.values.travelers, { fullName: "", passportNo: "", nationality: "" }];
+      saveDraft();
+      renderForm();
+      stepBody.querySelector(`[name="t_name_${state.values.travelers.length - 1}"]`)?.focus();
+      return;
+    }
+    const removeTraveler = event.target.closest?.("[data-remove-traveler]");
+    if (removeTraveler) {
+      const index = Number(removeTraveler.dataset.removeTraveler);
+      syncData();
+      const hasFiles = [...state.files.keys()].some((key) => key.endsWith(`::${index}`));
+      if (hasFiles && !confirmDialog(`إزالة ${travelerWord} ${index + 1} ومستنداته؟`)) return;
+      state.files = removeTravelerFiles(state.files, index);
+      // The quality hints and previews move with their passports.
+      for (const key of [...state.previews.keys()]) if (key.endsWith(`::${index}`)) revokePreview(key);
+      // Checks still running for this traveler or a later one (whose slots move) are void.
+      for (const key of [...state.analysisGen.keys()]) if (Number(String(key).split("::")[1]) >= index) bumpAnalysis(key);
+      state.quality = removeTravelerFiles(state.quality, index);
+      state.previews = removeTravelerFiles(state.previews, index);
+      state.values.travelers = state.values.travelers.filter((_, position) => position !== index);
+      saveDraft();
+      renderForm();
+    }
+  });
+
+  function validateAll() {
+    syncData();
+    return [
+      ...Object.values(validateTravelers(state.values.travelers)),
+      ...validateEgyptRoute(egyptMode, state.values),
+      ...(egyptMode && state.values.email && !EMAIL_PATTERN.test(state.values.email) ? ["البريد الإلكتروني غير صالح؛ صحّحه أو اتركه فارغًا."] : []),
+      ...validateSlots(slots(), state.files).map((problem) => problem.message),
+      ...(needsGuarantor ? validateUmrahContacts(state.values) : []),
+      ...Object.values(validateContact({ name: state.values.name, phone: state.values.phone })),
+      ...missingAnswers(requirements, state.values.answers).filter((m) => answerRequirements().some((r) => r.id === m.key)).map((m) => m.message),
+    ];
   }
 
   async function submit() {
-    const notes = stepBody.querySelector('[name="notes"]')?.value ?? state.values.notes;
-    state.values.notes = notes;
-    const messages = [...validateStep("data"), ...validateStep("docs")];
+    if (submitting || pricingBlocked) return;
+    const messages = validateAll();
     const fixed = pricing() ? fixedTotalSummary(pricing(), state.values.travelers.length) : null;
     if (fixed && !stepBody.querySelector("#confirmTotal")?.checked) messages.push("أكّد الإجمالي النهائي قبل إرسال الطلب.");
+    if (state.analyzing.size) messages.push("انتظر انتهاء فحص صورة الجواز ثم أرسل.");
     showErrors(messages);
     if (messages.length) return;
 
-    const v = state.values;
+    // An immutable snapshot of what is sent; the form is frozen meanwhile.
+    const v = JSON.parse(JSON.stringify(state.values));
+    const notes = String(v.notes || "").trim();
+    submitting = true;
+    clearTimeout(saveTimer);
+    stepBody.setAttribute("inert", "");
     const parts = buildUploadParts(slots(), state.files);
     const submitBtn = stepActions.querySelector("#nextStepBtn");
     setLoading(submitBtn, true, "جارٍ الإرسال…");
@@ -539,23 +571,18 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     payload.set("name", v.name);
     payload.set("phone", v.phone);
     if (v.email) payload.set("email", v.email);
-    if (needsGuarantor) {
-      payload.set("guarantorPhone", v.guarantorPhone);
-      if (v.extraContactPhone) {
-        payload.set("extraContactName", v.extraContactName || "");
-        payload.set("extraContactPhone", v.extraContactPhone);
-      }
-    }
+    if (needsGuarantor) payload.set("guarantorPhone", v.guarantorPhone);
     if (egyptMode === "AIR") {
       payload.set("departureCity", v.departureCity);
       payload.set("arrivalAirport", v.arrivalAirport);
+      if (v.flightChoice) payload.set("egyptFlightChoice", v.flightChoice);
     } else if (egyptMode === "BORDER") {
       payload.set("entryPort", v.entryPort);
     }
     payload.set("service", item.name);
     if (item.id) payload.set(item.isVisaType ? "visaTypeId" : "serviceId", item.id);
     if (item.serviceId) payload.set("serviceId", item.serviceId);
-    const message = notes.trim() || `طلب ${item.name}`;
+    const message = notes || `طلب ${item.name}`;
     payload.set("message", selection ? `${message}\n${selection.summary}` : message);
     payload.set("travelerCount", String(travelers.length));
     if (fixed) {
@@ -568,6 +595,8 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     payload.set("documentLabels", JSON.stringify(parts.labels));
     payload.set("documentTravelerIndexes", JSON.stringify(parts.travelerIndexes));
     payload.set("documentRequirementIds", JSON.stringify(parts.requirementIds));
+    // Device quality hints, in the same order as the files (Egypt passports).
+    if (state.quality.size) payload.set("documentQuality", JSON.stringify(parts.keys.map((key) => state.quality.get(key) || null)));
     parts.files.forEach((file) => payload.append("documents", file));
 
     const progressWrap = stepBody.querySelector("#uploadProgressWrap");
@@ -581,20 +610,29 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         if (progressLabel) progressLabel.textContent = `${percent}%`;
       });
       // Only now - with the server's confirmation in hand - is the draft dropped.
-      clearDraft(storageKey);
-      showSubmitted(outcome, { serviceName: item.name, phone: v.phone, travelerCount: travelers.length, payNow: Boolean(fixed && !pricing()?.paymentAfterDocumentReview) });
+      dropDraft();
+      revokeAllPreviews();
+      showSubmitted(outcome, { serviceName: item.name, phone: v.phone, travelerCount: travelers.length, payNow: Boolean(fixed && !pricing()?.paymentAfterDocumentReview), steps: egyptMode ? "EGYPT" : null });
     } catch (error) {
+      submitting = false;
+      stepBody.removeAttribute("inert");
       setLoading(submitBtn, false);
       if (progressWrap) progressWrap.hidden = true;
       saveDraft();
       // The agency changed the price (or moved the service to quotation)
       // after this screen loaded: nothing was created. Show the current
       // terms and ask for a fresh confirmation.
+      // Umrah packages and Egypt variants are booked only at a fixed price:
+      // never fall back to a quoted request for them.
+      if (error instanceof ApiError && error.code === "PRICING_MODE_CHANGED" && fixedOnly) {
+        pricingBlocked = true;
+        submitBtn.disabled = true;
+        showErrors(["لم يعد السعر الثابت لهذا الخيار متاحًا، ولم يُرسل طلبك. ارجع واختر من جديد أو تواصل مع الوكالة."]);
+        return;
+      }
       if (error instanceof ApiError && (error.code === "PRICE_CHANGED" || error.code === "PRICING_MODE_CHANGED")) {
         pricingItem = error.code === "PRICE_CHANGED" ? withServerPrice(pricingItem, error.details) : { ...pricingItem, pricingMode: "QUOTE" };
-        renderStepper();
-        renderReview();
-        renderActions();
+        renderForm();
         showErrors([error.message]);
         return;
       }
@@ -603,9 +641,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     }
   }
 
-  renderStepper();
-  renderData();
-  renderActions();
+  renderForm();
 }
 
 // Shown only after the server returned the stored request's id (see

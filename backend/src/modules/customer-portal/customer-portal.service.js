@@ -1,5 +1,7 @@
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { allowedActions, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
+import { WORKFLOW_INCLUDE } from "../contact-request-workflow/workflow-lock.js";
+import { egyptOverview } from "../egypt-clearance/egypt-approval-rules.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "../contact-request-tracking/customer-checklist.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
@@ -200,7 +202,10 @@ const CUSTOMER_REQUEST_INCLUDE = {
   // For the completion policy only (Egypt travel tasks); not returned.
   tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true, systemKey: true } },
   // Drafts are filtered out in toCustomerRequest (publishedAt null).
-  deliverables: { select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, publishedAt: true, travelerIds: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  deliverables: { select: { id: true, kind: true, version: true, issuedOn: true, supersededAt: true, label: true, fileName: true, mimeType: true, sizeBytes: true, publishedAt: true, travelerIds: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+  // Egypt approval: the linked flight inquiry's tickets and the paid receipt.
+  linkedRequests: WORKFLOW_INCLUDE.linkedRequests,
+  paymentReceipt: { select: { receiptNo: true, pdfStatus: true } },
 };
 
 function getRequestNextAction(request) {
@@ -243,6 +248,7 @@ function toCustomerRequest(request) {
     selectedOfferId: request.selectedOfferId,
     documents: request.documents,
     deliverables: publishedDeliverables(request),
+    egypt: egyptOverview(request, { receipt: request.paymentReceipt }),
   };
 }
 
@@ -266,10 +272,10 @@ export async function getMyRequestById(customerId, requestId) {
   return { ...toCustomerRequest(request), timeline };
 }
 
-export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId, travelerId }) {
+export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId, travelerId, quality }) {
   const request = await prisma.contactRequest.findFirst({ where: { id: requestId, customerId }, select: { id: true } });
   if (!request) return { error: "NOT_FOUND" };
-  return createContactRequestDocument(requestId, { label, file, requirementId, travelerId });
+  return createContactRequestDocument(requestId, { label, file, requirementId, travelerId, quality });
 }
 
 export async function getMyRequestDeliverableFile(customerId, requestId, deliverableId) {

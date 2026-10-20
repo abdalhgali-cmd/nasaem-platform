@@ -75,7 +75,7 @@ export async function uploadRequestDocument(req, res, next) {
     const parsed = uploadContactRequestDocumentSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "بيانات المستند غير صحيحة", errors: parsed.error.flatten() });
     if (!req.file) return res.status(400).json({ success: false, message: "الملف مطلوب" });
-    const result = await uploadMyRequestDocument(req.customer.id, req.params.id, { label: parsed.data.label, file: req.file, requirementId: parsed.data.requirementId, travelerId: parsed.data.travelerId });
+    const result = await uploadMyRequestDocument(req.customer.id, req.params.id, { label: parsed.data.label, file: req.file, requirementId: parsed.data.requirementId, travelerId: parsed.data.travelerId, quality: parsed.data.quality });
     if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "الطلب غير موجود" });
     if (result.error) return res.status(400).json({ success: false, code: result.error, message: UPLOAD_ERROR_MESSAGES_AR[result.error] || "تعذر رفع المستند", details: result.details });

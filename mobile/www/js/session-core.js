@@ -104,3 +104,13 @@ export const BIOMETRIC_SUPPORT_LABELS = Object.freeze({
   UNSUPPORTED: "الدخول بالبصمة غير مدعوم على هذا الجهاز",
   NOT_NATIVE: "الدخول بالبصمة متاح في تطبيق أندرويد فقط",
 });
+
+// Inactivity lock (biometric login on): the account locks again after the app
+// was in the background, or untouched, for this long. A clock that moved
+// backwards counts as expired — the safe answer.
+export const INACTIVITY_LOCK_MS = 5 * 60 * 1000;
+
+export function inactivityExpired(lastActiveMs, nowMs = Date.now(), limitMs = INACTIVITY_LOCK_MS) {
+  if (!Number.isFinite(lastActiveMs)) return false;
+  return nowMs < lastActiveMs || nowMs - lastActiveMs >= limitMs;
+}

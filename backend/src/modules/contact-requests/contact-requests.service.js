@@ -10,7 +10,7 @@ import { createNotification, notifyRequestCustomer } from "../../utils/notificat
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { resolveUmrahContacts } from "../umrah/umrah-packages.js";
-import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, publishedDeliverables, allowedActions } from "../contact-request-workflow/workflow-policy.js";
+import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -23,7 +23,12 @@ import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
-import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
+import { syncTravelReminders } from "../egypt-clearance/travel-reminders.service.js";
+import { createReceiptInTransaction } from "../payment-receipts/payment-receipts.service.js";
+import { sanitizeQualitySignal } from "../egypt-clearance/document-quality.js";
+import { openLinkedFlightInquiry } from "../egypt-clearance/linked-flight.service.js";
+import { deliverPaymentReceipt } from "../customer-messages/customer-messages.service.js";
+import { applyEgyptEntryMode, egyptVariantBookingError, isEgyptClearanceCode, resolveEgyptRoute, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 
@@ -160,6 +165,10 @@ async function createContactRequestOnce(data, req, files) {
   // files tagged with a requirementId whose ocrEnabled is set (see the
   // validation loop below, which also builds requirementsById).
   const ocrResults = new Array(files.length).fill(null);
+  // Egypt security approval: minimal retention — only an MRZ-found signal.
+  const ocrSignalOnly = data.visaTypeId
+    ? isEgyptClearanceCode((await prisma.visaType.findUnique({ where: { id: data.visaTypeId }, select: { code: true } }))?.code)
+    : false;
 
   if (documentRequirementIds.some(Boolean)) {
     const requirementsById = new Map((requirementsSnapshot || []).map((r) => [r.id, r]));
@@ -194,7 +203,7 @@ async function createContactRequestOnce(data, req, files) {
         return { error: "MAX_FILES_REACHED", details: { requirementId, maxFiles: requirement.maxFiles } };
       }
 
-      ocrResults[i] = await maybeRunPassportOcr(requirement, file);
+      ocrResults[i] = await maybeRunPassportOcr(requirement, file, { signalOnly: ocrSignalOnly });
     }
   }
 
@@ -231,6 +240,8 @@ async function createContactRequestOnce(data, req, files) {
     if (route.error) return route;
     egyptRoute = route.route;
   }
+  const egyptFlight = egyptRoute && data.egyptFlightChoice ? { choice: data.egyptFlightChoice, updatedAt: new Date().toISOString() } : null;
+  const qualitySignals = files.map((_, index) => sanitizeQualitySignal(data.documentQuality?.[index]));
 
   // Fixed catalog price: recomputed here from the catalog and compared with
   // the total the customer confirmed; a mismatch creates nothing (409).
@@ -268,6 +279,7 @@ async function createContactRequestOnce(data, req, files) {
             ...(egyptEntryMode ? { egyptEntryMode } : {}),
             ...(umrahContacts ? { umrahContacts } : {}),
             ...(egyptRoute ? { egyptRoute } : {}),
+            ...(egyptFlight ? { egyptFlight } : {}),
           }
         : undefined,
     requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
@@ -299,6 +311,7 @@ async function createContactRequestOnce(data, req, files) {
                     label: documentLabels[index] || file.originalname,
                     requirementId: documentRequirementIds[index] || null,
                     ocrResult: ocrResults[index] ?? undefined,
+                    qualitySignal: qualitySignals[index] ?? undefined,
                     fileName: file.originalname,
                     storagePath: prepareFileForStorage(file),
                     mimeType: file.mimetype,
@@ -338,6 +351,7 @@ async function createContactRequestOnce(data, req, files) {
                   requirementId: documentRequirementIds[index] || null,
                   travelerId,
                   ocrResult: ocrResults[index] ?? undefined,
+                  qualitySignal: qualitySignals[index] ?? undefined,
                   fileName: file.originalname,
                   storagePath: prepareFileForStorage(file),
                   mimeType: file.mimetype,
@@ -351,6 +365,10 @@ async function createContactRequestOnce(data, req, files) {
         });
 
   await announceNewContactRequest(contactRequest, { documentCount: files.length, req, customerId: req.customer?.id });
+  // Egypt: "book my flight through Nasaem" opens the linked booking inquiry.
+  if (egyptFlight?.choice === "REQUEST") {
+    await openLinkedFlightInquiry(contactRequest.id).catch((error) => console.error("[egypt-flight] inquiry not opened", error?.message));
+  }
 
   return contactRequest;
 }
@@ -429,7 +447,7 @@ export function computeReadiness(contactRequest) {
   // Release F: a case already sent to a provider is waiting on them, not
   // on us — that outranks "ready to process", which it no longer is.
   const awaitingProvider = (contactRequest.providerSubmissions || []).some((s) => s.status !== "FAILED");
-  const delivered = evaluateDelivery(contactRequest).complete && publishedDeliverables(contactRequest).length > 0;
+  const delivered = evaluateDelivery(contactRequest).complete && deliveryDeliverables(contactRequest).length > 0;
 
   let queue = "READY_FOR_PROCESSING";
   if (contactRequest.status === "CLOSED") queue = "COMPLETED";
@@ -588,6 +606,11 @@ export async function getContactRequestById(id, organizationId, { role } = {}) {
       ...CONTACT_REQUEST_CASE_INCLUDE,
       customer: { select: { id: true, customerNo: true, fullName: true, phone: true, email: true, nationality: true } },
       selectedOffer: true,
+      // The paid receipt and its e-mail delivery (shown in the payment section).
+      paymentReceipt: { select: { receiptNo: true, pdfStatus: true, amount: true, currency: true, paidAt: true, customerEmail: true, lastError: true } },
+      customerMessages: { where: { kind: "PAYMENT_RECEIPT" }, select: { status: true, recipient: true, attempts: true, lastError: true, lastAttemptAt: true } },
+      linkedRequests: { select: { id: true, linkKind: true, status: true, paymentStatus: true } },
+      parentRequest: { select: { id: true, name: true } },
     },
   });
   if (!contactRequest) return null;
@@ -832,6 +855,9 @@ export async function updateContactRequestStatus(id, { status, outcome, outcomeN
           : { status, outcome: null, outcomeNote: null, closedAt: null },
     });
     const reopened = existing.status === "CLOSED" && updated.status !== "CLOSED";
+    // Egypt travel reminders: a closed request gets none; a reopened one is
+    // scheduled again from its travel date.
+    if (existing.status !== updated.status) await syncTravelReminders(tx, { ...existing, ...updated });
     await auditInTransaction(tx, {
       userId,
       action: reopened ? "CONTACT_REQUEST_REOPENED" : "CONTACT_REQUEST_STATUS_CHANGED",
@@ -986,11 +1012,17 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
       where: { contactRequestId, classification: "FINANCIAL_DOCUMENT", status: "PENDING", supersededAt: null },
       data: { status: "ACCEPTED", reviewedByUserId: userId, reviewedAt: now },
     });
-    await auditInTransaction(tx, { userId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED", entityId: contactRequestId, organizationId: contactRequest.organizationId });
-    return { updated };
+    // The paid receipt and its e-mail outbox row commit with the payment
+    // itself (payment-receipts.service.js); PDF and e-mail follow after.
+    const receipt = await createReceiptInTransaction(tx, contactRequest, { userId, paidAt: now });
+    await auditInTransaction(tx, { userId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED", entityId: contactRequestId, organizationId: contactRequest.organizationId, ...(receipt?.receiptNo ? { newValue: { receiptNo: receipt.receiptNo } } : {}) });
+    return { updated, receipt };
   });
   if (result.error || result.refusal) return result;
   const { updated } = result;
+  // Not awaited: a slow PDF or mail API never delays the staff response; the
+  // reconciler retries whatever this does not finish.
+  if (result.receipt) deliverPaymentReceipt(contactRequestId).catch((error) => console.error("[payment-receipts] delivery failed", error?.message));
 
   // Release E: payment confirmation closes "check payment" and can open
   // "process application".

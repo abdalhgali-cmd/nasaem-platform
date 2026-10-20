@@ -92,14 +92,20 @@ describe("service-specific request progress", () => {
   test("delivery and closure", () => {
     const draftOnly = deriveRequestProgress(req({ serviceRef: { category: "ferry" }, paymentStatus: "CONFIRMED", executionStartedAt: new Date(), deliverables: [{ id: "d", publishedAt: null }] }));
     assert.equal(draftOnly.stage, "IN_EXECUTION", "a prepared file is not delivery");
-    const delivered = deriveRequestProgress(req({ visaType: { code: "VISA-EGYPT-CLEARANCE" }, paymentStatus: "CONFIRMED", executionStartedAt: new Date(), deliverables: [{ id: "d", publishedAt: new Date() }] }));
+    // Egypt: only the typed APPROVAL file is its delivery; a circular or a
+    // ticket published alone is not.
+    for (const kind of ["CIRCULAR", "TICKET", "GENERAL"]) {
+      const other = deriveRequestProgress(req({ visaType: { code: "VISA-EGYPT-CLEARANCE" }, paymentStatus: "CONFIRMED", executionStartedAt: new Date(), deliverables: [{ id: "c", kind, publishedAt: new Date() }] }));
+      assert.equal(other.stage, "IN_EXECUTION", `${kind} is not the approval`);
+    }
+    const delivered = deriveRequestProgress(req({ visaType: { code: "VISA-EGYPT-CLEARANCE" }, paymentStatus: "CONFIRMED", executionStartedAt: new Date(), deliverables: [{ id: "d", kind: "APPROVAL", publishedAt: new Date() }] }));
     assert.equal(delivered.stage, "DELIVERED");
     assert.equal(delivered.canStartExecution, false);
     // Egypt: the approval is delivered, the travel plan is still owed
     assert.ok(delivered.steps.filter((s) => s.key !== "TRAVEL_PLAN").every((s) => s.state === "done"));
     assert.equal(delivered.steps.find((s) => s.key === "TRAVEL_PLAN").state, "current");
     assert.ok(delivered.completionBlockers.some((b) => b.code === "TRAVEL_PLAN_MISSING"));
-    const withPlan = deriveRequestProgress(req({ visaType: { code: "VISA-EGYPT-CLEARANCE" }, paymentStatus: "CONFIRMED", invoice: { status: "APPROVED" }, executionStartedAt: new Date(), intakeData: { egyptTravel: { entryMode: "AIR", bookingStatus: "NEEDS_NASAEM", entryDate: "2030-01-01" } }, tasks: [], deliverables: [{ id: "d", publishedAt: new Date() }] }));
+    const withPlan = deriveRequestProgress(req({ visaType: { code: "VISA-EGYPT-CLEARANCE" }, paymentStatus: "CONFIRMED", invoice: { status: "APPROVED" }, executionStartedAt: new Date(), intakeData: { egyptTravel: { entryMode: "AIR", bookingStatus: "NEEDS_NASAEM", entryDate: "2030-01-01" } }, tasks: [], deliverables: [{ id: "d", kind: "APPROVAL", publishedAt: new Date() }] }));
     assert.ok(withPlan.steps.every((s) => s.state === "done"));
     assert.deepEqual(withPlan.completionBlockers, []);
     const completed = deriveRequestProgress(req({ status: "CLOSED", outcome: "COMPLETED", paymentStatus: "CONFIRMED", deliverables: [{ id: "d", publishedAt: new Date() }] }));

@@ -328,6 +328,12 @@ tbody tr:hover {
   color: #166534;
 }
 
+.alert.warning {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
 .muted {
   color: var(--color-muted);
   font-size: 0.85rem;

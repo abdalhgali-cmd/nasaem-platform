@@ -26,15 +26,16 @@ const ORDER_STATUSES = [
 // Which top-level tabs each role sees (docs/staff-role-matrix.md). It only
 // hides what the backend would refuse anyway; the API stays authoritative.
 const ROLE_TABS = {
-  SUPER_ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
-  ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
-  EMPLOYEE: ["requests", "orders", "flights", "customers"],
+  SUPER_ADMIN: ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"],
+  ADMIN: ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"],
+  EMPLOYEE: ["requests", "egypt", "orders", "flights", "customers"],
   ACCOUNTANT: ["requests", "orders", "flights", "customers", "payments"],
   CONTENT_MANAGER: ["management"],
 };
-const TAB_KEYS = ["overview", "requests", "orders", "flights", "customers", "payments", "management"];
+const TAB_KEYS = ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"];
 
 let crView = null;
+let egyptView = null;
 let flightView = null;
 let routeSyncing = false;
 
@@ -103,6 +104,16 @@ function mountViews() {
       onOpen: (id) => setRoute("requests", id),
     });
     loadServiceCategories();
+  }
+  if (allowedTabs().includes("egypt")) {
+    // The Egypt queue opens a request in the requests tab (one workspace).
+    egyptView = createEgyptQueueView({
+      root: el("tab-egypt"),
+      onOpen: (id) => {
+        activateTab("requests");
+        crView?.openDetail(id);
+      },
+    });
   }
   if (allowedTabs().includes("flights")) {
     flightView = createFlightBookingsView({
@@ -294,6 +305,7 @@ function loadActiveTabData() {
   const tab = activeTabKey();
   if (tab === "overview" && canSeeOverview()) loadOverview();
   if (tab === "requests" && crView) crView.load();
+  if (tab === "egypt" && egyptView) egyptView.load();
   if (tab === "orders") loadOrders();
   if (tab === "flights" && flightView) flightView.load();
   if (tab === "customers") loadCustomers();

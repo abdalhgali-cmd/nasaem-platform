@@ -15,6 +15,7 @@
     "prisma:seed": "prisma db seed",
     "finance:diagnose": "node src/scripts/financial-diagnostics.js",
     "release:rollback-check": "node src/scripts/rollback-check.js",
+    "egypt:configure": "node src/scripts/configure-egypt-pricing.js",
     "sync:static-admin": "node ../scripts/sync-static-admin.mjs"
   },
   "prisma": {
@@ -35,6 +36,7 @@
     "mrz": "^5.0.2",
     "ms": "^2.1.3",
     "multer": "^2.0.1",
+    "pdfkit": "^0.20.2",
     "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5",
     "zod": "^3.23.8"

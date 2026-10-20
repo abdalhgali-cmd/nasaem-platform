@@ -28,4 +28,7 @@ export const egyptTravelPlanSchema = z.object({
     .string()
     .trim()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ الدخول غير صالح"),
+  // Overland only: the border crossing (منفذ الدخول), when it was not given
+  // with the request or changed.
+  entryPort: z.string().trim().max(80).optional().or(z.literal("")),
 });

@@ -30,6 +30,13 @@ export const ACTIONS = Object.freeze({
   PREPARE_DELIVERABLE: "PREPARE_DELIVERABLE",
   PUBLISH_DELIVERABLE: "PUBLISH_DELIVERABLE",
   SAVE_TRAVEL_PLAN: "SAVE_TRAVEL_PLAN",
+  // Egypt security approval (egypt-approval.service.js).
+  ISSUE_APPROVAL: "ISSUE_APPROVAL",
+  START_CIRCULAR: "START_CIRCULAR",
+  ISSUE_CIRCULAR: "ISSUE_CIRCULAR",
+  ATTACH_TICKET: "ATTACH_TICKET",
+  EDIT_TRAVEL_DATE: "EDIT_TRAVEL_DATE",
+  REQUEST_FLIGHT_BOOKING: "REQUEST_FLIGHT_BOOKING",
   COMPLETE: "COMPLETE",
   CLOSE: "CLOSE",
   REOPEN: "REOPEN",
@@ -43,6 +50,7 @@ export const CUSTOMER_ACTIONS = Object.freeze([
   ACTIONS.UPLOAD_RECEIPT,
   ACTIONS.UPLOAD_DOCUMENT,
   ACTIONS.SAVE_TRAVEL_PLAN,
+  ACTIONS.REQUEST_FLIGHT_BOOKING,
 ]);
 
 // Which staff roles may perform each staff action (mirrors the route
@@ -61,6 +69,11 @@ export const STAFF_ACTION_ROLES = Object.freeze({
   [ACTIONS.REVERT_EXECUTION]: MANAGERS,
   [ACTIONS.PREPARE_DELIVERABLE]: WORK,
   [ACTIONS.PUBLISH_DELIVERABLE]: WORK,
+  [ACTIONS.ISSUE_APPROVAL]: WORK,
+  [ACTIONS.START_CIRCULAR]: WORK,
+  [ACTIONS.ISSUE_CIRCULAR]: WORK,
+  [ACTIONS.ATTACH_TICKET]: WORK,
+  [ACTIONS.EDIT_TRAVEL_DATE]: WORK,
   [ACTIONS.COMPLETE]: WORK,
   [ACTIONS.CLOSE]: WORK,
   [ACTIONS.REOPEN]: MANAGERS,
@@ -86,8 +99,18 @@ export function isPublished(deliverable) {
   return Boolean(deliverable?.publishedAt);
 }
 
+// What the customer can see and download: published files not replaced by a
+// newer version of themselves.
 export function publishedDeliverables(request) {
-  return (request.deliverables || []).filter(isPublished);
+  return (request.deliverables || []).filter((d) => isPublished(d) && !d.supersededAt);
+}
+
+// The published files that are the service's final output — what
+// "delivered" means. For the Egypt approval only the current APPROVAL files
+// (never its circular or a ticket); for every other service its GENERAL files.
+export function deliveryDeliverables(request) {
+  const egypt = isEgyptClearanceCode(request.visaType?.code);
+  return publishedDeliverables(request).filter((d) => (d.kind || "GENERAL") === (egypt ? "APPROVAL" : "GENERAL"));
 }
 
 function travelerName(request, travelerId, index) {
@@ -188,7 +211,7 @@ export function evaluatePayment(request) {
 // traveler rows, or a single one, is covered by any published file that is
 // not explicitly assigned to someone else.
 export function evaluateDelivery(request) {
-  const published = publishedDeliverables(request);
+  const published = deliveryDeliverables(request);
   const travelers = request.travelers || [];
   if (travelers.length <= 1) {
     const onlyId = travelers[0]?.id;
@@ -241,6 +264,7 @@ export function requestKindOf(request) {
 }
 
 import { EGYPT_CLEARANCE_CODE, isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { circularState, isApprovalIssued, travelPreparation, travelTickets } from "../egypt-clearance/egypt-approval-rules.js";
 
 export { EGYPT_CLEARANCE_CODE };
 
@@ -257,10 +281,12 @@ export function egyptTravelBlockers(request) {
     return [{ code: "TRAVEL_PLAN_MISSING", message: "لم تُستكمل بيانات السفر والتعميم (طريقة الدخول، حالة الحجز، تاريخ الدخول) من العميل." }];
   }
   const reasons = [];
-  if (plan.bookingStatus === "EXISTING") {
+  if (plan.bookingStatus === "EXISTING" && plan.entryMode !== "BORDER") {
     const ticket = (request.documents || []).find((d) => d.id === plan.ticketDocumentId && !d.supersededAt);
-    if (!ticket) reasons.push({ code: "TRAVEL_TICKET_MISSING", message: "تذكرة/إثبات حجز الرحلة غير مرفوع." });
-    else if (ticket.status === "REJECTED") reasons.push({ code: "TRAVEL_TICKET_REJECTED", message: "تذكرة/إثبات حجز الرحلة مرفوض وبانتظار بديل." });
+    // A ticket staff attached (or published on the linked booking) also counts.
+    const otherTicket = travelTickets(request).some((t) => t.source !== "CUSTOMER");
+    if (!ticket && !otherTicket) reasons.push({ code: "TRAVEL_TICKET_MISSING", message: "تذكرة/إثبات حجز الرحلة غير مرفوع." });
+    else if (ticket?.status === "REJECTED" && !otherTicket) reasons.push({ code: "TRAVEL_TICKET_REJECTED", message: "تذكرة/إثبات حجز الرحلة مرفوض وبانتظار بديل." });
   }
   const openTasks = (request.tasks || []).filter((t) => t.status === "OPEN" && isEgyptTravelTask(t));
   if (openTasks.length) {
@@ -389,6 +415,36 @@ export function checkAction(action, request, context = {}) {
       return refuse("NOT_RELEASABLE", `لا يمكن نشر الملف للعميل الآن: ${reasons.map((r) => r.message).join(" ")} يمكنك حفظه مسودة.`, reasons);
     }
     case ACTIONS.SAVE_TRAVEL_PLAN:
+      if (!isEgyptClearanceCode(request.visaType?.code)) return refuse("WRONG_SERVICE", "هذا الإجراء خاص بطلبات الموافقة الأمنية لمصر.");
+      // Once the circular is issued for a date, the customer can no longer
+      // move it: only staff can (and the circular is re-issued).
+      if (circularState(request).status === "ISSUED") return refuse("CIRCULAR_ISSUED", "صدر التعميم بهذه البيانات؛ لتعديلها تواصل مع الوكالة.");
+      return null;
+    case ACTIONS.ISSUE_APPROVAL: {
+      if (!isEgyptClearanceCode(request.visaType?.code)) return refuse("WRONG_SERVICE", "هذا الإجراء خاص بطلبات الموافقة الأمنية لمصر.");
+      const reasons = [...evaluatePayment(request).reasons];
+      if (!request.executionStartedAt) reasons.push(...evaluateReadiness(request).reasons);
+      if (!reasons.length) return null;
+      return refuse("NOT_RELEASABLE", `لا يمكن إصدار الموافقة الآن: ${reasons.map((r) => r.message).join(" ")}`, reasons);
+    }
+    case ACTIONS.START_CIRCULAR:
+    case ACTIONS.ISSUE_CIRCULAR:
+      if (!isEgyptClearanceCode(request.visaType?.code)) return refuse("WRONG_SERVICE", "هذا الإجراء خاص بطلبات الموافقة الأمنية لمصر.");
+      if (!isApprovalIssued(request)) return refuse("APPROVAL_NOT_ISSUED", "يُجهَّز التعميم بعد إصدار الموافقة الأمنية لكل المسافرين.");
+      {
+        // The circular is prepared from the travel details: air needs the
+        // date and a ticket, overland the crossing and the arrival date.
+        const preparation = travelPreparation(request);
+        if (!preparation.complete) return refuse("TRAVEL_PREPARATION_INCOMPLETE", `أكمل تجهيز السفر قبل التعميم: ${preparation.missing.map((m) => m.message).join(" ")}`, preparation.missing);
+      }
+      if (action === ACTIONS.START_CIRCULAR && circularState(request).status !== "NOT_STARTED") return refuse("CIRCULAR_ALREADY_STARTED", "بدأ تجهيز التعميم أو صدر بالفعل؛ حدّث الصفحة.");
+      return null;
+    case ACTIONS.ATTACH_TICKET:
+    case ACTIONS.EDIT_TRAVEL_DATE:
+      if (!isEgyptClearanceCode(request.visaType?.code)) return refuse("WRONG_SERVICE", "هذا الإجراء خاص بطلبات الموافقة الأمنية لمصر.");
+      return null;
+    case ACTIONS.REQUEST_FLIGHT_BOOKING:
+      if (!isEgyptClearanceCode(request.visaType?.code)) return refuse("WRONG_SERVICE", "هذا الإجراء خاص بطلبات الموافقة الأمنية لمصر.");
       return null;
     case ACTIONS.COMPLETE: {
       const reasons = completionBlockers(request);
@@ -411,6 +467,7 @@ export function allowedActions(request, { audience, role } = {}) {
       : Object.keys(STAFF_ACTION_ROLES).filter((action) => !role || STAFF_ACTION_ROLES[action].includes(role));
   return candidates.filter((action) => {
     if (action === ACTIONS.SAVE_TRAVEL_PLAN && !isEgyptClearanceCode(request.visaType?.code)) return false;
+    if (action === ACTIONS.REQUEST_FLIGHT_BOOKING && (!isEgyptClearanceCode(request.visaType?.code) || request.intakeData?.egyptFlight?.choice === "REQUEST")) return false;
     if (action === ACTIONS.PUBLISH_DELIVERABLE && !(request.deliverables || []).some((d) => !isPublished(d))) return false;
     if (action === ACTIONS.REVIEW_DOCUMENT && !(request.documents || []).some((d) => !d.supersededAt && d.status === "PENDING" && d.classification !== "FINANCIAL_DOCUMENT")) return false;
     // Offered when allowed for the version currently stored (what the

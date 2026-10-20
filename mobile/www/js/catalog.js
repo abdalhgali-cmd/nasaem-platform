@@ -99,11 +99,12 @@ export function resolveServiceScreen(item) {
 
   if (isEgyptClearanceItem(item)) return "egyptClearance";
   if (code === "SVC-FAMILY-VISIT" || code === "VISA-FAMILY-VISIT") return "saudiFamilyVisit";
-  if (code === "VISA-UMRAH" || category === "umrah") return "umrah";
+  // Umrah: the service, its visa type and its packages (fixed-price chooser).
+  if (code === "VISA-UMRAH" || category === "umrah" || category === "umrah_package" || code.startsWith("SVC-UMRAH-")) return "umrah";
   if (category.includes("ferry")) return "ferries";
   if (category.includes("flight")) return "flights";
   if (category.includes("hotel")) return "hotels";
-  if (category === "package") return "umrah";
+  // Tour packages (category «package») are not Umrah: their own request form.
 
   return "serviceDetail";
 }

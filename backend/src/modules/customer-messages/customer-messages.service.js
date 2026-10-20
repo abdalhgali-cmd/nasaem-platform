@@ -1,5 +1,8 @@
 import prisma from "../../config/database.js";
+import fs from "fs";
 import { sendWhatsAppMessage, whatsAppAvailability } from "../../utils/whatsapp.js";
+import { isValidRecipient, sendCustomerEmail } from "../../utils/providerEmail.js";
+import { EMAIL, PAYMENT_RECEIPT, generateReceiptPdf, getReceiptFile } from "../payment-receipts/payment-receipts.service.js";
 
 // Customer-facing transactional messages with a delivery record. Today: the
 // "we received your request" confirmation over WhatsApp. Each (request, kind,
@@ -173,6 +176,8 @@ export function startConfirmationReconciler({ intervalMs = 60_000 } = {}) {
     try {
       const result = await processPendingConfirmations();
       if (result.processed || result.uncertain || result.expired) console.log("[customer-messages] reconcile", JSON.stringify(result));
+      const receipts = await processPendingReceipts();
+      if (receipts.pdfs || receipts.processed || receipts.uncertain) console.log("[customer-messages] receipts", JSON.stringify(receipts));
     } catch (error) {
       console.error("[customer-messages] reconcile failed", error?.message);
     } finally {
@@ -194,4 +199,143 @@ export async function listCustomerMessages(contactRequestId) {
     orderBy: { createdAt: "asc" },
     select: { id: true, kind: true, channel: true, status: true, attempts: true, providerMessageId: true, lastError: true, lastAttemptAt: true, nextAttemptAt: true, createdAt: true },
   });
+}
+
+// ---- Paid receipt e-mail (kind PAYMENT_RECEIPT, channel EMAIL)
+// Same delivery states and atomic claim as the confirmation above. The
+// receipt has no expiry (it stays useful); a send that timed out is
+// UNCERTAIN and only staff re-send it. Never blocks anything else: a missing
+// address or an unconfigured mail API is SKIPPED, visible to staff.
+
+function receiptEmailText(receipt) {
+  return [
+    `مرحبًا ${receipt.customerName}،`,
+    "",
+    `أكّدت نسائم الحرمين استلام مبلغ ${Number(receipt.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })} ${receipt.currency} لطلبك (${receipt.serviceName}).`,
+    `رقم الإيصال: ${receipt.receiptNo}`,
+    `رقم الطلب: ${receipt.contactRequestId}`,
+    "",
+    "تجد إيصال السداد مرفقًا بصيغة PDF، ويمكنك تحميله أيضًا من صفحة متابعة الطلب.",
+    "هذا إيصال سداد وليس فاتورة ضريبية.",
+  ].join("\n");
+}
+
+export async function sendPaymentReceiptEmail(contactRequestId, { manual = false } = {}) {
+  const key = { contactRequestId_kind_channel: { contactRequestId, kind: PAYMENT_RECEIPT, channel: EMAIL } };
+  const delivery = await prisma.customerMessageDelivery.findUnique({ where: key });
+  if (!delivery || delivery.status === "ACCEPTED") return delivery;
+  const now = new Date();
+  const claimable = manual
+    ? { status: { in: ["PENDING", "FAILED", "SKIPPED", "UNCERTAIN"] } }
+    : { status: "PENDING", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] };
+
+  const receipt = await prisma.paymentReceipt.findUnique({ where: { contactRequestId } });
+  if (!delivery.recipient || !receipt) {
+    await prisma.customerMessageDelivery.updateMany({ where: { id: delivery.id, ...claimable }, data: { status: "SKIPPED", nextAttemptAt: null, lastError: "NO_RECIPIENT" } });
+    return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+  }
+  // The PDF comes first; the e-mail waits for it (FAILED PDF: staff decide).
+  if (receipt.pdfStatus !== "READY") {
+    if (receipt.pdfStatus === "FAILED") {
+      await prisma.customerMessageDelivery.updateMany({ where: { id: delivery.id, ...claimable }, data: { status: "FAILED", nextAttemptAt: null, lastError: "RECEIPT_PDF_FAILED" } });
+    } else if (manual) {
+      await prisma.customerMessageDelivery.updateMany({ where: { id: delivery.id, ...claimable }, data: { status: "PENDING", nextAttemptAt: new Date(now.getTime() + 60_000), lastError: "WAITING_FOR_PDF" } });
+    }
+    return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+  }
+  // Everything that can fail locally happens before the claim.
+  const file = await getReceiptFile(contactRequestId);
+  let content = null;
+  try {
+    content = file ? fs.readFileSync(file.absolutePath) : null;
+  } catch {
+    content = null;
+  }
+  if (!content) {
+    await prisma.customerMessageDelivery.updateMany({ where: { id: delivery.id, ...claimable }, data: { status: "FAILED", nextAttemptAt: null, lastError: "RECEIPT_FILE_MISSING" } });
+    return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+  }
+
+  const claimed = await prisma.customerMessageDelivery.updateMany({
+    where: { id: delivery.id, ...claimable },
+    data: { status: "SENDING", attempts: { increment: 1 }, lastAttemptAt: now, nextAttemptAt: null },
+  });
+  if (claimed.count === 0) return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+  // The address as it is now that this worker owns the row (a correction
+  // committed before the claim is used; none can happen while SENDING).
+  const owned = await prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+
+  const result = await sendCustomerEmail({
+    to: owned.recipient,
+    subject: `إيصال سداد ${receipt.receiptNo} — نسائم الحرمين`,
+    text: receiptEmailText(receipt),
+    attachments: [{ filename: file.fileName, contentType: "application/pdf", content }],
+    // Automatic attempts of one message share a key; a staff re-send is a
+    // deliberate new message.
+    idempotencyKey: manual ? `${owned.id}:resend:${now.getTime()}` : owned.id,
+  }).catch((error) => ({ status: "UNCERTAIN", reason: String(error?.message || error).slice(0, 200) }));
+  const { attempts } = await prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id }, select: { attempts: true } });
+  let data;
+  if (result.status === "ACCEPTED") data = { status: "ACCEPTED", lastError: null };
+  else if (result.status === "RETRY") {
+    data = attempts >= MAX_AUTO_ATTEMPTS
+      ? { status: "FAILED", lastError: result.reason }
+      : { status: "PENDING", nextAttemptAt: new Date(Date.now() + retryDelay(attempts)), lastError: result.reason };
+  } else data = { status: result.status, lastError: result.reason || null };
+  await prisma.customerMessageDelivery.updateMany({ where: { id: delivery.id, status: "SENDING" }, data });
+  return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+}
+
+// Staff re-send (audited by the caller): any state, including ACCEPTED (the
+// customer asked again) — the row goes back to PENDING and is sent now.
+// `recipient` may correct the address; it is validated.
+export async function resendPaymentReceiptEmail(contactRequestId, { recipient } = {}) {
+  const key = { contactRequestId_kind_channel: { contactRequestId, kind: PAYMENT_RECEIPT, channel: EMAIL } };
+  const delivery = await prisma.customerMessageDelivery.findUnique({ where: key });
+  if (!delivery) return { error: "NO_RECEIPT" };
+  if (delivery.status === "SENDING") return { error: "SENDING" };
+  if (recipient !== undefined && !isValidRecipient(recipient)) return { error: "INVALID_RECIPIENT" };
+  // Compare-and-swap on the state just read: of two overlapping re-sends
+  // only one resets the row; the other is told a send is in progress.
+  const reset = await prisma.customerMessageDelivery.updateMany({
+    where: { id: delivery.id, status: delivery.status, updatedAt: delivery.updatedAt },
+    data: { status: "PENDING", nextAttemptAt: null, ...(recipient !== undefined ? { recipient: recipient.trim() } : {}) },
+  });
+  if (reset.count !== 1) return { error: "SENDING" };
+  return { delivery: await sendPaymentReceiptEmail(contactRequestId, { manual: true }), previous: { status: delivery.status, recipient: delivery.recipient } };
+}
+
+// Reconciler pass for receipts: PDFs still to produce, abandoned sends made
+// UNCERTAIN, and due e-mails sent.
+export async function processPendingReceipts({ limit = 20 } = {}) {
+  const now = Date.now();
+  const pdfs = await prisma.paymentReceipt.findMany({
+    where: { OR: [{ pdfStatus: "PENDING" }, { pdfStatus: "GENERATING", updatedAt: { lt: new Date(now - 2 * 60 * 1000) } }] },
+    take: limit,
+    select: { contactRequestId: true },
+  });
+  for (const row of pdfs) await generateReceiptPdf(row.contactRequestId).catch(() => null);
+  const uncertain = await prisma.customerMessageDelivery.updateMany({
+    where: { kind: PAYMENT_RECEIPT, status: "SENDING", lastAttemptAt: { lt: new Date(now - STALE_SENDING_MS) } },
+    data: { status: "UNCERTAIN", lastError: "Outcome unknown: the send was interrupted" },
+  });
+  const due = await prisma.customerMessageDelivery.findMany({
+    where: { kind: PAYMENT_RECEIPT, status: "PENDING", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date(now) } }] },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+    select: { contactRequestId: true },
+  });
+  const outcomes = {};
+  for (const row of due) {
+    const result = await sendPaymentReceiptEmail(row.contactRequestId).catch(() => null);
+    const status = result?.status || "ERROR";
+    outcomes[status] = (outcomes[status] || 0) + 1;
+  }
+  return { pdfs: pdfs.length, uncertain: uncertain.count, processed: due.length, outcomes };
+}
+
+// After a payment is confirmed (not awaited by the staff response).
+export async function deliverPaymentReceipt(contactRequestId) {
+  await generateReceiptPdf(contactRequestId);
+  return sendPaymentReceiptEmail(contactRequestId);
 }
