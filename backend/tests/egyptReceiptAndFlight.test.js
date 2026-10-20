@@ -55,6 +55,20 @@ after(async () => {
   await prisma.contactRequest.deleteMany({ where: { OR: [{ id: { in: created } }, { parentRequestId: { in: created } }] } });
 });
 
+// Payment confirmation also starts the receipt delivery in the background
+// (contact-requests.service.js, after commit). The test's own call can find
+// that attempt holding the row (SENDING) and return at once, so wait —
+// bounded — until the one attempt that owns it has finished.
+async function settledReceiptDelivery(contactRequestId) {
+  const where = { contactRequestId_kind_channel: { contactRequestId, kind: "PAYMENT_RECEIPT", channel: "EMAIL" } };
+  for (let i = 0; i < 200; i += 1) {
+    const row = await prisma.customerMessageDelivery.findUnique({ where });
+    if (row && !["PENDING", "SENDING"].includes(row.status)) return row;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return prisma.customerMessageDelivery.findUnique({ where });
+}
+
 describe("paid receipt on payment confirmation", () => {
   test("one receipt with the frozen amount, a PDF and one e-mail with the PDF attached", async () => {
     clearCapturedProviderEmails();
@@ -73,10 +87,11 @@ describe("paid receipt on payment confirmation", () => {
     assert.equal(receipts[0].customerEmail, "test-egr@example.test");
 
     await deliverPaymentReceipt(req.id);
+    const delivery = await settledReceiptDelivery(req.id);
     const receipt = await prisma.paymentReceipt.findUnique({ where: { contactRequestId: req.id } });
     assert.equal(receipt.pdfStatus, "READY");
-    const delivery = await prisma.customerMessageDelivery.findUnique({ where: { contactRequestId_kind_channel: { contactRequestId: req.id, kind: "PAYMENT_RECEIPT", channel: "EMAIL" } } });
     assert.equal(delivery.status, "ACCEPTED");
+    assert.equal(delivery.attempts, 1, "one delivery attempt, not one per caller");
     const sent = getCapturedProviderEmails().filter((mail) => mail.to === "test-egr@example.test" && mail.subject.includes(receipt.receiptNo));
     assert.equal(sent.length, 1, "sent once");
     assert.equal(sent[0].attachments[0].contentType, "application/pdf");
@@ -100,7 +115,7 @@ describe("paid receipt on payment confirmation", () => {
     const req = await underReviewRequest({ email: null });
     assert.equal((await accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({})).status, 200);
     await deliverPaymentReceipt(req.id);
-    const delivery = await prisma.customerMessageDelivery.findUnique({ where: { contactRequestId_kind_channel: { contactRequestId: req.id, kind: "PAYMENT_RECEIPT", channel: "EMAIL" } } });
+    const delivery = await settledReceiptDelivery(req.id);
     assert.equal(delivery.status, "SKIPPED");
     assert.equal(delivery.lastError, "NO_RECIPIENT");
     const stored = await prisma.contactRequest.findUnique({ where: { id: req.id } });
@@ -113,7 +128,7 @@ describe("paid receipt on payment confirmation", () => {
     const req = await underReviewRequest();
     assert.equal((await accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({})).status, 200);
     await deliverPaymentReceipt(req.id);
-    let delivery = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: req.id, kind: "PAYMENT_RECEIPT" } });
+    let delivery = await settledReceiptDelivery(req.id);
     assert.equal(delivery.status, "SKIPPED");
     assert.equal(delivery.lastError, "NOT_CONFIGURED");
     process.env.PROVIDER_EMAIL_TRANSPORT = "capture";
