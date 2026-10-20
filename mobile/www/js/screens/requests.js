@@ -368,7 +368,9 @@ function startStatusRefresh(bodyEl, refresh) {
     if (!bodyEl.isConnected) return stop();
     if (!document.hidden && idle()) {
       const y = window.scrollY;
-      Promise.resolve(refresh()).then(() => window.scrollTo?.(0, y)).catch(() => undefined);
+      // The response is applied only if the customer has still not started
+      // something meanwhile (re-checked when it arrives).
+      Promise.resolve(refresh(idle)).then(() => window.scrollTo?.(0, y)).catch(() => undefined);
     }
   };
   const onVisible = () => { if (!document.hidden) run(); };
@@ -396,10 +398,12 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         const list = await tracking.listTrackedRequests();
         const found = list.find((request) => request.id === params.requestId);
         if (!found) throw new ApiError("الطلب غير متاح لهذا الرقم", { status: 404 });
+        if (options?.applyIf && !options.applyIf()) return;
         renderDetail(fromTracking(found), { viaTracking: true, reopenPayment });
         return;
       }
       const res = await api(`/customer/requests/${params.requestId}`);
+      if (options?.applyIf && !options.applyIf()) return;
       renderDetail(res.data, { reopenPayment });
     } catch (error) {
       // A background refresh that fails (offline) keeps what is on screen.
@@ -542,7 +546,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   }
 
   await load();
-  startStatusRefresh(bodyEl, () => load({ quiet: true }));
+  startStatusRefresh(bodyEl, (stillIdle) => load({ quiet: true, applyIf: stillIdle }));
 }
 
 function checklistBlock(request) {
@@ -637,7 +641,7 @@ async function showPaymentStep(panel, { request, currency, price, onUploaded, ke
       <h4>الدفع بالتحويل البنكي</h4>
       ${price ? `<p class="payment-amount">قيمة الفاتورة: <strong>${esc(price)}</strong></p>` : ""}
       ${loadError
-        ? errorState(loadError.message)
+        ? errorState(loadError.message, { onRetry: () => showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt, notice }) })
         : options.length
           ? `<p class="field-hint">اختر الحساب الذي ستحوّل إليه، وحوّل المبلغ الظاهر عليه بالضبط.</p>
              ${settlementOptionsHtml(options, esc, { invoiceAmount: payable.amount, invoiceCurrency: payable.currency || currency })}
@@ -674,16 +678,18 @@ async function showPaymentStep(panel, { request, currency, price, onUploaded, ke
         // The receipt is already in (a lost response, a second tap elsewhere):
         // the reload shows «بانتظار مراجعة الدفع».
         if (isAlreadySubmitted(error)) return;
-        picker.dispose();
         // The accounts or the invoice changed since this screen was loaded:
         // reload the request (fresh options), keep the picked receipt, say why.
+        // (The preview is released only when the form is replaced.)
         if (needsRefresh(error)) {
+          picker.dispose();
           refreshAfter = error;
           return;
         }
         if (!panel.contains(form)) {
           // The phone check replaced the form: bring it back with the receipt
           // still chosen, so the customer can retry.
+          picker.dispose();
           retryAfter = error;
           return;
         }
