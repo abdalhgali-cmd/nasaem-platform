@@ -155,3 +155,26 @@ test("approved prices: per-traveler total, a disabled variant refuses new reques
     await restore();
   }
 });
+
+test("a price that would not survive storage (sub-cent) is refused, and a variant without its document checklist cannot be opened", async () => {
+  const agent = await loginAsSuperAdmin();
+  const subCent = await agent.patch(url).send({ usdRateToSdg: 9200, air: { priceUsd: 0.001, active: true }, border: { priceUsd: 155, active: true } });
+  assert.equal(subCent.status, 400);
+  const restore = await snapshotConfig();
+  const air = await prisma.visaType.findUnique({ where: { code: codes[0] } });
+  const documents = await prisma.visaRequirement.findMany({ where: { visaTypeId: air.id, active: true, type: "DOCUMENT" }, select: { id: true } });
+  try {
+    await prisma.visaRequirement.updateMany({ where: { id: { in: documents.map((d) => d.id) } }, data: { active: false } });
+    const refused = await agent.patch(url).send({ usdRateToSdg: 9200, air: { priceUsd: 85, active: true }, border: { priceUsd: 155, active: false } });
+    assert.equal(refused.status, 409, JSON.stringify(refused.body));
+    assert.equal((await prisma.visaType.findUnique({ where: { code: codes[0] } })).active, air.active, "nothing changed");
+    const audit = await prisma.activityLog.count({ where: { action: "EGYPT_PRICING_UPDATED", createdAt: { gte: new Date(Date.now() - 5000) } } });
+    // Saving with the variant inactive is allowed and audited in the same transaction.
+    const saved = await agent.patch(url).send({ usdRateToSdg: 9200, air: { priceUsd: 85, active: false }, border: { priceUsd: 155, active: false } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(await prisma.activityLog.count({ where: { action: "EGYPT_PRICING_UPDATED", createdAt: { gte: new Date(Date.now() - 5000) } } }), audit + 1);
+  } finally {
+    await prisma.visaRequirement.updateMany({ where: { id: { in: documents.map((d) => d.id) } }, data: { active: true } });
+    await restore();
+  }
+});
