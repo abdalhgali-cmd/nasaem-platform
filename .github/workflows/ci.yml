@@ -51,7 +51,14 @@ jobs:
       - name: Seed database
         run: npm run prisma:seed
       - name: Run tests
-        run: npm test
+        shell: bash
+        run: npm test 2>&1 | tee test-output.log
+      # The full log is too long to read the failure from its tail: repeat
+      # the failing tests' result blocks at the end.
+      - name: Show failing tests
+        if: failure()
+        shell: bash
+        run: grep -n -A45 -E "^\s*not ok " test-output.log | grep -v "\[0m" | head -400 || true
 
   backup_restore:
     name: PostgreSQL backup + restore drill
