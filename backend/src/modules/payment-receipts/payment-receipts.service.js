@@ -46,7 +46,7 @@ async function nextReceiptNo(tx, paidAt) {
 }
 
 // Inside the payment-confirmation transaction (request row locked).
-export async function createReceiptInTransaction(tx, request, { userId, paidAt }) {
+export async function createReceiptInTransaction(tx, request, { userId, paidAt, settlement = null }) {
   const existing = await tx.paymentReceipt.findUnique({ where: { contactRequestId: request.id }, select: { id: true } });
   if (existing) return existing;
   const amount = confirmedAmount(request);
@@ -66,6 +66,10 @@ export async function createReceiptInTransaction(tx, request, { userId, paidAt }
       serviceName: serviceName(request),
       travelerCount: Math.max(1, request.travelers?.length || request.travelerCount || 1),
       paidAt,
+      // Settled in another currency than the invoice (the frozen SDG equivalent).
+      ...(settlement && settlement.payCurrency && settlement.payCurrency !== amount.currency
+        ? { settlementCurrency: settlement.payCurrency, settlementAmount: settlement.payAmount }
+        : {}),
       confirmedByUserId: userId || null,
     },
   });

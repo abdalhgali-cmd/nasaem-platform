@@ -58,6 +58,9 @@ export function receiptLines(receipt) {
     lines.push(["ما يعادل بالجنيه السوداني", money(receipt.amountSdg, "SDG"), "ltr"]);
     if (receipt.exchangeRateToSdg) lines.push(["سعر الصرف المعتمد", `1 ${receipt.currency} = ${Number(receipt.exchangeRateToSdg)} SDG`, "ltr"]);
   }
+  if (receipt.settlementCurrency && receipt.settlementAmount !== null && receipt.settlementAmount !== undefined) {
+    lines.push(["المبلغ المحوَّل فعليًا", money(receipt.settlementAmount, receipt.settlementCurrency), "ltr"]);
+  }
   lines.push(["طريقة السداد", "تحويل بنكي — تحقق منه موظف مختص", "rtl"]);
   lines.push(["حالة السداد", "مدفوع", "rtl"]);
   return lines;

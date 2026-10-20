@@ -18,6 +18,7 @@ import { notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requ
 import { ACTIONS, allowedActions, checkAction, paymentLockReasons, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { egyptOverview, isApprovalIssued } from "../egypt-clearance/egypt-approval-rules.js";
+import { loadSettlementOptions, payableOf, resolveSettlement } from "../payment-settlement/payment-settlement.service.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-checklist.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -153,6 +154,13 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       })
     : [];
 
+  // Every way each open payment may be settled (invoice currency, or the
+  // frozen SDG equivalent into an account the agency marked for it).
+  const settlementByRequest = new Map();
+  for (const request of requests.filter((row) => row.paymentStatus === "AWAITING_TRANSFER" && isPaymentOpen(row))) {
+    settlementByRequest.set(request.id, await loadSettlementOptions(prisma, payableOf(request)));
+  }
+
   return requests.map((request) => {
     const selectedOffer = request.offers.find((offer) => offer.id === request.selectedOfferId);
     const paymentCurrency = request.invoice?.currency || selectedOffer?.currency || null;
@@ -199,6 +207,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
       paymentAccounts: paymentCurrency && isPaymentOpen(request)
         ? paymentAccounts.filter((account) => account.currency === paymentCurrency)
         : [],
+      paymentSettlementOptions: settlementByRequest.get(request.id) || [],
       // Egypt security approval: its own timeline and typed files.
       egypt: egyptOverview(request, { receipt: paymentReceipt }),
       paymentRejection: request.paymentStatus === "AWAITING_TRANSFER" && request.paymentRejectionReason
@@ -221,24 +230,30 @@ export async function uploadMyDocument(phoneNormalized, contactRequestId, { labe
   return createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, quality });
 }
 
-export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, file) {
-  return recordPaymentReceipt(contactRequestId, trackingScope(phoneNormalized), file);
+export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, file, settlementChoice = {}) {
+  return recordPaymentReceipt(contactRequestId, trackingScope(phoneNormalized), file, settlementChoice);
 }
 
 // One path for every customer receipt upload (phone-code tracking, or the
 // request-scoped payment access right after submission): `scope` decides who
 // may see the request at all.
-export async function recordPaymentReceipt(contactRequestId, scope, file) {
+// `settlementChoice` ({ accountId, invoiceVersion }): the agency account the
+// customer transferred to and the invoice version they saw; checked under the
+// lock (payment-settlement.service.js) and kept with the receipt.
+export async function recordPaymentReceipt(contactRequestId, scope, file, settlementChoice = {}) {
   // The receipt is what puts the payment in front of the accountant. This only
   // moves it to "under review": it is never marked paid until staff accept it.
   const result = await withLockedRequest(contactRequestId, scope, async (tx, request) => {
     const refusal = checkAction(ACTIONS.UPLOAD_RECEIPT, request);
     if (refusal) refuseWith(refusal);
+    const resolved = await resolveSettlement(tx, payableOf(request), settlementChoice);
+    if (resolved.refusal) refuseWith(resolved.refusal);
     const document = await tx.contactRequestDocument.create({
       data: {
         contactRequestId,
         label: "إشعار الدفع",
         classification: "FINANCIAL_DOCUMENT",
+        paymentSettlement: resolved.settlement,
         fileName: file.originalname,
         storagePath: path.join("contact-request-documents", file.filename),
         mimeType: file.mimetype,
@@ -254,7 +269,7 @@ export async function recordPaymentReceipt(contactRequestId, scope, file) {
       entityId: contactRequestId,
       organizationId: request.organizationId,
       oldValue: { paymentStatus: request.paymentStatus },
-      newValue: { paymentStatus: "UNDER_REVIEW", documentId: document.id, amount: request.invoice ? String(request.invoice.amount) : null, currency: request.invoice?.currency ?? null },
+      newValue: { paymentStatus: "UNDER_REVIEW", documentId: document.id, amount: request.invoice ? String(request.invoice.amount) : null, currency: request.invoice?.currency ?? null, settlement: resolved.settlement },
     });
     return { document, request };
   });

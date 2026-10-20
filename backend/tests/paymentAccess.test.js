@@ -95,7 +95,7 @@ describe("payment straight after submission", () => {
     const uploaded = await uploadWith(id, paymentAccess.token);
     assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
     assert.equal(uploaded.body.data.request.paymentStatus, "UNDER_REVIEW");
-    assert.equal(uploaded.body.data.request.paymentStatusLabel, "بانتظار مراجعة التحويل");
+    assert.equal(uploaded.body.data.request.paymentStatusLabel, "بانتظار مراجعة الدفع");
     assert.equal(uploaded.body.data.request.paymentOpen, false, "no second receipt while one is under review");
     assert.deepEqual(uploaded.body.data.request.accounts, []);
 

@@ -7,6 +7,7 @@
 // once per request to reach those specific actions; this module makes that
 // a short in-place step instead of a dead end.
 import { api, apiUpload } from "./api.js";
+import { receiptFormData } from "./payment-receipt.js";
 import { secureGet, secureSet, secureRemove, migrateLegacyPreference } from "./secure-store.js";
 
 const TRACKING_TOKEN_KEY = "tracking.token";
@@ -81,10 +82,10 @@ export async function selectOffer(requestId, offerId) {
   return api(`/tracking/requests/${requestId}/offers/${offerId}/select`, { method: "POST", headers: await trackingHeaders() });
 }
 
-export async function uploadPaymentReceipt(requestId, file, onProgress) {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("label", "إثبات الدفع");
+// `settlement`: the account the customer transferred to and the invoice
+// version shown (checked again by the server).
+export async function uploadPaymentReceipt(requestId, file, onProgress, settlement = {}) {
+  const form = receiptFormData(file, { ...settlement, label: "إثبات الدفع" });
   return trackingUpload(`/tracking/requests/${requestId}/payment-receipt`, form, onProgress);
 }
 

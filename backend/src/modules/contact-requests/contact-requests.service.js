@@ -25,6 +25,7 @@ import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
 import { syncTravelReminders } from "../egypt-clearance/travel-reminders.service.js";
 import { createReceiptInTransaction } from "../payment-receipts/payment-receipts.service.js";
+import { settlementBeingConfirmed } from "../payment-settlement/payment-settlement.service.js";
 import { sanitizeQualitySignal } from "../egypt-clearance/document-quality.js";
 import { openLinkedFlightInquiry } from "../egypt-clearance/linked-flight.service.js";
 import { deliverPaymentReceipt } from "../customer-messages/customer-messages.service.js";
@@ -1014,7 +1015,7 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
     });
     // The paid receipt and its e-mail outbox row commit with the payment
     // itself (payment-receipts.service.js); PDF and e-mail follow after.
-    const receipt = await createReceiptInTransaction(tx, contactRequest, { userId, paidAt: now });
+    const receipt = await createReceiptInTransaction(tx, contactRequest, { userId, paidAt: now, settlement: settlementBeingConfirmed(contactRequest) });
     await auditInTransaction(tx, { userId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED", entityId: contactRequestId, organizationId: contactRequest.organizationId, ...(receipt?.receiptNo ? { newValue: { receiptNo: receipt.receiptNo } } : {}) });
     return { updated, receipt };
   });

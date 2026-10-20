@@ -142,7 +142,7 @@ test.describe.serial("Egypt Security Approval on the website", () => {
         } else {
           await directStep.getByTestId("payment-receipt-input").setInputFiles(DOCUMENT_FIXTURE);
           await directStep.getByRole("button", { name: "إرسال الطلب للمراجعة" }).click();
-          await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة التحويل", { timeout: 15_000 });
+          await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة الدفع", { timeout: 15_000 });
         }
         await expect(page.getByText("تم استلام طلب الموافقة الأمنية")).toBeVisible();
         await expect(page.getByTestId("egypt-next-step")).toContainText("لن يصلك عرض سعر آخر");

@@ -438,11 +438,17 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await expect(card).toContainText("E2E Bank");
     await expect(card).toContainText("صاحب الحساب: Nasaem");
     await expect(card.locator(`[data-copy="${accountNumber}"]`)).toBeVisible();
-    await expect(step.locator('#receiptForm input[name="file"]')).toHaveAttribute("accept", "image/*,.pdf");
+    // Camera (rear), gallery images, or a PDF.
+    await expect(step.locator('[data-receipt-input="CAMERA"]')).toHaveAttribute("capture", "environment");
+    await expect(step.locator('[data-receipt-input="CAMERA"]')).toHaveAttribute("accept", "image/*");
+    await expect(step.locator('[data-receipt-input="GALLERY"]')).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
+    await expect(step.locator('[data-receipt-input="PDF"]')).toHaveAttribute("accept", "application/pdf,.pdf");
 
-    await page.locator('#receiptForm input[name="file"]').setInputFiles(file("receipt.png"));
-    await page.locator("#receiptForm button").click();
-    await expect(page.locator(".pay-state")).toContainText("قيد المراجعة", { timeout: 15_000 });
+    await card.locator('[name="settlementAccountId"]').check();
+    await page.locator('#receiptForm [data-receipt-input="GALLERY"]').setInputFiles(file("receipt.png"));
+    await expect(step.locator(".receipt-preview-img")).toBeVisible();
+    await page.locator("#receiptSubmitBtn").click();
+    await expect(page.locator(".pay-state")).toContainText("بانتظار مراجعة الدفع", { timeout: 15_000 });
     await expect(page.locator(".pay-state")).toContainText("لم يُعتمد");
 
     const paymentRejected = await api.post(`${BACKEND}/api/contact-requests/${family.id}/reject-payment`, { data: { reason: "المبلغ غير مطابق" } });
@@ -453,9 +459,10 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await expect(page.locator(".pay-state-bad")).toContainText("المبلغ غير مطابق");
 
     await page.locator("#uploadReceiptBtn").click();
-    await page.locator('#receiptForm input[name="file"]').setInputFiles(file("receipt2.png"));
-    await page.locator("#receiptForm button").click();
-    await expect(page.locator(".pay-state")).toContainText("قيد المراجعة", { timeout: 15_000 });
+    await page.locator(".payment-card", { hasText: accountNumber }).locator('[name="settlementAccountId"]').check();
+    await page.locator('#receiptForm [data-receipt-input="CAMERA"]').setInputFiles(file("receipt2.png"));
+    await page.locator("#receiptSubmitBtn").click();
+    await expect(page.locator(".pay-state")).toContainText("بانتظار مراجعة الدفع", { timeout: 15_000 });
 
     const paymentConfirmed = await api.post(`${BACKEND}/api/contact-requests/${family.id}/confirm-payment`);
     expect(paymentConfirmed.ok()).toBeTruthy();

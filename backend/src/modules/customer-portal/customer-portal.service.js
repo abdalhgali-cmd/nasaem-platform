@@ -3,6 +3,8 @@ import { allowedActions, publishedDeliverables } from "../contact-request-workfl
 import { WORKFLOW_INCLUDE } from "../contact-request-workflow/workflow-lock.js";
 import { egyptOverview } from "../egypt-clearance/egypt-approval-rules.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "../contact-request-tracking/customer-checklist.js";
+import { isPaymentOpen } from "../contact-request-tracking/contact-request-tracking.service.js";
+import { loadSettlementOptions, payableOf } from "../payment-settlement/payment-settlement.service.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { getSystemActorId } from "../../utils/systemActor.js";
@@ -269,7 +271,9 @@ export async function getMyRequestById(customerId, requestId) {
     orderBy: { createdAt: "asc" },
     select: { action: true, createdAt: true },
   });
-  return { ...toCustomerRequest(request), timeline };
+  // How an open payment may be settled (same options as phone tracking).
+  const paymentSettlementOptions = request.paymentStatus === "AWAITING_TRANSFER" && isPaymentOpen(request) ? await loadSettlementOptions(prisma, payableOf(request)) : [];
+  return { ...toCustomerRequest(request), timeline, paymentSettlementOptions };
 }
 
 export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId, travelerId, quality }) {

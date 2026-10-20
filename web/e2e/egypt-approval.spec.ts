@@ -146,7 +146,9 @@ test.describe.serial("Egypt security approval: customer app and back-office", ()
     await expect(app.locator("#directPaymentAmount")).toContainText("95");
     await expect(app.locator('[data-testid="payment-account"] [data-copy]').first()).toBeVisible();
     await shot(app, "egypt-04-payment-390");
-    await app.setInputFiles('#directReceiptForm input[name="file"]', { name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });
+    await app.locator('[name="settlementAccountId"]').first().check();
+    await app.setInputFiles('#directReceiptForm [data-receipt-input="PDF"]', { name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });
+    await expect(app.locator("[data-receipt-name]")).toContainText("receipt.pdf");
     await app.locator("#sendReceiptBtn").click();
     await expect(app.locator("#requestReference")).toBeVisible({ timeout: 30_000 });
     airRequestId = (await app.locator("#requestReference").innerText()).trim();

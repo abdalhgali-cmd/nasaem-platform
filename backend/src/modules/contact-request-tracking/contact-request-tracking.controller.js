@@ -1,3 +1,4 @@
+import { settlementChoiceOf } from "../payment-settlement/payment-settlement.service.js";
 import {
   egyptTravelPlanSchema,
   requestCodeSchema,
@@ -44,7 +45,7 @@ export async function approveMyInvoice(req, res, next) { try { return respondToA
 export async function rejectMyInvoice(req, res, next) { try { return respondToAction(res, await rejectInvoice(req.trackingPhone, req.params.id, { invoiceVersion: req.body?.invoiceVersion }), "تم رفض عرض السعر"); } catch (error) { next(error); } }
 export async function selectMyOffer(req, res, next) { try { return respondToAction(res, await selectOffer(req.trackingPhone, req.params.id, req.params.offerId), "تم اختيار هذا العرض"); } catch (error) { next(error); } }
 export async function markMyTransferSent(req, res, next) { try { return respondToAction(res, await markTransferSent(req.trackingPhone, req.params.id), "تم إعلام فريقنا بالتحويل، سنراجعه قريبًا"); } catch (error) { next(error); } }
-export async function uploadPaymentReceipt(req, res, next) { try { if (!req.file) return res.status(400).json({ success: false, message: "A file is required" }); const result = await uploadPaymentReceiptService(req.trackingPhone, req.params.id, req.file); if (result.refusal) return sendRefusal(res, result.refusal); if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" }); if (result.error === "INVALID_STATE") return res.status(409).json({ success: false, message: "Payment receipt can only be uploaded after the customer approves the price" }); return res.status(201).json({ success: true, message: "تم رفع إشعار الدفع", data: result.document }); } catch (error) { next(error); } }
+export async function uploadPaymentReceipt(req, res, next) { try { if (!req.file) return res.status(400).json({ success: false, message: "A file is required" }); const result = await uploadPaymentReceiptService(req.trackingPhone, req.params.id, req.file, settlementChoiceOf(req.body)); if (result.refusal) return sendRefusal(res, result.refusal); if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" }); if (result.error === "INVALID_STATE") return res.status(409).json({ success: false, message: "Payment receipt can only be uploaded after the customer approves the price" }); return res.status(201).json({ success: true, message: "تم رفع إشعار الدفع", data: result.document }); } catch (error) { next(error); } }
 // Platform 3.0 Phase 6: maps the requirement-validation error codes from
 // createContactRequestDocument to a clean 400, mirroring the rest of this
 // file's respondToAction-style short-circuits.

@@ -216,13 +216,38 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     return parts.join("");
   }
 
+  // The transfer receipts the customer uploaded (newest first), each with the
+  // account and amount the customer says they paid, as validated by the
+  // server when it was uploaded. The staff check it against the bank.
+  function transferReceiptsHtml(r) {
+    const receipts = (r.documents || []).filter((d) => d.classification === "FINANCIAL_DOCUMENT" && !d.supersededAt);
+    if (!receipts.length) return r.paymentStatus === "AWAITING_TRANSFER" ? '<p class="muted small">لم يرفع العميل إيصال تحويل بعد.</p>' : "";
+    return `<div class="table-scroll" data-cr-transfer-receipts><table>
+      <thead><tr><th>إيصال التحويل</th><th>المبلغ المحوَّل</th><th>إلى حساب</th><th>الحالة</th></tr></thead>
+      <tbody>${receipts
+        .map((d) => {
+          const s = d.paymentSettlement || null;
+          const href = `/api/contact-requests/${encodeURIComponent(r.id)}/documents/${encodeURIComponent(d.id)}/file`;
+          const amount = s ? `${formatMoney(s.payAmount, s.payCurrency)}${s.kind === "SDG_EQUIVALENT" ? `<br><span class="muted small">مقابل فاتورة ${formatMoney(s.invoiceAmount, s.invoiceCurrency)} بسعر ${escapeHtml(s.rate)} المثبّت على الفاتورة</span>` : ""}` : '<span class="muted small">غير محدد</span>';
+          const account = s?.account ? `${escapeHtml(s.account.bankName)} · ${escapeHtml(s.account.accountName)}<br><span dir="ltr" class="small">${escapeHtml(s.account.accountNumber || s.account.iban || "")} ${escapeHtml(s.account.currency)}</span>` : '<span class="muted small">لم يحدد العميل الحساب (إصدار أقدم من التطبيق)</span>';
+          return `<tr data-cr-transfer-receipt="${escapeHtml(d.id)}">
+            <td><a href="${href}" target="_blank" rel="noopener">عرض</a> · <a href="${href}" download>تحميل</a><br><span class="muted small">${escapeHtml(d.label || "")} · ${formatDateTime(d.createdAt)}</span></td>
+            <td>${amount}</td>
+            <td>${account}</td>
+            <td><span class="badge">${escapeHtml(CR_DOC_STATUS_AR[d.status] || d.status)}</span>${d.reviewNote ? `<br><span class="muted small">${escapeHtml(d.reviewNote)}</span>` : ""}</td>
+          </tr>`;
+        })
+        .join("")}</tbody></table></div>`;
+  }
+
   function paymentHtml(r) {
     const lines = [`<p>حالة الدفع: ${crPaymentBadge(r.paymentStatus)}${r.paymentConfirmedAt ? ` · ${formatDateTime(r.paymentConfirmedAt)}` : ""}</p>`];
     if (r.paymentStatus === "AWAITING_TRANSFER" && r.paymentRejectionReason) {
       lines.push(`<p class="alert error">رُفض آخر إيصال${r.paymentRejectedAt ? ` (${formatDateTime(r.paymentRejectedAt)})` : ""}: ${escapeHtml(r.paymentRejectionReason)}</p>`);
     }
+    lines.push(transferReceiptsHtml(r));
     if (crAllowed(r, "CONFIRM_PAYMENT")) {
-      lines.push(`<p class="muted small">راجع إيصال الدفع من قائمة المستندات، ثم اقبل الدفع أو ارفضه مع بيان السبب. رفع الإيصال لا يعني أن الدفع تم.</p>`);
+      lines.push(`<p class="muted small">راجع إيصال التحويل أعلاه وطابقه مع كشف البنك، ثم اقبل الدفع أو ارفضه مع بيان السبب. رفع الإيصال لا يعني أن الدفع تم.</p>`);
       lines.push(`<button type="button" class="btn" data-cr-confirm-payment="1">تأكيد استلام الدفع</button>`);
       lines.push(`<form class="card inset" data-cr-form="reject-payment">
         <h4>رفض الإيصال</h4>
