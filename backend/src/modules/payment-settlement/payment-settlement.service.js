@@ -131,6 +131,11 @@ export async function resolveSettlement(db, invoice, { accountId, invoiceVersion
   if (!accountId) {
     return { settlement: { ...base, kind: "INVOICE_CURRENCY", payCurrency: invoice.currency, payAmount: money(invoice.amount), accountId: null, source: "CLIENT_WITHOUT_ACCOUNT" } };
   }
+  // Hold the chosen account row until the receipt commits: an administrator
+  // disabling it (or its SDG opt-in) meanwhile waits, and the options below
+  // are read after any change committed before (each statement reads the
+  // latest committed state).
+  await db.$queryRaw`SELECT id FROM "PaymentAccount" WHERE id = ${accountId} FOR SHARE`;
   const options = await loadSettlementOptions(db, invoice);
   const option = options.find((candidate) => candidate.accountId === accountId);
   if (!option) {
