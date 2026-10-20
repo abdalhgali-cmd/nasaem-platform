@@ -39,7 +39,8 @@ export function egyptJourney(request, { fallbackHeadline = "", customerAction = 
     let detail = "";
     if (step.state === "current") {
       if (step.key === "TRAVEL_PREPARATION") detail = todo.length ? `مطلوب منك: ${todo.join(" ")}` : "";
-      else if (step.key === "CIRCULAR_ISSUED") detail = egypt.circular.status === "PROCESSING" ? STAGE_DETAIL.CIRCULAR_ISSUED : "يُجهَّز التعميم بعد اكتمال بيانات السفر.";
+      // CIRCULAR_IN_PROGRESS from current servers; CIRCULAR_ISSUED from older ones.
+      else if (step.key === "CIRCULAR_IN_PROGRESS" || step.key === "CIRCULAR_ISSUED") detail = egypt.circular.status === "PROCESSING" ? STAGE_DETAIL.CIRCULAR_ISSUED : "يُجهَّز التعميم بعد اكتمال بيانات السفر.";
       else detail = STAGE_DETAIL[step.key] || "";
     }
     return { key: step.key, label: step.label, state: step.state, detail };

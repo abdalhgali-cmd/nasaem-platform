@@ -17,7 +17,8 @@ import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-re
 import { applyTravelPlanInTransaction, travelPlanFor, calendarDaysUntilEntry } from "../contact-request-tracking/egypt-clearance-travel.service.js";
 import { EGYPT_TRAVEL_TASK_KEYS } from "../contact-request-tracking/egypt-travel-tasks.js";
 import { syncTravelReminders } from "./travel-reminders.service.js";
-import { DELIVERABLE_KINDS, circularState, isCurrentPublished, parseDateOnly, requestEntryMode, requestTravelDate } from "./egypt-approval-rules.js";
+import { FLIGHT_DETAIL_KEYS, hasFlightDetails } from "./flight-details.js";
+import { DELIVERABLE_KINDS, circularState, isCurrentPublished, parseDateOnly, requestEntryMode, requestTravelDate, todayInKhartoum } from "./egypt-approval-rules.js";
 
 const STORED_DIR = "contact-request-deliverables";
 
@@ -194,8 +195,15 @@ export async function startEgyptCircular(contactRequestId, organizationId, userI
 
 // The circular is a real document from the authority, uploaded by staff as a
 // PDF. It is never generated here.
-export async function issueEgyptCircular(contactRequestId, organizationId, userId, { file, label }) {
+// `issuedOn`: the date written on the circular (defaults to today, Khartoum;
+// never in the future).
+export async function issueEgyptCircular(contactRequestId, organizationId, userId, { file, label, issuedOn }) {
   if (!file) return { error: "FILE_REQUIRED" };
+  const circularDate = issuedOn ? validIssueDate(issuedOn) : todayInKhartoum();
+  if (!circularDate) {
+    discardUpload(file);
+    return { refusal: { status: 400, code: "INVALID_ISSUE_DATE", message: "تاريخ إصدار التعميم غير صالح (لا يكون في المستقبل)." } };
+  }
   if (file.mimetype !== "application/pdf") {
     discardUpload(file);
     return { refusal: { status: 400, code: "CIRCULAR_PDF_ONLY", message: "التعميم يُرفع ملف PDF فقط." } };
@@ -212,6 +220,7 @@ export async function issueEgyptCircular(contactRequestId, organizationId, userI
       label: label || "التعميم",
       file,
       userId,
+      issuedOn: circularDate,
       supersedeWhere: {},
     });
     await tx.contactRequest.update({ where: { id: contactRequestId }, data: { circularProcessingAt: request.circularProcessingAt || new Date() } });
@@ -220,7 +229,7 @@ export async function issueEgyptCircular(contactRequestId, organizationId, userI
       where: { contactRequestId, status: "OPEN", source: "SYSTEM", systemKey: EGYPT_TRAVEL_TASK_KEYS.CIRCULAR },
       data: { status: "COMPLETED", completedAt: new Date(), completedByUserId: userId },
     });
-    await auditInTransaction(tx, { userId, action: "EGYPT_CIRCULAR_ISSUED", entityId: contactRequestId, organizationId, newValue: { deliverableId: circular.id, version: circular.version, travelDate: requestTravelDate(request) } });
+    await auditInTransaction(tx, { userId, action: "EGYPT_CIRCULAR_ISSUED", entityId: contactRequestId, organizationId, newValue: { deliverableId: circular.id, version: circular.version, issuedOn: circularDate, travelDate: requestTravelDate(request) } });
     return { circular, request };
   });
   if (result.error || result.refusal) {
@@ -310,6 +319,42 @@ export async function editEgyptTravelDate(contactRequestId, organizationId, user
       newValue: { travelDate: entryDate, reason, circularWithdrawn, by: "STAFF" },
     });
     return { travelDate: entryDate, previousDate, circularWithdrawn };
+  });
+}
+
+// Staff check (and, where the ticket says otherwise, correct) the flight
+// details of an air request: under the request lock, merged into the stored
+// travel plan, verification recorded (who, when) and audited with the old
+// and new values and the reason. It changes no date, task or reminder.
+export async function verifyEgyptFlightDetails(contactRequestId, organizationId, userId, { verified, reason, ...values }) {
+  return withLockedRequest(contactRequestId, { organizationId }, async (tx, request) => {
+    const refusal = checkAction(ACTIONS.EDIT_TRAVEL_DATE, request);
+    if (refusal) refuseWith(refusal);
+    if (requestEntryMode(request) !== "AIR") refuseWith({ status: 400, code: "NOT_AIR", message: "بيانات الرحلة الجوية تخص الدخول الجوي فقط." });
+    const travel = request.intakeData?.egyptTravel || {};
+    const before = travel.flightDetails || null;
+    const merged = { ...(before || {}) };
+    for (const key of FLIGHT_DETAIL_KEYS) if (values[key] !== undefined) merged[key] = values[key];
+    if (!hasFlightDetails(merged)) refuseWith({ status: 400, code: "FLIGHT_DETAILS_REQUIRED", message: "أدخل رقم الرحلة أو بياناتها أولًا." });
+    const details = {
+      ...merged,
+      source: before && FLIGHT_DETAIL_KEYS.every((key) => (before[key] || null) === (merged[key] || null)) ? before.source || "CUSTOMER" : "STAFF",
+      verifiedAt: verified ? new Date().toISOString() : null,
+      verifiedByUserId: verified ? userId : null,
+    };
+    await tx.contactRequest.update({
+      where: { id: contactRequestId },
+      data: { intakeData: { ...(request.intakeData || {}), egyptTravel: { ...travel, flightDetails: details } } },
+    });
+    await auditInTransaction(tx, {
+      userId,
+      action: "EGYPT_FLIGHT_DETAILS_VERIFIED",
+      entityId: contactRequestId,
+      organizationId,
+      oldValue: { flightDetails: before },
+      newValue: { flightDetails: details, reason: reason || null },
+    });
+    return { flightDetails: details };
   });
 }
 

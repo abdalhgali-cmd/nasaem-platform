@@ -125,6 +125,7 @@
   "PATCH /api/branches/:id": ["SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/assign": ["ADMIN", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/documents/:documentId/status": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "PATCH /api/contact-requests/:id/egypt/flight-details": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/egypt/travel-date": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/priority": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/provider-submissions/:submissionId": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],

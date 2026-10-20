@@ -6,6 +6,7 @@
 // and pass it here, so the staff screens, the customer surfaces and the
 // workflow policy read the same answer.
 import { isEgyptClearanceCode, variantEntryMode } from "./egypt-clearance-variants.js";
+import { publicFlightDetails } from "./flight-details.js";
 
 export const KHARTOUM_TIME_ZONE = "Africa/Khartoum";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -201,7 +202,8 @@ export const EGYPT_TIMELINE_LABELS = Object.freeze({
   PAYMENT_CONFIRMED: "تم تأكيد الدفع",
   APPROVAL_IN_PROGRESS: "جاري إصدار الموافقة",
   APPROVAL_ISSUED: "تم إصدار الموافقة",
-  TRAVEL_PREPARATION: "تجهيز السفر والتعميم",
+  TRAVEL_PREPARATION: "تجهيز بيانات السفر",
+  CIRCULAR_IN_PROGRESS: "جاري إصدار التعميم",
   CIRCULAR_ISSUED: "تم إصدار التعميم",
 });
 
@@ -216,6 +218,7 @@ export function egyptTimeline(request) {
     APPROVAL_IN_PROGRESS: issued,
     APPROVAL_ISSUED: issued,
     TRAVEL_PREPARATION: issued && preparation.complete,
+    CIRCULAR_IN_PROGRESS: circular.status === "ISSUED",
     CIRCULAR_ISSUED: circular.status === "ISSUED",
   };
   const keys = Object.keys(EGYPT_TIMELINE_LABELS);
@@ -231,7 +234,7 @@ export function egyptTimeline(request) {
 // ---- what the customer (and the staff workspace) is shown
 
 function fileRef(d) {
-  return { id: d.id, label: d.label, fileName: d.fileName, mimeType: d.mimeType, version: d.version ?? 1, publishedAt: d.publishedAt, travelerIds: d.travelerIds || [] };
+  return { id: d.id, label: d.label, fileName: d.fileName, mimeType: d.mimeType, version: d.version ?? 1, publishedAt: d.publishedAt, issuedOn: dateOnlyString(d.issuedOn) || null, travelerIds: d.travelerIds || [] };
 }
 
 // One summary of the Egypt journey for a request. Files are referenced by id
@@ -252,7 +255,11 @@ export function egyptOverview(request, { receipt = null } = {}) {
       files: coverage.approvals.map(fileRef),
       missingTravelerIds: coverage.missingTravelerIds,
     },
-    circular: { status: circular.status, files: circular.deliverables.map(fileRef) },
+    circular: {
+      status: circular.status,
+      issuedOn: circular.deliverables.map((d) => dateOnlyString(d.issuedOn)).filter(Boolean).sort().pop() || null,
+      files: circular.deliverables.map(fileRef),
+    },
     tickets: travelTickets(request),
     travel: {
       travelDate: date,
@@ -263,6 +270,7 @@ export function egyptOverview(request, { receipt = null } = {}) {
     },
     flight: {
       choice: request.intakeData?.egyptFlight?.choice || null,
+      details: publicFlightDetails(request.intakeData?.egyptTravel?.flightDetails || null),
       inquiry: linked ? { id: linked.id, status: linked.status, paymentStatus: linked.paymentStatus, createdAt: linked.createdAt } : null,
     },
     receipt: receipt ? { available: receipt.pdfStatus === "READY", receiptNo: receipt.receiptNo, status: receipt.pdfStatus } : { available: false, receiptNo: null, status: null },

@@ -51,6 +51,7 @@ import {
   getEgyptAlertSettings,
   putEgyptAlertSettings,
   patchCasePriority,
+  patchEgyptFlightDetails,
 } from "../egypt-clearance/egypt-approval.controller.js";
 import { downloadStaffReceipt, resendReceipt } from "../egypt-clearance/egypt-customer.controller.js";
 import { getCaseWarnings } from "../case-intelligence/case-intelligence.controller.js";
@@ -344,6 +345,7 @@ router.post("/:id/egypt/tickets", requireAuth, requireRole(...EGYPT_WORK), requi
 router.get("/:id/payment-receipt/file", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), requireContactRequestOrganization, downloadStaffReceipt);
 router.post("/:id/payment-receipt/resend", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), requireContactRequestOrganization, resendReceipt);
 router.patch("/:id/egypt/travel-date", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, patchEgyptTravelDate);
+router.patch("/:id/egypt/flight-details", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, patchEgyptFlightDetails);
 // Publishes a prepared (draft) final file to the customer.
 router.post(
   "/:id/deliverables/:deliverableId/publish",
