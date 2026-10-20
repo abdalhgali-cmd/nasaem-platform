@@ -140,6 +140,7 @@ test.describe.serial("Egypt Security Approval on the website", () => {
           // AIR pays later through /track (below).
           await directStep.getByRole("button", { name: /سأحوّل لاحقًا/ }).click();
         } else {
+          await directStep.getByRole("radio").first().check();
           await directStep.getByTestId("payment-receipt-input").setInputFiles(DOCUMENT_FIXTURE);
           await directStep.getByRole("button", { name: "إرسال الطلب للمراجعة" }).click();
           await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة الدفع", { timeout: 15_000 });
@@ -170,7 +171,8 @@ test.describe.serial("Egypt Security Approval on the website", () => {
           await expect(step.getByTestId("payment-amount")).toHaveText("120 USD", { timeout: 15_000 });
           await expect(step.getByTestId("payment-account").first()).toContainText("رقم الحساب");
           await expect(step.getByRole("button", { name: "نسخ رقم الحساب" }).first()).toBeVisible();
-          await step.locator('input[type="file"]').setInputFiles(DOCUMENT_FIXTURE);
+          await step.getByRole("radio").first().check();
+          await step.getByTestId("payment-receipt-input").setInputFiles(DOCUMENT_FIXTURE);
           await step.getByRole("button", { name: "رفع الإيصال للمراجعة" }).click();
           await expect(page.getByTestId("payment-under-review")).toContainText("قيد المراجعة", { timeout: 15_000 });
           const after = (await (await admin.get(`${BACKEND}/api/contact-requests/${list[0].id}`)).json()).data;
