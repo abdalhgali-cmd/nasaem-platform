@@ -29,7 +29,10 @@ export async function syncTravelReminders(tx, request, { now = new Date(), setti
   const id = request.id;
   const open = request.status !== "CLOSED" && isEgyptClearanceCode(request.visaType?.code);
   const date = open ? requestTravelDate(request) : null;
-  const lead = settings || (await alertSettings(tx));
+  const organizationId = request.organizationId !== undefined
+    ? request.organizationId
+    : (await tx.contactRequest.findUnique({ where: { id }, select: { organizationId: true } }))?.organizationId ?? null;
+  const lead = settings || (await alertSettings(tx, organizationId));
   const plan = date ? reminderPlan(date, now, { daysBefore: lead.travelReminderDaysBefore, localHour: lead.travelReminderLocalHour }) : null;
   if (!plan) {
     await tx.travelReminder.updateMany({ where: { contactRequestId: id, status: "SCHEDULED" }, data: { status: "CANCELLED" } });
@@ -143,18 +146,18 @@ export async function reconcileTravelSchedules({ now = new Date(), limit = 100 }
 // request with a future travel date is re-planned under its row lock, the
 // same way a date change re-plans it (a reminder already sent for a date is
 // never sent again).
-export async function rescheduleTravelReminders({ now = new Date() } = {}) {
-  const settings = await alertSettings();
+export async function rescheduleTravelReminders({ organizationId = null, now = new Date() } = {}) {
+  const settings = await alertSettings(prisma, organizationId);
   const today = new Date(`${todayInKhartoum(now)}T00:00:00.000Z`);
   const open = await prisma.contactRequest.findMany({
-    where: { status: { not: "CLOSED" }, travelEntryDate: { gte: today }, visaType: { code: { startsWith: EGYPT_CLEARANCE_CODE } } },
+    where: { organizationId, status: { not: "CLOSED" }, travelEntryDate: { gte: today }, visaType: { code: { startsWith: EGYPT_CLEARANCE_CODE } } },
     select: { id: true },
   });
   let rescheduled = 0;
   for (const { id } of open) {
     await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "ContactRequest" WHERE id = ${id} FOR UPDATE`;
-      const request = await tx.contactRequest.findUnique({ where: { id }, select: { id: true, status: true, travelEntryDate: true, travelScheduleRevision: true, intakeData: true, visaType: { select: { code: true } } } });
+      const request = await tx.contactRequest.findUnique({ where: { id }, select: { id: true, organizationId: true, status: true, travelEntryDate: true, travelScheduleRevision: true, intakeData: true, visaType: { select: { code: true } } } });
       if (request && (await syncTravelReminders(tx, request, { now, settings }))) rescheduled += 1;
     });
   }

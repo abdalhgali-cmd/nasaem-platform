@@ -117,7 +117,7 @@ export async function patchEgyptTravelDate(req, res, next) {
 
 export async function getEgyptAlertSettings(req, res, next) {
   try {
-    return res.json({ success: true, data: { settings: await alertSettings(), defaults: ALERT_DEFAULTS } });
+    return res.json({ success: true, data: { settings: await alertSettings(undefined, req.user.organizationId), defaults: ALERT_DEFAULTS } });
   } catch (error) {
     next(error);
   }
@@ -127,11 +127,11 @@ export async function getEgyptAlertSettings(req, res, next) {
 // the open requests' reminders at once.
 export async function putEgyptAlertSettings(req, res, next) {
   try {
-    const result = await saveAlertSettings(req.body, { userId: req.user.id });
+    const result = await saveAlertSettings(req.body, { userId: req.user.id, organizationId: req.user.organizationId });
     if (result.error) {
       return res.status(400).json({ success: false, code: result.error, message: "قيم التنبيهات غير صالحة.", errors: result.details });
     }
-    const rescheduled = result.travelScheduleChanged ? await rescheduleTravelReminders() : { rescheduled: 0 };
+    const rescheduled = result.travelScheduleChanged ? await rescheduleTravelReminders({ organizationId: req.user.organizationId }) : { rescheduled: 0 };
     return res.json({ success: true, data: { settings: result.settings, ...rescheduled } });
   } catch (error) {
     next(error);

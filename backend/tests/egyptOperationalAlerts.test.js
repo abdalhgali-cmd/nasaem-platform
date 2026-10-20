@@ -6,7 +6,7 @@ import { createStaffUser, staffClient } from "./helpers/staff.js";
 import { testPhone } from "./helpers/workflow.js";
 import { normalizePhone } from "../src/utils/phone.js";
 import { reminderPlan } from "../src/modules/egypt-clearance/egypt-approval-rules.js";
-import { ALERT_DEFAULTS, ALERT_SETTINGS_KEY, normalizeAlertSettings } from "../src/modules/egypt-clearance/alert-settings.service.js";
+import { ALERT_DEFAULTS, alertSettings, alertSettingsKey, normalizeAlertSettings } from "../src/modules/egypt-clearance/alert-settings.service.js";
 import { ALERT_KINDS, dueOperationalAlerts, processOperationalAlerts } from "../src/modules/egypt-clearance/operational-alerts.service.js";
 
 // Phase 3 operations: administrator-set alert lead times, the travel
@@ -19,6 +19,7 @@ let adminUser;
 let employee;
 let airVisa;
 let previousSetting;
+let settingsKey;
 const created = [];
 
 function isoDay(offsetDays, now = new Date()) {
@@ -52,12 +53,13 @@ before(async () => {
   admin = staffClient(adminUser);
   employee = staffClient(await createStaffUser({ role: "EMPLOYEE" }));
   airVisa = await prisma.visaType.findUnique({ where: { code: "VISA-EGYPT-CLEARANCE-AIR" } });
-  previousSetting = await prisma.setting.findUnique({ where: { key: ALERT_SETTINGS_KEY } });
+  settingsKey = alertSettingsKey(adminUser.organizationId || "org_nasaem_default");
+  previousSetting = await prisma.setting.findUnique({ where: { key: settingsKey } });
 });
 
 after(async () => {
-  if (previousSetting) await prisma.setting.update({ where: { key: ALERT_SETTINGS_KEY }, data: { value: previousSetting.value } });
-  else await prisma.setting.deleteMany({ where: { key: ALERT_SETTINGS_KEY } });
+  if (previousSetting) await prisma.setting.update({ where: { key: settingsKey }, data: { value: previousSetting.value } });
+  else await prisma.setting.deleteMany({ where: { key: settingsKey } });
   await prisma.contactRequest.deleteMany({ where: { id: { in: created } } });
 });
 
@@ -94,6 +96,14 @@ describe("alert settings", () => {
     assert.equal(saved.body.data.settings.travelReminderDaysBefore, 4);
     const audit = await prisma.activityLog.findFirst({ where: { action: "EGYPT_ALERT_SETTINGS_UPDATED", userId: adminUser.id }, orderBy: { createdAt: "desc" } });
     assert.equal(audit.newValue.travelReminderDaysBefore, 4);
+    // Each organization has its own settings: another agency keeps its defaults.
+    const { createOrganization } = await import("./helpers/staff.js");
+    const otherOrg = await createOrganization("alerts");
+    assert.equal((await alertSettings(undefined, otherOrg.id)).travelReminderDaysBefore, ALERT_DEFAULTS.travelReminderDaysBefore);
+    const otherAdmin = staffClient(await createStaffUser({ role: "ADMIN", organizationId: otherOrg.id }));
+    assert.equal((await otherAdmin.put("/api/contact-requests/egypt/alert-settings").send({ ...values, travelReminderDaysBefore: 9 })).status, 200);
+    assert.equal((await admin.get("/api/contact-requests/egypt/alert-settings")).body.data.settings.travelReminderDaysBefore, 4, "unchanged by the other agency");
+    await prisma.setting.deleteMany({ where: { key: alertSettingsKey(otherOrg.id) } });
   });
 
   test("a new lead time re-plans the open requests' scheduled reminders", async () => {
@@ -136,7 +146,7 @@ describe("operational alerts", () => {
       travelEntryDate: new Date(`${isoDay(1)}T00:00:00.000Z`),
       documents: { create: [{ label: "إشعار الدفع", classification: "FINANCIAL_DOCUMENT", fileName: "r.pdf", storagePath: "contact-request-documents/none.pdf", mimeType: "application/pdf", sizeBytes: 10, createdAt: receiptAt }] },
     });
-    const run = () => processOperationalAlerts({ limit: 5000 });
+    const run = () => processOperationalAlerts();
     await run();
     const first = await alertsFor(request.id);
     const kinds = first.map((a) => a.kind).sort();
@@ -161,7 +171,7 @@ describe("operational alerts", () => {
 
   test("the condition is checked again before alerting: an assigned, confirmed request raises nothing new", async () => {
     const request = await egyptRequest({ createdAt: new Date(Date.now() - 30 * 24 * HOUR), assignedUserId: adminUser.id, paymentStatus: "AWAITING_TRANSFER" });
-    await processOperationalAlerts({ limit: 5000 });
+    await processOperationalAlerts();
     assert.deepEqual(await alertsFor(request.id), []);
   });
 });

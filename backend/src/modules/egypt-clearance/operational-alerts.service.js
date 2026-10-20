@@ -135,30 +135,46 @@ async function raiseAlert(requestId, kind, settings, now) {
   });
 }
 
-// Open Egypt requests, checked against the current settings. Bounded per run;
-// the worker runs every few minutes.
-export async function processOperationalAlerts({ now = new Date(), limit = 300 } = {}) {
-  const settings = await alertSettings();
-  const requests = await prisma.contactRequest.findMany({
-    where: { status: { not: "CLOSED" }, visaType: { code: { startsWith: EGYPT_CLEARANCE_CODE } } },
-    orderBy: { updatedAt: "asc" },
-    take: limit,
-    select: ALERT_REQUEST_SELECT,
-  });
+// Every open Egypt request, in pages (by id, so none is ever skipped however
+// many there are), each checked against its organization's settings.
+export async function processOperationalAlerts({ now = new Date(), pageSize = 200 } = {}) {
+  const settingsByOrg = new Map();
+  const settingsFor = async (organizationId) => {
+    if (!settingsByOrg.has(organizationId)) settingsByOrg.set(organizationId, await alertSettings(prisma, organizationId));
+    return settingsByOrg.get(organizationId);
+  };
   const outcomes = {};
-  for (const request of requests) {
-    for (const alert of dueOperationalAlerts(request, settings, now)) {
-      const exists = await prisma.operationalAlert.findUnique({
-        where: { contactRequestId_kind_cycleKey: { contactRequestId: request.id, kind: alert.kind, cycleKey: alert.cycleKey } },
-        select: { id: true },
-      });
-      if (exists) continue;
-      const outcome = await raiseAlert(request.id, alert.kind, settings, now).catch((error) => {
-        console.error("[operational-alerts] failed", error?.message);
-        return "ERROR";
-      });
-      outcomes[outcome] = (outcomes[outcome] || 0) + 1;
-    }
+  let checked = 0;
+  let cursor = null;
+  for (;;) {
+    const requests = await prisma.contactRequest.findMany({
+      where: { status: { not: "CLOSED" }, visaType: { code: { startsWith: EGYPT_CLEARANCE_CODE } } },
+      orderBy: { id: "asc" },
+      take: pageSize,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: ALERT_REQUEST_SELECT,
+    });
+    if (!requests.length) break;
+    cursor = requests[requests.length - 1].id;
+    checked += requests.length;
+    for (const request of requests) await alertRequest(request, await settingsFor(request.organizationId), now, outcomes);
+    if (requests.length < pageSize) break;
   }
-  return { checked: requests.length, outcomes };
+  return { checked, outcomes };
+}
+
+// The alerts one request is due for, each raised at most once.
+async function alertRequest(request, settings, now, outcomes) {
+  for (const alert of dueOperationalAlerts(request, settings, now)) {
+    const exists = await prisma.operationalAlert.findUnique({
+      where: { contactRequestId_kind_cycleKey: { contactRequestId: request.id, kind: alert.kind, cycleKey: alert.cycleKey } },
+      select: { id: true },
+    });
+    if (exists) continue;
+    const outcome = await raiseAlert(request.id, alert.kind, settings, now).catch((error) => {
+      console.error("[operational-alerts] failed", error?.message);
+      return "ERROR";
+    });
+    outcomes[outcome] = (outcomes[outcome] || 0) + 1;
+  }
 }

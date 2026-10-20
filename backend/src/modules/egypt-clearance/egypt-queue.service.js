@@ -162,7 +162,7 @@ function withNextAction(request, now, leadDays) {
 // assignee: "mine" (with `userId`), "unassigned" or a user id.
 export async function listEgyptQueue(organizationId, { stage, filter, entryMode, from, to, search, view, assignee, userId = null, includeClosed = false, now = new Date() } = {}) {
   const term = typeof search === "string" ? search.trim() : "";
-  const { travelReminderDaysBefore: leadDays } = await alertSettings();
+  const { travelReminderDaysBefore: leadDays } = await alertSettings(undefined, organizationId);
   const assigneeWhere = assignee === "unassigned" ? { assignedUserId: null } : assignee === "mine" ? { assignedUserId: userId } : assignee ? { assignedUserId: assignee } : {};
   const requests = await prisma.contactRequest.findMany({
     where: {
