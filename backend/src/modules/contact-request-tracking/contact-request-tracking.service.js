@@ -247,40 +247,48 @@ export async function uploadPaymentReceipt(phoneNormalized, contactRequestId, fi
 export async function recordPaymentReceipt(contactRequestId, scope, file, settlementChoice = {}) {
   // The receipt is what puts the payment in front of the accountant. This only
   // moves it to "under review": it is never marked paid until staff accept it.
-  const result = await withLockedRequest(contactRequestId, scope, async (tx, request) => {
-    const refusal = checkAction(ACTIONS.UPLOAD_RECEIPT, request);
-    if (refusal) refuseWith(refusal);
-    const resolved = await resolveSettlement(tx, payableOf(request), settlementChoice);
-    if (resolved.refusal) refuseWith(resolved.refusal);
-    const document = await tx.contactRequestDocument.create({
-      data: {
-        contactRequestId,
-        label: "إشعار الدفع",
-        classification: "FINANCIAL_DOCUMENT",
-        paymentSettlement: resolved.settlement,
-        fileName: file.originalname,
-        storagePath: path.join("contact-request-documents", file.filename),
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-      },
+  const discardFile = () => (file?.path ? fs.promises.unlink(file.path).catch(() => undefined) : undefined);
+  let result;
+  try {
+    result = await withLockedRequest(contactRequestId, scope, async (tx, request) => {
+      const refusal = checkAction(ACTIONS.UPLOAD_RECEIPT, request);
+      if (refusal) refuseWith(refusal);
+      const resolved = await resolveSettlement(tx, payableOf(request), settlementChoice);
+      if (resolved.refusal) refuseWith(resolved.refusal);
+      const document = await tx.contactRequestDocument.create({
+        data: {
+          contactRequestId,
+          label: "إشعار الدفع",
+          classification: "FINANCIAL_DOCUMENT",
+          paymentSettlement: resolved.settlement,
+          fileName: file.originalname,
+          storagePath: path.join("contact-request-documents", file.filename),
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+        },
+      });
+      await tx.contactRequest.update({
+        where: { id: contactRequestId },
+        data: { paymentStatus: "UNDER_REVIEW", paymentRejectionReason: null, paymentRejectedAt: null },
+      });
+      await auditInTransaction(tx, {
+        action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED",
+        entityId: contactRequestId,
+        organizationId: request.organizationId,
+        oldValue: { paymentStatus: request.paymentStatus },
+        newValue: { paymentStatus: "UNDER_REVIEW", documentId: document.id, amount: request.invoice ? String(request.invoice.amount) : null, currency: request.invoice?.currency ?? null, settlement: resolved.settlement },
+      });
+      return { document, request };
     });
-    await tx.contactRequest.update({
-      where: { id: contactRequestId },
-      data: { paymentStatus: "UNDER_REVIEW", paymentRejectionReason: null, paymentRejectedAt: null },
-    });
-    await auditInTransaction(tx, {
-      action: "CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED",
-      entityId: contactRequestId,
-      organizationId: request.organizationId,
-      oldValue: { paymentStatus: request.paymentStatus },
-      newValue: { paymentStatus: "UNDER_REVIEW", documentId: document.id, amount: request.invoice ? String(request.invoice.amount) : null, currency: request.invoice?.currency ?? null, settlement: resolved.settlement },
-    });
-    return { document, request };
-  });
+  } catch (error) {
+    // The transaction failed and rolled back: no row refers to the file.
+    await discardFile();
+    throw error;
+  }
   if (result.error || result.refusal) {
     // Nothing was recorded: the stored upload (a duplicate tap, a stale
     // account or invoice) is not kept on disk.
-    if (file?.path) await fs.promises.unlink(file.path).catch(() => undefined);
+    await discardFile();
     return result;
   }
 
