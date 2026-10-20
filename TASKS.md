@@ -310,6 +310,16 @@ NOT TESTED:
 - BLOCKED (owner): a real SDG bank account must be marked «يقبل المقابل بالجنيه» in admin before the SDG option appears; no bank data was created. Vercel status «Account is blocked» (account, not code).
 - PENDING: customer website still uploads without account choice (legacy, invoice currency); Codex review (usage limit, retry scheduled).
 
+## Phase 3 — Egypt journey completion, smart operations, website payment parity (2026-10-20, PR #134, branch `feat/egypt-phase3-20261020`, base #133)
+
+- VERIFIED (GitHub Actions on `4917a7f`): backend tests, frontend typecheck + build, Playwright E2E, CI backup/restore drill (synthetic), build-apk — all success. QA APK: run 39449195966, artifact `Nasaem-AlHaramain-release-apk` (id 12277610942).
+- VERIFIED locally: backend 979/979 (`8262edf`); mobile unit 127/127; web tsc + eslint clean.
+- Codex (read-only, file-scoped) findings fixed: account FOR SHARE lock during receipt; orphan upload cleanup on transaction failure (both also on #133); per-organization alert settings; full alert scan; serialized settings saves; clearable flight fields; circular withdrawn on flight change; mobile refresh race / retry / preview; web upload timeout + safe reconciliation.
+- Additive migration `20261021090000_egypt_phase3_operations` (ContactRequest.priority default NORMAL; OperationalAlert).
+- NOT TESTED: real Android device camera/gallery/PDF; staging (unreachable from the agent environment; no verified real backup/restore).
+- KNOWN: `flight-search-issue-104` "no-results" E2E intermittent locally (area untouched; green in CI).
+- PENDING: website form for entering travel/flight details (shown read-only, customers use the app); agency must mark a real SDG account.
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.
