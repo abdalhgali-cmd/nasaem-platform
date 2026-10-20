@@ -12,7 +12,7 @@ import { setTrackingPrefill } from "../tracking.js";
 import { validateFile } from "../intake-core.js";
 import { formatAmount } from "../payment-view.js";
 import { savePendingPayment, clearPendingPayment, clearPendingPaymentFor } from "../experience-core.js";
-import { egyptStepsHtml, isEgyptClearanceItem } from "../egypt-view.js";
+import { egyptStepsHtml, isEgyptPaymentJourney } from "../egypt-view.js";
 
 function paymentPath(id) {
   return `/contact-requests/${encodeURIComponent(id)}/payment-access`;
@@ -80,7 +80,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
   // Restore the service's journey after restart, including older pending
   // records saved before we persisted "steps". The server returns only the
   // authenticated request's public visa type code, never private tracking data.
-  const egyptPayment = params.steps === "EGYPT" || isEgyptClearanceItem({ code: summary.visaTypeCode });
+  const egyptPayment = isEgyptPaymentJourney(params, summary);
   if (egyptPayment && pending.steps !== "EGYPT") {
     pending.steps = "EGYPT";
     savePendingPayment(localStorage, pending);
