@@ -3,17 +3,25 @@
 /* eslint-disable react-hooks/set-state-in-effect -- the payment summary is loaded once from the API. */
 
 import * as React from "react";
-import { Check, Copy, Landmark, Loader2, Send, Upload } from "lucide-react";
+import Link from "next/link";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
-import { customerErrorMessage, isNetworkError } from "@/lib/network-error";
+import { customerErrorMessage } from "@/lib/network-error";
+import {
+  BankTransferPayment,
+  normalizeSettlementOptions,
+  type LegacyPaymentAccount,
+  type SettlementOption,
+} from "@/components/sections/payment-transfer";
 
 // The payment step straight after a fixed-price submission (backend
 // contact-request-payment-access): the amount and currency the customer
 // accepted, the agency's accounts in that currency and the transfer receipt,
-// on one screen. The request-scoped token comes from the creation response
+// on one screen (the shared BankTransferPayment in payment-transfer.tsx, also
+// used by /track). The request-scoped token comes from the creation response
 // and is sent as X-Payment-Access; it opens nothing but this request's
-// payment. A receipt puts the payment «بانتظار مراجعة التحويل» — never paid —
+// payment. A receipt puts the payment «بانتظار مراجعة الدفع» — never paid —
 // until an authorised staff member confirms it.
 
 export type PaymentAccess = { token: string; expiresAt: string };
@@ -66,49 +74,17 @@ export type PaymentSummary = {
   amount: string | null;
   currency: string | null;
   amountSdg: string | null;
+  exchangeRateToSdg?: string | null;
+  invoiceVersion?: number | null;
   paymentOpen: boolean;
   lockReasons: string[];
   rejectionReason: string | null;
-  accounts: {
-    id: string;
-    name: string | null;
-    bankName: string | null;
-    accountName: string | null;
-    accountNumber: string | null;
-    iban: string | null;
-    currency: string;
-  }[];
+  accounts: LegacyPaymentAccount[];
+  settlementOptions?: SettlementOption[];
 };
 
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-const MAX_BYTES = 10 * 1024 * 1024;
-
-function formatAmount(amount: string | null, currency: string | null) {
-  if (amount == null) return "";
-  return `${Number(amount).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency ?? ""}`.trim();
-}
-
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = React.useState(false);
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(value);
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1800);
-        } catch {
-          setCopied(false);
-        }
-      }}
-      className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-primary outline-none transition hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary"
-      aria-label={label}
-    >
-      {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-      <span aria-live="polite">{copied ? "تم النسخ" : "نسخ"}</span>
-    </button>
-  );
+function paymentPath(requestId: string) {
+  return `${API_URL}/contact-requests/${encodeURIComponent(requestId)}/payment-access`;
 }
 
 export function RequestPaymentStep({
@@ -127,96 +103,50 @@ export function RequestPaymentStep({
   const [summary, setSummary] = React.useState<PaymentSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState("");
-  const [file, setFile] = React.useState<File | null>(null);
-  const [fileError, setFileError] = React.useState("");
-  const [sending, setSending] = React.useState(false);
-  const [sendError, setSendError] = React.useState("");
-  const sendingRef = React.useRef(false);
+  const [busy, setBusy] = React.useState(false);
+
+  const fetchSummary = React.useCallback(async () => {
+    const res = await fetch(paymentPath(requestId), {
+      headers: { "X-Payment-Access": access.token },
+      cache: "no-store",
+    });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok || !payload?.success) throw new Error(payload?.message || "تعذّر تحميل بيانات الدفع");
+    return payload.data as PaymentSummary;
+  }, [requestId, access.token]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
-      const res = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(requestId)}/payment-access`, {
-        headers: { "X-Payment-Access": access.token },
-        cache: "no-store",
-      });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok || !payload?.success) throw new Error(payload?.message || "تعذّر تحميل بيانات الدفع");
-      setSummary(payload.data as PaymentSummary);
+      setSummary(await fetchSummary());
     } catch (error) {
       setLoadError(customerErrorMessage(error, "تعذّر تحميل بيانات الدفع"));
     } finally {
       setLoading(false);
     }
-  }, [requestId, access.token]);
+  }, [fetchSummary]);
 
   React.useEffect(() => {
     void load();
   }, [load]);
 
-  function pickFile(next: File | null) {
-    setSendError("");
-    if (!next) {
-      setFile(null);
-      setFileError("");
-      return;
-    }
-    if (!ALLOWED_TYPES.includes(next.type)) {
-      setFile(null);
-      setFileError("ارفع صورة (JPG/PNG/WEBP) أو ملف PDF.");
-      return;
-    }
-    if (next.size > MAX_BYTES) {
-      setFile(null);
-      setFileError("حجم الملف أكبر من 10 ميغابايت.");
-      return;
-    }
-    setFileError("");
-    setFile(next);
-  }
-
-  async function sendReceipt() {
-    // One upload at a time: repeated taps never send a second receipt.
-    if (!file || sendingRef.current) return;
-    sendingRef.current = true;
-    setSending(true);
-    setSendError("");
+  // The accounts or the invoice changed under the customer: reload them in
+  // place (the chosen receipt stays picked).
+  async function refreshOptions() {
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(requestId)}/payment-access/receipt`, {
-        method: "POST",
-        headers: { "X-Payment-Access": access.token },
-        body: form,
-      });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok || !payload?.success) {
-        // The receipt may have arrived on an earlier attempt whose reply was
-        // lost: if the server already has it under review, that is success.
-        if (res.status === 409 && (await receiptAlreadyUnderReview())) return;
-        throw new Error(payload?.message || "تعذّر رفع إشعار التحويل، حاول مرة أخرى");
-      }
-      onFinished((payload.data?.request as PaymentSummary) ?? summary, "RECEIPT_SENT");
-    } catch (error) {
-      if (isNetworkError(error) && (await receiptAlreadyUnderReview())) return;
-      setSendError(customerErrorMessage(error, "تعذّر رفع إشعار التحويل، حاول مرة أخرى"));
-      sendingRef.current = false;
-      setSending(false);
+      setSummary(await fetchSummary());
+    } catch {
+      // Keep what is shown; the next attempt is checked by the server again.
     }
   }
 
   // Re-reads the payment summary; true (and finishes the step) when the
   // server already holds a receipt for this request.
-  async function receiptAlreadyUnderReview() {
+  async function receiptAlreadySubmitted() {
     try {
-      const res = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(requestId)}/payment-access`, {
-        headers: { "X-Payment-Access": access.token },
-        cache: "no-store",
-      });
-      const payload = await res.json().catch(() => null);
-      const current = payload?.data as PaymentSummary | undefined;
-      if (!res.ok || current?.paymentStatus !== "UNDER_REVIEW") return false;
+      const current = await fetchSummary();
+      if (current.paymentStatus !== "UNDER_REVIEW" && current.paymentStatus !== "CONFIRMED") return false;
       onFinished(current, "RECEIPT_SENT");
       return true;
     } catch {
@@ -226,7 +156,7 @@ export function RequestPaymentStep({
 
   if (loading) {
     return (
-      <div className="mx-auto flex max-w-lg justify-center rounded-3xl border border-border bg-card p-10">
+      <div className="mx-auto flex max-w-lg justify-center rounded-3xl border border-border bg-card p-10" role="status" aria-label="جارٍ تحميل بيانات الدفع">
         <Loader2 className="size-7 animate-spin text-primary" />
       </div>
     );
@@ -244,11 +174,12 @@ export function RequestPaymentStep({
     );
   }
 
-  const amountText = formatAmount(summary.amount, summary.currency);
-  const sdgText = summary.currency !== "SDG" && summary.amountSdg ? formatAmount(summary.amountSdg, "SDG") : "";
+  const options = normalizeSettlementOptions(summary);
+  const underReview = summary.paymentStatus === "UNDER_REVIEW";
+  const open = summary.paymentOpen && !underReview;
 
   return (
-    <div className="mx-auto max-w-lg rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8" data-testid="payment-step">
+    <div className="mx-auto max-w-lg rounded-3xl border border-border bg-card p-4 shadow-sm min-[400px]:p-6 sm:p-8" data-testid="payment-step">
       {resumed ? (
         <p className="mb-3 rounded-xl bg-primary/5 p-3 text-xs font-semibold text-primary dark:text-secondary" data-testid="payment-resumed">
           طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.
@@ -257,21 +188,8 @@ export function RequestPaymentStep({
       <p className="text-xs font-bold text-primary dark:text-secondary">الخطوة الأخيرة</p>
       <h3 className="mt-1 text-xl font-bold text-foreground">الدفع بالتحويل البنكي</h3>
       <p className="mt-1 text-sm text-muted-foreground">
-        حُفظ طلبك برقم <span dir="ltr" className="font-mono font-semibold text-foreground">{summary.id}</span>. حوّل المبلغ ثم ارفع إشعار التحويل لإرساله للمراجعة.
+        حُفظ طلبك برقم <span dir="ltr" className="font-mono font-semibold text-foreground">{summary.id}</span>. حوّل المبلغ إلى أحد الحسابات المعتمدة ثم ارفع إشعار التحويل لإرساله للمراجعة.
       </p>
-
-      <div className="mt-5 rounded-2xl border border-accent/40 bg-accent/5 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm text-muted-foreground">المبلغ المطلوب</span>
-          <span className="text-lg font-bold text-foreground" dir="ltr" data-testid="payment-amount">{amountText}</span>
-        </div>
-        {sdgText ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            ما يعادل <span dir="ltr">{sdgText}</span> بسعر الصرف المعتمد وقت تأكيد الطلب
-          </p>
-        ) : null}
-        <p className="mt-2 text-xs text-muted-foreground">حوّل المبلغ بالعملة نفسها ({summary.currency}) إلى أحد الحسابات التالية فقط.</p>
-      </div>
 
       {summary.rejectionReason ? (
         <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400" role="alert">
@@ -279,91 +197,51 @@ export function RequestPaymentStep({
         </p>
       ) : null}
 
-      {summary.paymentOpen ? (
-        <>
-          <div className="mt-5 flex flex-col gap-3">
-            {summary.accounts.length === 0 ? (
-              <p className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-                لا يوجد حساب دفع مفعّل لهذه العملة حاليًا. لا تحوّل أي مبلغ قبل تواصل الوكالة معك.
-              </p>
-            ) : (
-              summary.accounts.map((account) => (
-                <div key={account.id} className="rounded-2xl border border-border p-4 text-sm" data-testid="payment-account">
-                  <div className="flex items-center gap-2 font-bold text-foreground">
-                    <Landmark className="size-4 text-primary" />
-                    {account.bankName || account.name || "حساب الدفع"}
-                  </div>
-                  {account.accountName ? <p className="mt-1 text-muted-foreground">صاحب الحساب: {account.accountName}</p> : null}
-                  {account.accountNumber ? (
-                    <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-muted/40 px-3 py-1.5">
-                      <span dir="ltr" className="font-mono font-semibold text-foreground">{account.accountNumber}</span>
-                      <CopyButton value={account.accountNumber} label="نسخ رقم الحساب" />
-                    </div>
-                  ) : null}
-                  {account.iban ? (
-                    <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-muted/40 px-3 py-1.5">
-                      <span dir="ltr" className="font-mono text-xs font-semibold text-foreground">{account.iban}</span>
-                      <CopyButton value={account.iban} label="نسخ IBAN" />
-                    </div>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </div>
+      {underReview ? (
+        <p className="mt-4 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 text-sm" role="status" data-testid="payment-under-review">
+          <b className="text-foreground">بانتظار مراجعة الدفع</b> — وصل إشعار التحويل، ويؤكد موظف الوكالة استلام المبلغ بعد مطابقته مع البنك.
+        </p>
+      ) : null}
 
-          <div className="mt-5">
-            <label htmlFor="payment-receipt" className="text-sm font-semibold text-foreground">
-              إشعار التحويل (صورة أو PDF) <span className="text-red-500">*</span>
-            </label>
-            <label
-              htmlFor="payment-receipt"
-              className="mt-2 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border px-4 text-sm text-muted-foreground transition hover:border-primary/50"
-            >
-              <Upload className="size-4" />
-              {file ? file.name : "اختر ملف الإشعار"}
-            </label>
-            <input
-              id="payment-receipt"
-              type="file"
-              accept="image/jpeg,image/png,image/webp,application/pdf"
-              className="sr-only"
-              onChange={(event) => pickFile(event.target.files?.[0] ?? null)}
-              data-testid="payment-receipt-input"
-            />
-            {fileError ? <p className="mt-2 text-xs text-red-600 dark:text-red-400" role="alert">{fileError}</p> : null}
-          </div>
-
-          {sendError ? (
-            <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400" role="alert">
-              {sendError}
-            </p>
-          ) : null}
-
-          <Button type="button" variant="gold" size="lg" className="mt-5 w-full" disabled={!file || sending} onClick={() => void sendReceipt()}>
-            {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-            {sending ? "جارٍ الإرسال..." : "إرسال الطلب للمراجعة"}
-          </Button>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            رفع الإشعار لا يعني تأكيد السداد؛ تصبح حالة الدفع «بانتظار مراجعة التحويل» حتى يؤكدها موظف مختص.
-          </p>
-        </>
-      ) : (
+      {open ? (
+        <BankTransferPayment
+          idPrefix={`direct-${summary.id}`}
+          amount={summary.amount}
+          currency={summary.currency}
+          amountSdg={summary.amountSdg}
+          options={options}
+          invoiceVersion={summary.invoiceVersion}
+          canUpload
+          submitLabel="إرسال الطلب للمراجعة"
+          receiptUrl={`${paymentPath(requestId)}/receipt`}
+          requestHeaders={{ "X-Payment-Access": access.token }}
+          onSent={(data) => onFinished(((data as { request?: PaymentSummary } | null)?.request as PaymentSummary) ?? summary, "RECEIPT_SENT")}
+          checkAlreadySubmitted={receiptAlreadySubmitted}
+          refreshOptions={refreshOptions}
+          onBusyChange={setBusy}
+        />
+      ) : !underReview ? (
         <div className="mt-5 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <p className="font-semibold text-foreground">{summary.paymentStatusLabel}</p>
           {summary.lockReasons.map((reason) => (
             <p key={reason} className="mt-1">{reason}</p>
           ))}
         </div>
-      )}
+      ) : null}
 
       <button
         type="button"
-        onClick={() => onFinished(summary, "LATER")}
-        disabled={sending}
-        className="mt-4 w-full text-center text-xs font-semibold text-muted-foreground underline-offset-4 hover:text-primary hover:underline"
+        onClick={() => onFinished(summary, underReview ? "RECEIPT_SENT" : "LATER")}
+        disabled={busy}
+        className="mt-4 min-h-11 w-full text-center text-xs font-semibold text-muted-foreground underline-offset-4 hover:text-primary hover:underline disabled:opacity-50"
       >
-        {summary.paymentOpen ? "سأحوّل لاحقًا — متابعة إلى صفحة التأكيد" : "متابعة إلى صفحة التأكيد"}
+        {open ? (options.length ? "سأحوّل لاحقًا — متابعة إلى صفحة التأكيد" : "متابعة بدون دفع الآن") : "متابعة إلى صفحة التأكيد"}
       </button>
+      <p className="mt-1 text-center text-[11px] text-muted-foreground">
+        يمكنك متابعة مراحل الطلب من{" "}
+        <Link href="/track" className="font-semibold text-primary underline-offset-4 hover:underline">تتبع الطلب</Link>{" "}
+        بعد التحقق من رقم هاتفك، حتى لو لم تدفع بعد.
+      </p>
     </div>
   );
 }
