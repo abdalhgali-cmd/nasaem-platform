@@ -22,6 +22,8 @@ type Item = {
   updatedAt: string;
   pendingPayment?: { id: string; amount: string | number; currency: string | null } | null;
   receiptDocumentId?: string | null;
+  // What the customer says they transferred and where (validated at upload).
+  transferClaim?: { kind: string; payAmount: string | number; payCurrency: string; rate?: string | number | null; accountChosen: boolean; bankName?: string | null; accountNumber?: string | null } | null;
 };
 
 type Payload = { items: Item[] };
@@ -149,6 +151,15 @@ export default function PaymentReviewPage() {
                       <div className="font-black">{item.customerName}</div>
                       <div className="mt-1 text-xs text-muted-foreground">{item.service} · {item.reference}</div>
                       <div className="mt-2 text-sm font-bold">{item.pendingPayment ? formatAmount(item.pendingPayment.amount, item.pendingPayment.currency) : formatAmount(item.amount, item.currency)}</div>
+                      {item.transferClaim ? (
+                        <div className="mt-1 text-xs font-bold text-amber-800" data-testid="payment-transfer-claim">
+                          {item.transferClaim.kind === "SDG_EQUIVALENT"
+                            ? `المحوَّل حسب العميل: ${formatAmount(item.transferClaim.payAmount, item.transferClaim.payCurrency)} (المقابل المثبّت على الفاتورة بسعر ${item.transferClaim.rate ?? "—"})`
+                            : `المتوقع: ${formatAmount(item.transferClaim.payAmount, item.transferClaim.payCurrency)}`}
+                          {item.transferClaim.accountChosen && item.transferClaim.bankName ? ` · إلى ${item.transferClaim.bankName}` : " · لم يحدد العميل الحساب"}
+                          {item.transferClaim.accountNumber ? <span dir="ltr"> {item.transferClaim.accountNumber}</span> : null}
+                        </div>
+                      ) : null}
                       <div className="mt-1 text-xs text-muted-foreground" dir="ltr">{item.phone}</div>
                     </div>
                   </div>

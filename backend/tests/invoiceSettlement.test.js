@@ -23,6 +23,16 @@ let sdgFlagged;
 let sdgPlain;
 let previousRates;
 
+// logActivity writes after the response; wait for the row.
+async function auditRow(where) {
+  for (let i = 0; i < 40; i += 1) {
+    const row = await prisma.activityLog.findFirst({ where, orderBy: { createdAt: "desc" } });
+    if (row) return row;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return null;
+}
+
 async function createAccount(currency, extra = {}) {
   const res = await admin.post("/api/payment-accounts").send({
     name: `TEST-WF ${currency} ${uniqueSuffix()}`,
@@ -80,7 +90,8 @@ async function submitFixed(phone = testPhone()) {
     .field("acceptedTotal", "85.00")
     .field("acceptedCurrency", "USD");
   assert.equal(res.status, 201, JSON.stringify(res.body));
-  return { id: res.body.data.id, token: res.body.data.paymentAccess.token, phone };
+  const { version } = await prisma.invoice.findFirst({ where: { contactRequestId: res.body.data.id }, select: { version: true } });
+  return { id: res.body.data.id, token: res.body.data.paymentAccess.token, phone, version };
 }
 
 const summaryOf = (id, token) => request(app).get(`/api/contact-requests/${id}/payment-access`).set("X-Payment-Access", token);
@@ -122,7 +133,7 @@ describe("payment accounts: the agency's SDG-equivalent opt-in", () => {
 
     const account = await createAccount("SDG", { acceptsForeignInvoices: true, active: false });
     assert.equal(account.acceptsForeignInvoices, true);
-    const created = await prisma.activityLog.findFirst({ where: { entityId: account.id, action: "PAYMENT_ACCOUNT_CREATED" } });
+    const created = await auditRow({ entityId: account.id, action: "PAYMENT_ACCOUNT_CREATED" });
     assert.equal(created.newValue.acceptsForeignInvoices, true);
 
     const toUsd = await admin.patch(`/api/payment-accounts/${account.id}`).send({ currency: "USD" });
@@ -131,7 +142,7 @@ describe("payment accounts: the agency's SDG-equivalent opt-in", () => {
     const flagOnUsd = await admin.patch(`/api/payment-accounts/${account.id}`).send({ acceptsForeignInvoices: true });
     assert.equal(flagOnUsd.status, 400);
 
-    const updated = await prisma.activityLog.findFirst({ where: { entityId: account.id, action: "PAYMENT_ACCOUNT_UPDATED" }, orderBy: { createdAt: "desc" } });
+    const updated = await auditRow({ entityId: account.id, action: "PAYMENT_ACCOUNT_UPDATED", newValue: { path: ["acceptsForeignInvoices"], equals: false } });
     assert.equal(updated.oldValue.acceptsForeignInvoices, true);
     assert.equal(updated.newValue.acceptsForeignInvoices, false);
 
@@ -203,6 +214,14 @@ describe("paying a USD invoice", () => {
     assert.equal(file.status, 200, "the receipt downloads for staff");
     assert.equal((await employee.post(`/api/contact-requests/${id}/confirm-payment`).send({})).status, 403);
 
+    // The payment-review queue shows what to look for in which account.
+    const queue = await accountant.get("/api/dashboard/operations");
+    assert.equal(queue.status, 200, JSON.stringify(queue.body));
+    const item = queue.body.data.items.find((row) => row.id === id);
+    assert.equal(item.transferClaim.kind, "SDG_EQUIVALENT");
+    assert.equal(Number(item.transferClaim.payAmount), 782000);
+    assert.equal(item.transferClaim.accountNumber, sdgFlagged.accountNumber);
+
     const confirmed = await accountant.post(`/api/contact-requests/${id}/confirm-payment`).send({});
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
     const paid = await prisma.paymentReceipt.findUnique({ where: { contactRequestId: id } });
@@ -213,8 +232,8 @@ describe("paying a USD invoice", () => {
   });
 
   test("a USD receipt into the USD account records no cross-currency settlement", async () => {
-    const { id, token } = await submitFixed();
-    const uploaded = await upload(id, token, { settlementAccountId: usdAccount.id });
+    const { id, token, version } = await submitFixed();
+    const uploaded = await upload(id, token, { settlementAccountId: usdAccount.id, invoiceVersion: version });
     assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
     assert.equal((await accountant.post(`/api/contact-requests/${id}/confirm-payment`).send({})).status, 200);
     const paid = await prisma.paymentReceipt.findUnique({ where: { contactRequestId: id } });
@@ -223,9 +242,9 @@ describe("paying a USD invoice", () => {
   });
 
   test("an SDG account the agency did not mark, a disabled account or an unknown one is refused; nothing is stored", async () => {
-    const { id, token } = await submitFixed();
+    const { id, token, version } = await submitFixed();
     for (const accountId of [sdgPlain.id, "nonexistent_account", "bad id!"]) {
-      const res = await upload(id, token, { settlementAccountId: accountId });
+      const res = await upload(id, token, { settlementAccountId: accountId, invoiceVersion: version });
       assert.equal(res.status, 409, JSON.stringify(res.body));
       assert.equal(res.body.code, "SETTLEMENT_ACCOUNT_INVALID");
     }
@@ -236,7 +255,7 @@ describe("paying a USD invoice", () => {
     const second = await submitFixed();
     const temp = await createAccount("SDG", { acceptsForeignInvoices: true });
     assert.equal((await admin.patch(`/api/payment-accounts/${temp.id}`).send({ active: false })).status, 200);
-    const disabled = await upload(second.id, second.token, { settlementAccountId: temp.id });
+    const disabled = await upload(second.id, second.token, { settlementAccountId: temp.id, invoiceVersion: second.version });
     assert.equal(disabled.status, 409);
     assert.equal(disabled.body.code, "SETTLEMENT_ACCOUNT_INVALID");
   });
@@ -246,6 +265,9 @@ describe("paying a USD invoice", () => {
     const res = await upload(id, token, { settlementAccountId: usdAccount.id, invoiceVersion: 999 });
     assert.equal(res.status, 409);
     assert.equal(res.body.code, "INVOICE_CHANGED");
+    const unversioned = await upload(id, token, { settlementAccountId: usdAccount.id });
+    assert.equal(unversioned.status, 409, "a chosen account comes with the invoice version it was shown against");
+    assert.equal(unversioned.body.code, "INVOICE_CHANGED");
   });
 
   test("an older app that sends no account still works: recorded in the invoice currency", async () => {
@@ -258,8 +280,8 @@ describe("paying a USD invoice", () => {
   });
 
   test("two simultaneous submits store exactly one receipt", async () => {
-    const { id, token } = await submitFixed();
-    const results = await Promise.all([1, 2, 3].map(() => upload(id, token, { settlementAccountId: sdgFlagged.id })));
+    const { id, token, version } = await submitFixed();
+    const results = await Promise.all([1, 2, 3].map(() => upload(id, token, { settlementAccountId: sdgFlagged.id, invoiceVersion: version })));
     assert.deepEqual(results.map((r) => r.status).sort(), [201, 409, 409], JSON.stringify(results.map((r) => r.body)));
     assert.ok(results.filter((r) => r.status === 409).every((r) => r.body.code === "PAYMENT_NOT_AWAITING"));
     const count = await prisma.contactRequestDocument.count({ where: { contactRequestId: id, classification: "FINANCIAL_DOCUMENT" } });
@@ -273,8 +295,9 @@ describe("paying a USD invoice", () => {
     const kinds = new Map(row.paymentSettlementOptions.map((o) => [o.accountId, o.kind]));
     assert.equal(kinds.get(sdgFlagged.id), "SDG_EQUIVALENT");
     assert.equal(kinds.has(sdgPlain.id), false);
-    const refused = await tracking.post(`/api/tracking/requests/${id}/payment-receipt`).field("settlementAccountId", sdgPlain.id).attach("file", PDF(), { filename: "r.pdf", contentType: "application/pdf" });
+    const refused = await tracking.post(`/api/tracking/requests/${id}/payment-receipt`).field("settlementAccountId", sdgPlain.id).field("invoiceVersion", String(row.invoice.version)).attach("file", PDF(), { filename: "r.pdf", contentType: "application/pdf" });
     assert.equal(refused.status, 409);
+    assert.equal(refused.body.code, "SETTLEMENT_ACCOUNT_INVALID");
     const ok = await tracking.post(`/api/tracking/requests/${id}/payment-receipt`).field("settlementAccountId", sdgFlagged.id).field("invoiceVersion", String(row.invoice.version)).attach("file", PDF(), { filename: "r.pdf", contentType: "application/pdf" });
     assert.equal(ok.status, 201, JSON.stringify(ok.body));
     assert.equal((await tracking.request(id)).paymentStatus, "UNDER_REVIEW");

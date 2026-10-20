@@ -1,3 +1,4 @@
+import fs from "fs";
 import { randomInt } from "node:crypto";
 import { trackingScope } from "../../utils/publicOrganization.js";
 import prisma from "../../config/database.js";
@@ -18,7 +19,7 @@ import { notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requ
 import { ACTIONS, allowedActions, checkAction, paymentLockReasons, publishedDeliverables } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { egyptOverview, isApprovalIssued } from "../egypt-clearance/egypt-approval-rules.js";
-import { loadSettlementOptions, payableOf, resolveSettlement } from "../payment-settlement/payment-settlement.service.js";
+import { loadSettlementAccounts, payableOf, resolveSettlement, settlementOptions } from "../payment-settlement/payment-settlement.service.js";
 import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-checklist.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -156,9 +157,12 @@ export async function listContactRequestsForPhone(phoneNormalized) {
 
   // Every way each open payment may be settled (invoice currency, or the
   // frozen SDG equivalent into an account the agency marked for it).
+  // One account query for every open payment.
   const settlementByRequest = new Map();
-  for (const request of requests.filter((row) => row.paymentStatus === "AWAITING_TRANSFER" && isPaymentOpen(row))) {
-    settlementByRequest.set(request.id, await loadSettlementOptions(prisma, payableOf(request)));
+  const awaiting = requests.filter((row) => row.paymentStatus === "AWAITING_TRANSFER" && isPaymentOpen(row)).map((row) => [row, payableOf(row)]).filter(([, payable]) => payable);
+  if (awaiting.length) {
+    const accounts = await loadSettlementAccounts(prisma, awaiting.map(([, payable]) => payable));
+    for (const [row, payable] of awaiting) settlementByRequest.set(row.id, settlementOptions(payable, accounts));
   }
 
   return requests.map((request) => {
@@ -273,7 +277,12 @@ export async function recordPaymentReceipt(contactRequestId, scope, file, settle
     });
     return { document, request };
   });
-  if (result.error || result.refusal) return result;
+  if (result.error || result.refusal) {
+    // Nothing was recorded: the stored upload (a duplicate tap, a stale
+    // account or invoice) is not kept on disk.
+    if (file?.path) await fs.promises.unlink(file.path).catch(() => undefined);
+    return result;
+  }
 
   await notifyAdmins({
     organizationId: result.request.organizationId,

@@ -251,8 +251,8 @@ describe("payment access token: scope and limits", () => {
     const res = await access(id, paymentAccess.token);
     assert.equal(res.status, 200);
     assert.deepEqual(Object.keys(res.body.data).sort(), [
-      "accounts", "amount", "amountSdg", "currency", "expiresAt", "id", "lockReasons", "paymentOpen",
-      "paymentStatus", "paymentStatusLabel", "rejectionReason", "service", "statusLabel", "visaTypeCode",
+      "accounts", "amount", "amountSdg", "currency", "exchangeRateToSdg", "expiresAt", "id", "invoiceVersion", "lockReasons", "paymentOpen",
+      "paymentStatus", "paymentStatusLabel", "rejectionReason", "service", "settlementOptions", "statusLabel", "visaTypeCode",
     ]);
     const text = JSON.stringify(res.body);
     assert.ok(!/phone|passport|documents|travelers|storagePath|fileName/i.test(text.replace(/"accounts"/, "")), text);

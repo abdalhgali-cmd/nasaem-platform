@@ -10,7 +10,7 @@ import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable,
 import { bindProgressTrack, journeyBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
-import { bindCopyButtons, bindReceiptPicker, isAlreadySubmitted, noSettlementAccountHtml, normalizeSettlementOptions, receiptPickerHtml, selectedSettlementAccount, settlementOptionsHtml } from "../payment-receipt.js";
+import { bindCopyButtons, bindReceiptPicker, isAlreadySubmitted, needsRefresh, noSettlementAccountHtml, normalizeSettlementOptions, receiptPickerHtml, selectedSettlementAccount, settlementOptionsHtml } from "../payment-receipt.js";
 import { egyptVariantEntryMode, isEgyptClearanceItem } from "../egypt-view.js";
 import { egyptFilesHtml, egyptPrepHtml, isEgyptOverview } from "../egypt-journey.js";
 
@@ -358,23 +358,26 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
 
   const viaTracking = params.source === "tracking";
 
-  async function load() {
+  // `reopenPayment`: after a refused receipt (the accounts or the invoice
+  // changed), reopen the payment step with fresh options and the receipt kept.
+  async function load(options) {
+    const reopenPayment = options?.reopenPayment || null;
     try {
       if (viaTracking) {
         const list = await tracking.listTrackedRequests();
         const found = list.find((request) => request.id === params.requestId);
         if (!found) throw new ApiError("الطلب غير متاح لهذا الرقم", { status: 404 });
-        renderDetail(fromTracking(found), { viaTracking: true });
+        renderDetail(fromTracking(found), { viaTracking: true, reopenPayment });
         return;
       }
       const res = await api(`/customer/requests/${params.requestId}`);
-      renderDetail(res.data);
+      renderDetail(res.data, { reopenPayment });
     } catch (error) {
       bodyEl.innerHTML = errorState(error.message, { onRetry: load });
     }
   }
 
-  function renderDetail(request, { viaTracking = false } = {}) {
+  function renderDetail(request, { viaTracking = false, reopenPayment = null } = {}) {
     const pricing = pricingOf(request);
     const price = pricing ? formatAmount(pricing.amount, pricing.currency) : "";
     const sdgLine = sdgEquivalent(pricing);
@@ -466,6 +469,9 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     const openPaymentStep = () => showPaymentStep(panel, { request, currency: pricing?.currency, price, onUploaded: load });
     bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", openPaymentStep);
     bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", openPaymentStep);
+    if (reopenPayment && bodyEl.querySelector("#uploadReceiptBtn, #paymentInfoBtn")) {
+      showPaymentStep(panel, { request, currency: pricing?.currency, price, onUploaded: load, ...reopenPayment });
+    }
     bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load, egyptVariantEntryMode(request.visaType), request));
     bodyEl.querySelectorAll("[data-flight-choice]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -578,7 +584,7 @@ async function uploadChecklistDocument({ panel, request, item, file, viaTracking
 // camera, gallery or PDF, previewed before it is sent. A receipt only puts the
 // payment under review; it is never "paid" until staff confirm it (backend
 // uploadPaymentReceipt).
-async function showPaymentStep(panel, { request, currency, price, onUploaded }) {
+async function showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt = null, notice = "" }) {
   const requestId = request.id;
   panel.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
   const payable = request.invoice || (request.offers || []).find((offer) => offer.id === request.selectedOfferId) || {};
@@ -613,7 +619,8 @@ async function showPaymentStep(panel, { request, currency, price, onUploaded }) 
   bindCopyButtons(panel, toast);
   const form = panel.querySelector("#receiptForm");
   if (!form) return;
-  const picker = bindReceiptPicker(form, { esc, icon, validate: (file) => validateFile(file, null) });
+  const picker = bindReceiptPicker(form, { esc, icon, validate: (file) => validateFile(file, null), initialFile: keptReceipt });
+  if (notice) picker.showError(notice);
   let sending = false;
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -635,6 +642,19 @@ async function showPaymentStep(panel, { request, currency, price, onUploaded }) 
         // The receipt is already in (a lost response, a second tap elsewhere):
         // the reload shows «بانتظار مراجعة الدفع».
         if (isAlreadySubmitted(error)) return;
+        picker.dispose();
+        // The accounts or the invoice changed since this screen was loaded:
+        // reload the request (fresh options), keep the picked receipt, say why.
+        if (needsRefresh(error)) {
+          refreshAfter = error;
+          return;
+        }
+        if (!panel.contains(form)) {
+          // The phone check replaced the form: bring it back with the receipt
+          // still chosen, so the customer can retry.
+          retryAfter = error;
+          return;
+        }
         if (panel.contains(form)) {
           sending = false;
           setLoading(submitBtn, false);
@@ -645,8 +665,20 @@ async function showPaymentStep(panel, { request, currency, price, onUploaded }) 
         throw error;
       }
     };
+    let refreshAfter = null;
+    let retryAfter = null;
     await ensureTrackingAndRun(panel, upload, {
-      onDone: () => { toast("تم رفع الإشعار — بانتظار مراجعة الدفع"); onUploaded(); },
+      onDone: () => {
+        if (refreshAfter || retryAfter) {
+          const failure = refreshAfter || retryAfter;
+          toast(failure.message, { tone: "error" });
+          if (refreshAfter) return onUploaded({ reopenPayment: { keptReceipt: file, notice: failure.message } });
+          return showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt: file, notice: failure.message });
+        }
+        picker.dispose();
+        toast("تم رفع الإشعار — بانتظار مراجعة الدفع");
+        onUploaded();
+      },
     });
     sending = false;
   });

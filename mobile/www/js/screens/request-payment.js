@@ -132,7 +132,8 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
 
   const form = bodyEl.querySelector("#directReceiptForm");
   if (!form) return;
-  const picker = bindReceiptPicker(form, { esc, icon, validate: (file) => validateFile(file, null) });
+  const picker = bindReceiptPicker(form, { esc, icon, validate: (file) => validateFile(file, null), initialFile: params.keptReceipt || null });
+  if (params.notice) picker.showError(params.notice);
   let sending = false;
 
   // After a refused duplicate or a lost response: what the server holds now.
@@ -167,6 +168,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
     picker.setBusy(true);
     const payload = receiptFormData(file, { accountId, invoiceVersion: summary.invoiceVersion });
     const done = (request) => {
+      picker.dispose();
       toast("تم إرسال إشعار التحويل — بانتظار مراجعة الدفع");
       // The customer left this screen during the upload: the receipt is in,
       // so the resume offer goes, but the screen they are on now stays.
@@ -182,7 +184,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
     } catch (error) {
       if (isAlreadySubmitted(error)) {
         const current = await reloadState();
-        if (current?.paymentStatus === "UNDER_REVIEW" || current?.paymentStatus === "PAID") return done(current);
+        if (current?.paymentStatus === "UNDER_REVIEW" || current?.paymentStatus === "CONFIRMED") return done(current);
       }
       sending = false;
       bodyEl.querySelector("#paymentLaterBtn").disabled = false;
@@ -190,9 +192,11 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
       button.textContent = "إعادة المحاولة";
       picker.setBusy(false);
       if (needsRefresh(error)) {
-        picker.showError(error.message);
-        toast("حدّث بيانات الدفع", { tone: "error" });
-        return renderRequestPaymentScreen({ bodyEl, params });
+        // The accounts or the invoice changed: show the current ones, keep
+        // the receipt the customer already picked, and say why.
+        picker.dispose();
+        await renderRequestPaymentScreen({ bodyEl, params: { ...params, keptReceipt: file, notice: error.message } });
+        return;
       }
       picker.showError(error.offline ? "تعذّر الاتصال. تحقق من الإنترنت ثم اضغط «إعادة المحاولة»؛ الإشعار المختار ما زال جاهزًا." : error.message);
       toast(error.message, { tone: "error" });

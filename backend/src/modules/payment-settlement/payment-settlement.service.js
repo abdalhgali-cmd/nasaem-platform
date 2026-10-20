@@ -56,15 +56,19 @@ export function settlementOptions(invoice, accounts) {
   return options;
 }
 
-export async function loadSettlementOptions(db, invoice) {
-  if (!invoice) return [];
-  const currencies = invoice.currency === "SDG" ? ["SDG"] : [invoice.currency, "SDG"];
-  const accounts = await db.paymentAccount.findMany({
+// Active accounts that may take any of these invoices (their currencies, and SDG).
+export async function loadSettlementAccounts(db, invoices) {
+  const currencies = [...new Set(["SDG", ...invoices.filter(Boolean).map((invoice) => invoice.currency)])];
+  return db.paymentAccount.findMany({
     where: { active: true, currency: { in: currencies } },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     select: ACCOUNT_SELECT,
   });
-  return settlementOptions(invoice, accounts);
+}
+
+export async function loadSettlementOptions(db, invoice) {
+  if (!invoice) return [];
+  return settlementOptions(invoice, await loadSettlementAccounts(db, [invoice]));
 }
 
 // What the customer pays: the approved invoice, or the offer they chose
@@ -112,7 +116,9 @@ export async function resolveSettlement(db, invoice, { accountId, invoiceVersion
   // Nothing priced to compare with (legacy rows): recorded as before.
   if (!invoice) return { settlement: null };
   const versioned = invoice.version !== null && invoice.version !== undefined;
-  if (versioned && invoiceVersion !== undefined && invoiceVersion !== null && invoiceVersion !== "" && Number(invoiceVersion) !== invoice.version) {
+  const versionSent = invoiceVersion !== undefined && invoiceVersion !== null && invoiceVersion !== "";
+  // A chosen account comes with the invoice version it was shown against.
+  if (versioned && ((versionSent && Number(invoiceVersion) !== invoice.version) || (accountId && !versionSent))) {
     return { refusal: refuse("INVOICE_CHANGED", "تغيّرت بيانات الفاتورة بعد أن فتحت صفحة الدفع؛ حدّث الصفحة ثم ارفع الإشعار.") };
   }
   const base = {

@@ -88,7 +88,7 @@ function formatBytes(bytes) {
 
 // The receipt the customer chose, previewed (image) or named (PDF), with
 // replace and remove. `validate(file)` returns an Arabic problem or null.
-export function bindReceiptPicker(root, { esc, icon, validate }) {
+export function bindReceiptPicker(root, { esc, icon, validate, initialFile = null }) {
   const picker = root.querySelector("[data-receipt-picker]");
   const preview = picker.querySelector("[data-receipt-preview]");
   const error = picker.querySelector("[data-receipt-error]");
@@ -145,9 +145,19 @@ export function bindReceiptPicker(root, { esc, icon, validate }) {
     });
   });
 
+  if (initialFile && !validate(initialFile)) {
+    file = initialFile;
+    render();
+  }
+
   return {
     get file() {
       return file;
+    },
+    // Releases the image preview (the panel is about to be replaced).
+    dispose() {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
     },
     showError,
     setBusy(busy) {

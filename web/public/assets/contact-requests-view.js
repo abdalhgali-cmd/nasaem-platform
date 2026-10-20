@@ -224,13 +224,13 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const receipts = (r.documents || []).filter((d) => d.classification === "FINANCIAL_DOCUMENT" && !d.supersededAt);
     if (!receipts.length) return r.paymentStatus === "AWAITING_TRANSFER" ? '<p class="muted small">لم يرفع العميل إيصال تحويل بعد.</p>' : "";
     return `<div class="table-scroll" data-cr-transfer-receipts><table>
-      <thead><tr><th>إيصال التحويل</th><th>المبلغ المحوَّل</th><th>إلى حساب</th><th>الحالة</th></tr></thead>
+      <thead><tr><th>إيصال التحويل</th><th>المبلغ حسب العميل</th><th>إلى حساب</th><th>الحالة</th></tr></thead>
       <tbody>${receipts
         .map((d) => {
           const s = d.paymentSettlement || null;
           const href = `/api/contact-requests/${encodeURIComponent(r.id)}/documents/${encodeURIComponent(d.id)}/file`;
-          const amount = s ? `${formatMoney(s.payAmount, s.payCurrency)}${s.kind === "SDG_EQUIVALENT" ? `<br><span class="muted small">مقابل فاتورة ${formatMoney(s.invoiceAmount, s.invoiceCurrency)} بسعر ${escapeHtml(s.rate)} المثبّت على الفاتورة</span>` : ""}` : '<span class="muted small">غير محدد</span>';
-          const account = s?.account ? `${escapeHtml(s.account.bankName)} · ${escapeHtml(s.account.accountName)}<br><span dir="ltr" class="small">${escapeHtml(s.account.accountNumber || s.account.iban || "")} ${escapeHtml(s.account.currency)}</span>` : '<span class="muted small">لم يحدد العميل الحساب (إصدار أقدم من التطبيق)</span>';
+          const amount = s ? `${s.accountId ? "" : '<span class="muted small">المتوقع: </span>'}${formatMoney(s.payAmount, s.payCurrency)}${s.kind === "SDG_EQUIVALENT" ? `<br><span class="muted small">مقابل فاتورة ${formatMoney(s.invoiceAmount, s.invoiceCurrency)} بسعر ${escapeHtml(s.rate)} المثبّت على الفاتورة</span>` : ""}` : '<span class="muted small">غير محدد</span>';
+          const account = s?.account ? `${escapeHtml(s.account.bankName)} · ${escapeHtml(s.account.accountName)}<br><span dir="ltr" class="small">${escapeHtml(s.account.accountNumber || s.account.iban || "")} ${escapeHtml(s.account.currency)}</span>` : '<span class="muted small">لم يحدد العميل الحساب الذي حوّل إليه — طابق المبلغ مع حسابات عملة الفاتورة</span>';
           return `<tr data-cr-transfer-receipt="${escapeHtml(d.id)}">
             <td><a href="${href}" target="_blank" rel="noopener">عرض</a> · <a href="${href}" download>تحميل</a><br><span class="muted small">${escapeHtml(d.label || "")} · ${formatDateTime(d.createdAt)}</span></td>
             <td>${amount}</td>
