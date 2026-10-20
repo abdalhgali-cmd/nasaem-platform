@@ -65,3 +65,93 @@ test("Egypt admin sets both fixed per-traveler variants and the shared SDG rate"
     await refreshStoredFlightPrices(await getCurrencyRates());
   }
 });
+
+// ---- acceptance: roles, availability and price history
+
+import { createStaffUser, staffClient } from "./helpers/staff.js";
+import { applyEgyptPricingConfig } from "../src/modules/egypt-clearance/egypt-pricing-admin.controller.js";
+
+async function snapshotConfig() {
+  const rows = await prisma.visaType.findMany({ where: { code: { in: codes } } });
+  const rate = await prisma.setting.findUnique({ where: { key: "FX_USD_SDG" } });
+  return async () => {
+    for (const row of rows) {
+      await prisma.visaType.update({ where: { id: row.id }, data: { active: row.active, basePrice: row.basePrice, currency: row.currency, pricingMode: row.pricingMode, priceUnit: row.priceUnit, paymentAfterDocumentReview: row.paymentAfterDocumentReview } });
+    }
+    if (rate) await prisma.setting.update({ where: { key: "FX_USD_SDG" }, data: { value: rate.value } });
+    else await prisma.setting.deleteMany({ where: { key: "FX_USD_SDG" } });
+    await refreshStoredFlightPrices(await getCurrencyRates());
+  };
+}
+
+async function submitAir(acceptedTotal) {
+  const visa = await prisma.visaType.findUnique({ where: { code: codes[0] }, include: { requirements: { where: { active: true } } } });
+  let req = request(app)
+    .post("/api/contact-requests")
+    .field("name", "TEST-EGP عميل")
+    .field("phone", `091${String(Date.now()).slice(-7)}`)
+    .field("message", "TEST-EGP")
+    .field("visaTypeId", visa.id)
+    .field("travelers", JSON.stringify([{ fullName: "TEST-EGP مسافر", isPrimary: true }, { fullName: "TEST-EGP مرافق" }]))
+    .field("travelerCount", "2")
+    .field("acceptedTotal", String(acceptedTotal))
+    .field("acceptedCurrency", "USD");
+  const documents = visa.requirements.filter((r) => r.type === "DOCUMENT" && r.required);
+  const labels = [];
+  const ids = [];
+  const owners = [];
+  for (const requirement of documents) {
+    const travelersFor = requirement.scope === "TRAVELER" ? ["0", "1"] : [""];
+    for (const owner of travelersFor) {
+      labels.push(requirement.name);
+      ids.push(requirement.id);
+      owners.push(owner);
+      req = req.attach("documents", Buffer.from("%PDF-1.4\n%%EOF"), { filename: "doc.pdf", contentType: "application/pdf" });
+    }
+  }
+  return req.field("documentLabels", JSON.stringify(labels)).field("documentRequirementIds", JSON.stringify(ids)).field("documentTravelerIndexes", JSON.stringify(owners));
+}
+
+test("only administrators can read or change the Egypt settings", async () => {
+  for (const role of ["EMPLOYEE", "ACCOUNTANT", "CONTENT_MANAGER"]) {
+    const staff = staffClient(await createStaffUser({ role }));
+    assert.equal((await staff.get(url)).status, 403, role);
+    assert.equal((await staff.patch(url).send({ usdRateToSdg: 1, air: { priceUsd: 1, active: true }, border: { priceUsd: 1, active: true } })).status, 403, role);
+  }
+});
+
+test("approved prices: per-traveler total, a disabled variant refuses new requests, and a price change never reprices an existing request", async () => {
+  const restore = await snapshotConfig();
+  try {
+    const applied = await applyEgyptPricingConfig({ usdRateToSdg: 9200, air: { priceUsd: 85, active: true }, border: { priceUsd: 155, active: true } });
+    assert.equal(applied.error, undefined);
+    // Two travelers at 85 USD each: the confirmed total is 170 USD.
+    const created = await submitAir(170);
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const id = created.body.data.id;
+    const stored = await prisma.contactRequest.findUnique({ where: { id }, include: { invoice: true } });
+    assert.equal(stored.pricingMode, "FIXED");
+    assert.equal(Number(stored.invoice.amount), 170);
+    assert.equal(stored.invoice.status, "APPROVED", "no quote or price-approval stage");
+    assert.equal(stored.paymentStatus, "AWAITING_TRANSFER");
+
+    // A new price applies to new requests only.
+    await applyEgyptPricingConfig({ usdRateToSdg: 9200, air: { priceUsd: 99, active: true }, border: { priceUsd: 155, active: true } });
+    const after = await prisma.contactRequest.findUnique({ where: { id }, include: { invoice: true } });
+    assert.equal(Number(after.invoice.amount), 170, "the confirmed price is kept");
+    const stale = await submitAir(170);
+    assert.equal(stale.status, 409, "a total confirmed at the old price is refused");
+
+    // Disabled: no longer listed, and a submission is refused (nothing created).
+    await applyEgyptPricingConfig({ usdRateToSdg: 9200, air: { priceUsd: 85, active: false }, border: { priceUsd: 155, active: true } });
+    const catalog = await request(app).get("/api/services/public");
+    assert.ok(!catalog.body.data.visaTypes.some((v) => v.code === codes[0]));
+    const before = await prisma.contactRequest.count();
+    const refused = await submitAir(170);
+    assert.ok([400, 409, 422].includes(refused.status), JSON.stringify(refused.body));
+    assert.equal(await prisma.contactRequest.count(), before);
+    await prisma.contactRequest.delete({ where: { id } });
+  } finally {
+    await restore();
+  }
+});

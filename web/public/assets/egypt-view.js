@@ -99,6 +99,7 @@ function createEgyptQueueView({ root, onOpen }) {
       </div>
       <p class="muted small hidden" id="egypt-truncated">النتائج كثيرة؛ ضيّق البحث بالتاريخ أو المرحلة.</p>
     </div>`;
+  mountEgyptPricingAdmin(root);
   const $ = (id) => root.querySelector(`#${id}`);
 
   async function load() {

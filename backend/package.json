@@ -15,6 +15,7 @@
     "prisma:seed": "prisma db seed",
     "finance:diagnose": "node src/scripts/financial-diagnostics.js",
     "release:rollback-check": "node src/scripts/rollback-check.js",
+    "egypt:configure": "node src/scripts/configure-egypt-pricing.js",
     "sync:static-admin": "node ../scripts/sync-static-admin.mjs"
   },
   "prisma": {

@@ -32,6 +32,11 @@ function mountEgyptPricingAdmin(root) {
             <p class="muted small">السعر مشترك مع باقي خدمات الوكالة. لا تغيّر أسعار الطلبات السابقة.</p>
           </div>
         </div>
+        <div class="stack wrap" id="egypt-requirements-links">
+          <span class="muted small">متطلبات الخدمة (المستندات والأسئلة):</span>
+          <button class="btn secondary" type="button" data-egypt-requirements="air">تعديل متطلبات الجوي</button>
+          <button class="btn secondary" type="button" data-egypt-requirements="border">تعديل متطلبات البري</button>
+        </div>
         <div class="stack wrap">
           <button class="btn" type="submit" id="egypt-pricing-save">حفظ الأسعار والحالة</button>
           <button class="btn secondary" type="button" id="egypt-pricing-reload">استعادة القيم المحفوظة</button>
@@ -44,6 +49,7 @@ function mountEgyptPricingAdmin(root) {
   const message = $("#egypt-pricing-message");
   const get = (name) => form.elements.namedItem(name);
   let loaded = false;
+  let variants = {};
 
   function alertText(text, kind = "info") {
     message.innerHTML = text ? `<p class="alert ${kind === "error" ? "error" : kind === "success" ? "success" : "warning"}">${escapeHtml(text)}</p>` : "";
@@ -66,6 +72,7 @@ function mountEgyptPricingAdmin(root) {
       get("airPrice").value = data.air?.priceUsd > 0 ? String(data.air.priceUsd) : "";
       get("borderPrice").value = data.border?.priceUsd > 0 ? String(data.border.priceUsd) : "";
       get("usdRate").value = data.usdRateToSdg > 0 ? String(data.usdRateToSdg) : "";
+      variants = { air: data.air, border: data.border };
       get("airActive").checked = Boolean(data.air?.active);
       get("borderActive").checked = Boolean(data.border?.active);
       loaded = true;
@@ -84,6 +91,20 @@ function mountEgyptPricingAdmin(root) {
     if (event.target.open && !loaded) void reload();
   });
   $("#egypt-pricing-reload").addEventListener("click", reload);
+  // The requirement checklist is edited in the existing visa editor
+  // (Management → Visas), opened directly on this variant.
+  wrap.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-egypt-requirements]");
+    if (!button) return;
+    const variant = variants[button.dataset.egyptRequirements];
+    if (!variant?.id) {
+      alertText("احفظ الإعدادات أولًا لإنشاء هذا النوع، ثم عدّل متطلباته.", "error");
+      return;
+    }
+    activateTab("management");
+    activateMgmtSubTab("visas");
+    openVisaRequirements(variant.id, variant.name);
+  });
   form.addEventListener("input", preview);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
