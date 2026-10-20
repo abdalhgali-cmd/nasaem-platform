@@ -305,3 +305,29 @@ describe("paying a USD invoice", () => {
     assert.deepEqual((await tracking.request(id)).paymentSettlementOptions, []);
   });
 });
+
+describe("account changes during a receipt", () => {
+  test("the chosen account is held until the receipt commits: disabling it meanwhile waits", async () => {
+    const { resolveSettlement } = await import("../src/modules/payment-settlement/payment-settlement.service.js");
+    const invoice = { amount: "85", currency: "USD", amountSdg: "782000", exchangeRateToSdg: "9200", rateFixedAt: new Date(), version: 1 };
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    let resolved;
+    const receipt = prisma.$transaction(async (tx) => {
+      resolved = await resolveSettlement(tx, invoice, { accountId: sdgFlagged.id, invoiceVersion: "1" });
+      await held;
+    }, { timeout: 15_000 });
+    // Wait until the receipt transaction has validated (and locked) the account.
+    for (let i = 0; i < 100 && !resolved; i += 1) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(resolved?.settlement?.kind, "SDG_EQUIVALENT");
+    const disable = prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '300ms'");
+      await tx.paymentAccount.update({ where: { id: sdgFlagged.id }, data: { acceptsForeignInvoices: false } });
+    });
+    await assert.rejects(disable, "the admin change waits for the receipt (lock timeout here)");
+    release();
+    await receipt;
+    const stored = await prisma.paymentAccount.findUnique({ where: { id: sdgFlagged.id } });
+    assert.equal(stored.acceptsForeignInvoices, true, "unchanged: the blocked update did not apply");
+  });
+});
