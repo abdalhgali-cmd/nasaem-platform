@@ -23,6 +23,8 @@ export type EgyptFileRef = {
   mimeType?: string | null;
   version?: number;
   publishedAt?: string | null;
+  /** The issue date written on the document (date only); newer servers. */
+  issuedOn?: string | null;
   supersededAt?: string | null;
 };
 
@@ -38,14 +40,22 @@ export type EgyptTicket = {
 
 export type FlightChoice = "REQUEST" | "BOOKED" | "LATER";
 
+export type FlightDetails = {
+  flightNumber?: string | null;
+  airline?: string | null;
+  departureTime?: string | null;
+  arrivalTime?: string | null;
+  verified?: boolean;
+};
+
 export type EgyptOverview = {
   entryMode: "AIR" | "BORDER" | null;
   route?: { entryPort?: string | null } | null;
   approval: { issued: boolean; issuedOn: string | null; files: EgyptFileRef[] };
-  circular: { status: "ISSUED" | "PROCESSING" | "NOT_STARTED"; files: EgyptFileRef[] };
+  circular: { status: "ISSUED" | "PROCESSING" | "NOT_STARTED"; issuedOn?: string | null; files: EgyptFileRef[] };
   tickets: EgyptTicket[];
   travel: { travelDate: string | null; preparationComplete: boolean; missing: { code: string; message: string }[]; customerCanEdit: boolean };
-  flight: { choice: FlightChoice | null };
+  flight: { choice: FlightChoice | null; details?: FlightDetails | null };
   receipt: { available: boolean; receiptNo: string | null; status: string | null };
   timeline: { key: string; label: string; state: StepState }[];
 };
@@ -109,8 +119,8 @@ export function egyptFiles(requestId: string, egypt: EgyptOverview): EgyptFile[]
       url: deliverableUrl(requestId, file.id),
       fileName: file.fileName || `${file.label}`,
       mimeType: file.mimeType ?? null,
-      date: egypt.approval.issuedOn || dateOnly(file.publishedAt),
-      dateLabel: egypt.approval.issuedOn ? "تاريخ الإصدار" : "تاريخ النشر",
+      date: file.issuedOn || egypt.approval.issuedOn || dateOnly(file.publishedAt),
+      dateLabel: file.issuedOn || egypt.approval.issuedOn ? "تاريخ الإصدار" : "تاريخ النشر",
       previewable: true,
     });
   }
@@ -123,8 +133,8 @@ export function egyptFiles(requestId: string, egypt: EgyptOverview): EgyptFile[]
       url: deliverableUrl(requestId, file.id),
       fileName: file.fileName || `${file.label}`,
       mimeType: file.mimeType ?? null,
-      date: dateOnly(file.publishedAt),
-      dateLabel: "تاريخ الإصدار",
+      date: file.issuedOn || egypt.circular.issuedOn || dateOnly(file.publishedAt),
+      dateLabel: file.issuedOn || egypt.circular.issuedOn ? "تاريخ الإصدار" : "تاريخ النشر",
       previewable: true,
     });
   }
@@ -155,6 +165,22 @@ export function egyptDeliverableIds(egypt: EgyptOverview | null | undefined) {
     ...(egypt.circular?.files ?? []).map((f) => f.id),
     ...(egypt.tickets ?? []).map((t) => t.deliverableId).filter((id): id is string => Boolean(id)),
   ]);
+}
+
+// "2026-11-02T08:30" (or a full ISO time) → "2026-11-02 08:30", as entered.
+function formatFlightTime(value: string) {
+  const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(value);
+  return match ? `${match[1]} ${match[2]}` : value;
+}
+
+function flightDetailsRows(details: FlightDetails | null | undefined): [string, string][] {
+  if (!details) return [];
+  const rows: [string, string][] = [];
+  if (details.airline) rows.push(["شركة الطيران", details.airline]);
+  if (details.flightNumber) rows.push(["رقم الرحلة", details.flightNumber]);
+  if (details.departureTime) rows.push(["موعد الإقلاع", formatFlightTime(details.departureTime)]);
+  if (details.arrivalTime) rows.push(["موعد الوصول", formatFlightTime(details.arrivalTime)]);
+  return rows;
 }
 
 async function fetchFile(url: string) {
@@ -317,7 +343,8 @@ export function EgyptJourneySection({
           let detail = "";
           if (current && !closed) {
             if (step.key === "TRAVEL_PREPARATION") detail = todo.length ? `مطلوب منك: ${todo.join(" ")}` : "";
-            else if (step.key === "CIRCULAR_ISSUED") detail = egypt.circular?.status === "PROCESSING" ? STAGE_DETAIL.CIRCULAR_ISSUED : "يُجهَّز التعميم بعد اكتمال بيانات السفر.";
+            // CIRCULAR_IN_PROGRESS from current servers; CIRCULAR_ISSUED from older ones.
+            else if (step.key === "CIRCULAR_IN_PROGRESS" || step.key === "CIRCULAR_ISSUED") detail = egypt.circular?.status === "PROCESSING" ? STAGE_DETAIL.CIRCULAR_ISSUED : "يُجهَّز التعميم بعد اكتمال بيانات السفر.";
             else detail = STAGE_DETAIL[step.key] || "";
           }
           return (
@@ -359,6 +386,7 @@ export function EgyptJourneySection({
       {egypt.circular?.status === "ISSUED" ? (
         <p className="mt-1 flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
           <CheckCircle2 className="size-4" /> تم إصدار التعميم
+          {egypt.circular.issuedOn ? <bdi dir="ltr" className="text-xs font-normal">{egypt.circular.issuedOn}</bdi> : null}
         </p>
       ) : null}
       {egypt.receipt?.status && !egypt.receipt.available ? <p className="mt-1 text-xs text-muted-foreground">إيصال السداد قيد الإنشاء.</p> : null}
@@ -404,6 +432,18 @@ export function EgyptJourneySection({
               </p>
               {egypt.flight?.choice ? (
                 <p className="mt-1 text-xs text-muted-foreground" data-testid="egypt-flight-choice">{FLIGHT_TEXT[egypt.flight.choice]}</p>
+              ) : null}
+              {flightDetailsRows(egypt.flight?.details).length ? (
+                <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-muted/40 p-2 text-xs" data-testid="egypt-flight-details">
+                  {flightDetailsRows(egypt.flight?.details).map(([label, value]) => (
+                    <React.Fragment key={label}>
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd className="font-semibold text-foreground" dir="auto">{value}</dd>
+                    </React.Fragment>
+                  ))}
+                  <dt className="text-muted-foreground">الحالة</dt>
+                  <dd className="text-foreground">{egypt.flight?.details?.verified ? "تحققت منها الوكالة" : "بانتظار تحقق الوكالة"}</dd>
+                </dl>
               ) : null}
               {canChooseFlight ? (
                 <div className="mt-2 grid grid-cols-1 gap-2 min-[360px]:grid-cols-3" role="group" aria-label="اختيار حجز تذكرة الطيران">

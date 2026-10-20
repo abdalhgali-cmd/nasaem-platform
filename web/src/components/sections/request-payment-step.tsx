@@ -235,7 +235,7 @@ export function RequestPaymentStep({
         disabled={busy}
         className="mt-4 min-h-11 w-full text-center text-xs font-semibold text-muted-foreground underline-offset-4 hover:text-primary hover:underline disabled:opacity-50"
       >
-        {open ? (options.length ? "سأحوّل لاحقًا — متابعة إلى صفحة التأكيد" : "متابعة بدون دفع الآن") : "متابعة إلى صفحة التأكيد"}
+        {open ? (options.length ? "سأحوّل لاحقًا — متابعة إلى صفحة التأكيد" : "متابعة إلى صفحة التأكيد بدون دفع الآن") : "متابعة إلى صفحة التأكيد"}
       </button>
       <p className="mt-1 text-center text-[11px] text-muted-foreground">
         يمكنك متابعة مراحل الطلب من{" "}

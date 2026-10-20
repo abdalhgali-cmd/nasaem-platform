@@ -169,23 +169,24 @@ test("egypt: timeline, typed files with preview and download, flight choice", as
     approval: {
       issued: true,
       issuedOn: "2026-10-18",
-      files: [{ id: "appr-1", label: "الموافقة الأمنية — أحمد", fileName: "approval.png", mimeType: "image/png", version: 2, publishedAt: "2026-10-18T09:00:00.000Z", travelerIds: [] }],
+      files: [{ id: "appr-1", label: "الموافقة الأمنية — أحمد", fileName: "approval.png", mimeType: "image/png", version: 2, publishedAt: "2026-10-18T09:00:00.000Z", issuedOn: "2026-10-17", travelerIds: [] }],
       missingTravelerIds: [],
     },
-    circular: { status: "ISSUED", files: [{ id: "circ-1", label: "التعميم", fileName: "circular.pdf", mimeType: "application/pdf", version: 1, publishedAt: "2026-10-19T09:00:00.000Z", travelerIds: [] }] },
+    circular: { status: "ISSUED", issuedOn: "2026-10-19", files: [{ id: "circ-1", label: "التعميم", fileName: "circular.pdf", mimeType: "application/pdf", version: 1, publishedAt: "2026-10-19T09:00:00.000Z", issuedOn: "2026-10-19", travelerIds: [] }] },
     tickets: [
       { source: "CUSTOMER", documentId: "doc-own", label: "تذكرتي", status: "PENDING" },
       { source: "STAFF", deliverableId: "tick-old", label: "تذكرة قديمة", version: 1, supersededAt: "2026-10-19T08:00:00.000Z" },
     ],
     travel: { travelDate: "2026-11-02", daysUntil: 13, preparationComplete: false, missing: [{ code: "TICKET_MISSING", message: "تذكرة الطيران لم تُرفع بعد." }], customerCanEdit: false },
-    flight: { choice: flightChoice, inquiry: null },
+    flight: { choice: flightChoice, details: { flightNumber: "SD 345", airline: "سودانير", departureTime: "08:30", arrivalTime: "10:45", source: "CUSTOMER", verifiedAt: null, verified: false }, inquiry: null },
     receipt: { available: true, receiptNo: "RC-2026-0001", status: "READY" },
     timeline: [
       { key: "RECEIVED", label: "تم استلام الطلب", state: "done" },
       { key: "PAYMENT_CONFIRMED", label: "تم تأكيد الدفع", state: "done" },
       { key: "APPROVAL_IN_PROGRESS", label: "جاري إصدار الموافقة", state: "done" },
       { key: "APPROVAL_ISSUED", label: "تم إصدار الموافقة", state: "done" },
-      { key: "TRAVEL_PREPARATION", label: "تجهيز السفر والتعميم", state: "current" },
+      { key: "TRAVEL_PREPARATION", label: "تجهيز بيانات السفر", state: "current" },
+      { key: "CIRCULAR_IN_PROGRESS", label: "جاري إصدار التعميم", state: "upcoming" },
       { key: "CIRCULAR_ISSUED", label: "تم إصدار التعميم", state: "upcoming" },
     ],
   });
@@ -224,10 +225,11 @@ test("egypt: timeline, typed files with preview and download, flight choice", as
   const section = page.getByTestId("egypt-journey");
   await expect(section).toBeVisible({ timeout: 15_000 });
   const timeline = section.getByTestId("egypt-timeline");
-  await expect(timeline.locator("li")).toHaveCount(6);
+  await expect(timeline.locator("li")).toHaveCount(7);
   await expect(timeline.locator('li[aria-current="step"]')).toHaveCount(1);
   await expect(timeline.locator('li[aria-current="step"]')).toHaveAttribute("data-step", "TRAVEL_PREPARATION");
-  await expect(timeline.locator('li[aria-current="step"]')).toContainText("تجهيز السفر والتعميم");
+  await expect(timeline.locator('li[aria-current="step"]')).toContainText("تجهيز بيانات السفر");
+  await expect(timeline.locator('li[data-step="CIRCULAR_IN_PROGRESS"]')).toContainText("جاري إصدار التعميم");
   await expect(section.getByTestId("egypt-approval-issued")).toContainText("2026-10-18");
 
   const files = section.getByTestId("egypt-file");
@@ -235,7 +237,9 @@ test("egypt: timeline, typed files with preview and download, flight choice", as
   await expect(section.getByText("تذكرة قديمة")).toHaveCount(0);
   await expect(section.getByText("تذكرتي")).toHaveCount(0);
   const approval = section.locator('[data-testid="egypt-file"][data-kind="APPROVAL"]');
-  await expect(approval.getByTestId("egypt-file-date")).toContainText("تاريخ الإصدار: 2026-10-18");
+  // Each file's own issue date (the latest approval date is in the headline).
+  await expect(approval.getByTestId("egypt-file-date")).toContainText("تاريخ الإصدار: 2026-10-17");
+  await expect(section.locator('[data-testid="egypt-file"][data-kind="CIRCULAR"]').getByTestId("egypt-file-date")).toContainText("تاريخ الإصدار: 2026-10-19");
   await approval.getByRole("button", { name: "معاينة الموافقة الأمنية" }).click();
   await expect(approval.getByTestId("egypt-file-preview")).toBeVisible();
   const download = page.waitForEvent("download");
@@ -245,6 +249,12 @@ test("egypt: timeline, typed files with preview and download, flight choice", as
   await expect(page.getByText("ملفاتك النهائية جاهزة", { exact: true })).toHaveCount(0);
 
   const flight = section.getByTestId("egypt-flight");
+  const details = flight.getByTestId("egypt-flight-details");
+  await expect(details).toContainText("SD 345");
+  await expect(details).toContainText("سودانير");
+  await expect(details).toContainText("08:30");
+  await expect(details).toContainText("10:45");
+  await expect(details).toContainText("بانتظار تحقق الوكالة");
   await expect(flight.getByRole("button", { name: "لدي تذكرة بالفعل" })).toBeVisible();
   await expect(flight.getByRole("button", { name: "لاحقًا" })).toBeVisible();
   await flight.getByRole("button", { name: "احجزوا لي عبر نسائم" }).click();
