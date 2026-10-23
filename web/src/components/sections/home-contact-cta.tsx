@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { MapPin, MessageCircle, Phone } from "lucide-react";
 import { Container } from "@/components/container";
 import { Button } from "@/components/ui/button";
@@ -35,9 +34,6 @@ export async function HomeContactCta() {
                   <MessageCircle className="size-4" aria-hidden="true" />
                   واتساب
                 </a>
-              </Button>
-              <Button asChild size="lg">
-                <Link href="/contact">صفحة التواصل</Link>
               </Button>
             </div>
           </div>

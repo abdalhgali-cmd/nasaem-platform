@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Container } from "@/components/container";
 import { ServiceShowcaseCards, type ShowcaseService } from "@/components/sections/service-showcase-cards";
 import { getPublicCatalog, type PublicCatalog } from "@/lib/services";
@@ -17,7 +18,7 @@ export function showcaseServices(catalog: PublicCatalog): ShowcaseService[] {
     {
       key: "umrah",
       title: "العمرة",
-      description: "باقات العمرة، بيانات المعتمرين ومستنداتهم، والدفع بالسعر المعتمد.",
+      description: "تأشيرة فقط، أو عمرة بالخدمات جواً أو بحراً.",
       href: "/umrah",
       count: packages.filter(isUmrah).length + services.filter((item) => item.code === "SVC-UMRAH").length,
     },
@@ -31,7 +32,7 @@ export function showcaseServices(catalog: PublicCatalog): ShowcaseService[] {
     {
       key: "visas",
       title: "التأشيرات",
-      description: "التأشيرات المنشورة من الوكالة، بمتطلبات واضحة لكل نوع.",
+      description: "اختر وجهتك واطّلع على المتطلبات.",
       href: "/visas",
       count: visaTypes.filter((item) => !isEgypt(item) && item.code !== "VISA-UMRAH").length,
     },
@@ -59,7 +60,7 @@ export function showcaseServices(catalog: PublicCatalog): ShowcaseService[] {
     {
       key: "packages",
       title: "الباقات والعروض",
-      description: "باقات سفر منشورة من الوكالة.",
+      description: "تعرّف على باقات السفر المتاحة.",
       href: "/packages",
       count: packages.filter((item) => !isUmrah(item)).length,
     },
@@ -69,21 +70,22 @@ export function showcaseServices(catalog: PublicCatalog): ShowcaseService[] {
 
 export async function HomeServicesShowcase() {
   const cards = showcaseServices(await getPublicCatalog());
-  if (cards.length === 0) return null;
 
   return (
-    <section id="services" className="scroll-mt-24 py-20 sm:py-24" aria-labelledby="home-services-title">
+    <section id="services" className="scroll-mt-24 py-10 sm:py-14" aria-labelledby="home-services-title">
       <Container>
+        <span id="start-request" className="block scroll-mt-24" aria-hidden="true" />
         <div className="mx-auto max-w-2xl text-center">
           <p className="text-sm font-extrabold text-primary dark:text-secondary">خدماتنا</p>
           <h2 id="home-services-title" className="mt-2 text-3xl font-black tracking-tight text-foreground sm:text-4xl">
-            اختر الخدمة وابدأ من صفحتها
+            كيف نساعدك؟
           </h2>
-          <p className="mt-3 text-sm leading-7 text-muted-foreground sm:text-base">
-            لكل خدمة صفحتها: المتطلبات، السعر المعتمد من الوكالة، ثم الطلب والمتابعة.
-          </p>
         </div>
-        <ServiceShowcaseCards cards={cards} />
+        {cards.length > 0 ? <ServiceShowcaseCards cards={cards} /> : (
+          <p className="mt-6 text-center text-muted-foreground" role="status">
+            لا توجد خدمات معروضة حالياً. <Link href="/services" className="font-bold text-primary underline">أعد عرض الخدمات</Link> أو <Link href="/contact" className="font-bold text-primary underline">تواصل معنا</Link>.
+          </p>
+        )}
       </Container>
     </section>
   );
