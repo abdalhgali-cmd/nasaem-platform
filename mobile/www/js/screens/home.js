@@ -72,7 +72,7 @@ export async function renderHomeScreen({ bodyEl }) {
       </button>` : ""}
     </header>
     <div class="hc-search-wrap">
-      <button class="hc-search" id="startNowBtn">${icon("search", { size: 19 })}<span>ابحث عن خدمة أو ابدأ طلبك</span></button>
+      <button class="hc-search" id="startNowBtn">${icon("search", { size: 19 })}<span>عرض جميع الخدمات</span></button>
     </div>
 
     <div id="pendingPaymentMount"></div>
@@ -81,20 +81,10 @@ export async function renderHomeScreen({ bodyEl }) {
       <div class="hc-bento" id="homeBento">${skeletonGrid(4)}</div>
     </section>
 
-    <section class="section home-journey" aria-label="كيف يعمل طلبك">
-      <div class="section-head"><h2>كيف يعمل طلبك</h2></div>
-      <ol class="home-journey-grid">
-        <li><span>١</span><strong>اختر الخدمة</strong></li>
-        <li><span>٢</span><strong>المتطلبات</strong></li>
-        <li><span>٣</span><strong>الدفع</strong></li>
-        <li><span>٤</span><strong>المتابعة</strong></li>
-      </ol>
-    </section>
-
     <section class="section">
       <button class="track-card" id="homeTrackBtn">
         <span class="track-card-icon">${icon("requests", { size: 22 })}</span>
-        <span class="track-card-body"><b>تتبع الطلب</b><small>${signedIn ? "تابع حالة طلباتك وسعرها ودفعها" : "برقم هاتفك ورمز تحقق عبر واتساب، دون حساب"}</small></span>
+        <span class="track-card-body"><b>تتبع الطلب</b><small>${signedIn ? "حالة الطلب والدفع والمستندات" : "برقم هاتفك ورمز تحقق عبر واتساب، دون حساب"}</small></span>
         ${icon("chevron-start", { size: 18 })}
       </button>
     </section>
@@ -260,7 +250,7 @@ function umrahTile() {
   return `
     <div class="hc-tile hc-tile-feature">
       <span class="hc-tile-icon">${icon("umrah", { size: 24 })}</span>
-      <span class="hc-feature-copy"><strong>العمرة</strong><small>تأشيرة فقط أو عمرة مع خدمات الطيران أو البحر — بسعر ثابت</small></span>
+      <span class="hc-feature-copy"><strong>العمرة</strong><small>تأشيرة فقط أو عمرة بالخدمات جواً أو بحراً</small></span>
       <ul class="hc-umrah-kinds" id="homeUmrahKinds" aria-label="أنواع العمرة وأسعارها" hidden></ul>
       <button type="button" class="hc-feature-cta" id="homeUmrahBtn">اختر باقة العمرة ${icon("chevron-start", { size: 18 })}</button>
     </div>`;

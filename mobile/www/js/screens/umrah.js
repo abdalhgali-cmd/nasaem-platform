@@ -25,7 +25,6 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   bodyEl.innerHTML = `
     <section class="section umrah-choose">
       <h2 class="umrah-title" id="umrahChooseTitle">اختر باقة العمرة</h2>
-      <p class="field-hint">سعر ثابت ومعلن: لا عرض سعر ولا موافقة لاحقة.</p>
       <div id="packagesList" class="package-list" role="radiogroup" aria-labelledby="umrahChooseTitle">${skeletonList(3)}</div>
     </section>
 
