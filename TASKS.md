@@ -316,7 +316,8 @@ NOT TESTED:
 - VERIFIED locally: backend 979/979 (`8262edf`); mobile unit 127/127; web tsc + eslint clean.
 - Codex (read-only, file-scoped) findings fixed: account FOR SHARE lock during receipt; orphan upload cleanup on transaction failure (both also on #133); per-organization alert settings; full alert scan; serialized settings saves; clearable flight fields; circular withdrawn on flight change; mobile refresh race / retry / preview; web upload timeout + safe reconciliation.
 - Additive migration `20261021090000_egypt_phase3_operations` (ContactRequest.priority default NORMAL; OperationalAlert).
-- NOT TESTED: real Android device camera/gallery/PDF; staging (unreachable from the agent environment; no verified real backup/restore).
+- NOT TESTED: real Android device camera/gallery/PDF.
+- STAGING (reported by the owner on PR #134, 2026-10-23; not reachable from the agent environment, so not independently checked here): fresh builds of `0a3784b` — backend deployment `d65d2cc6-085b-431f-bbc9-41047c2dbdee` SUCCESS with `20261021090000_egypt_phase3_operations` applied, website deployment `85d2bf42-47a5-41d4-9647-9b1d536120b0` SUCCESS; production unchanged (`2a50cd4`). Pending: browser/manual smoke test of payment, admin alerts and Egypt timeline on staging; APK on a real device.
 - KNOWN: `flight-search-issue-104` "no-results" E2E intermittent locally (area untouched; green in CI).
 - PENDING: website form for entering travel/flight details (shown read-only, customers use the app); agency must mark a real SDG account.
 
