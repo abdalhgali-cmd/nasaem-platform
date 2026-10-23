@@ -1,3 +1,4 @@
+import { customerFlightDetails, hasFlightDetails } from "../egypt-clearance/flight-details.js";
 import prisma from "../../config/database.js";
 import { trackingScope } from "../../utils/publicOrganization.js";
 import { createContactRequestDocument } from "../contact-request-documents/contact-request-documents.service.js";
@@ -173,7 +174,7 @@ export function travelPlanFor(request, { entryMode, bookingStatus, entryDate, ti
 export async function saveMyEgyptTravelPlan(
   phoneNormalized,
   contactRequestId,
-  { entryMode: givenEntryMode, bookingStatus, entryDate, entryPort },
+  { entryMode: givenEntryMode, bookingStatus, entryDate, entryPort, ...flightValues },
   file
 ) {
   const request = await prisma.contactRequest.findFirst({
@@ -228,6 +229,10 @@ export async function saveMyEgyptTravelPlan(
     const refusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, locked);
     if (refusal) refuseWith(refusal);
     const plan = travelPlanFor(locked, { entryMode, bookingStatus, entryDate, ticketDocumentId });
+    // Flight details go with an air ticket the customer holds: new values
+    // replace the stored ones (and their verification); none keeps them.
+    if (entryMode !== "AIR" || bookingStatus !== "EXISTING") plan.flightDetails = null;
+    else if (hasFlightDetails(flightValues)) plan.flightDetails = customerFlightDetails(flightValues);
     // Overland: the crossing goes with the request's route (one place).
     const port = entryMode === "BORDER" && typeof entryPort === "string" ? entryPort.trim().replace(/\s+/g, " ") : "";
     const base = port ? { ...locked, intakeData: { ...(locked.intakeData || {}), egyptRoute: { ...(locked.intakeData?.egyptRoute || { entryMode: "BORDER" }), entryPort: port } } } : locked;
@@ -237,7 +242,7 @@ export async function saveMyEgyptTravelPlan(
       entityId: contactRequestId,
       organizationId: locked.organizationId,
       oldValue: { entryDate: previousDate, bookingStatus: currentPlan?.bookingStatus ?? null },
-      newValue: { entryDate, bookingStatus, entryMode, ...(port ? { entryPort: port } : {}), by: "CUSTOMER", confirmed: true },
+      newValue: { entryDate, bookingStatus, entryMode, ...(port ? { entryPort: port } : {}), ...(plan.flightDetails ? { flightDetails: plan.flightDetails } : {}), by: "CUSTOMER", confirmed: true },
     });
     return { plan };
   });

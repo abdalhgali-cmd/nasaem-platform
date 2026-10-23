@@ -352,6 +352,37 @@ function renderOtpStep(containerEl, phone, action, onDone) {
   });
 }
 
+// The request's status refreshes while its screen stays open: when the
+// customer returns to the app and every minute, but never while a form is
+// open in the action panel (that would discard what they typed or are
+// uploading). Stops once the screen is gone.
+const STATUS_REFRESH_MS = 60_000;
+function startStatusRefresh(bodyEl, refresh) {
+  const idle = () => {
+    if (bodyEl.querySelector("#trackingActionPanel")?.children.length) return false;
+    const active = document.activeElement;
+    if (active && active !== document.body && bodyEl.contains(active) && active.matches("input, select, textarea")) return false;
+    return !bodyEl.querySelector(".upload-progress-wrap:not([hidden]), [data-uploading]");
+  };
+  const run = () => {
+    if (!bodyEl.isConnected) return stop();
+    if (!document.hidden && idle()) {
+      const y = window.scrollY;
+      // The response is applied only if the customer has still not started
+      // something meanwhile (re-checked when it arrives).
+      Promise.resolve(refresh(idle)).then(() => window.scrollTo?.(0, y)).catch(() => undefined);
+    }
+  };
+  const onVisible = () => { if (!document.hidden) run(); };
+  const timer = setInterval(run, STATUS_REFRESH_MS);
+  document.addEventListener("visibilitychange", onVisible);
+  function stop() {
+    clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisible);
+  }
+  return stop;
+}
+
 export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   setTitle("تفاصيل الطلب");
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل الطلب…</p></div>`;
@@ -367,12 +398,16 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         const list = await tracking.listTrackedRequests();
         const found = list.find((request) => request.id === params.requestId);
         if (!found) throw new ApiError("الطلب غير متاح لهذا الرقم", { status: 404 });
+        if (options?.applyIf && !options.applyIf()) return;
         renderDetail(fromTracking(found), { viaTracking: true, reopenPayment });
         return;
       }
       const res = await api(`/customer/requests/${params.requestId}`);
+      if (options?.applyIf && !options.applyIf()) return;
       renderDetail(res.data, { reopenPayment });
     } catch (error) {
+      // A background refresh that fails (offline) keeps what is on screen.
+      if (options?.quiet) return;
       bodyEl.innerHTML = errorState(error.message, { onRetry: load });
     }
   }
@@ -511,6 +546,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   }
 
   await load();
+  startStatusRefresh(bodyEl, (stillIdle) => load({ quiet: true, applyIf: stillIdle }));
 }
 
 function checklistBlock(request) {
@@ -605,7 +641,7 @@ async function showPaymentStep(panel, { request, currency, price, onUploaded, ke
       <h4>الدفع بالتحويل البنكي</h4>
       ${price ? `<p class="payment-amount">قيمة الفاتورة: <strong>${esc(price)}</strong></p>` : ""}
       ${loadError
-        ? errorState(loadError.message)
+        ? errorState(loadError.message, { onRetry: () => showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt, notice }) })
         : options.length
           ? `<p class="field-hint">اختر الحساب الذي ستحوّل إليه، وحوّل المبلغ الظاهر عليه بالضبط.</p>
              ${settlementOptionsHtml(options, esc, { invoiceAmount: payable.amount, invoiceCurrency: payable.currency || currency })}
@@ -642,16 +678,18 @@ async function showPaymentStep(panel, { request, currency, price, onUploaded, ke
         // The receipt is already in (a lost response, a second tap elsewhere):
         // the reload shows «بانتظار مراجعة الدفع».
         if (isAlreadySubmitted(error)) return;
-        picker.dispose();
         // The accounts or the invoice changed since this screen was loaded:
         // reload the request (fresh options), keep the picked receipt, say why.
+        // (The preview is released only when the form is replaced.)
         if (needsRefresh(error)) {
+          picker.dispose();
           refreshAfter = error;
           return;
         }
         if (!panel.contains(form)) {
           // The phone check replaced the form: bring it back with the receipt
           // still chosen, so the customer can retry.
+          picker.dispose();
           retryAfter = error;
           return;
         }
@@ -706,11 +744,22 @@ function egyptTravelSummary(plan) {
 
 // A variant request already fixed the entry method when it was booked: it is
 // shown, not asked again (the server refuses a different one).
+// Flight details typed by the customer (only the filled ones are sent).
+function flightDetailsOf(raw) {
+  const details = {};
+  for (const key of ["flightNumber", "airline", "departureTime", "arrivalTime"]) {
+    const value = String(raw.get(key) || "").trim();
+    if (value) details[key] = value;
+  }
+  return details;
+}
+
 function showEgyptTravelPlan(panel, requestId, onSaved, fixedEntryMode = null, request = null) {
   const today = new Date().toISOString().slice(0, 10);
   const current = request?.egypt?.travel?.travelDate || request?.intakeData?.egyptTravel?.entryDate || "";
   const border = fixedEntryMode === "BORDER";
   const port = request?.egypt?.route?.entryPort || request?.intakeData?.egyptRoute?.entryPort || "";
+  const flight = request?.egypt?.flight?.details || {};
   panel.innerHTML = `
     <form id="egyptPlanForm" class="form detail-block">
       <h4>${border ? "بيانات الوصول إلى المنفذ" : "بيانات السفر"}</h4>
@@ -742,13 +791,27 @@ function showEgyptTravelPlan(panel, requestId, onSaved, fixedEntryMode = null, r
       <label class="field" data-doc-field>
         <span>صورة التذكرة أو ملفها</span>
         <input name="file" type="file" accept="image/*,.pdf">
-      </label>`}
+      </label>
+      <fieldset class="field flight-details" id="egyptFlightDetails">
+        <legend>بيانات الرحلة (اختياري — تتحقق منها الوكالة من التذكرة)</legend>
+        <label class="field"><span>رقم الرحلة</span><input name="flightNumber" dir="ltr" maxlength="12" placeholder="SD 345" value="${esc(flight.flightNumber || "")}"></label>
+        <label class="field"><span>شركة الطيران</span><input name="airline" maxlength="80" value="${esc(flight.airline || "")}"></label>
+        <label class="field"><span>وقت الإقلاع</span><input name="departureTime" type="time" value="${esc(flight.departureTime || "")}"></label>
+        <label class="field"><span>وقت الوصول</span><input name="arrivalTime" type="time" value="${esc(flight.arrivalTime || "")}"></label>
+        ${flight.verified ? '<p class="field-hint">تحققت الوكالة من هذه البيانات؛ تعديلها يعيدها للمراجعة.</p>' : ""}
+      </fieldset>`}
       <label class="confirm-check"><input type="checkbox" name="confirmDate" required> <span>أؤكد أن هذا التاريخ صحيح.</span></label>
       <p class="field-hint">يُجهَّز التعميم قبل السفر بوقت كافٍ؛ ستظهر حالته الفعلية هنا.</p>
       <button type="submit" class="primary">حفظ</button>
     </form>`;
   const form = panel.querySelector("#egyptPlanForm");
   panel.scrollIntoView?.({ block: "start" });
+  const bookingSelect = form.querySelector('[name="bookingStatus"]');
+  const flightBox = form.querySelector("#egyptFlightDetails");
+  const syncFlightBox = () => { if (flightBox && bookingSelect) flightBox.hidden = bookingSelect.value !== "EXISTING" || form.querySelector('[name="entryMode"]')?.value === "BORDER"; };
+  bookingSelect?.addEventListener("change", syncFlightBox);
+  form.querySelector('[name="entryMode"]')?.addEventListener("change", syncFlightBox);
+  syncFlightBox();
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = new FormData(form);
@@ -766,6 +829,7 @@ function showEgyptTravelPlan(panel, requestId, onSaved, fixedEntryMode = null, r
         bookingStatus: border ? "EXISTING" : raw.get("bookingStatus"),
         entryDate: raw.get("entryDate"),
         ...(border ? { entryPort: String(raw.get("entryPort") || "").trim() } : {}),
+        ...(!border && raw.get("bookingStatus") === "EXISTING" ? flightDetailsOf(raw) : {}),
       }, file?.size ? file : null),
       { onDone: () => { toast("تم حفظ بيانات السفر"); onSaved(); } }
     );

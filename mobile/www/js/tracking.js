@@ -93,13 +93,14 @@ export async function uploadDocument(requestId, form, onProgress) {
   return trackingUpload(`/tracking/requests/${requestId}/documents`, form, onProgress);
 }
 
-export async function saveEgyptTravelPlan(requestId, { entryMode, bookingStatus, entryDate, entryPort }, file, onProgress) {
+export async function saveEgyptTravelPlan(requestId, { entryMode, bookingStatus, entryDate, entryPort, ...flightDetails }, file, onProgress) {
   const form = new FormData();
   // A variant request has no entry method to send (the variant is it).
   if (entryMode) form.set("entryMode", entryMode);
   if (entryPort) form.set("entryPort", entryPort);
   form.set("bookingStatus", bookingStatus);
   form.set("entryDate", entryDate);
+  for (const [key, value] of Object.entries(flightDetails)) if (value) form.set(key, value);
   if (file) form.append("file", file);
   return trackingUpload(`/tracking/requests/${requestId}/egypt-travel-plan`, form, onProgress);
 }

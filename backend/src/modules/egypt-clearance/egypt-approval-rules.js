@@ -6,13 +6,15 @@
 // and pass it here, so the staff screens, the customer surfaces and the
 // workflow policy read the same answer.
 import { isEgyptClearanceCode, variantEntryMode } from "./egypt-clearance-variants.js";
+import { publicFlightDetails } from "./flight-details.js";
 
 export const KHARTOUM_TIME_ZONE = "Africa/Khartoum";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 // Africa/Khartoum is UTC+2 all year (no daylight saving since 2017).
 const KHARTOUM_UTC_OFFSET_HOURS = 2;
-// The three-day reminder is raised at 09:00 Khartoum time.
-const REMINDER_LOCAL_HOUR = 9;
+// Default lead reminder: 3 days before, at 09:00 Khartoum time
+// (administrators can change both: alert-settings.service.js).
+export const REMINDER_LOCAL_HOUR = 9;
 export const REMINDER_DAYS_BEFORE = 3;
 
 export const DELIVERABLE_KINDS = Object.freeze({ GENERAL: "GENERAL", APPROVAL: "APPROVAL", CIRCULAR: "CIRCULAR", TICKET: "TICKET" });
@@ -63,17 +65,18 @@ export function calendarDaysUntil(entryDate, now = new Date()) {
 }
 
 // When the staff reminder for a travel date is due, and which kind:
-//   THREE_DAY at 09:00 Khartoum time, three calendar days before the date;
-//   URGENT at once when that moment has already passed (the date is less
-//   than three days away, or it is the reminder day after 09:00) and the
-//   date is today or later. A past date has no reminder (null).
-export function reminderPlan(entryDate, now = new Date()) {
+//   THREE_DAY (the lead reminder; the kind keeps its historical name) at
+//   `localHour`:00 Khartoum time, `daysBefore` calendar days before the date
+//   (administrator settings, default 3 days at 09:00);
+//   URGENT at once when that moment has already passed and the date is
+//   today or later. A past date has no reminder (null).
+export function reminderPlan(entryDate, now = new Date(), { daysBefore = REMINDER_DAYS_BEFORE, localHour = REMINDER_LOCAL_HOUR } = {}) {
   const date = dateOnlyString(entryDate);
   const parsed = parseDateOnly(date);
   if (!parsed) return null;
   const days = calendarDaysUntil(date, now);
   if (days === null || days < 0) return null;
-  const dueAt = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day - REMINDER_DAYS_BEFORE, REMINDER_LOCAL_HOUR - KHARTOUM_UTC_OFFSET_HOURS));
+  const dueAt = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day - daysBefore, localHour - KHARTOUM_UTC_OFFSET_HOURS));
   if (now.getTime() < dueAt.getTime()) return { travelDate: date, kind: "THREE_DAY", dueAt, daysUntil: days };
   return { travelDate: date, kind: "URGENT", dueAt: new Date(now.getTime()), daysUntil: days };
 }
@@ -199,7 +202,8 @@ export const EGYPT_TIMELINE_LABELS = Object.freeze({
   PAYMENT_CONFIRMED: "تم تأكيد الدفع",
   APPROVAL_IN_PROGRESS: "جاري إصدار الموافقة",
   APPROVAL_ISSUED: "تم إصدار الموافقة",
-  TRAVEL_PREPARATION: "تجهيز السفر والتعميم",
+  TRAVEL_PREPARATION: "تجهيز بيانات السفر",
+  CIRCULAR_IN_PROGRESS: "جاري إصدار التعميم",
   CIRCULAR_ISSUED: "تم إصدار التعميم",
 });
 
@@ -214,6 +218,7 @@ export function egyptTimeline(request) {
     APPROVAL_IN_PROGRESS: issued,
     APPROVAL_ISSUED: issued,
     TRAVEL_PREPARATION: issued && preparation.complete,
+    CIRCULAR_IN_PROGRESS: circular.status === "ISSUED",
     CIRCULAR_ISSUED: circular.status === "ISSUED",
   };
   const keys = Object.keys(EGYPT_TIMELINE_LABELS);
@@ -229,7 +234,7 @@ export function egyptTimeline(request) {
 // ---- what the customer (and the staff workspace) is shown
 
 function fileRef(d) {
-  return { id: d.id, label: d.label, fileName: d.fileName, mimeType: d.mimeType, version: d.version ?? 1, publishedAt: d.publishedAt, travelerIds: d.travelerIds || [] };
+  return { id: d.id, label: d.label, fileName: d.fileName, mimeType: d.mimeType, version: d.version ?? 1, publishedAt: d.publishedAt, issuedOn: dateOnlyString(d.issuedOn) || null, travelerIds: d.travelerIds || [] };
 }
 
 // One summary of the Egypt journey for a request. Files are referenced by id
@@ -250,7 +255,11 @@ export function egyptOverview(request, { receipt = null } = {}) {
       files: coverage.approvals.map(fileRef),
       missingTravelerIds: coverage.missingTravelerIds,
     },
-    circular: { status: circular.status, files: circular.deliverables.map(fileRef) },
+    circular: {
+      status: circular.status,
+      issuedOn: circular.deliverables.map((d) => dateOnlyString(d.issuedOn)).filter(Boolean).sort().pop() || null,
+      files: circular.deliverables.map(fileRef),
+    },
     tickets: travelTickets(request),
     travel: {
       travelDate: date,
@@ -261,6 +270,7 @@ export function egyptOverview(request, { receipt = null } = {}) {
     },
     flight: {
       choice: request.intakeData?.egyptFlight?.choice || null,
+      details: publicFlightDetails(request.intakeData?.egyptTravel?.flightDetails || null),
       inquiry: linked ? { id: linked.id, status: linked.status, paymentStatus: linked.paymentStatus, createdAt: linked.createdAt } : null,
     },
     receipt: receipt ? { available: receipt.pdfStatus === "READY", receiptNo: receipt.receiptNo, status: receipt.pdfStatus } : { available: false, receiptNo: null, status: null },

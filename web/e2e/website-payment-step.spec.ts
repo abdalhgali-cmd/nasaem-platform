@@ -64,22 +64,60 @@ test("website payment step: details, copy, receipt upload -> under review (not p
     await card.getByRole("button", { name: "نسخ رقم الحساب" }).click();
     await expect(card.getByText("تم النسخ")).toBeVisible();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(accountNumber);
-    const receipt = step.locator('input[type="file"]');
-    await expect(receipt).toHaveAttribute("accept", "image/*,application/pdf");
+    // Three receipt sources: the camera, a gallery image, a PDF.
+    const camera = step.getByTestId("payment-receipt-camera");
+    await expect(camera).toHaveAttribute("accept", "image/*");
+    await expect(camera).toHaveAttribute("capture", "environment");
+    await expect(step.getByTestId("payment-receipt-input")).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
+    await expect(step.getByTestId("payment-receipt-pdf")).toHaveAttribute("accept", "application/pdf,.pdf");
+    const send = step.getByRole("button", { name: "رفع الإيصال للمراجعة" });
+    await expect(send).toBeDisabled();
 
-    await receipt.setInputFiles(path.join(__dirname, "fixtures", "sample-document.png"));
+    // A file of another type is refused before anything is sent.
+    await step.getByTestId("payment-receipt-input").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not a receipt") });
+    await expect(step.getByTestId("payment-error")).toContainText("ارفع صورة (JPG/PNG/WEBP) أو ملف PDF.");
+    // An image is previewed, then removed and replaced by a PDF (name and size).
+    await step.getByTestId("payment-receipt-input").setInputFiles(path.join(__dirname, "fixtures", "sample-document.png"));
+    await expect(step.getByTestId("receipt-preview").getByRole("img", { name: "معاينة إشعار التحويل" })).toBeVisible();
+    await step.getByTestId("receipt-preview").getByRole("button", { name: "إزالة" }).click();
+    await expect(step.getByTestId("receipt-preview")).toHaveCount(0);
+    await step.getByTestId("payment-receipt-pdf").setInputFiles({ name: "transfer-receipt.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF") });
+    await expect(step.getByTestId("receipt-name")).toHaveText("transfer-receipt.pdf");
+
+    // More than one account takes SAR (the seeded one too): nothing is
+    // preselected, and the receipt is not sent until the customer picks one.
+    await expect(step.getByRole("radio", { checked: true })).toHaveCount(0);
+    await send.click();
+    await expect(step.getByTestId("payment-error")).toHaveText("اختر الحساب الذي حوّلت إليه.");
+    await card.getByRole("radio").check();
+    await expect(card).toContainText("حوّل 250 SAR");
+
+    // The chosen account and the invoice version shown travel with the receipt.
+    let body = "";
+    await page.route(`${BACKEND}/api/tracking/requests/${requestId}/payment-receipt`, async (route) => {
+      body = route.request().postDataBuffer()?.toString("latin1") ?? "";
+      await route.continue();
+    });
     const uploaded = page.waitForResponse((r) => r.url().endsWith(`/tracking/requests/${requestId}/payment-receipt`));
-    await step.getByRole("button", { name: "رفع الإيصال للمراجعة" }).click();
-    expect((await uploaded).status()).toBe(201);
+    await send.click();
+    const response = await uploaded;
+    expect(response.status()).toBe(201);
+    expect(body).toContain(accountId);
+    expect(body).toMatch(/name="invoiceVersion"\r\n\r\n\d+/);
 
-    await expect(page.getByTestId("payment-under-review")).toContainText("قيد المراجعة", { timeout: 15_000 });
+    await expect(page.getByTestId("payment-under-review")).toContainText("بانتظار مراجعة الدفع", { timeout: 15_000 });
+    await expect(page.getByTestId("payment-under-review")).toContainText("قيد المراجعة");
     await expect(page.getByTestId("payment-under-review")).toContainText("لا يُعتبر الطلب مدفوعًا");
     await expect(page.getByTestId("payment-step")).toHaveCount(0);
     await expect(progress.locator('[role="tab"][data-step="PAYMENT_REVIEW"]')).toHaveAttribute("data-state", "current");
     await expect(progress.locator('[role="tab"][data-step="PAYMENT"]')).toHaveAttribute("data-state", "done");
 
     const staff = await admin.get(`${BACKEND}/api/contact-requests/${requestId}`);
-    expect((await staff.json()).data.paymentStatus).toBe("UNDER_REVIEW");
+    const stored = (await staff.json()).data;
+    expect(stored.paymentStatus).toBe("UNDER_REVIEW");
+    expect(stored.paymentConfirmedAt ?? null, "a receipt is never a payment").toBeNull();
+    const receiptDoc = (stored.documents as Array<{ classification: string | null; paymentSettlement?: unknown }>).find((d) => d.classification === "FINANCIAL_DOCUMENT");
+    expect(receiptDoc?.paymentSettlement).toMatchObject({ accountId, kind: "INVOICE_CURRENCY", source: "CUSTOMER_SELECTED" });
   } finally {
     await admin.patch(`${BACKEND}/api/payment-accounts/${accountId}`, { data: { active: false } });
   }

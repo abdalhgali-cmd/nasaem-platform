@@ -230,7 +230,8 @@ test.describe.serial("Egypt security approval: customer app and back-office", ()
     await expect(app.locator("#egyptCircularIssued")).toBeVisible();
     await expect(app.locator('[data-egypt-file="CIRCULAR"]')).toHaveText(/تحميل التعميم PDF/);
     await expect(app.locator('[data-egypt-file="TICKET"]')).toHaveText(/تحميل التذكرة/);
-    await expect(app.locator("#requestJourney .journey-stage-done")).toHaveCount(6);
+    // Seven steps, including «جاري إصدار التعميم», all done.
+    await expect(app.locator("#requestJourney .journey-stage-done")).toHaveCount(7);
     await shot(app, "egypt-07-circular-issued-390");
 
     // The staff schedule: nearest date first, a reminder already scheduled.

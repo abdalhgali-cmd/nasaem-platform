@@ -48,6 +48,10 @@ import {
   postEgyptCircular,
   postEgyptCircularProcessing,
   postEgyptTicket,
+  getEgyptAlertSettings,
+  putEgyptAlertSettings,
+  patchCasePriority,
+  patchEgyptFlightDetails,
 } from "../egypt-clearance/egypt-approval.controller.js";
 import { downloadStaffReceipt, resendReceipt } from "../egypt-clearance/egypt-customer.controller.js";
 import { getCaseWarnings } from "../case-intelligence/case-intelligence.controller.js";
@@ -327,6 +331,11 @@ router.post(
 // date. Same roles that publish final files.
 const EGYPT_WORK = ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"];
 router.get("/egypt/queue", requireAuth, requireRole(...EGYPT_WORK), getEgyptQueue);
+// Alert lead times: staff read them, administrators change them.
+router.get("/egypt/alert-settings", requireAuth, requireRole(...EGYPT_WORK), getEgyptAlertSettings);
+router.put("/egypt/alert-settings", requireAuth, requireRole("SUPER_ADMIN", "ADMIN"), putEgyptAlertSettings);
+// Case priority and due date (work queues, overdue tracking).
+router.patch("/:id/priority", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, patchCasePriority);
 router.get("/:id/egypt", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, getEgyptRequestWorkspace);
 router.post("/:id/egypt/approval", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, requireFeatureEnabled("DOCUMENTS"), handleDeliverableUpload, postEgyptApproval);
 router.post("/:id/egypt/circular/processing", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, postEgyptCircularProcessing);
@@ -336,6 +345,7 @@ router.post("/:id/egypt/tickets", requireAuth, requireRole(...EGYPT_WORK), requi
 router.get("/:id/payment-receipt/file", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), requireContactRequestOrganization, downloadStaffReceipt);
 router.post("/:id/payment-receipt/resend", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"), requireContactRequestOrganization, resendReceipt);
 router.patch("/:id/egypt/travel-date", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, patchEgyptTravelDate);
+router.patch("/:id/egypt/flight-details", requireAuth, requireRole(...EGYPT_WORK), requireContactRequestOrganization, patchEgyptFlightDetails);
 // Publishes a prepared (draft) final file to the customer.
 router.post(
   "/:id/deliverables/:deliverableId/publish",

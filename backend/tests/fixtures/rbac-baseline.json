@@ -33,6 +33,7 @@
   "GET /api/contact-requests/:id/tasks": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/contact-requests/:id/timeline": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/contact-requests/:id/warnings": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "GET /api/contact-requests/egypt/alert-settings": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/contact-requests/egypt/queue": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/contact-requests/queue-summary": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/coupons": ["ADMIN", "SUPER_ADMIN"],
@@ -124,7 +125,9 @@
   "PATCH /api/branches/:id": ["SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/assign": ["ADMIN", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/documents/:documentId/status": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "PATCH /api/contact-requests/:id/egypt/flight-details": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/egypt/travel-date": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "PATCH /api/contact-requests/:id/priority": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/provider-submissions/:submissionId": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/status": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/tasks/:taskId/complete": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
@@ -255,5 +258,6 @@
   "POST /api/umrah-groups/:id/members": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "POST /api/users": ["SUPER_ADMIN"],
   "POST /api/visa-types": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
-  "POST /api/visa-types/:visaTypeId/requirements": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"]
+  "POST /api/visa-types/:visaTypeId/requirements": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
+  "PUT /api/contact-requests/egypt/alert-settings": ["ADMIN", "SUPER_ADMIN"]
 }

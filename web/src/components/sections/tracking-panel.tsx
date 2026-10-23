@@ -7,6 +7,13 @@ import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
 import { LegalDisclosure } from "@/components/legal-disclosure";
 import { customerErrorMessage } from "@/lib/network-error";
+import {
+  BankTransferPayment,
+  normalizeSettlementOptions,
+  type LegacyPaymentAccount,
+  type SettlementOption,
+} from "@/components/sections/payment-transfer";
+import { EgyptJourneySection, egyptDeliverableIds, type EgyptOverview } from "@/components/sections/egypt-journey-section";
 
 type TrackedRequestStatus = "NEW" | "CONTACTED" | "CLOSED";
 type InvoiceStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -17,8 +24,12 @@ type TrackedInvoice = {
   currency: string;
   description: string | null;
   status: InvoiceStatus;
-  // The quote version displayed; sent back with the customer's decision.
+  // The quote version displayed; sent back with the customer's decision
+  // and with a transfer receipt.
   version?: number;
+  // The SDG equivalent frozen on the invoice when it was issued.
+  amountSdg?: string | null;
+  exchangeRateToSdg?: string | null;
 };
 
 type TrackedOffer = {
@@ -27,6 +38,7 @@ type TrackedOffer = {
   description: string | null;
   amount: string;
   currency: string;
+  amountSdg?: string | null;
 };
 
 type DocumentStatus = "PENDING" | "ACCEPTED" | "REJECTED";
@@ -145,6 +157,11 @@ type TrackedRequest = {
   // Set when staff rejected the last receipt (the request is back to
   // AWAITING_TRANSFER): the customer sends a correct one.
   paymentRejection?: { reason: string; at: string | null } | null;
+  // How the payment may be settled (backend payment-settlement.service.js);
+  // absent on older servers, empty once the payment is no longer open.
+  paymentSettlementOptions?: SettlementOption[];
+  // Egypt security approval: timeline and typed files (egyptOverview).
+  egypt?: EgyptOverview | null;
   documents: TrackedDocument[];
   checklist?: ChecklistItem[];
   nextActions?: NextAction[];
@@ -625,57 +642,20 @@ function RequestOffersPanel({
   );
 }
 
-type TrackingPaymentAccount = {
-  id: string;
-  name: string;
-  bankName: string;
-  accountName: string;
-  accountNumber: string | null;
-  iban: string | null;
-  currency: string;
-};
-
-// The amount the customer pays: the selected offer, else the approved price.
-function amountDue(req: TrackedRequest): { amount: string; currency: string } | null {
+// The amount the customer pays: the selected offer, else the approved price,
+// with the SDG equivalent frozen on it when it was issued.
+function amountDue(req: TrackedRequest): { amount: string; currency: string; amountSdg: string | null } | null {
   const offer = req.selectedOfferId ? req.offers.find((o) => o.id === req.selectedOfferId) : null;
-  if (offer) return { amount: offer.amount, currency: offer.currency };
-  if (req.invoice?.status === "APPROVED") return { amount: req.invoice.amount, currency: req.invoice.currency };
+  if (offer) return { amount: offer.amount, currency: offer.currency, amountSdg: offer.amountSdg ?? null };
+  if (req.invoice?.status === "APPROVED") return { amount: req.invoice.amount, currency: req.invoice.currency, amountSdg: req.invoice.amountSdg ?? null };
   return null;
 }
 
-function CopyValue({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = React.useState(false);
-  return (
-    <div className="flex items-center gap-1">
-      <span dir="ltr" className="break-all font-bold">{value}</span>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        aria-label={`نسخ ${label}`}
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(value);
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 2000);
-          } catch {
-            // Clipboard is a convenience; the value stays visible to copy by hand.
-          }
-        }}
-      >
-        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-        <span className="text-xs">{copied ? "تم النسخ" : "نسخ"}</span>
-      </Button>
-    </div>
-  );
-}
-
-// The payment step, all in one place: the amount and currency, the agency's
-// accounts for that currency (bank, holder, number with copy) and the
-// receipt upload. Shown once per request, whichever pricing mechanism
-// (invoice or offers) got it to AWAITING_TRANSFER. A receipt only puts the
-// payment under review (backend uploadPaymentReceipt); it is never "paid"
-// until staff confirm it.
+// The payment step on /track: the same bank-transfer step as straight after
+// submission (payment-transfer.tsx) — amount, the accounts that may take it
+// and the receipt — plus «تم تحويل المبلغ» where the server allows it. A
+// receipt only puts the payment under review (backend uploadPaymentReceipt);
+// it is never "paid" until staff confirm it.
 function RequestPaymentStep({
   req,
   onActionComplete,
@@ -686,14 +666,13 @@ function RequestPaymentStep({
   const { acting, actionError, postAction } = useTrackingAction(onActionComplete);
   const due = amountDue(req);
   const open = req.status !== "CLOSED" && req.paymentStatus === "AWAITING_TRANSFER" && (mayDo(req, "UPLOAD_RECEIPT") || mayDo(req, "DECLARE_TRANSFER"));
-  const [accounts, setAccounts] = React.useState<TrackingPaymentAccount[] | null>(null);
+  // Older servers send no settlement options: the invoice-currency accounts.
+  const legacy = req.paymentSettlementOptions === undefined;
+  const [accounts, setAccounts] = React.useState<LegacyPaymentAccount[] | null>(null);
   const [accountsError, setAccountsError] = React.useState("");
-  const [file, setFile] = React.useState<File | null>(null);
-  const [uploading, setUploading] = React.useState(false);
-  const [uploadError, setUploadError] = React.useState("");
 
   React.useEffect(() => {
-    if (!open || !due) return;
+    if (!open || !due || !legacy) return;
     let active = true;
     fetch(`${API_URL}/tracking/payment-accounts?currency=${encodeURIComponent(due.currency)}`, { credentials: "include" })
       .then(async (res) => {
@@ -707,12 +686,12 @@ function RequestPaymentStep({
     return () => {
       active = false;
     };
-  }, [open, due?.currency]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, legacy, due?.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (req.status !== "CLOSED" && req.paymentStatus === "UNDER_REVIEW") {
     return (
       <div className="mt-4 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 text-sm" role="status" data-testid="payment-under-review">
-        <span className="font-bold text-foreground">الدفع قيد المراجعة</span>
+        <span className="font-bold text-foreground">بانتظار مراجعة الدفع</span>
         <p className="mt-1 text-xs text-muted-foreground">
           وصلنا إثبات التحويل وهو قيد المراجعة لدى المحاسب. لا يُعتبر الطلب مدفوعًا حتى يؤكد فريقنا استلام المبلغ.
         </p>
@@ -721,97 +700,54 @@ function RequestPaymentStep({
   }
   if (!open) return null;
 
-  async function uploadReceipt() {
-    if (!file) return;
-    if (!/^image\//.test(file.type) && file.type !== "application/pdf") {
-      setUploadError("ارفع صورة أو ملف PDF فقط.");
-      return;
-    }
-    setUploading(true);
-    setUploadError("");
+  // After a lost reply or a refused duplicate: true when the server already
+  // holds a receipt for this request (the list is then refreshed).
+  async function receiptAlreadySubmitted() {
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch(`${API_URL}/tracking/requests/${req.id}/payment-receipt`, { method: "POST", body: form, credentials: "include" });
+      const res = await fetch(`${API_URL}/tracking/requests`, { credentials: "include", cache: "no-store" });
       const payload = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(payload?.message || "تعذّر رفع الإيصال، حاول مرة أخرى");
-      setFile(null);
+      const current = (payload?.data as TrackedRequest[] | undefined)?.find((row) => row.id === req.id);
+      if (!res.ok || !current || (current.paymentStatus !== "UNDER_REVIEW" && current.paymentStatus !== "CONFIRMED")) return false;
       await onActionComplete();
-    } catch (err) {
-      setUploadError(customerErrorMessage(err, "تعذّر رفع الإيصال، حاول مرة أخرى"));
-    } finally {
-      setUploading(false);
+      return true;
+    } catch {
+      return false;
     }
   }
 
+  const options = legacy
+    ? normalizeSettlementOptions({ accounts, amount: due?.amount ?? null, currency: due?.currency ?? null })
+    : normalizeSettlementOptions({ settlementOptions: req.paymentSettlementOptions, amount: due?.amount ?? null, currency: due?.currency ?? null });
+  const optionsReady = !legacy || accounts !== null;
+
   return (
-    <div className="mt-4 rounded-xl border border-accent/40 bg-accent/5 p-4" data-testid="payment-step">
+    <div className="mt-4 rounded-xl border border-accent/40 bg-accent/5 p-3 min-[400px]:p-4" data-testid="payment-step">
       <span className="text-sm font-bold text-foreground">الدفع بالتحويل البنكي</span>
       {req.paymentRejection ? (
-        <p className="mt-2 rounded-lg border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400">
+        <p className="mt-2 rounded-lg border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-600 dark:text-red-400" role="alert">
           لم يُقبل الإيصال السابق: {req.paymentRejection.reason}. أرسل إيصالًا صحيحًا.
         </p>
       ) : null}
-      {due ? (
-        <div className="mt-3 flex items-center justify-between rounded-lg bg-background p-3 text-sm">
-          <span className="text-muted-foreground">المبلغ المطلوب</span>
-          <span className="font-black text-foreground" dir="ltr" data-testid="payment-amount">{formatMoney(due.amount, due.currency)}</span>
-        </div>
+      {accountsError ? <p className="mt-2 text-xs text-red-600 dark:text-red-400" role="alert">{accountsError}</p> : null}
+      {!optionsReady && !accountsError ? (
+        <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" /> جارٍ تحميل حسابات الدفع...</p>
       ) : null}
-
-      <div className="mt-3 flex flex-col gap-2">
-        {accountsError ? <p className="text-xs text-red-600 dark:text-red-400">{accountsError}</p> : null}
-        {accounts === null && !accountsError && due ? (
-          <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" /> جارٍ تحميل حسابات الدفع...</p>
-        ) : null}
-        {accounts?.length === 0 ? (
-          <p className="text-xs text-muted-foreground">لا يوجد حساب بعملة {due?.currency} حاليًا؛ تواصل معنا قبل التحويل.</p>
-        ) : null}
-        {accounts?.map((account) => (
-          <div key={account.id} className="rounded-lg border border-border bg-background p-3 text-sm" data-testid="payment-account">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">البنك</span>
-              <span className="font-bold">{account.bankName}</span>
-            </div>
-            <div className="mt-1 flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">صاحب الحساب</span>
-              <span className="font-bold text-end">{account.accountName}</span>
-            </div>
-            {account.accountNumber ? (
-              <div className="mt-1 flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">رقم الحساب</span>
-                <CopyValue value={account.accountNumber} label="رقم الحساب" />
-              </div>
-            ) : null}
-            {account.iban ? (
-              <div className="mt-1 flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">IBAN</span>
-                <CopyValue value={account.iban} label="IBAN" />
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
-
-      {mayDo(req, "UPLOAD_RECEIPT") ? (
-        <div className="mt-3 rounded-lg border border-border bg-background p-3">
-          <label className="text-sm font-semibold text-foreground" htmlFor={`receipt-${req.id}`}>
-            إيصال التحويل (صورة أو PDF)
-          </label>
-          <input
-            id={`receipt-${req.id}`}
-            type="file"
-            accept="image/*,application/pdf"
-            className="mt-2 block w-full text-xs"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
-          {uploadError ? <p className="mt-2 text-xs text-red-600 dark:text-red-400">{uploadError}</p> : null}
-          <Button type="button" size="sm" variant="gold" className="mt-2" disabled={!file || uploading} onClick={uploadReceipt}>
-            {uploading ? <Loader2 className="size-4 animate-spin" /> : null}
-            رفع الإيصال للمراجعة
-          </Button>
-          <p className="mt-2 text-[11px] text-muted-foreground">بعد الرفع يصبح الدفع «قيد المراجعة» حتى يؤكد فريقنا استلام المبلغ.</p>
-        </div>
+      {due && optionsReady ? (
+        <BankTransferPayment
+          idPrefix={`track-${req.id}`}
+          amount={due.amount}
+          currency={due.currency}
+          amountSdg={due.amountSdg}
+          options={options}
+          invoiceVersion={req.invoice?.version}
+          canUpload={mayDo(req, "UPLOAD_RECEIPT")}
+          submitLabel="رفع الإيصال للمراجعة"
+          receiptUrl={`${API_URL}/tracking/requests/${req.id}/payment-receipt`}
+          withCredentials
+          onSent={() => onActionComplete()}
+          checkAlreadySubmitted={receiptAlreadySubmitted}
+          refreshOptions={onActionComplete}
+        />
       ) : null}
 
       {mayDo(req, "DECLARE_TRANSFER") ? (
@@ -1231,7 +1167,10 @@ function RequestReference({ requestId }: { requestId: string }) {
 }
 
 function RequestDeliverablesPanel({ req }: { req: TrackedRequest }) {
-  if (req.deliverables.length === 0) {
+  // Egypt approval/circular/ticket files are listed in their own section.
+  const typed = egyptDeliverableIds(req.egypt);
+  const deliverables = req.deliverables.filter((deliverable) => !typed.has(deliverable.id));
+  if (deliverables.length === 0) {
     return null;
   }
 
@@ -1239,7 +1178,7 @@ function RequestDeliverablesPanel({ req }: { req: TrackedRequest }) {
     <div className="mt-4 rounded-xl border border-accent/30 bg-accent/5 p-4">
       <span className="text-sm font-semibold text-foreground">ملفاتك النهائية جاهزة</span>
       <ul className="mt-2 flex flex-col gap-2">
-        {req.deliverables.map((deliverable) => (
+        {deliverables.map((deliverable) => (
           <li key={deliverable.id}>
             <a
               href={`${API_URL}/tracking/requests/${req.id}/deliverables/${deliverable.id}/file`}
@@ -1466,6 +1405,15 @@ export function TrackingPanel() {
                   <p className="mt-1 text-sm text-muted-foreground">{req.outcomeNote}</p>
                 ) : null}
                 <RequestIntakeSummaryPanel req={req} />
+                {req.egypt && Array.isArray(req.egypt.timeline) ? (
+                  <EgyptJourneySection
+                    requestId={req.id}
+                    egypt={req.egypt}
+                    closed={req.status === "CLOSED"}
+                    canChooseFlight={req.status !== "CLOSED" && Boolean(req.allowedActions?.includes("REQUEST_FLIGHT_BOOKING"))}
+                    onActionComplete={refreshRequests}
+                  />
+                ) : null}
                 <div id={`deliverables-${req.id}`} className="scroll-mt-24">
                   <RequestDeliverablesPanel req={req} />
                 </div>

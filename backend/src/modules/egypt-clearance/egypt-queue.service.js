@@ -4,6 +4,7 @@
 import prisma from "../../config/database.js";
 import { evaluateReadiness } from "../contact-request-workflow/workflow-policy.js";
 import { EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "./egypt-clearance-variants.js";
+import { alertSettings } from "./alert-settings.service.js";
 import { approvalIssuedOn, calendarDaysUntil, circularState, isApprovalIssued, linkedFlightInquiry, travelPreparation, travelTickets, REMINDER_DAYS_BEFORE } from "./egypt-approval-rules.js";
 
 const EGYPT_CODES = [EGYPT_CLEARANCE_CODE, ...EGYPT_CLEARANCE_VARIANTS.map((variant) => variant.code)];
@@ -51,14 +52,15 @@ export function egyptStage(request) {
   return circular === "PROCESSING" ? "CIRCULAR_PROCESSING" : "CIRCULAR_PENDING";
 }
 
-// imminent: travel within REMINDER_DAYS_BEFORE days; overdue: the date has
-// passed while the request is still open.
-export function scheduleFlags(travelDate, status, now = new Date()) {
+// imminent: travel within the reminder lead time (administrator setting,
+// default REMINDER_DAYS_BEFORE days); overdue: the date has passed while
+// the request is still open.
+export function scheduleFlags(travelDate, status, now = new Date(), leadDays = REMINDER_DAYS_BEFORE) {
   if (!travelDate) return { daysUntil: null, imminent: false, overdue: false, missingDate: true };
   const daysUntil = calendarDaysUntil(travelDate, now);
   return {
     daysUntil,
-    imminent: status !== "CLOSED" && daysUntil !== null && daysUntil >= 0 && daysUntil <= REMINDER_DAYS_BEFORE,
+    imminent: status !== "CLOSED" && daysUntil !== null && daysUntil >= 0 && daysUntil <= leadDays,
     overdue: status !== "CLOSED" && daysUntil !== null && daysUntil < 0,
     missingDate: false,
   };
@@ -90,10 +92,23 @@ export const EGYPT_QUEUE_FILTERS = Object.freeze({
   AWAITING_TRAVEL_DETAILS: (row) => row.approvalIssued && !row.preparationComplete,
   AWAITING_TICKET: (row) => row.ticketStatus === "MISSING" || row.ticketStatus === "BOOKING_REQUESTED",
   WITHIN_3_DAYS: (row) => row.imminent,
-  URGENT: (row) => row.overdue || (row.imminent && row.circularStatus !== "ISSUED"),
+  URGENT: (row) => row.overdue || row.priority === "URGENT" || (row.imminent && row.circularStatus !== "ISSUED"),
+  UNASSIGNED: (row) => !row.assignedUser && row.status !== "CLOSED",
+  HIGH_PRIORITY: (row) => row.priority === "HIGH" || row.priority === "URGENT",
+  PAST_DUE: (row) => row.pastDue,
 });
 
-export function toQueueRow(request, now = new Date()) {
+const PRIORITY_RANK = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
+
+// Where the traveler enters Egypt: the crossing (overland) or the arrival
+// airport given with the request (air).
+export function entryPoint(preparation, route) {
+  if (preparation.entryMode === "BORDER") return route?.entryPort || null;
+  if (preparation.entryMode === "AIR") return route?.arrivalAirport || null;
+  return null;
+}
+
+export function toQueueRow(request, now = new Date(), leadDays = REMINDER_DAYS_BEFORE) {
   const preparation = travelPreparation(request);
   const stage = egyptStage(request);
   const linked = linkedFlightInquiry(request);
@@ -105,6 +120,11 @@ export function toQueueRow(request, now = new Date()) {
     email: request.email || null,
     entryMode: preparation.entryMode,
     route: request.intakeData?.egyptRoute || null,
+    entryPoint: entryPoint(preparation, request.intakeData?.egyptRoute),
+    priority: request.priority || "NORMAL",
+    dueAt: request.dueAt || null,
+    pastDue: Boolean(request.dueAt) && request.status !== "CLOSED" && new Date(request.dueAt) < now,
+    flightDetailsVerified: Boolean(request.intakeData?.egyptTravel?.flightDetails?.verifiedAt),
     travelerCount: request.travelers?.length || request.travelerCount || 1,
     travelers: (request.travelers || []).map((t) => t.fullName),
     status: request.status,
@@ -127,24 +147,28 @@ export function toQueueRow(request, now = new Date()) {
     ticketStatus: ticketStatus(request, preparation),
     // Required documents still missing, rejected or waiting for review.
     documentIssues: evaluateReadiness(request).reasons.filter((r) => r.code.startsWith("DOCUMENTS_")).map((r) => r.message),
-    ...scheduleFlags(preparation.travelDate, request.status, now),
+    ...scheduleFlags(preparation.travelDate, request.status, now, leadDays),
   };
 }
 
-function withNextAction(request, now) {
-  const row = toQueueRow(request, now);
+function withNextAction(request, now, leadDays) {
+  const row = toQueueRow(request, now, leadDays);
   return { ...row, nextAction: nextStaffAction(request, row) };
 }
 
 // filters: stage, entryMode (AIR|BORDER), from/to (travel date, YYYY-MM-DD),
 // search (name, phone, reference), view "schedule" (by nearest travel date,
 // dateless last) or default (newest first). Closed requests only on demand.
-export async function listEgyptQueue(organizationId, { stage, filter, entryMode, from, to, search, view, includeClosed = false, now = new Date() } = {}) {
+// assignee: "mine" (with `userId`), "unassigned" or a user id.
+export async function listEgyptQueue(organizationId, { stage, filter, entryMode, from, to, search, view, assignee, userId = null, includeClosed = false, now = new Date() } = {}) {
   const term = typeof search === "string" ? search.trim() : "";
+  const { travelReminderDaysBefore: leadDays } = await alertSettings(undefined, organizationId);
+  const assigneeWhere = assignee === "unassigned" ? { assignedUserId: null } : assignee === "mine" ? { assignedUserId: userId } : assignee ? { assignedUserId: assignee } : {};
   const requests = await prisma.contactRequest.findMany({
     where: {
       organizationId,
       visaType: { code: { in: EGYPT_CODES } },
+      ...assigneeWhere,
       ...(includeClosed || stage === "CLOSED" ? {} : { status: { not: "CLOSED" } }),
       ...(from || to ? { travelEntryDate: { ...(from ? { gte: new Date(`${from}T00:00:00.000Z`) } : {}), ...(to ? { lte: new Date(`${to}T00:00:00.000Z`) } : {}) } } : {}),
       ...(term
@@ -159,23 +183,25 @@ export async function listEgyptQueue(organizationId, { stage, filter, entryMode,
   });
   const truncated = requests.length > QUEUE_LIMIT;
   if (truncated) requests.length = QUEUE_LIMIT;
-  const all = requests.map((request) => withNextAction(request, now));
+  const all = requests.map((request) => withNextAction(request, now, leadDays));
   let rows = all;
   if (stage) rows = rows.filter((row) => row.stage === stage);
   if (filter && EGYPT_QUEUE_FILTERS[filter]) rows = rows.filter(EGYPT_QUEUE_FILTERS[filter]);
   if (entryMode) rows = rows.filter((row) => row.entryMode === entryMode);
   if (view === "schedule") {
+    // Nearest travel date first; same date: higher priority first.
     rows.sort((a, b) => {
-      if (!a.travelDate && !b.travelDate) return 0;
+      if (!a.travelDate && !b.travelDate) return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
       if (!a.travelDate) return 1;
       if (!b.travelDate) return -1;
-      return a.travelDate < b.travelDate ? -1 : a.travelDate > b.travelDate ? 1 : 0;
+      if (a.travelDate !== b.travelDate) return a.travelDate < b.travelDate ? -1 : 1;
+      return (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2);
     });
   }
   const counts = Object.fromEntries(EGYPT_QUEUE_STAGES.map((key) => [key, 0]));
   for (const row of all) counts[row.stage] += 1;
   const filterCounts = Object.fromEntries(Object.entries(EGYPT_QUEUE_FILTERS).map(([key, test]) => [key, all.filter(test).length]));
-  return { rows, counts, filterCounts, stageLabels: EGYPT_STAGE_LABELS, truncated };
+  return { rows, counts, filterCounts, stageLabels: EGYPT_STAGE_LABELS, truncated, leadDays };
 }
 
 // The Egypt part of the staff workspace for one request.
@@ -208,5 +234,6 @@ export async function getEgyptWorkspace(contactRequestId, organizationId) {
     passportQuality: request.documents.filter((d) => d.qualitySignal).map((d) => ({ documentId: d.id, label: d.label, travelerId: d.travelerId, warnings: d.qualitySignal.warnings || [], checks: d.qualitySignal.checks || null })),
     circularProcessingAt: request.circularProcessingAt,
     travelScheduleRevision: request.travelScheduleRevision,
+    flightDetails: request.intakeData?.egyptTravel?.flightDetails || null,
   };
 }

@@ -55,13 +55,14 @@ describe("Egypt approval rules", () => {
     assert.equal(timeline.find((s) => s.key === "TRAVEL_PREPARATION").state, "current");
   });
 
-  test("the timeline has the six customer steps in order", () => {
+  test("the timeline has the seven customer steps in order", () => {
     assert.deepEqual(egyptTimeline(egypt({ paymentStatus: "AWAITING_TRANSFER" })).map((s) => [s.label, s.state]), [
       ["تم استلام الطلب", "done"],
       ["تم تأكيد الدفع", "current"],
       ["جاري إصدار الموافقة", "upcoming"],
       ["تم إصدار الموافقة", "upcoming"],
-      ["تجهيز السفر والتعميم", "upcoming"],
+      ["تجهيز بيانات السفر", "upcoming"],
+      ["جاري إصدار التعميم", "upcoming"],
       ["تم إصدار التعميم", "upcoming"],
     ]);
   });

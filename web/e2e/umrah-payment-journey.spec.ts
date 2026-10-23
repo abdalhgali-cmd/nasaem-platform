@@ -120,6 +120,7 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     const step = page.getByTestId("payment-step");
     await expect(step.getByTestId("payment-amount")).toHaveText("2,500 SAR", { timeout: 15_000 });
     await expect(step.getByTestId("payment-account").filter({ hasText: accountNumber })).toContainText("بنك العمرة للاختبار");
+    await step.getByTestId("payment-account").filter({ hasText: accountNumber }).getByRole("radio").check();
     await step.getByTestId("payment-receipt-input").setInputFiles(FIXTURE);
     const uploaded = page.waitForResponse((r) => r.url().includes("/payment-access/receipt"));
     await step.getByRole("button", { name: "إرسال الطلب للمراجعة" }).click();

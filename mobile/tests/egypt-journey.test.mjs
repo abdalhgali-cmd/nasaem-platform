@@ -81,3 +81,17 @@ test("the three application steps mark done, current and upcoming", () => {
   assert.match(html, /aria-current="step"[\s\S]*البيانات والجوازات/);
   assert.match(html, /egypt-step-upcoming[\s\S]*الدفع/);
 });
+
+test("circular in progress: the current step says the agency is preparing it (current servers send CIRCULAR_IN_PROGRESS)", () => {
+  const keys = ["RECEIVED", "PAYMENT_CONFIRMED", "APPROVAL_IN_PROGRESS", "APPROVAL_ISSUED", "TRAVEL_PREPARATION", "CIRCULAR_IN_PROGRESS", "CIRCULAR_ISSUED"];
+  const states = ["done", "done", "done", "done", "done", "current", "upcoming"];
+  const r = request({
+    approval: { issued: true, files: [{ id: "a1" }] },
+    circular: { status: "PROCESSING", files: [] },
+    travel: { travelDate: "2030-01-01", missing: [], preparationComplete: true, customerCanEdit: true },
+    timeline: keys.map((key, i) => ({ key, label: key, state: states[i] })),
+  });
+  const step = egyptJourney(r).stages.find((s) => s.key === "CIRCULAR_IN_PROGRESS");
+  assert.equal(step.state, "current");
+  assert.equal(step.detail, "تجهّز الوكالة التعميم.");
+});

@@ -1342,6 +1342,9 @@ model ContactRequest {
   // be finished. Null means "no expectation recorded" — never a guess, and
   // never surfaced to a customer as a promise (see deriveSlaState).
   dueAt                  DateTime?
+  // Staff priority (LOW | NORMAL | HIGH | URGENT), set by staff with dueAt
+  // (case-priority PATCH); orders the work queues, never shown to customers.
+  priority               String                      @default("NORMAL")
   // Egypt security approval. The canonical travel (entry) date: one typed,
   // indexed date that schedules the staff reminders and the travel queue
   // (intakeData.egyptTravel.entryDate is kept equal for older clients).
@@ -1360,6 +1363,7 @@ model ContactRequest {
   parentRequest          ContactRequest?             @relation("LinkedRequests", fields: [parentRequestId], references: [id], onDelete: SetNull)
   linkedRequests         ContactRequest[]            @relation("LinkedRequests")
   travelReminders        TravelReminder[]
+  operationalAlerts      OperationalAlert[]
   paymentReceipt         PaymentReceipt?
   serviceRef             Service?                    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   visaType               VisaType?                   @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
@@ -1755,6 +1759,22 @@ model RevokedStaffToken {
 // already SENT for that date is never sent again. A changed date supersedes
 // the rows of the old date; a closed request cancels them.
 // status: SCHEDULED | SENT | CANCELLED | SUPERSEDED. kind: THREE_DAY | URGENT.
+// Recurring staff alerts (operational-alerts.service.js): one row per
+// occurrence of a condition, so an alert is never raised twice for the same
+// receipt, payment confirmation or travel date.
+model OperationalAlert {
+  id               String   @id @default(cuid())
+  contactRequestId String
+  kind             String
+  cycleKey         String
+  createdAt        DateTime @default(now())
+
+  contactRequest ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([contactRequestId, kind, cycleKey])
+  @@index([kind, createdAt])
+}
+
 model TravelReminder {
   id               String    @id @default(cuid())
   contactRequestId String
