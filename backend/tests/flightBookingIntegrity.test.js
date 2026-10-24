@@ -37,7 +37,7 @@ function book(overrides = {}) {
     flightId,
     currency: "SDG",
     contact: { fullName: "Synthetic Traveler", phone },
-    passengers: [{ firstName: "SYN", lastName: "TRAVELER", nationality: "SD", passportNo: `SP${uniqueSuffix()}` }],
+    passengers: [{ firstName: "SYN", lastName: "TRAVELER", nationality: "SD", birthDate: "1990-01-01", passportNo: `SP${uniqueSuffix()}` }],
     ...overrides,
   }).then((res) => ({ res, phone }));
 }

@@ -98,33 +98,98 @@ async function transition(db, bookingId, allowedStatuses, setSql, params) {
 }
 
 // The price comes from the flight inventory, never from the request: a
-// booking costs the sum of its selected segments' SDG prices (the same
-// rule the booking page displays). A client-sent amount that no longer
-// matches (price or FX rate changed since the page loaded) is refused so
-// the customer sees the current price instead of being charged another.
-async function priceFlights(flightIds) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, active, price_sdg FROM flight_inventory WHERE id = ANY($1::text[])`,
+// booking costs, for each selected segment, its SDG seat price times the
+// passengers who take a seat (adults and children; the inventory holds one
+// seat price). A client-sent amount that no longer matches (price, FX rate
+// or passengers changed since the page loaded) is refused so the customer
+// sees the current price instead of being charged another.
+//
+// Only the agency's own inventory is bookable: provider (Trip.com) results
+// are shown for reference and have no inventory row. Run inside the booking
+// transaction: the rows are locked so a staff edit of the seats or the
+// price cannot slip between this check and the insert. `available_seats`
+// is the number staff maintain (NULL = not tracked); it is checked, not
+// decremented.
+async function priceFlights(db, flightIds, passengers) {
+  if (flightIds.some((id) => id.startsWith("TRIP:"))) {
+    throw httpError(409, "هذه الرحلة من مزود خارجي وغير قابلة للحجز المباشر. تواصل مع فريق نسائم لتأكيد توفرها وسعرها.", "FLIGHT_NOT_BOOKABLE");
+  }
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, active, price_sdg, available_seats, departure_at FROM flight_inventory WHERE id = ANY($1::text[]) ORDER BY id FOR UPDATE`,
     flightIds
   );
   const byId = new Map(rows.map((row) => [row.id, row]));
+  const seated = passengers.length;
   let total = new Prisma.Decimal(0);
   for (const id of flightIds) {
     const row = byId.get(id);
     if (!row || !row.active) throw badRequest("إحدى الرحلات المختارة غير متاحة.", "FLIGHT_UNAVAILABLE");
+    if (new Date(row.departure_at) <= new Date()) throw httpError(409, "إحدى الرحلات المختارة غادرت بالفعل.", "FLIGHT_DEPARTED");
+    if (row.available_seats !== null && row.available_seats !== undefined && Number(row.available_seats) < seated) {
+      throw httpError(409, "لا تتوفر مقاعد كافية على إحدى الرحلات المختارة.", "FLIGHT_SOLD_OUT");
+    }
     if (row.price_sdg === null || row.price_sdg === undefined) throw badRequest("إحدى الرحلات المختارة بلا سعر صالح.", "FLIGHT_UNPRICED");
-    total = total.plus(row.price_sdg);
+    total = total.plus(new Prisma.Decimal(row.price_sdg).times(seated));
   }
+  checkPassengerAges(passengers, new Date(Math.min(...rows.map((row) => new Date(row.departure_at).getTime()))));
   return total.toDecimalPlaces(2);
 }
 
+function ageOn(birthDate, date) {
+  let age = date.getUTCFullYear() - birthDate.getUTCFullYear();
+  if (date.getUTCMonth() < birthDate.getUTCMonth() || (date.getUTCMonth() === birthDate.getUTCMonth() && date.getUTCDate() < birthDate.getUTCDate())) age -= 1;
+  return age;
+}
+
+// An exact YYYY-MM-DD that is a real calendar day (no "2025-02-30", no
+// trailing text), as a UTC midnight.
+function parseBirthDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.getUTCMonth() === Number(match[2]) - 1 && date.getUTCDate() === Number(match[3]) ? date : null;
+}
+
+// The category is the customer's label; the birth date decides it (age on
+// the first departure, the same rule the booking form applies): an adult
+// is 12 or older, a child 2 to 11, and anyone under 2 is an infant, who is
+// quoted by staff whatever the label says. The departure's UTC calendar day
+// is the travel date the form checks against: flight search matches a
+// searched date as a UTC day (flights.service.js buildRouteWhere).
+function checkPassengerAges(passengers, firstDeparture) {
+  for (const p of passengers) {
+    const birthDate = parseBirthDate(p.birthDate);
+    if (!birthDate || birthDate > firstDeparture) throw badRequest("تاريخ ميلاد أحد المسافرين غير صالح.", "INVALID_BIRTH_DATE");
+    const age = ageOn(birthDate, firstDeparture);
+    if (age < 2) throw httpError(409, "الحجز مع رضيع يُسعَّر من فريق نسائم. تواصل معنا لإتمام الحجز.", "INFANT_REQUIRES_QUOTE");
+    const type = p.passengerType || "ADULT";
+    if ((type === "ADULT" && age < 12) || (type === "CHILD" && age >= 12)) {
+      throw badRequest("فئة المسافر لا تطابق عمره في تاريخ السفر: البالغ 12+، الطفل 2–11.", "PASSENGER_AGE_MISMATCH");
+    }
+  }
+}
+
+const PASSENGER_TYPES = new Set(["ADULT", "CHILD", "INFANT"]);
+
+// A passenger without a type is an adult (older clients). An infant has no
+// seat price in the inventory, so a booking with an infant is quoted by staff
+// instead of priced here (the birth date is checked too, in priceFlights).
 function validatePassengers(passengers) {
   if (!Array.isArray(passengers) || passengers.length === 0) throw badRequest("At least one passenger is required");
   if (passengers.length > 9) throw badRequest("الحد الأقصى 9 مسافرين في الحجز الواحد.");
   for (const p of passengers) {
-    if (!p || !String(p.firstName || "").trim() || !String(p.lastName || "").trim() || !String(p.passportNo || "").trim()) {
-      throw badRequest("أكمل بيانات المسافرين (الاسم ورقم الجواز).");
+    if (!p || !String(p.firstName || "").trim() || !String(p.lastName || "").trim() || !String(p.passportNo || "").trim() || !String(p.birthDate || "").trim()) {
+      throw badRequest("أكمل بيانات المسافرين (الاسم ورقم الجواز وتاريخ الميلاد).");
     }
+    if (p.passengerType !== undefined && p.passengerType !== null && !PASSENGER_TYPES.has(p.passengerType)) {
+      throw badRequest("فئة المسافر غير صالحة.", "INVALID_PASSENGER_TYPE");
+    }
+  }
+  if (passengers.some((p) => p.passengerType === "INFANT")) {
+    throw httpError(409, "الحجز مع رضيع يُسعَّر من فريق نسائم. تواصل معنا لإتمام الحجز.", "INFANT_REQUIRES_QUOTE");
+  }
+  if (!passengers.some((p) => (p.passengerType || "ADULT") === "ADULT")) {
+    throw badRequest("يجب أن يشمل الحجز مسافرًا بالغًا واحدًا على الأقل.", "ADULT_REQUIRED");
   }
 }
 
@@ -175,13 +240,12 @@ export async function createFlightBooking(input) {
   if (!input.contact?.phone) throw badRequest("Phone is required");
   if (input.currency && input.currency !== "SDG") throw badRequest("أسعار حجوزات الطيران بالجنيه السوداني فقط.", "CURRENCY_MISMATCH");
 
-  const amount = await priceFlights(flightIds);
-  if (input.amount !== undefined && input.amount !== null && !new Prisma.Decimal(Number(input.amount) || 0).toDecimalPlaces(2).equals(amount)) {
-    throw httpError(409, `تغيّر سعر الرحلة. السعر الحالي ${amount.toFixed(2)} ج.س — راجع الحجز وأعد الإرسال.`, "PRICE_CHANGED");
-  }
-
   const id = crypto.randomUUID();
   await prisma.$transaction(async (tx) => {
+    const amount = await priceFlights(tx, flightIds, input.passengers);
+    if (input.amount !== undefined && input.amount !== null && !new Prisma.Decimal(Number(input.amount) || 0).toDecimalPlaces(2).equals(amount)) {
+      throw httpError(409, `تغيّر سعر الحجز. الإجمالي الحالي ${amount.toFixed(2)} ج.س لجميع المسافرين — راجع الحجز وأعد الإرسال.`, "PRICE_CHANGED");
+    }
     const { customer, order } = await ensureOrderAndCustomer(tx, input, amount);
     await tx.$executeRawUnsafe(
       `INSERT INTO flight_bookings (id,booking_number,order_id,customer_id,flight_id,status,passengers,amount,currency,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6::jsonb,$7::numeric,'SDG',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
