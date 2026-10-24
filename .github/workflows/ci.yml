@@ -227,7 +227,9 @@ jobs:
       DATABASE_URL: postgresql://postgres:password@localhost:5432/nasaem_platform_dev?schema=public
       JWT_SECRET: ci_test_secret_do_not_use_in_production
       JWT_EXPIRES_IN: 7d
-      CORS_ORIGIN: http://localhost:3000,http://localhost:8081
+      # Written the way staging had it (trailing "/"): the website must still
+      # be granted CORS (backend/src/utils/allowedOrigins.js, staging 2026-10-24).
+      CORS_ORIGIN: http://localhost:3000/,http://localhost:8081
       SEED_ADMIN_PASSWORD: CiTest@12345
       API_RATE_LIMIT: 2000
       PUBLIC_CONTACT_RATE_LIMIT: 80

@@ -81,6 +81,16 @@ describe("Egypt Security Approval — intake draft submission", () => {
     const submitRes = await request(app).post(`/api/intake-drafts/${token}/submit`).send({});
     assert.equal(submitRes.status, 201, JSON.stringify(submitRes.body));
     assert.ok(submitRes.body.data.id, "expected a created ContactRequest id back");
+
+    // Staging regression (2026-10-24): repeating the submission (a retry
+    // after a lost response, a double click) answered 400 "upload the
+    // passport", because the passport had moved to the new request. It must
+    // say "already submitted" and create nothing.
+    const before = await prisma.contactRequest.count();
+    const again = await request(app).post(`/api/intake-drafts/${token}/submit`).send({});
+    assert.equal(again.status, 409, JSON.stringify(again.body));
+    assert.equal(again.body.message, "تم إرسال هذا الطلب بالفعل");
+    assert.equal(await prisma.contactRequest.count(), before, "no second request");
   });
 
   // Regression for a second, more severe bug this same OCR-enabled

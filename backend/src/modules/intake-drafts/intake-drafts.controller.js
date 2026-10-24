@@ -158,6 +158,11 @@ export async function submitDraftController(req, res, next) {
     // UI-required attributes alone are not a security/business-rule boundary.
     const draft = await getDraftByToken(req.params.token);
     if (!draft) return res.status(404).json({ success: false, message: "Draft not found" });
+    // A repeat of a submission that already succeeded (a retry after a lost
+    // response, a double click, a second tab) says so. Checked before the
+    // Egypt rules: the submitted draft's passport now belongs to the request,
+    // so they would wrongly ask the customer to upload it again.
+    if (draft.submittedContactRequestId) return respondToDraftError(res, { error: "ALREADY_SUBMITTED" });
     const egyptValidation = await validateEgyptClearanceDraft(draft);
     if (egyptValidation) {
       const errorResponse = respondToDraftError(res, egyptValidation);
