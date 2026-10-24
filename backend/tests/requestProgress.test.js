@@ -105,7 +105,10 @@ describe("service-specific request progress", () => {
     assert.ok(delivered.steps.filter((s) => s.key !== "TRAVEL_PLAN").every((s) => s.state === "done"));
     assert.equal(delivered.steps.find((s) => s.key === "TRAVEL_PLAN").state, "current");
     assert.ok(delivered.completionBlockers.some((b) => b.code === "TRAVEL_PLAN_MISSING"));
-    const withPlan = deriveRequestProgress(req({ visaType: { code: "VISA-EGYPT-CLEARANCE" }, paymentStatus: "CONFIRMED", invoice: { status: "APPROVED" }, executionStartedAt: new Date(), intakeData: { egyptTravel: { entryMode: "AIR", bookingStatus: "NEEDS_NASAEM", entryDate: "2030-01-01" } }, tasks: [], deliverables: [{ id: "d", kind: "APPROVAL", publishedAt: new Date() }] }));
+    const planned = { visaType: { code: "VISA-EGYPT-CLEARANCE" }, paymentStatus: "CONFIRMED", invoice: { status: "APPROVED" }, executionStartedAt: new Date(), intakeData: { egyptTravel: { entryMode: "AIR", bookingStatus: "NEEDS_NASAEM", entryDate: "2030-01-01" } }, tasks: [] };
+    const noCircular = deriveRequestProgress(req({ ...planned, deliverables: [{ id: "d", kind: "APPROVAL", publishedAt: new Date() }] }));
+    assert.deepEqual(noCircular.completionBlockers.map((b) => b.code), ["CIRCULAR_NOT_ISSUED"]);
+    const withPlan = deriveRequestProgress(req({ ...planned, deliverables: [{ id: "d", kind: "APPROVAL", publishedAt: new Date() }, { id: "c", kind: "CIRCULAR", publishedAt: new Date() }] }));
     assert.ok(withPlan.steps.every((s) => s.state === "done"));
     assert.deepEqual(withPlan.completionBlockers, []);
     const completed = deriveRequestProgress(req({ status: "CLOSED", outcome: "COMPLETED", paymentStatus: "CONFIRMED", deliverables: [{ id: "d", publishedAt: new Date() }] }));

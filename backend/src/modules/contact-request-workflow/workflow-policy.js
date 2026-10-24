@@ -292,6 +292,13 @@ export function egyptTravelBlockers(request) {
   if (openTasks.length) {
     reasons.push({ code: "TRAVEL_TASKS_OPEN", message: `مهام السفر لم تُنجز بعد: ${openTasks.map((t) => t.title).join("، ")}.` });
   }
+  // The journey ends with the circular, by air and over land; a completed
+  // task alone is not the file the customer travels with.
+  const entryPort = travelPreparation(request).missing.find((m) => m.code === "ENTRY_PORT_MISSING");
+  if (entryPort) reasons.push(entryPort);
+  if (circularState(request).status !== "ISSUED") {
+    reasons.push({ code: "CIRCULAR_NOT_ISSUED", message: "لم يُرفع ملف التعميم بعد." });
+  }
   return reasons;
 }
 
