@@ -130,6 +130,8 @@ export function FlightBookingClient({ flights, passengerCounts, travelDate, onCl
     try {
       const response = await fetch(`${API_URL}/flight-bookings`, {
         method: "POST",
+        // A logged-in customer's session books under their own account.
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           flightIds: flights.map((f) => f.id),

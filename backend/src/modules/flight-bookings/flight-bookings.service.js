@@ -7,6 +7,7 @@ import { resolveUploadPath, resolveStoredUploadPath } from "../../config/uploadR
 import { publicOrganizationId } from "../../utils/publicOrganization.js";
 import { detectMimeTypeFromSignature, ALLOWED_MIME_TYPES } from "../../middleware/upload.middleware.js";
 import { lockOrder, recalculateOrderPaymentStatus } from "../payments/payments.service.js";
+import { withoutPassportNumbers } from "../../utils/passportMask.js";
 
 const { Prisma } = prismaPackage;
 
@@ -197,27 +198,35 @@ function validatePassengers(passengers) {
 // organization. A client-supplied customerId is never trusted (this route is
 // unauthenticated: honouring it would attach the booking, and the phone
 // check that protects its documents, to someone else's record).
-async function ensureOrderAndCustomer(tx, input, amount) {
+//
+// Never matched to an existing customer by passport or phone (AUDIT-00
+// G-27, owner rule): every public booking gets its own customer record,
+// holding the booker's own contact phone, so the phone check that protects
+// the booking is always the booker's. Passport numbers stay on the
+// passengers (no customer passport, no invented "TEMP-…" values); linking
+// records is a staff decision, never inferred. The one exception is not an
+// inference: a customer logged in with a verified session (sessionCustomer,
+// from the server's own session check) books under their own account —
+// only when the contact phone is the account's, since the booking's
+// follow-up (lookup, receipt, files) is checked against the account phone.
+async function ensureOrderAndCustomer(tx, input, amount, sessionCustomer) {
   const organizationId = publicOrganizationId();
   const first = input.passengers[0];
-  const passportNo = String(input.contact?.passportNo || first?.passportNo || "").trim();
-  let customer = passportNo ? await tx.customer.findFirst({ where: { passportNo, organizationId } }) : null;
-  if (!customer) {
-    const passportTaken = passportNo ? await tx.customer.findUnique({ where: { passportNo }, select: { id: true } }) : null;
-    customer = await tx.customer.create({
-      data: {
-        organizationId,
-        customerNo: `CUS-${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
-        fullName: String(input.contact?.fullName || `${first?.firstName || ""} ${first?.lastName || ""}`).trim().slice(0, 200),
-        passportNo: passportNo && !passportTaken ? passportNo : `${passportNo || "TEMP"}-${Date.now()}`,
-        nationality: String(first?.nationality || "UNKNOWN").trim().slice(0, 80),
-        birthDate: first?.birthDate ? new Date(first.birthDate) : null,
-        gender: ["MALE", "FEMALE"].includes(first?.gender) ? first.gender : null,
-        phone: input.contact?.phone || null,
-        email: input.contact?.email || null,
-      },
-    });
-  }
+  const sessionAccount = sessionCustomer?.organizationId === organizationId ? await tx.customer.findUnique({ where: { id: sessionCustomer.id } }) : null;
+  const account = sessionAccount?.phone && normalizePhone(sessionAccount.phone) === normalizePhone(input.contact?.phone) ? sessionAccount : null;
+  const customer = account || await tx.customer.create({
+    data: {
+      organizationId,
+      customerNo: `CUS-${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
+      fullName: String(input.contact?.fullName || `${first?.firstName || ""} ${first?.lastName || ""}`).trim().slice(0, 200),
+      passportNo: null,
+      nationality: String(first?.nationality || "UNKNOWN").trim().slice(0, 80),
+      birthDate: first?.birthDate ? new Date(first.birthDate) : null,
+      gender: ["MALE", "FEMALE"].includes(first?.gender) ? first.gender : null,
+      phone: input.contact?.phone || null,
+      email: input.contact?.email || null,
+    },
+  });
   const order = await tx.order.create({
     data: {
       organizationId,
@@ -232,7 +241,7 @@ async function ensureOrderAndCustomer(tx, input, amount) {
   return { customer, order };
 }
 
-export async function createFlightBooking(input) {
+export async function createFlightBooking(input, { sessionCustomer = null } = {}) {
   const flightIds = Array.isArray(input.flightIds) && input.flightIds.length ? input.flightIds.map(String) : input.flightId ? [String(input.flightId)] : [];
   if (!flightIds.length) throw badRequest("At least one flight is required");
   if (flightIds.length > 6) throw badRequest("عدد القطاعات كبير جدًا.");
@@ -246,7 +255,7 @@ export async function createFlightBooking(input) {
     if (input.amount !== undefined && input.amount !== null && !new Prisma.Decimal(Number(input.amount) || 0).toDecimalPlaces(2).equals(amount)) {
       throw httpError(409, `تغيّر سعر الحجز. الإجمالي الحالي ${amount.toFixed(2)} ج.س لجميع المسافرين — راجع الحجز وأعد الإرسال.`, "PRICE_CHANGED");
     }
-    const { customer, order } = await ensureOrderAndCustomer(tx, input, amount);
+    const { customer, order } = await ensureOrderAndCustomer(tx, input, amount, sessionCustomer);
     await tx.$executeRawUnsafe(
       `INSERT INTO flight_bookings (id,booking_number,order_id,customer_id,flight_id,status,passengers,amount,currency,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6::jsonb,$7::numeric,'SDG',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
       id, bookingNumber(), order.id, customer.id, JSON.stringify(flightIds), JSON.stringify(input.passengers), amount.toFixed(2)
@@ -332,7 +341,8 @@ export async function listFlightBookings(status, organizationId, search) {
      ORDER BY fb.created_at DESC LIMIT 200`,
     ...params
   );
-  return rows.map(mapBookingRow);
+  // A list never carries passport numbers; the single-booking view does.
+  return rows.map((row) => ({ ...mapBookingRow(row), passengers: withoutPassportNumbers(row.passengers) }));
 }
 
 export async function uploadProvisionalTicket(id, file, organizationId) {

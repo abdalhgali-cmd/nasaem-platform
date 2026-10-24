@@ -1,5 +1,6 @@
 import path from "path";
 import prismaPackage from "@prisma/client";
+import { withMaskedTravelers } from "../../utils/passportMask.js";
 import { publicOrganizationId } from "../../utils/publicOrganization.js";
 import { pendingConfirmationCreate, sendRequestConfirmations } from "../customer-messages/customer-messages.service.js";
 import prisma from "../../config/database.js";
@@ -593,7 +594,9 @@ export async function listContactRequests({ page, limit, skip, status, organizat
   ]);
 
   return {
-    data: data.map((contactRequest) => ({ ...contactRequest, readiness: computeReadiness(contactRequest), progress: deriveRequestProgress(contactRequest) })),
+    // Readiness is computed on the full rows; the list itself never carries
+    // full passport numbers (the request's own page does).
+    data: data.map((contactRequest) => withMaskedTravelers({ ...contactRequest, readiness: computeReadiness(contactRequest), progress: deriveRequestProgress(contactRequest) })),
     meta: buildPaginationMeta(page, limit, total),
   };
 }

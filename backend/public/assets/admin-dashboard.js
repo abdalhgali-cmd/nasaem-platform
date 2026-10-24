@@ -253,6 +253,17 @@ function setupTabSwitching() {
     if (target) openCustomerDetail(target.dataset.customerId);
   });
 
+  // Read-only review of customers the old public flight booking may have
+  // linked by passport (managers only; nothing is changed from here).
+  if (["SUPER_ADMIN", "ADMIN"].includes(currentUser.role)) {
+    el("customer-link-review-btn").classList.remove("hidden");
+    el("customer-link-review-btn").addEventListener("click", loadCustomerLinkReview);
+    el("customer-link-review").addEventListener("click", (event) => {
+      const target = event.target.closest("[data-customer-id]");
+      if (target) openCustomerDetail(target.dataset.customerId);
+    });
+  }
+
   let searchTimer = null;
   el("customer-search").addEventListener("input", (e) => {
     clearTimeout(searchTimer);
@@ -738,6 +749,32 @@ async function runPaymentAction(button, request, order, successMessage) {
 }
 
 // --- Customers ---
+
+const LINK_REVIEW_REASONS = {
+  MULTIPLE_PUBLIC_BOOKINGS: "أكثر من حجز طيران عام على نفس السجل",
+  GENERATED_PASSPORT: "رقم جواز مُولَّد تلقائياً",
+};
+
+async function loadCustomerLinkReview() {
+  const card = el("customer-link-review");
+  card.classList.remove("hidden");
+  card.innerHTML = '<p class="muted">جارٍ التحميل...</p>';
+  try {
+    const { data } = await api.get("/customers/review/auto-links");
+    card.innerHTML = `<h3 style="margin-top: 0">مراجعة الربط القديم للحجوزات</h3>
+      <p class="muted small">قائمة للمراجعة فقط: سجلات ربما رُبطت بها حجوزات طيران عامة تلقائياً برقم الجواز في النظام السابق. لا يتغير شيء من هنا؛ افتح السجل وراجعه.</p>
+      ${data.length ? `<table class="stack-table"><thead><tr><th>رقم العميل</th><th>الاسم</th><th>الحجوزات</th><th>السبب</th></tr></thead><tbody>${data
+        .map((item) => `<tr>
+          <td><button type="button" class="link-button" data-customer-id="${escapeHtml(item.customerId)}" dir="ltr">${escapeHtml(item.customerNo)}</button></td>
+          <td>${escapeHtml(item.fullName)}</td>
+          <td dir="ltr">${escapeHtml(item.bookingNumbers.join("، ") || "-")} (${item.bookingCount})</td>
+          <td>${item.reasons.map((reason) => escapeHtml(LINK_REVIEW_REASONS[reason] || reason)).join("<br>")}</td>
+        </tr>`)
+        .join("")}</tbody></table>` : '<p>لا توجد سجلات تحتاج مراجعة.</p>'}`;
+  } catch (error) {
+    card.innerHTML = `<div class="alert error" role="alert">${escapeHtml(error.message)}</div>`;
+  }
+}
 
 async function loadCustomers() {
   try {

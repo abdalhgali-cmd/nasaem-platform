@@ -54,6 +54,7 @@ export async function patchVisaType(req, res, next) {
     if (pricingError) return res.status(400).json({ success: false, code: "INVALID_PRICING", message: pricingError });
     const visaType = await updateVisaType(req.params.id, parsed.data);
     if (!visaType) return res.status(404).json({ success: false, message: "Visa type not found" });
+    if (visaType.error === "CODE_IN_USE") return res.status(409).json({ success: false, code: "CODE_IN_USE", message: "هذا الرمز مستخدم في طلبات أو طلبات مالية قائمة ولا يمكن تغييره. أنشئ عنصرًا جديدًا بالرمز الجديد بدلًا من ذلك." });
 
     logActivity({ userId: req.user?.id, action: "VISA_TYPE_UPDATED", entity: "VisaType", entityId: visaType.id, req, oldValue: before, newValue: visaType });
     return res.status(200).json({ success: true, message: "Visa type updated successfully", data: visaType });
@@ -64,11 +65,12 @@ export async function patchVisaType(req, res, next) {
 
 export async function removeVisaType(req, res, next) {
   try {
-    const visaType = await deleteVisaType(req.params.id);
-    if (!visaType) return res.status(404).json({ success: false, message: "Visa type not found" });
+    const result = await deleteVisaType(req.params.id);
+    if (!result) return res.status(404).json({ success: false, message: "Visa type not found" });
 
-    logActivity({ userId: req.user?.id, action: "VISA_TYPE_DELETED", entity: "VisaType", entityId: visaType.id, req, oldValue: visaType });
-    return res.status(200).json({ success: true, message: "Visa type removed successfully" });
+    const { visaType, previous, deactivated } = result;
+    logActivity({ userId: req.user?.id, action: deactivated ? "VISA_TYPE_DEACTIVATED" : "VISA_TYPE_DELETED", entity: "VisaType", entityId: visaType.id, req, oldValue: previous, ...(deactivated ? { newValue: visaType } : {}) });
+    return res.status(200).json({ success: true, deactivated, message: deactivated ? "التأشيرة مستخدمة في طلبات قائمة، لذلك تم تعطيلها بدل حذفها." : "تم حذف التأشيرة." });
   } catch (error) {
     next(error);
   }

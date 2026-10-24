@@ -137,6 +137,7 @@ export async function patchService(req, res, next) {
         message: "Service not found",
       });
     }
+    if (service.error === "CODE_IN_USE") return res.status(409).json({ success: false, code: "CODE_IN_USE", message: "هذا الرمز مستخدم في طلبات أو طلبات مالية قائمة ولا يمكن تغييره. أنشئ عنصرًا جديدًا بالرمز الجديد بدلًا من ذلك." });
 
     logActivity({ userId: req.user?.id, action: "SERVICE_UPDATED", entity: "Service", entityId: service.id, req, oldValue: before, newValue: service });
 
@@ -153,20 +154,22 @@ export async function patchService(req, res, next) {
 export async function removeService(req, res, next) {
   try {
     const { id } = req.params;
-    const service = await deleteService(id);
+    const result = await deleteService(id);
 
-    if (!service) {
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: "Service not found",
       });
     }
 
-    logActivity({ userId: req.user?.id, action: "SERVICE_DELETED", entity: "Service", entityId: service.id, req, oldValue: service });
+    const { service, previous, deactivated } = result;
+    logActivity({ userId: req.user?.id, action: deactivated ? "SERVICE_DEACTIVATED" : "SERVICE_DELETED", entity: "Service", entityId: service.id, req, oldValue: previous, ...(deactivated ? { newValue: service } : {}) });
 
     return res.status(200).json({
       success: true,
-      message: "Service removed successfully",
+      deactivated,
+      message: deactivated ? "الخدمة مستخدمة في طلبات قائمة، لذلك تم تعطيلها بدل حذفها." : "تم حذف الخدمة.",
     });
   } catch (error) {
     next(error);

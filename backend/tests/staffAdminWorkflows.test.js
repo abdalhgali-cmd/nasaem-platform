@@ -64,6 +64,30 @@ describe("dashboard sections per role", () => {
   });
 });
 
+describe("customers: review of old automatic links (Track A2)", () => {
+  test("managers see the read-only review button and its list; other roles do not", async () => {
+    const row = { customerId: "c9", customerNo: "CUS-000009", fullName: "<b>Review</b> Customer", bookingNumbers: ["FLT-1", "FLT-2"], bookingCount: 2, reasons: ["MULTIPLE_PUBLIC_BOOKINGS"] };
+    const admin = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("ADMIN", { "GET /api/customers/review/auto-links": { success: true, data: [row] } }),
+      url: "http://backoffice.test/admin-dashboard.html#/customers",
+    });
+    await settle(120);
+    const button = admin.document.getElementById("customer-link-review-btn");
+    assert.equal(button.classList.contains("hidden"), false);
+    button.click();
+    await settle(80);
+    const card = admin.document.getElementById("customer-link-review");
+    assert.match(card.textContent, /أكثر من حجز طيران عام/);
+    assert.match(card.textContent, /FLT-1/);
+    assert.equal(card.querySelector("b"), null, "names are escaped");
+    assert.ok(!admin.calls.some((c) => c.method !== "GET"), "read only: no write request");
+
+    const employee = loadBackOffice("admin-dashboard.html", { routes: baseRoutes("EMPLOYEE"), url: "http://backoffice.test/admin-dashboard.html#/customers" });
+    await settle(120);
+    assert.equal(employee.document.getElementById("customer-link-review-btn").classList.contains("hidden"), true);
+  });
+});
+
 describe("customer requests", () => {
   test("G-10: managers accept a decided document with a correction reason; ordinary acceptance stays available", async () => {
     for (const role of ["ADMIN", "SUPER_ADMIN", "EMPLOYEE"]) {

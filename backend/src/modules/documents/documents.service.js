@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import prisma from "../../config/database.js";
+import { withMaskedCustomer } from "../../utils/passportMask.js";
 import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 
@@ -28,7 +29,7 @@ export async function listDocuments({ page, limit, skip, organizationId }) {
     }),
     prisma.document.count({ where }),
   ]);
-  return { data, meta: buildPaginationMeta(page, limit, total) };
+  return { data: data.map(withMaskedCustomer), meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function getDocumentById(id, organizationId) {
