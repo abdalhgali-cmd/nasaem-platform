@@ -89,6 +89,22 @@ describe("passport numbers are hidden in lists and shown in details to staff", (
     assert.equal(detail.body.booking.passengers[0].passportNo, passportNo);
   });
 
+  test("orders and payments lists mask the passport; the order's page shows it", async () => {
+    const passportNo = `ORDLIST${uniqueSuffix()}`;
+    const customer = await prisma.customer.create({ data: { organizationId: admin.organizationId, customerNo: `OL-${uniqueSuffix()}`, fullName: "List Customer", passportNo, nationality: "SD" } });
+    const order = await prisma.order.create({ data: { organizationId: admin.organizationId, orderNumber: `ORD-OL-${uniqueSuffix()}`, customerId: customer.id, status: "NEW", totalAmount: 100, currency: "SDG" } });
+    await prisma.payment.create({ data: { orderId: order.id, amount: 50, currency: "SDG", paymentMethod: "BANK_TRANSFER" } });
+    const orders = await staffClient(admin).get(`/api/orders?search=${order.orderNumber}`);
+    assert.equal(orders.status, 200);
+    assert.equal(orders.body.data[0].customer.passportNo, `•••${passportNo.slice(-3)}`);
+    const payments = await staffClient(admin).get(`/api/payments?orderId=${order.id}`);
+    assert.equal(payments.status, 200);
+    assert.ok(payments.body.data.length >= 1);
+    assert.ok(!JSON.stringify(payments.body).includes(passportNo));
+    const detail = await staffClient(admin).get(`/api/orders/${order.id}`);
+    assert.ok(JSON.stringify(detail.body).includes(passportNo), "the order's own page shows it");
+  });
+
   test("operations queue carries no passport numbers", async () => {
     const passportNo = `OPS${uniqueSuffix()}`;
     const customer = await prisma.customer.create({ data: { organizationId: admin.organizationId, customerNo: `OPS-${uniqueSuffix()}`, fullName: "Ops Customer", passportNo, nationality: "SD" } });

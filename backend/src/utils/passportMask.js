@@ -7,6 +7,11 @@ export function maskPassport(value) {
   return `•••${text.slice(-3)}`;
 }
 
+// A list row whose embedded customer's passport is masked.
+export function withMaskedCustomer(row) {
+  return row?.customer ? { ...row, customer: { ...row.customer, passportNo: maskPassport(row.customer.passportNo) } } : row;
+}
+
 // A booking's passenger list without passport numbers.
 export function withoutPassportNumbers(passengers) {
   return Array.isArray(passengers) ? passengers.map(({ passportNo, ...rest }) => rest) : passengers;

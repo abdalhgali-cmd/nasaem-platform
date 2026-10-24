@@ -6,6 +6,7 @@ import { computeSettlement } from "../payments/settlement.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { withMaskedCustomer } from "../../utils/passportMask.js";
 import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { applyCouponToOrder, COUPON_ERROR_MESSAGES } from "../coupons/coupons.service.js";
@@ -73,7 +74,8 @@ export async function listOrders({ page, limit, skip, status, paymentStatus, ass
     prisma.order.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } } } }),
     prisma.order.count({ where }),
   ]);
-  return { data, meta: buildPaginationMeta(page, limit, total) };
+  // A list never shows full passport numbers (the order's page does).
+  return { data: data.map(withMaskedCustomer), meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function assignOrder(orderId, assignedUserId, changedByUserId, organizationId) {
