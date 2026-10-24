@@ -15,6 +15,7 @@ const inputClass = "h-11 rounded-xl border border-border bg-background px-3 text
 // 3.0 Phase 9 — so the form keeps working unchanged either way.
 const FALLBACK_ROUTES = ["سواكن → جدة", "جدة → سواكن", "مسار آخر"];
 const FALLBACK_CARRIERS = ["تاركو البحرية", "الجودي", "كنزي", "لا يهم"];
+const MAX_PASSENGERS = 20;
 
 export function FerryServiceClient() {
   const [serviceId, setServiceId] = React.useState("");
@@ -25,6 +26,21 @@ export function FerryServiceClient() {
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState("");
   const [success, setSuccess] = React.useState("");
+  // Ferry tickets are issued per passenger against a passport (owner
+  // decision D6): name, nationality and passport number are required, the
+  // birth date is optional. At most 20 per request (the request's limit).
+  type Passenger = { fullName: string; nationality: string; passportNo: string; birthDate: string };
+  const emptyPassenger = (): Passenger => ({ fullName: "", nationality: "", passportNo: "", birthDate: "" });
+  const [passengers, setPassengers] = React.useState<Passenger[]>([emptyPassenger()]);
+  const passengerCount = Math.min(MAX_PASSENGERS, Math.max(1, form.travelers));
+  const passengerRows = Array.from({ length: passengerCount }, (_, i) => passengers[i] ?? emptyPassenger());
+  function updatePassenger(index: number, patch: Partial<Passenger>) {
+    setPassengers((current) => {
+      const next = Array.from({ length: passengerCount }, (_, i) => current[i] ?? emptyPassenger());
+      next[index] = { ...next[index], ...patch };
+      return next;
+    });
+  }
 
   React.useEffect(() => {
     fetch(`${API_URL}/services/public`).then((r) => r.json()).then((payload) => {
@@ -60,13 +76,15 @@ export function FerryServiceClient() {
     event.preventDefault(); setError(""); setSuccess("");
     if (!serviceId) return setError("خدمة العبارات غير مهيأة حاليًا في النظام.");
     if (!form.name || !form.phone || !form.travelDate) return setError("أكمل الاسم ورقم الهاتف وتاريخ السفر.");
+    if (passengerRows.some((p) => !p.fullName.trim() || !p.nationality.trim() || !p.passportNo.trim())) return setError("أكمل اسم كل راكب وجنسيته ورقم جوازه كما في جواز السفر.");
     setSubmitting(true);
     try {
       const response = await fetch(`${API_URL}/contact-requests`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         name: form.name, phone: form.phone, email: form.email, service: "حجز العبارات", serviceId,
-        travelerCount: form.travelers,
-        intakeData: { route: form.route, travelDate: form.travelDate, travelers: form.travelers, carrier: form.carrier, notes: form.notes },
-        message: `طلب حجز عبارة: ${form.route} بتاريخ ${form.travelDate}، الناقل المفضل: ${form.carrier}، عدد المسافرين: ${form.travelers}. ${form.notes}`,
+        travelerCount: passengerCount,
+        travelers: passengerRows.map((p, index) => ({ fullName: p.fullName.trim(), nationality: p.nationality.trim(), passportNo: p.passportNo.trim(), ...(p.birthDate ? { birthDate: p.birthDate } : {}), isPrimary: index === 0 })),
+        intakeData: { route: form.route, travelDate: form.travelDate, travelers: passengerCount, carrier: form.carrier, notes: form.notes },
+        message: `طلب حجز عبارة: ${form.route} بتاريخ ${form.travelDate}، الناقل المفضل: ${form.carrier}، عدد المسافرين: ${passengerCount}. ${form.notes}`,
       }) });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.message || "تعذر إرسال طلب حجز العبارة");
@@ -86,8 +104,20 @@ export function FerryServiceClient() {
           <label className="grid gap-2"><span className="text-sm font-bold">المسار</span><select className={inputClass} value={form.route} onChange={(e)=>setForm({...form,route:e.target.value})}>{routeOptions.map((route)=> <option key={route}>{route}</option>)}</select></label>
           <label className="grid gap-2"><span className="text-sm font-bold">الناقل المفضل</span><select className={inputClass} value={form.carrier} onChange={(e)=>setForm({...form,carrier:e.target.value})}>{carrierOptions.map((carrier)=> <option key={carrier}>{carrier}</option>)}</select></label>
           <label className="grid gap-2"><span className="text-sm font-bold">تاريخ السفر</span><div className="relative"><CalendarDays className="pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground"/><input type="date" min={new Date().toISOString().slice(0,10)} className={`${inputClass} w-full pr-9`} value={form.travelDate} onChange={(e)=>setForm({...form,travelDate:e.target.value})}/></div></label>
-          <label className="grid gap-2"><span className="text-sm font-bold">عدد المسافرين</span><div className="relative"><Users className="pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground"/><input type="number" min={1} max={50} className={`${inputClass} w-full pr-9`} value={form.travelers} onChange={(e)=>setForm({...form,travelers:Math.min(50,Math.max(1,Number(e.target.value)||1))})}/></div></label>
+          <label className="grid gap-2"><span className="text-sm font-bold">عدد المسافرين</span><div className="relative"><Users className="pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground"/><input type="number" min={1} max={MAX_PASSENGERS} className={`${inputClass} w-full pr-9`} value={form.travelers} onChange={(e)=>setForm({...form,travelers:Math.min(MAX_PASSENGERS,Math.max(1,Number(e.target.value)||1))})}/></div><span className="text-xs text-muted-foreground">لأكثر من {MAX_PASSENGERS} راكبًا تواصل معنا مباشرة.</span></label>
         </div>
+        <fieldset className="grid gap-3 rounded-2xl border border-border p-4" data-testid="ferry-passengers">
+          <legend className="px-1 text-sm font-bold">بيانات الركاب كما في جواز السفر</legend>
+          {passengerRows.map((p, index) => (
+            <div key={index} className="grid gap-2 rounded-xl bg-muted/40 p-3 sm:grid-cols-2">
+              <p className="text-xs font-black sm:col-span-2">الراكب {index + 1}</p>
+              <input className={inputClass} placeholder="الاسم الكامل" aria-label={`اسم الراكب ${index + 1}`} value={p.fullName} onChange={(e)=>updatePassenger(index,{fullName:e.target.value})}/>
+              <input className={inputClass} placeholder="الجنسية" aria-label={`جنسية الراكب ${index + 1}`} value={p.nationality} onChange={(e)=>updatePassenger(index,{nationality:e.target.value})}/>
+              <input className={inputClass} dir="ltr" placeholder="رقم الجواز" aria-label={`رقم جواز الراكب ${index + 1}`} maxLength={50} value={p.passportNo} onChange={(e)=>updatePassenger(index,{passportNo:e.target.value})}/>
+              <label className="grid gap-1"><span className="text-xs text-muted-foreground">تاريخ الميلاد (اختياري)</span><input type="date" className={inputClass} aria-label={`تاريخ ميلاد الراكب ${index + 1}`} value={p.birthDate} onChange={(e)=>updatePassenger(index,{birthDate:e.target.value})}/></label>
+            </div>
+          ))}
+        </fieldset>
         <label className="grid gap-2"><span className="text-sm font-bold">ملاحظات</span><textarea rows={5} className="rounded-xl border border-border bg-background p-3 text-sm outline-none focus:border-primary" placeholder="تفضيل شركة أو وقت مناسب أو أي ملاحظات..." value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})}/></label>
         {loading ? <p className="text-sm text-muted-foreground">جاري تجهيز الخدمة...</p> : null}
         {error ? <p className="rounded-xl bg-destructive/10 p-3 text-sm font-bold text-destructive">{error}</p> : null}
