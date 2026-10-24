@@ -81,7 +81,12 @@ export default function PaymentReviewPage() {
           : `${API_URL}/contact-requests/${encodeURIComponent(item.id)}/confirm-payment`;
       const response = await fetch(endpoint, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item.source === "contact_request" && reason ? { reason } : {}) });
       const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) throw new Error(payload?.message || "تعذر تأكيد الدفع");
+      if (!response.ok || !payload?.success) {
+        // The receipt changed since this list loaded (e.g. rejected): reload
+        // so the reason field shows, keeping the server's message.
+        if (payload?.code === "RECEIPT_OR_REASON_REQUIRED") await load();
+        throw new Error(payload?.message || "تعذر تأكيد الدفع");
+      }
       setMessage(`تم تأكيد الدفع للطلب ${item.reference}`);
       await load();
     } catch (err) {

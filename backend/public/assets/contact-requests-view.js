@@ -575,7 +575,16 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       const reasonField = detailCard.querySelector("[data-cr-confirm-reason]");
       const reason = reasonField ? reasonField.value.trim() : "";
       if (reasonField && reason.length < 5) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تأكيد الدفع بدون إيصال (5 أحرف على الأقل).");
-      return act(confirm, () => api.post(`${base}/confirm-payment`, reason ? { reason } : {}), "تم تأكيد استلام الدفع.");
+      return act(confirm, async () => {
+        try {
+          await api.post(`${base}/confirm-payment`, reason ? { reason } : {});
+        } catch (error) {
+          // The receipt changed since this view was drawn (e.g. rejected):
+          // redraw so the reason field shows; act() then shows the message.
+          if (error?.code === "RECEIPT_OR_REASON_REQUIRED") await openDetail(openId, { focus: false });
+          throw error;
+        }
+      }, "تم تأكيد استلام الدفع.");
     }
     const contacted = t.closest("[data-cr-contacted]");
     if (contacted) return act(contacted, () => api.patch(`${base}/status`, { status: "CONTACTED" }), "تم تحديث الحالة.");

@@ -102,6 +102,54 @@ describe("customer requests", () => {
     assert.equal(ad.querySelector("[data-doc-accept]"), null);
   });
 
+  test("confirming a declared transfer without a receipt asks for a reason (AUDIT-00 G-05)", async () => {
+    const receipt = { id: "rcpt", label: "إيصال", status: "PENDING", classification: "FINANCIAL_DOCUMENT" };
+    let withReceipt = false;
+    const detail = () => {
+      const r = request("cr1", withReceipt ? { documents: [request("cr1").documents[0], receipt] } : {});
+      return { success: true, data: { ...r, allowedActions: allowedActions(r, { audience: "staff", role: "ACCOUNTANT" }) } };
+    };
+    let confirmReply = { status: 200, body: { success: true, data: {} } };
+    const view = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("ACCOUNTANT", { "GET /api/contact-requests/cr1": () => ({ body: detail() }), "POST /api/contact-requests/cr1/confirm-payment": () => confirmReply }),
+      url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+    });
+    await settle(120);
+    const d = view.document.getElementById("cr-detail");
+    const posts = () => view.calls.filter((c) => c.method === "POST" && c.path.endsWith("/confirm-payment"));
+    const alertText = () => view.document.getElementById("cr-action-alert").textContent;
+
+    // No receipt: the reason field is shown; blank or short reasons never reach the server.
+    for (const value of ["", "   ", "تم "]) {
+      d.querySelector("[data-cr-confirm-reason]").value = value;
+      d.querySelector("[data-cr-confirm-payment]").click();
+      await settle(40);
+      assert.equal(posts().length, 0, JSON.stringify(value));
+      assert.match(alertText(), /بدون إيصال/);
+    }
+    d.querySelector("[data-cr-confirm-reason]").value = "  تمت المطابقة مع كشف البنك  ";
+    d.querySelector("[data-cr-confirm-payment]").click();
+    await settle(120);
+    assert.deepEqual(posts()[0].body, { reason: "تمت المطابقة مع كشف البنك" });
+
+    // With a current receipt: no field, nothing extra sent. If the receipt was
+    // rejected meanwhile, the server's refusal redraws the view with the field.
+    withReceipt = true;
+    view.window.location.hash = "#/requests/cr2";
+    await settle(80);
+    view.window.location.hash = "#/requests/cr1";
+    await settle(120);
+    const fresh = view.document.getElementById("cr-detail");
+    assert.equal(fresh.querySelector("[data-cr-confirm-reason]"), null);
+    withReceipt = false;
+    confirmReply = { status: 409, body: { success: false, code: "RECEIPT_OR_REASON_REQUIRED", message: "لا يوجد إيصال تحويل لهذا الطلب. اكتب سبب تأكيد الدفع بدون إيصال." } };
+    fresh.querySelector("[data-cr-confirm-payment]").click();
+    await settle(160);
+    assert.deepEqual(posts().at(-1).body, {});
+    assert.ok(view.document.getElementById("cr-detail").querySelector("[data-cr-confirm-reason]"), "the reason field appears after the refusal");
+    assert.match(alertText(), /بدون إيصال/);
+  });
+
   test("a closed request is read-only: no review, payment, execution, file or close controls; only an admin reopen", async () => {
     const closed = request("cr1", { status: "CLOSED", outcome: "CANCELLED", invoice: { amount: "500", currency: "SAR", status: "PENDING" }, paymentStatus: "NOT_REQUIRED" });
     for (const role of ["EMPLOYEE", "ACCOUNTANT", "ADMIN"]) {
