@@ -861,6 +861,20 @@ function DocumentsTab({
   run: (action: () => Promise<void>) => Promise<void>;
 }) {
   const [noteByDocument, setNoteByDocument] = React.useState<Record<string, string>>({});
+  // After execution started, changing a decided document is a manager-only
+  // correction (server: documentCorrectionRefusal). Hidden until the role is
+  // known.
+  const [viewerRole, setViewerRole] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let active = true;
+    fetch(`${API_URL}/auth/me`, { credentials: "include" })
+      .then((response) => response.json())
+      .then((payload) => { if (active) setViewerRole(payload?.data?.role ?? null); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  const canReview = (document: { status: string }) =>
+    document.status === "PENDING" || !caseRow.executionStartedAt || viewerRole === "ADMIN" || viewerRole === "SUPER_ADMIN";
 
   // Grouped per traveler, because that is how a passport-per-person case is
   // actually reviewed. Documents with no traveler (or on a case with none)
@@ -944,7 +958,7 @@ function DocumentsTab({
                       </a>
                       {/* Review only while the request is open; a payment
                           receipt is decided in «سير العمل» (payment). */}
-                      {caseRow.status !== "CLOSED" && document.classification !== "FINANCIAL_DOCUMENT" ? (
+                      {caseRow.status !== "CLOSED" && document.classification !== "FINANCIAL_DOCUMENT" && canReview(document) ? (
                         <>
                       <input
                         type="text"
