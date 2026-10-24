@@ -155,14 +155,32 @@ function serviceCreateData(data) {
   };
 }
 
+// A service is "in use" once a customer request or an order references it
+// (AUDIT-00 G-07). Its code then never changes and it is never hard
+// deleted: existing requests keep the procedure they were created with.
+async function serviceInUse(tx, id) {
+  const [requests, orderItems] = await Promise.all([
+    tx.contactRequest.count({ where: { serviceId: id } }),
+    tx.orderItem.count({ where: { serviceId: id } }),
+  ]);
+  return requests + orderItems > 0;
+}
+
+// Locks the service row for the rest of the transaction. A request being
+// inserted holds a key-share lock on it (foreign key), so a delete or code
+// change waits for that insert and then sees it.
+async function lockService(tx, id) {
+  const rows = await tx.$queryRaw`SELECT id FROM "Service" WHERE id = ${id} FOR UPDATE`;
+  return rows.length > 0;
+}
+
 export async function updateService(id, data) {
-  const existing = await prisma.service.findUnique({ where: { id } });
-
-  if (!existing) {
-    return null;
-  }
-
   return prisma.$transaction(async (tx) => {
+    if (!(await lockService(tx, id))) return null;
+    const existing = await tx.service.findUnique({ where: { id } });
+    if (data.code !== undefined && data.code !== existing.code && (await serviceInUse(tx, id))) {
+      return { error: "CODE_IN_USE" };
+    }
     const updated = await tx.service.update({ where: { id }, data });
     // Moved into an Umrah category: inherit the guarantor residence too.
     if (isUmrahServiceCategory(updated.category) && !isUmrahServiceCategory(existing.category)) {
@@ -172,24 +190,19 @@ export async function updateService(id, data) {
   });
 }
 
+// A service used by any request or order is deactivated instead of
+// deleted (requests used to lose their service through onDelete: SetNull).
+// Returns { service, deactivated } or null.
 export async function deleteService(id) {
-  const existing = await prisma.service.findUnique({ where: { id } });
-
-  if (!existing) {
-    return null;
-  }
-
-  // Services referenced by existing order items are protected at the DB
-  // level (onDelete: Restrict on OrderItem.service) — deactivate instead of
-  // deleting if a service has ever been used in an order.
-  const usageCount = await prisma.orderItem.count({ where: { serviceId: id } });
-
-  if (usageCount > 0) {
-    return prisma.service.update({ where: { id }, data: { active: false } });
-  }
-
-  await prisma.service.delete({ where: { id } });
-  return existing;
+  return prisma.$transaction(async (tx) => {
+    if (!(await lockService(tx, id))) return null;
+    const existing = await tx.service.findUnique({ where: { id } });
+    if (await serviceInUse(tx, id)) {
+      return { service: await tx.service.update({ where: { id }, data: { active: false } }), deactivated: true };
+    }
+    await tx.service.delete({ where: { id } });
+    return { service: existing, deactivated: false };
+  });
 }
 
 export async function setServiceImageKey(id, imageKey) {
