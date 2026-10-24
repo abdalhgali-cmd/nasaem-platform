@@ -1,7 +1,7 @@
 import path from "path";
 import prismaPackage from "@prisma/client";
 import { publicOrganizationId } from "../../utils/publicOrganization.js";
-import { pendingConfirmationCreate, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
+import { pendingConfirmationCreate, sendRequestConfirmations } from "../customer-messages/customer-messages.service.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
@@ -10,7 +10,7 @@ import { createNotification, notifyRequestCustomer } from "../../utils/notificat
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { resolveUmrahContacts } from "../umrah/umrah-packages.js";
-import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions } from "../contact-request-workflow/workflow-policy.js";
+import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions, hasCurrentReceipt, confirmWithoutReceiptRefusal } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -292,7 +292,7 @@ async function createContactRequestOnce(data, req, files) {
     message: data.message,
     customerId: req.customer?.id || null,
     submissionKey: data.submissionKey || null,
-    customerMessages: pendingConfirmationCreate(normalizePhone(data.phone)),
+    customerMessages: pendingConfirmationCreate(normalizePhone(data.phone), data.email),
   };
 
   // Two code paths on purpose: when the submission doesn't use the new
@@ -413,7 +413,7 @@ export async function announceNewContactRequest(contactRequest, { documentCount 
   // Confirmation to the customer who submitted (recorded per attempt in
   // CustomerMessageDelivery). Not awaited: the request is already stored and
   // a slow provider must not delay or fail the submission.
-  sendRequestConfirmation(contactRequest.id).catch((error) => console.error("[customer-messages] confirmation failed", error?.message));
+  sendRequestConfirmations(contactRequest.id).catch((error) => console.error("[customer-messages] confirmation failed", error?.message));
 
   sendWhatsAppMessage(
     process.env.WHATSAPP_ADMIN_NUMBER,
@@ -1022,9 +1022,9 @@ export async function createOffer(contactRequestId, data, userId) {
 // the other is refused (PAYMENT_NOT_UNDER_REVIEW), and only the winner is
 // audited and announced. Accepting the payment also accepts its pending
 // receipts; it means "awaiting execution", nothing more.
-export async function confirmContactRequestPayment(contactRequestId, userId) {
+export async function confirmContactRequestPayment(contactRequestId, userId, { reason } = {}) {
   const result = await withLockedRequest(contactRequestId, null, async (tx, contactRequest) => {
-    const refusal = checkAction(ACTIONS.CONFIRM_PAYMENT, contactRequest);
+    const refusal = checkAction(ACTIONS.CONFIRM_PAYMENT, contactRequest) || confirmWithoutReceiptRefusal(contactRequest, reason);
     if (refusal) refuseWith(refusal);
     const now = new Date();
     const updated = await tx.contactRequest.update({
@@ -1038,7 +1038,12 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
     // The paid receipt and its e-mail outbox row commit with the payment
     // itself (payment-receipts.service.js); PDF and e-mail follow after.
     const receipt = await createReceiptInTransaction(tx, contactRequest, { userId, paidAt: now, settlement: settlementBeingConfirmed(contactRequest) });
-    await auditInTransaction(tx, { userId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED", entityId: contactRequestId, organizationId: contactRequest.organizationId, ...(receipt?.receiptNo ? { newValue: { receiptNo: receipt.receiptNo } } : {}) });
+    const withoutReceipt = !hasCurrentReceipt(contactRequest);
+    const newValue = {
+      ...(receipt?.receiptNo ? { receiptNo: receipt.receiptNo } : {}),
+      ...(withoutReceipt ? { withoutReceipt: true, reason: String(reason).trim().slice(0, 500) } : {}),
+    };
+    await auditInTransaction(tx, { userId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED", entityId: contactRequestId, organizationId: contactRequest.organizationId, ...(Object.keys(newValue).length ? { newValue } : {}) });
     return { updated, receipt };
   });
   if (result.error || result.refusal) return result;

@@ -342,6 +342,40 @@ export function checkCoverage(request, travelerIds) {
 
 // The single decision function. Returns null when allowed, otherwise
 // { status, code, message, reasons? } for the API response.
+// A transfer receipt the customer (or staff) attached that is still current
+// and not rejected.
+export function hasCurrentReceipt(request) {
+  return (request.documents || []).some((d) => d.classification === "FINANCIAL_DOCUMENT" && !d.supersededAt && d.status !== "REJECTED");
+}
+
+// Owner decision (AUDIT-00 G-05): a transfer the customer only declared
+// («تم تحويل المبلغ», no receipt) may be confirmed, but with a written,
+// audited reason (e.g. checked against the bank statement). Checked by the
+// confirmation itself, not by allowedActions: the action stays offered and
+// the staff screens ask for the reason.
+export const CONFIRM_WITHOUT_RECEIPT_MIN_REASON = 5;
+
+// AUDIT-00 G-10. A decided document may be decided again (staff correct a
+// mistake), but once execution has started that changes the file the work
+// was done on: only a manager may, with a written reason (audited).
+export const DOCUMENT_CORRECTION_MIN_REASON = 5;
+
+export function documentCorrectionRefusal(request, document, { role, reviewNote } = {}) {
+  if (document.status === "PENDING" || !request.executionStartedAt) return null;
+  if (!MANAGERS.includes(role)) {
+    return { status: 403, code: "CORRECTION_MANAGER_ONLY", message: "بدأ تنفيذ هذا الطلب؛ تعديل قرار مستند بعد التنفيذ من صلاحيات الإدارة فقط." };
+  }
+  if (String(reviewNote || "").trim().length < DOCUMENT_CORRECTION_MIN_REASON) {
+    return refuse("CORRECTION_REASON_REQUIRED", "بدأ تنفيذ هذا الطلب؛ اكتب سبب تعديل قرار المستند (يُسجَّل في السجل).");
+  }
+  return null;
+}
+
+export function confirmWithoutReceiptRefusal(request, reason) {
+  if (hasCurrentReceipt(request) || String(reason || "").trim().length >= CONFIRM_WITHOUT_RECEIPT_MIN_REASON) return null;
+  return refuse("RECEIPT_OR_REASON_REQUIRED", "لا يوجد إيصال تحويل لهذا الطلب. اكتب سبب تأكيد الدفع بدون إيصال (مثل: تمت المطابقة مع كشف البنك).");
+}
+
 export function checkAction(action, request, context = {}) {
   if (action === ACTIONS.REOPEN) {
     return isClosed(request) ? null : refuse("NOT_CLOSED", "الطلب ليس مغلقًا.");

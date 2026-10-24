@@ -248,6 +248,12 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     lines.push(transferReceiptsHtml(r));
     if (crAllowed(r, "CONFIRM_PAYMENT")) {
       lines.push(`<p class="muted small">راجع إيصال التحويل أعلاه وطابقه مع كشف البنك، ثم اقبل الدفع أو ارفضه مع بيان السبب. رفع الإيصال لا يعني أن الدفع تم.</p>`);
+      // No current receipt: the customer only declared the transfer. The
+      // confirmation then needs a written reason (audited).
+      const hasReceipt = (r.documents || []).some((d) => d.classification === "FINANCIAL_DOCUMENT" && !d.supersededAt && d.status !== "REJECTED");
+      if (!hasReceipt) {
+        lines.push(`<div class="field"><label for="cr-confirm-reason">لا يوجد إيصال تحويل. سبب التأكيد بدون إيصال (يُسجَّل في السجل)</label><input id="cr-confirm-reason" data-cr-confirm-reason="1" minlength="5" maxlength="500" placeholder="مثال: تمت المطابقة مع كشف البنك" /></div>`);
+      }
       lines.push(`<button type="button" class="btn" data-cr-confirm-payment="1">تأكيد استلام الدفع</button>`);
       lines.push(`<form class="card inset" data-cr-form="reject-payment">
         <h4>رفض الإيصال</h4>
@@ -565,7 +571,12 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const publish = t.closest("[data-cr-publish]");
     if (publish) return act(publish, () => api.post(`${base}/deliverables/${encodeURIComponent(publish.dataset.crPublish)}/publish`, {}), "تم نشر الملف للعميل.");
     const confirm = t.closest("[data-cr-confirm-payment]");
-    if (confirm) return act(confirm, () => api.post(`${base}/confirm-payment`, {}), "تم تأكيد استلام الدفع.");
+    if (confirm) {
+      const reasonField = detailCard.querySelector("[data-cr-confirm-reason]");
+      const reason = reasonField ? reasonField.value.trim() : "";
+      if (reasonField && reason.length < 5) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تأكيد الدفع بدون إيصال (5 أحرف على الأقل).");
+      return act(confirm, () => api.post(`${base}/confirm-payment`, reason ? { reason } : {}), "تم تأكيد استلام الدفع.");
+    }
     const contacted = t.closest("[data-cr-contacted]");
     if (contacted) return act(contacted, () => api.patch(`${base}/status`, { status: "CONTACTED" }), "تم تحديث الحالة.");
   });

@@ -69,6 +69,7 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState("");
   const [error, setError] = React.useState("");
+  const [confirmReason, setConfirmReason] = React.useState("");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -109,6 +110,7 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
   const base = `/contact-requests/${encodeURIComponent(detail.id)}`;
   const nameOf = (id: string) => detail.travelers.find((t) => t.id === id)?.fullName ?? "—";
   const receipts = detail.documents.filter((d) => d.classification === "FINANCIAL_DOCUMENT" && !d.supersededAt);
+  const hasReceipt = receipts.some((d) => d.status !== "REJECTED");
 
   return (
     <div className="flex flex-col gap-4" data-testid="case-workflow">
@@ -170,7 +172,14 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
         {detail.paymentRejectionReason && detail.paymentStatus === "AWAITING_TRANSFER" ? <p className="mt-1 text-xs text-destructive">آخر رفض: {detail.paymentRejectionReason}</p> : null}
         {can("CONFIRM_PAYMENT") ? (
           <div className="mt-3 flex flex-wrap items-end gap-2">
-            <Button type="button" size="sm" disabled={busy} data-testid="workflow-confirm-payment" onClick={() => void run(() => postJson(`${base}/confirm-payment`, {}), "تم قبول الدفع.")}>قبول الدفع</Button>
+            {hasReceipt ? null : (
+              <label className="flex flex-col text-xs font-bold text-amber-800">لا يوجد إيصال. سبب التأكيد بدون إيصال (يُسجَّل)<input value={confirmReason} onChange={(event) => setConfirmReason(event.target.value)} maxLength={500} data-testid="workflow-confirm-reason" className="mt-1 h-9 w-64 rounded-lg border bg-background px-2 text-sm font-normal text-foreground" /></label>
+            )}
+            <Button type="button" size="sm" disabled={busy} data-testid="workflow-confirm-payment" onClick={() => {
+              const reason = confirmReason.trim();
+              if (!hasReceipt && reason.length < 5) return setError("اكتب سبب تأكيد الدفع بدون إيصال (5 أحرف على الأقل).");
+              void run(() => postJson(`${base}/confirm-payment`, hasReceipt ? {} : { reason }), "تم قبول الدفع.");
+            }}>قبول الدفع</Button>
             <form
               className="flex flex-wrap items-end gap-2"
               onSubmit={(event) => {

@@ -2,6 +2,7 @@ import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix, quoteVersion } from "./helpers/api.js";
+import prisma from "../src/config/database.js";
 
 // The public POST /api/contact-requests endpoint enforces a hard 5-per-window
 // rate limit shared across this whole test file's process (see
@@ -135,13 +136,25 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     // EMPLOYEE is allowed to quote, but not to confirm a payment.
     const employeeConfirmRes = await employeeAgent.post(
       `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    ).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(employeeConfirmRes.status, 403);
+
+    // Declared transfer, no receipt (AUDIT-00 G-05): confirming needs a
+    // written reason; without one nothing changes.
+    for (const body of [{}, { reason: "  ok " }]) {
+      const refused = await accountantAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`).send(body);
+      assert.equal(refused.status, 409, JSON.stringify(refused.body));
+      assert.equal(refused.body.code, "RECEIPT_OR_REASON_REQUIRED");
+    }
+    assert.equal((await fetchTracked(customerAgent, contactRequestId)).paymentStatus, "UNDER_REVIEW");
 
     const confirmRes = await accountantAgent.post(
       `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    ).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(confirmRes.status, 200, JSON.stringify(confirmRes.body));
+    const audit = await prisma.activityLog.findFirst({ where: { entityId: contactRequestId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED" } });
+    assert.equal(audit.newValue.withoutReceipt, true);
+    assert.equal(audit.newValue.reason, "تمت المطابقة مع كشف البنك");
     assert.equal(confirmRes.body.data.paymentStatus, "CONFIRMED");
     assert.ok(confirmRes.body.data.paymentConfirmedAt);
 
@@ -152,7 +165,7 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     // Confirming an already-confirmed payment is rejected, not a silent no-op.
     const doubleConfirmRes = await accountantAgent.post(
       `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    ).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(doubleConfirmRes.status, 409);
   });
 

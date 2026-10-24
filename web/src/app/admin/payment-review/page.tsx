@@ -22,6 +22,8 @@ type Item = {
   updatedAt: string;
   pendingPayment?: { id: string; amount: string | number; currency: string | null } | null;
   receiptDocumentId?: string | null;
+  // No current receipt (transfer only declared): confirming needs a reason.
+  needsConfirmReason?: boolean;
   // What the customer says they transferred and where (validated at upload).
   transferClaim?: { kind: string; payAmount: string | number; payCurrency: string; rate?: string | number | null; accountChosen: boolean; bankName?: string | null; accountNumber?: string | null } | null;
 };
@@ -38,6 +40,7 @@ export default function PaymentReviewPage() {
   const [loading, setLoading] = React.useState(true);
   const [workingId, setWorkingId] = React.useState<string | null>(null);
   const [rejectingId, setRejectingId] = React.useState<string | null>(null);
+  const [confirmReasons, setConfirmReasons] = React.useState<Record<string, string>>({});
   const [rejectReason, setRejectReason] = React.useState("");
   const [message, setMessage] = React.useState("");
   const [error, setError] = React.useState("");
@@ -63,6 +66,11 @@ export default function PaymentReviewPage() {
   }
 
   async function confirmPayment(item: Item) {
+    const reason = (confirmReasons[item.id] || "").trim();
+    if (item.source === "contact_request" && item.needsConfirmReason && reason.length < 5) {
+      setError("لا يوجد إيصال تحويل لهذا الطلب. اكتب سبب تأكيد الدفع بدون إيصال (5 أحرف على الأقل).");
+      return;
+    }
     setWorkingId(item.id);
     setMessage("");
     setError("");
@@ -71,7 +79,7 @@ export default function PaymentReviewPage() {
         item.source === "order" && item.pendingPayment
           ? `${API_URL}/payments/${encodeURIComponent(item.pendingPayment.id)}/confirm`
           : `${API_URL}/contact-requests/${encodeURIComponent(item.id)}/confirm-payment`;
-      const response = await fetch(endpoint, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" } });
+      const response = await fetch(endpoint, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item.source === "contact_request" && reason ? { reason } : {}) });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.success) throw new Error(payload?.message || "تعذر تأكيد الدفع");
       setMessage(`تم تأكيد الدفع للطلب ${item.reference}`);
@@ -189,6 +197,21 @@ export default function PaymentReviewPage() {
                     </Button>
                   </div>
                 </div>
+                {item.source === "contact_request" && item.needsConfirmReason ? (
+                  <div className="mt-4 border-t border-border pt-4">
+                    <label className="flex flex-col gap-1 text-xs font-bold text-amber-800">
+                      لا يوجد إيصال تحويل. سبب التأكيد بدون إيصال (يُسجَّل في السجل)
+                      <input
+                        value={confirmReasons[item.id] || ""}
+                        onChange={(e) => setConfirmReasons((current) => ({ ...current, [item.id]: e.target.value }))}
+                        placeholder="مثال: تمت المطابقة مع كشف البنك"
+                        maxLength={500}
+                        data-testid="payment-confirm-reason"
+                        className="h-11 rounded-xl border border-border bg-background px-3 text-sm font-normal text-foreground outline-none focus:border-primary"
+                      />
+                    </label>
+                  </div>
+                ) : null}
                 {rejectingId === item.id ? (
                   <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row">
                     <input

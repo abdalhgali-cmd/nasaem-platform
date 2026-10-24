@@ -1,5 +1,6 @@
 import prisma from "../../config/database.js";
 import { safeCustomerSelect } from "../../utils/safeSelects.js";
+import { hasCurrentReceipt } from "../contact-request-workflow/workflow-policy.js";
 
 // `organizationId` scopes every query tied (directly or via a relation) to
 // Customer/Order/User/ContactRequest — mirrors the pattern already used in
@@ -60,7 +61,7 @@ function orderNextAction(order) {
 const CONTACT_OPERATIONS_INCLUDE = {
   invoice: { select: { status: true, amount: true, currency: true } },
   offers: { select: { id: true, carrier: true, amount: true, currency: true } },
-  documents: { select: { id: true, label: true, status: true, classification: true, createdAt: true, paymentSettlement: true } },
+  documents: { select: { id: true, label: true, status: true, classification: true, createdAt: true, supersededAt: true, paymentSettlement: true } },
   deliverables: { where: { publishedAt: { not: null } }, select: { id: true }, take: 1 },
 };
 
@@ -111,7 +112,7 @@ export async function getOperationsCenter(organizationId) {
 
   const now = Date.now();
   const stalledHours = 24;
-  const contactItems = contactRequests.map((request) => ({ source: "contact_request", id: request.id, reference: request.id, customerName: request.name, phone: request.phone, service: request.service || "استفسار", status: request.status, paymentStatus: request.paymentStatus, amount: request.invoice?.amount ?? null, currency: request.invoice?.currency ?? null, updatedAt: request.updatedAt, ageHours: Math.floor((now - new Date(request.updatedAt).getTime()) / 3600000), nextAction: contactNextAction(request), hasPaymentUnderReview: request.paymentStatus === "UNDER_REVIEW", receiptDocumentId: request.paymentStatus === "UNDER_REVIEW" ? latestReceipt(request)?.id ?? null : null, transferClaim: request.paymentStatus === "UNDER_REVIEW" ? transferClaim(latestReceipt(request)) : null }));
+  const contactItems = contactRequests.map((request) => ({ source: "contact_request", id: request.id, reference: request.id, customerName: request.name, phone: request.phone, service: request.service || "استفسار", status: request.status, paymentStatus: request.paymentStatus, amount: request.invoice?.amount ?? null, currency: request.invoice?.currency ?? null, updatedAt: request.updatedAt, ageHours: Math.floor((now - new Date(request.updatedAt).getTime()) / 3600000), nextAction: contactNextAction(request), hasPaymentUnderReview: request.paymentStatus === "UNDER_REVIEW", receiptDocumentId: request.paymentStatus === "UNDER_REVIEW" ? latestReceipt(request)?.id ?? null : null, transferClaim: request.paymentStatus === "UNDER_REVIEW" ? transferClaim(latestReceipt(request)) : null, needsConfirmReason: request.paymentStatus === "UNDER_REVIEW" && !hasCurrentReceipt(request) }));
   const orderItems = orders.map((order) => ({ source: "order", id: order.id, reference: order.orderNumber, customerName: order.customer?.fullName || "بدون اسم", phone: order.customer?.phone || "", passportNo: order.customer?.passportNo || "", service: order.items?.[0]?.service?.name || "طلب", serviceId: order.items?.[0]?.service?.id || null, status: order.status, paymentStatus: order.paymentStatus, amount: order.totalAmount, currency: order.currency, updatedAt: order.updatedAt, assignedUser: order.assignedUser?.fullName || null, assignedUserId: order.assignedUserId || null, ageHours: Math.floor((now - new Date(order.updatedAt).getTime()) / 3600000), nextAction: orderNextAction(order), hasPaymentUnderReview: order.payments.length > 0, pendingPayment: order.payments[0] ? { id: order.payments[0].id, amount: order.payments[0].amount, currency: order.payments[0].currency } : null }));
   const items = [...contactItems, ...orderItems].sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
   const stalled = items.filter((item) => item.ageHours >= stalledHours).length;
