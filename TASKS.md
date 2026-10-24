@@ -321,6 +321,16 @@ NOT TESTED:
 - KNOWN: `flight-search-issue-104` "no-results" E2E intermittent locally (area untouched; green in CI).
 - PENDING: website form for entering travel/flight details (shown read-only, customers use the app); agency must mark a real SDG account.
 
+## Phase 01 — P0 fixes from AUDIT-00 (2026-10-24, branch `fix/phase01-p0-flight-booking-20261024`, base `feat/egypt-phase3-20261020` @ `2d811ef`)
+
+- G-01 (website flight booking charged one passenger): server total = seat price × seated passengers per segment; the order carries the same total; the booking form shows per-passenger price and the total for all passengers. Owner decision 2026-10-24: adults and children pay the seat price; a booking with an infant (decided by birth date on the first departure, not by the label) is quoted by staff (`INFANT_REQUIRES_QUOTE`); birth date required and validated (`INVALID_BIRTH_DATE`, `PASSENGER_AGE_MISMATCH`).
+- G-02 (provider results shown as bookable): Trip.com results are «للاطلاع فقط» on the website and refused by the server (`FLIGHT_NOT_BOOKABLE`); departed flights (`FLIGHT_DEPARTED`) and flights with fewer staff-maintained `available_seats` than passengers (`FLIGHT_SOLD_OUT`) are refused; inventory rows are locked while pricing. Seats are checked, not decremented (allotment holds are an owner decision).
+- VERIFIED locally: backend 988/988 (fresh disposable DB); new `flightBookingPricing.test.js` + `flightBookingInventory.test.js` fail on the old service (7/7 then-new cases) and pass now; `flight-search-issue-104.spec.ts` 12/12 (×3) including the provider/total/infant cases; web tsc + eslint clean.
+- FIXED: the intermittent `flight-search-issue-104` "no-results" E2E — fields were filled before hydration; the spec now waits for React to attach handlers (20/20 over 5 repeats).
+- Codex (read-only): P1 infant label trusted → fixed (server age check); P2 rounded total → fixed; P2 invalid calendar dates → fixed; P2 birthday boundary → not reproducible (search matches the date as a UTC day, the same day the server uses), boundary tests added.
+- NOT TESTED: GitHub Actions on this branch; staging; no migration.
+- NEXT (Phase 01 P1, not started): G-04/G-05/G-11/G-12 per `07-phase00-report.md`.
+
 ## BLOCKED (needs owner / infrastructure)
 
 - **Staging access**: staging exists on Railway (project `spirited-luck`, service `adaptable-quietude` on `f2616659`, DB `Postgres-_h_s` PostgreSQL 18, uploads volume at `/data/uploads`; owner inventory 2026-10-12). It is **not** disposable and Claude has no access. The DB has no public TCP proxy (do not open one). Deploying #91 applies **6** migrations on staging (11 vs `main`) and needs explicit owner approval.
