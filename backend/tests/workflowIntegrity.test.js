@@ -183,6 +183,7 @@ describe("a document decision after execution is a manager correction (AUDIT-00 
     await readyAndPaid({ staff: employee, accountant, tracking, id });
     const document = (await staffDetail(employee, id)).documents.find((d) => d.status === "ACCEPTED" && d.classification !== "FINANCIAL_DOCUMENT");
     const review = (client, body) => client.patch(`/api/contact-requests/${id}/documents/${document.id}/status`).send(body);
+    assert.equal((await review(employee, { status: "ACCEPTED" })).status, 200, "ordinary acceptance before execution needs no correction reason");
     assert.equal((await employee.post(`/api/contact-requests/${id}/start-execution`).send({})).status, 200);
 
     const byEmployee = await review(employee, { status: "REJECTED", reviewNote: "الصورة غير واضحة" });
@@ -200,6 +201,20 @@ describe("a document decision after execution is a manager correction (AUDIT-00 
       { correction: audit.newValue.correction, previousStatus: audit.newValue.previousStatus, reason: audit.newValue.reason },
       { correction: true, previousStatus: "ACCEPTED", reason: "تبيّن أن الجواز منتهي" },
     );
+    const employeeAccept = await review(employee, { status: "ACCEPTED", reviewNote: "تم التحقق من صلاحية الجواز" });
+    assert.equal(employeeAccept.status, 403);
+    assert.equal(employeeAccept.body.code, "CORRECTION_MANAGER_ONLY");
+    for (const body of [{ status: "ACCEPTED" }, { status: "ACCEPTED", reviewNote: "  نعم  " }]) {
+      const refused = await review(admin, body);
+      assert.equal(refused.status, 409, JSON.stringify(refused.body));
+      assert.equal(refused.body.code, "CORRECTION_REASON_REQUIRED");
+    }
+    const accepted = await review(admin, { status: "ACCEPTED", reviewNote: "  تم التحقق من صلاحية الجواز  " });
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+    assert.equal((await prisma.contactRequestDocument.findUnique({ where: { id: document.id } })).status, "ACCEPTED");
+    const acceptanceAudit = await prisma.activityLog.findFirst({ where: { entityId: id, action: "CONTACT_REQUEST_DOCUMENT_REVIEWED" }, orderBy: { createdAt: "desc" } });
+    assert.equal(acceptanceAudit.newValue.previousStatus, "REJECTED");
+    assert.equal(acceptanceAudit.newValue.reason, "تم التحقق من صلاحية الجواز");
   });
 });
 

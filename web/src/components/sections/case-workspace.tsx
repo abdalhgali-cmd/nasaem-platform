@@ -153,6 +153,7 @@ type CaseRow = {
   message: string;
   status: string;
   paymentStatus: string;
+  executionStartedAt?: string | null;
   createdAt: string;
   dueAt: string | null;
   serviceRef: { name: string } | null;
@@ -876,7 +877,11 @@ function DocumentsTab({
   if (ungrouped.length > 0) groups.push({ id: null, name: "مستندات عامة", documents: ungrouped });
 
   async function review(documentId: string, status: "ACCEPTED" | "REJECTED") {
-    const reviewNote = noteByDocument[documentId] || "";
+    const reviewNote = (noteByDocument[documentId] || "").trim();
+    const document = caseRow.documents.find((item) => item.id === documentId);
+    if (caseRow.executionStartedAt && document?.status !== "PENDING" && reviewNote.length < 5) {
+      throw new Error("اكتب سبب تصحيح القرار (5 أحرف على الأقل).");
+    }
     // A rejection the customer can't act on is a wasted round trip, so the
     // reason is required here rather than optional.
     if (status === "REJECTED" && reviewNote.trim().length === 0) {
@@ -947,7 +952,9 @@ function DocumentsTab({
                         onChange={(e) =>
                           setNoteByDocument((current) => ({ ...current, [document.id]: e.target.value }))
                         }
-                        placeholder="سبب الرفض (مطلوب عند الرفض)"
+                        aria-label={caseRow.executionStartedAt && document.status !== "PENDING" ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض (مطلوب عند الرفض)"}
+                        placeholder={caseRow.executionStartedAt && document.status !== "PENDING" ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض (مطلوب عند الرفض)"}
+                        maxLength={500}
                         className="h-8 min-w-48 flex-1 rounded-lg border border-border bg-background px-2 outline-none"
                       />
                       <Button
