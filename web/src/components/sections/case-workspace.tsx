@@ -345,8 +345,8 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
 
   const listed = visible.find((row) => row.id === selectedId) ?? null;
   // The open case always comes from its own endpoint: lists mask passport
-  // numbers, the case's details show them to staff. The list row only
-  // stands in while the details load (and if they cannot be loaded).
+  // numbers, the case's details show them to staff. The list row never
+  // stands in for the details (its masked values would be shown or edited).
   const needsLinkedFetch = Boolean(selectedId) && !loading;
 
   React.useEffect(() => {
@@ -372,7 +372,7 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
   }, [needsLinkedFetch, selectedId, reloadToken]);
 
   const linked = linkedCase?.id === selectedId ? linkedCase : null;
-  const selected = linked ?? listed;
+  const selected = linked;
 
   return (
     <main className="min-h-screen bg-section py-8 sm:py-10">
@@ -524,6 +524,10 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
           ) : selectedId && linkedError && !loading ? (
             <div className="flex items-center justify-center rounded-3xl border border-destructive/20 bg-destructive/5 p-10 text-sm font-bold text-destructive" data-testid="case-linked-error">
               {linkedError}
+            </div>
+          ) : selectedId ? (
+            <div className="flex items-center justify-center rounded-3xl border border-border bg-card p-10 text-sm text-muted-foreground" data-testid="case-detail-loading">
+              جارٍ تحميل تفاصيل الطلب...
             </div>
           ) : (
             <div className="flex items-center justify-center rounded-3xl border border-dashed border-border bg-card p-10 text-sm text-muted-foreground">
