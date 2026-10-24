@@ -151,15 +151,17 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
           // not confirm the payment, so no document buttons are shown.
           const isReceipt = d.classification === "FINANCIAL_DOCUMENT";
           const correction = Boolean(r.executionStartedAt) && d.status !== "PENDING";
-          const canReview = crAllowed(r, "REVIEW_DOCUMENT") && (!correction || ["ADMIN", "SUPER_ADMIN"].includes(user.role));
+          // Pending documents are reviewed as before; after execution a
+          // manager may correct a decided one (only the opposite decision).
+          const canReview = crAllowed(r, "REVIEW_DOCUMENT") && (d.status === "PENDING" || (correction && ["ADMIN", "SUPER_ADMIN"].includes(user.role)));
           const controls = isReceipt
             ? '<span class="muted small">إيصال دفع — يُراجع من قسم «الدفع»</span>'
             : canReview
               ? `<div class="stack wrap">
-                  <button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>قبول</button>
+                  ${d.status === "ACCEPTED" ? "" : `<button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>قبول</button>`}
                   <label class="sr-only" for="reject-note-${escapeHtml(d.id)}">سبب الرفض</label>
                   <input id="reject-note-${escapeHtml(d.id)}" aria-label="${correction ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض"}" placeholder="${correction ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض"}" maxlength="500" style="max-width: 240px" />
-                  <button type="button" class="btn secondary" data-doc-reject="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>رفض</button>
+                  ${d.status === "REJECTED" ? "" : `<button type="button" class="btn secondary" data-doc-reject="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>رفض</button>`}
                 </div>`
               : d.reviewNote
                 ? `<span class="muted small">${escapeHtml(d.reviewNote)}</span>`
