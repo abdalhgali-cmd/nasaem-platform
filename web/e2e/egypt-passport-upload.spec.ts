@@ -45,11 +45,12 @@ test.describe.serial("Egypt Security Approval on the website", () => {
 
   test.describe("configured variants", () => {
     let admin: APIRequestContext;
+    let adminPage: Page;
     let ids: { air: string; border: string };
     let accountId = "";
 
     test.beforeAll(async ({ browser }) => {
-      const adminPage = await (await browser.newContext()).newPage();
+      adminPage = await (await browser.newContext()).newPage();
       await loginAsSeededAdmin(adminPage);
       admin = adminPage.request;
       ids = await variantIds(admin);
@@ -148,8 +149,15 @@ test.describe.serial("Egypt Security Approval on the website", () => {
         await expect(page.getByText("تم استلام طلب الموافقة الأمنية")).toBeVisible();
         await expect(page.getByTestId("egypt-next-step")).toContainText("لن يصلك عرض سعر آخر");
 
+        // The form is gone, so it cannot be sent twice (a repeated POST of the
+        // same draft answers 409 "already submitted": egyptClearanceIntake
+        // backend test; not repeated here, the public submit limit is shared
+        // by every website spec). Exactly one request, visible to staff.
+        await expect(page.getByRole("button", { name: "إرسال طلب الموافقة" })).toHaveCount(0);
         const list = (await (await admin.get(`${BACKEND}/api/contact-requests?limit=20&search=${encodeURIComponent(name)}`)).json()).data as Array<{ id: string }>;
         expect(list).toHaveLength(1);
+        await adminPage.goto(`/admin/cases?requestId=${list[0].id}`);
+        await expect(adminPage.getByText(name).first()).toBeVisible({ timeout: 15_000 });
         const stored = (await (await admin.get(`${BACKEND}/api/contact-requests/${list[0].id}`)).json()).data;
         expect(stored.visaType.code).toBe(code);
         expect(stored.pricingMode).toBe("FIXED");
