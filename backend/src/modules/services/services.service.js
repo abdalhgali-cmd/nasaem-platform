@@ -192,16 +192,17 @@ export async function updateService(id, data) {
 
 // A service used by any request or order is deactivated instead of
 // deleted (requests used to lose their service through onDelete: SetNull).
-// Returns { service, deactivated } or null.
+// Returns { service, previous, deactivated } or null (previous = the row
+// before the change, for the audit).
 export async function deleteService(id) {
   return prisma.$transaction(async (tx) => {
     if (!(await lockService(tx, id))) return null;
     const existing = await tx.service.findUnique({ where: { id } });
     if (await serviceInUse(tx, id)) {
-      return { service: await tx.service.update({ where: { id }, data: { active: false } }), deactivated: true };
+      return { service: await tx.service.update({ where: { id }, data: { active: false } }), previous: existing, deactivated: true };
     }
     await tx.service.delete({ where: { id } });
-    return { service: existing, deactivated: false };
+    return { service: existing, previous: existing, deactivated: false };
   });
 }
 

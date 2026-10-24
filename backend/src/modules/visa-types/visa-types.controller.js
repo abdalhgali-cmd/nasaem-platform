@@ -68,8 +68,8 @@ export async function removeVisaType(req, res, next) {
     const result = await deleteVisaType(req.params.id);
     if (!result) return res.status(404).json({ success: false, message: "Visa type not found" });
 
-    const { visaType, deactivated } = result;
-    logActivity({ userId: req.user?.id, action: deactivated ? "VISA_TYPE_DEACTIVATED" : "VISA_TYPE_DELETED", entity: "VisaType", entityId: visaType.id, req, oldValue: visaType });
+    const { visaType, previous, deactivated } = result;
+    logActivity({ userId: req.user?.id, action: deactivated ? "VISA_TYPE_DEACTIVATED" : "VISA_TYPE_DELETED", entity: "VisaType", entityId: visaType.id, req, oldValue: previous, ...(deactivated ? { newValue: visaType } : {}) });
     return res.status(200).json({ success: true, deactivated, message: deactivated ? "التأشيرة مستخدمة في طلبات قائمة، لذلك تم تعطيلها بدل حذفها." : "تم حذف التأشيرة." });
   } catch (error) {
     next(error);

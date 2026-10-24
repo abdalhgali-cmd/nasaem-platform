@@ -66,16 +66,17 @@ export async function updateVisaType(id, data) {
   });
 }
 
-// Returns { visaType, deactivated } or null.
+// Returns { visaType, previous, deactivated } or null (previous = the row
+// before the change, for the audit).
 export async function deleteVisaType(id) {
   return prisma.$transaction(async (tx) => {
     if (!(await lockVisaType(tx, id))) return null;
     const existing = await tx.visaType.findUnique({ where: { id } });
     if ((await tx.contactRequest.count({ where: { visaTypeId: id } })) > 0) {
-      return { visaType: await tx.visaType.update({ where: { id }, data: { active: false } }), deactivated: true };
+      return { visaType: await tx.visaType.update({ where: { id }, data: { active: false } }), previous: existing, deactivated: true };
     }
     await tx.visaType.delete({ where: { id } });
-    return { visaType: existing, deactivated: false };
+    return { visaType: existing, previous: existing, deactivated: false };
   });
 }
 

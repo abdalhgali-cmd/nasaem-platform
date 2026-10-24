@@ -32,7 +32,13 @@ describe("services", () => {
     assert.equal(res.body.deactivated, true);
     assert.equal((await prisma.service.findUnique({ where: { id: service.id } })).active, false);
     assert.equal((await prisma.contactRequest.findUnique({ where: { id: request.id } })).serviceId, service.id);
-    assert.ok(await prisma.activityLog.findFirst({ where: { action: "SERVICE_DEACTIVATED", entityId: service.id } }));
+    let audit;
+    for (let i = 0; i < 50 && !audit; i += 1) {
+      audit = await prisma.activityLog.findFirst({ where: { action: "SERVICE_DEACTIVATED", entityId: service.id } });
+      if (!audit) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(audit, "deactivation audited");
+    assert.deepEqual([audit.oldValue.active, audit.newValue.active], [true, false], "audit holds the state before and after");
   });
 
   test("a service used only by an order item stays protected", async () => {

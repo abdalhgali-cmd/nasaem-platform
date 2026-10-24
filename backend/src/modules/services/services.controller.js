@@ -163,8 +163,8 @@ export async function removeService(req, res, next) {
       });
     }
 
-    const { service, deactivated } = result;
-    logActivity({ userId: req.user?.id, action: deactivated ? "SERVICE_DEACTIVATED" : "SERVICE_DELETED", entity: "Service", entityId: service.id, req, oldValue: service });
+    const { service, previous, deactivated } = result;
+    logActivity({ userId: req.user?.id, action: deactivated ? "SERVICE_DEACTIVATED" : "SERVICE_DELETED", entity: "Service", entityId: service.id, req, oldValue: previous, ...(deactivated ? { newValue: service } : {}) });
 
     return res.status(200).json({
       success: true,
