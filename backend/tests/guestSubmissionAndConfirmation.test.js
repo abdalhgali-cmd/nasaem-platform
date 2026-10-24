@@ -98,8 +98,9 @@ describe("guest submission (no account)", () => {
     assert.equal(anonymous.status, 401);
     const res = await admin.get(`/api/contact-requests/${created.id}/customer-messages`);
     assert.equal(res.status, 200);
-    assert.equal(res.body.data[0].status, "SKIPPED");
-    assert.equal(res.body.data[0].lastError, "NOT_CONFIGURED");
+    const whatsapp = res.body.data.find((row) => row.channel === "WHATSAPP");
+    assert.equal(whatsapp.status, "SKIPPED");
+    assert.equal(whatsapp.lastError, "NOT_CONFIGURED");
   });
 });
 
@@ -134,7 +135,7 @@ describe("request confirmation over WhatsApp (provider stubbed)", () => {
     const created = await createContactRequest(data, fakeReq);
     // createContactRequest fires the confirmation in the background; wait for it.
     for (let i = 0; i < 50; i += 1) {
-      const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: created.id } });
+      const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: created.id, channel: "WHATSAPP" } });
       if (row && row.attempts > 0 && row.status !== "SENDING") return { created, row };
       await new Promise((r) => setTimeout(r, 40));
     }
@@ -194,12 +195,15 @@ describe("request confirmation over WhatsApp (provider stubbed)", () => {
       },
       include: { customerMessages: true },
     });
-    assert.equal(stored.customerMessages.length, 1);
-    assert.equal(stored.customerMessages[0].status, "PENDING");
+    // WhatsApp is due; with no e-mail address the e-mail row is skipped at once.
+    const byChannel = Object.fromEntries(stored.customerMessages.map((m) => [m.channel, m]));
+    assert.equal(stored.customerMessages.length, 2);
+    assert.equal(byChannel.WHATSAPP.status, "PENDING");
+    assert.deepEqual([byChannel.EMAIL.status, byChannel.EMAIL.lastError], ["SKIPPED", "NO_RECIPIENT"]);
 
     const before = sent.length;
     await Promise.all([processPendingConfirmations({ limit: 500 }), processPendingConfirmations({ limit: 500 })]);
-    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: stored.id } });
+    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: stored.id, channel: "WHATSAPP" } });
     assert.equal(row.status, "ACCEPTED");
     assert.equal(sent.slice(before).filter((m) => m.to === normalizePhone(phone)).length, 1, "two reconcilers still send once");
   });
@@ -210,7 +214,7 @@ describe("request confirmation over WhatsApp (provider stubbed)", () => {
     const data = createContactRequestSchema.parse(guestForm());
     const created = await createContactRequest(data, fakeReq);
     const rows = await prisma.customerMessageDelivery.findMany({ where: { contactRequestId: created.id } });
-    assert.equal(rows.length, 1, "exactly one confirmation row exists as soon as the request does");
+    assert.deepEqual(rows.map((r) => r.channel).sort(), ["EMAIL", "WHATSAPP"], "one confirmation row per channel exists as soon as the request does");
     for (let i = 0; i < 50 && !release; i += 1) await new Promise((r) => setTimeout(r, 20));
     release?.();
     respond = () => ({ ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.${uniqueSuffix()}` }] }), text: async () => "" });
@@ -228,7 +232,7 @@ describe("request confirmation over WhatsApp (provider stubbed)", () => {
     const before = sent.length;
     await processPendingConfirmations({ limit: 500 });
     await sendRequestConfirmation(stored.id);
-    let row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: stored.id } });
+    let row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: stored.id, channel: "WHATSAPP" } });
     assert.equal(row.status, "UNCERTAIN");
     assert.equal(sent.length, before, "no automatic duplicate");
 
@@ -247,7 +251,7 @@ describe("request confirmation over WhatsApp (provider stubbed)", () => {
       await prisma.customerMessageDelivery.updateMany({ where: { contactRequestId: stored.id, status: "PENDING" }, data: { nextAttemptAt: null } });
       await sendRequestConfirmation(stored.id);
     }
-    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: stored.id } });
+    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: stored.id, channel: "WHATSAPP" } });
     assert.equal(row.status, "FAILED");
     assert.equal(row.attempts, MAX_AUTO_ATTEMPTS);
 
@@ -256,7 +260,7 @@ describe("request confirmation over WhatsApp (provider stubbed)", () => {
     });
     await prisma.customerMessageDelivery.updateMany({ where: { contactRequestId: old.id }, data: { createdAt: new Date(Date.now() - 72 * 60 * 60 * 1000) } });
     await processPendingConfirmations({ limit: 500 });
-    const expired = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: old.id } });
+    const expired = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId: old.id, channel: "WHATSAPP" } });
     assert.equal(expired.status, "FAILED");
     assert.equal(expired.lastError, "EXPIRED");
     respond = () => ({ ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.${uniqueSuffix()}` }] }), text: async () => "" });

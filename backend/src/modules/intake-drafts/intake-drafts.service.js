@@ -3,6 +3,7 @@ import path from "path";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { normalizePhone } from "../../utils/phone.js";
+import { pendingConfirmationCreate } from "../customer-messages/customer-messages.service.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from "../egypt-clearance/egypt-clearance-variants.js";
@@ -339,6 +340,9 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
         phone: draft.phone,
         phoneNormalized: normalizePhone(draft.phone),
         email: draft.email || null,
+        // Written with the request (AUDIT-00 G-13): a crash right after the
+        // insert still leaves the confirmations for the reconciler.
+        customerMessages: pendingConfirmationCreate(normalizePhone(draft.phone), draft.email),
         serviceId: draft.serviceId || null,
         visaTypeId: draft.visaTypeId || null,
         travelerCount: draft.travelerCount ?? null,

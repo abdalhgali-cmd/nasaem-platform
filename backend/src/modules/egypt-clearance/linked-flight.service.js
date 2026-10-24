@@ -50,7 +50,7 @@ async function createInquiryInTransaction(tx, parent) {
       parentRequestId: parent.id,
       linkKind: FLIGHT_LINK_KIND,
       travelers: { create: (parent.travelers || []).map((t, index) => ({ fullName: t.fullName, isPrimary: index === 0, sortOrder: index })) },
-      customerMessages: pendingConfirmationCreate(parent.phoneNormalized),
+      customerMessages: pendingConfirmationCreate(parent.phoneNormalized, parent.email),
     },
     select: { id: true },
   });

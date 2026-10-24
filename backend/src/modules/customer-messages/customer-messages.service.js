@@ -4,13 +4,16 @@ import { sendWhatsAppMessage, whatsAppAvailability } from "../../utils/whatsapp.
 import { isValidRecipient, sendCustomerEmail } from "../../utils/providerEmail.js";
 import { EMAIL, PAYMENT_RECEIPT, generateReceiptPdf, getReceiptFile } from "../payment-receipts/payment-receipts.service.js";
 
-// Customer-facing transactional messages with a delivery record. Today: the
-// "we received your request" confirmation over WhatsApp. Each (request, kind,
-// channel) has exactly one CustomerMessageDelivery row, so retrying never
-// sends a second confirmation once the provider has accepted one.
+// Customer-facing transactional messages with a delivery record: the "we
+// received your request" confirmation over WhatsApp and, when the customer
+// gave an address, by e-mail (owner decision, AUDIT-00 G-11: e-mail stays
+// optional; without one the e-mail row is SKIPPED NO_RECIPIENT). Each
+// (request, kind, channel) has exactly one CustomerMessageDelivery row, so
+// retrying never sends a second confirmation once the provider accepted one.
 
 export const REQUEST_CONFIRMATION = "REQUEST_CONFIRMATION";
-const WHATSAPP = "WHATSAPP";
+export const WHATSAPP = "WHATSAPP";
+export const CONFIRMATION_CHANNELS = [WHATSAPP, EMAIL];
 
 // Delivery states (CustomerMessageDelivery.status):
 //   PENDING    to be sent (again) once nextAttemptAt has passed
@@ -33,11 +36,19 @@ const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 // A "we received your request" message is pointless after this long.
 const CONFIRMATION_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
-// Nested-create payload for ContactRequest: the confirmation is recorded as
-// PENDING in the same insert as the request, so a crash right after the
-// request is stored still leaves work that the reconciler picks up.
-export function pendingConfirmationCreate(phoneNormalized) {
-  return { create: [{ kind: REQUEST_CONFIRMATION, channel: WHATSAPP, recipient: phoneNormalized || "" }] };
+// The e-mail confirmation row for an address (or its absence).
+function emailConfirmationRow(email) {
+  const address = String(email || "").trim();
+  return address
+    ? { kind: REQUEST_CONFIRMATION, channel: EMAIL, recipient: address }
+    : { kind: REQUEST_CONFIRMATION, channel: EMAIL, recipient: "", status: "SKIPPED", lastError: "NO_RECIPIENT" };
+}
+
+// Nested-create payload for ContactRequest: both confirmations are recorded
+// in the same insert as the request, so a crash right after the request is
+// stored still leaves work that the reconciler picks up.
+export function pendingConfirmationCreate(phoneNormalized, email) {
+  return { create: [{ kind: REQUEST_CONFIRMATION, channel: WHATSAPP, recipient: phoneNormalized || "" }, emailConfirmationRow(email)] };
 }
 
 function serviceName(request) {
@@ -54,6 +65,15 @@ export function buildRequestConfirmationText(request) {
   ].join("\n");
 }
 
+// Same content as the WhatsApp text, with a subject. No tracking token or
+// link: the customer follows the request with their phone number.
+export function buildRequestConfirmationEmail(request) {
+  return {
+    subject: `تم استلام طلبك (${serviceName(request)}) — نسائم الحرمين`,
+    text: [`مرحبًا ${request.name || ""}،`.trim(), "", buildRequestConfirmationText(request), "", "هذه رسالة تلقائية؛ لا ترد عليها."].join("\n"),
+  };
+}
+
 function retryDelay(attempts) {
   return RETRY_DELAYS_MS[Math.min(attempts, RETRY_DELAYS_MS.length) - 1] ?? RETRY_DELAYS_MS[0];
 }
@@ -68,7 +88,8 @@ function retryDelay(attempts) {
  * FAILED, SKIPPED or UNCERTAIN row: a person decided a possible duplicate is
  * acceptable. Returns the delivery row.
  */
-export async function sendRequestConfirmation(contactRequestId, { manual = false } = {}) {
+export async function sendRequestConfirmation(contactRequestId, { manual = false, channel = WHATSAPP } = {}) {
+  if (channel === EMAIL) return sendRequestConfirmationEmail(contactRequestId, { manual });
   const request = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
     select: {
@@ -129,6 +150,61 @@ export async function sendRequestConfirmation(contactRequestId, { manual = false
   return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
 }
 
+// The e-mail confirmation: the same claim and states as the WhatsApp one,
+// with the outcomes of sendCustomerEmail (ACCEPTED, SKIPPED, RETRY, FAILED,
+// UNCERTAIN — a timed-out send is never re-sent automatically).
+async function sendRequestConfirmationEmail(contactRequestId, { manual = false } = {}) {
+  const request = await prisma.contactRequest.findUnique({
+    where: { id: contactRequestId },
+    select: { id: true, name: true, email: true, service: true, serviceRef: { select: { name: true } }, visaType: { select: { name: true } } },
+  });
+  if (!request) return null;
+  // Requests stored before the e-mail confirmation existed have no row yet.
+  const key = { contactRequestId_kind_channel: { contactRequestId, kind: REQUEST_CONFIRMATION, channel: EMAIL } };
+  const delivery = await prisma.customerMessageDelivery.upsert({ where: key, update: {}, create: { contactRequestId, ...emailConfirmationRow(request.email) } });
+  if (delivery.status === "ACCEPTED") return delivery;
+
+  const now = new Date();
+  const claimable = manual
+    ? { status: { in: ["PENDING", "FAILED", "SKIPPED", "UNCERTAIN"] } }
+    : { status: "PENDING", OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] };
+  if (!isValidRecipient(delivery.recipient)) {
+    await prisma.customerMessageDelivery.updateMany({
+      where: { id: delivery.id, ...claimable },
+      data: { status: "SKIPPED", nextAttemptAt: null, lastError: delivery.recipient ? "INVALID_RECIPIENT" : "NO_RECIPIENT" },
+    });
+    return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+  }
+  const claimed = await prisma.customerMessageDelivery.updateMany({
+    where: { id: delivery.id, ...claimable },
+    data: { status: "SENDING", attempts: { increment: 1 }, lastAttemptAt: now, nextAttemptAt: null },
+  });
+  if (claimed.count === 0) return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+
+  const { subject, text } = buildRequestConfirmationEmail(request);
+  const result = await sendCustomerEmail({
+    to: delivery.recipient,
+    subject,
+    text,
+    idempotencyKey: manual ? `${delivery.id}:resend:${now.getTime()}` : delivery.id,
+  }).catch((error) => ({ status: "UNCERTAIN", reason: String(error?.message || error).slice(0, 200) }));
+  const { attempts } = await prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id }, select: { attempts: true } });
+  let data;
+  if (result.status === "ACCEPTED") data = { status: "ACCEPTED", lastError: null };
+  else if (result.status === "RETRY") {
+    data = attempts >= MAX_AUTO_ATTEMPTS
+      ? { status: "FAILED", lastError: result.reason }
+      : { status: "PENDING", nextAttemptAt: new Date(Date.now() + retryDelay(attempts)), lastError: result.reason };
+  } else data = { status: result.status, lastError: result.reason || null };
+  await prisma.customerMessageDelivery.updateMany({ where: { id: delivery.id, status: "SENDING" }, data });
+  return prisma.customerMessageDelivery.findUnique({ where: { id: delivery.id } });
+}
+
+// Right after a request is stored (not awaited by the submitter).
+export function sendRequestConfirmations(contactRequestId) {
+  return Promise.all(CONFIRMATION_CHANNELS.map((channel) => sendRequestConfirmation(contactRequestId, { channel })));
+}
+
 /**
  * Recovery pass, run periodically by the server (see server.js):
  *  1. SENDING rows abandoned by a crashed process become UNCERTAIN — never
@@ -155,11 +231,11 @@ export async function processPendingConfirmations({ limit = 20 } = {}) {
     },
     orderBy: { createdAt: "asc" },
     take: limit,
-    select: { contactRequestId: true },
+    select: { contactRequestId: true, channel: true },
   });
   const outcomes = {};
   for (const row of due) {
-    const result = await sendRequestConfirmation(row.contactRequestId).catch(() => null);
+    const result = await sendRequestConfirmation(row.contactRequestId, { channel: row.channel }).catch(() => null);
     const status = result?.status || "ERROR";
     outcomes[status] = (outcomes[status] || 0) + 1;
   }
