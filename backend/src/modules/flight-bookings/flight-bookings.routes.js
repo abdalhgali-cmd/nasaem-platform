@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
+import { attachOptionalCustomer } from "../customer-auth/customer-auth.middleware.js";
 import { confirmPayment, createFlightBooking, getBankAccounts, getBookingFile, getFlightBooking, getPublicFlightBooking, issueFinalTicket, listFlightBookings, submitPaymentReceipt, uploadProvisionalTicket, upsertBankAccount } from "./flight-bookings.service.js";
 
 const router = Router();
@@ -14,7 +15,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 const publicLookupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "محاولات كثيرة. حاول لاحقًا." } });
 const publicWriteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "محاولات كثيرة. حاول لاحقًا." } });
 
-router.post("/", publicWriteLimiter, async (req, res, next) => { try { res.status(201).json({ success: true, booking: await createFlightBooking(req.body) }); } catch (e) { next(e); } });
+// A logged-in customer (verified session only, never a client-sent id)
+// books under their own account; anyone else gets a record of their own.
+router.post("/", publicWriteLimiter, attachOptionalCustomer, async (req, res, next) => { try { res.status(201).json({ success: true, booking: await createFlightBooking(req.body, { sessionCustomer: req.customer || null }) }); } catch (e) { next(e); } });
 // Payment accounts are shown to a customer only inside their own booking, once
 // the agency has approved it (see getPublicFlightBooking). There is deliberately
 // no anonymous "list every bank account" endpoint.

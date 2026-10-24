@@ -204,11 +204,14 @@ function validatePassengers(passengers) {
 // holding the booker's own contact phone, so the phone check that protects
 // the booking is always the booker's. Passport numbers stay on the
 // passengers (no customer passport, no invented "TEMP-…" values); linking
-// records is a staff decision, never inferred.
-async function ensureOrderAndCustomer(tx, input, amount) {
+// records is a staff decision, never inferred. The one exception is not an
+// inference: a customer logged in with a verified session (sessionCustomer,
+// from the server's own session check) books under their own account.
+async function ensureOrderAndCustomer(tx, input, amount, sessionCustomer) {
   const organizationId = publicOrganizationId();
   const first = input.passengers[0];
-  const customer = await tx.customer.create({
+  const account = sessionCustomer?.organizationId === organizationId ? await tx.customer.findUnique({ where: { id: sessionCustomer.id } }) : null;
+  const customer = account || await tx.customer.create({
     data: {
       organizationId,
       customerNo: `CUS-${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
@@ -235,7 +238,7 @@ async function ensureOrderAndCustomer(tx, input, amount) {
   return { customer, order };
 }
 
-export async function createFlightBooking(input) {
+export async function createFlightBooking(input, { sessionCustomer = null } = {}) {
   const flightIds = Array.isArray(input.flightIds) && input.flightIds.length ? input.flightIds.map(String) : input.flightId ? [String(input.flightId)] : [];
   if (!flightIds.length) throw badRequest("At least one flight is required");
   if (flightIds.length > 6) throw badRequest("عدد القطاعات كبير جدًا.");
@@ -249,7 +252,7 @@ export async function createFlightBooking(input) {
     if (input.amount !== undefined && input.amount !== null && !new Prisma.Decimal(Number(input.amount) || 0).toDecimalPlaces(2).equals(amount)) {
       throw httpError(409, `تغيّر سعر الحجز. الإجمالي الحالي ${amount.toFixed(2)} ج.س لجميع المسافرين — راجع الحجز وأعد الإرسال.`, "PRICE_CHANGED");
     }
-    const { customer, order } = await ensureOrderAndCustomer(tx, input, amount);
+    const { customer, order } = await ensureOrderAndCustomer(tx, input, amount, sessionCustomer);
     await tx.$executeRawUnsafe(
       `INSERT INTO flight_bookings (id,booking_number,order_id,customer_id,flight_id,status,passengers,amount,currency,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6::jsonb,$7::numeric,'SDG',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
       id, bookingNumber(), order.id, customer.id, JSON.stringify(flightIds), JSON.stringify(input.passengers), amount.toFixed(2)
