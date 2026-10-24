@@ -92,6 +92,21 @@ describe("a logged-in customer books under their own account (verified session o
     assert.ok(JSON.stringify(orders.body).includes(orderId), "the booking's order is in the account");
   });
 
+  test("a session booking with a different contact phone is a separate record the entered phone can follow up", async () => {
+    const accountPhone = `249${uniqueSuffix().slice(-9)}`;
+    const reg = await request(app).post("/api/customer-auth/register").send({ fullName: "Other Phone Holder", phone: accountPhone, password: "Test@12345" });
+    assert.equal(reg.status, 201, JSON.stringify(reg.body));
+    const contactPhone = phone();
+    const res = await request(app).post("/api/flight-bookings").set("Authorization", `Bearer ${reg.body.data.token}`).send({
+      flightId, currency: "SDG", contact: { fullName: "Other Phone Holder", phone: contactPhone },
+      passengers: [{ firstName: "SYN", lastName: "PAX", nationality: "SD", birthDate: "1990-01-01", passportNo: `DIF${uniqueSuffix()}` }],
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.notEqual(await customerOf(res.body.booking.id), reg.body.data.customer.id);
+    const follow = await request(app).get(`/api/flight-bookings/public/${res.body.booking.booking_number}`).query({ phone: contactPhone });
+    assert.equal(follow.status, 200, "the phone the booker entered opens the booking");
+  });
+
   test("an invalid or forged session is ignored: a separate record, never someone else's", async () => {
     const res = await request(app).post("/api/flight-bookings").set("Authorization", "Bearer not.a.jwt").send({
       flightId, currency: "SDG", contact: { fullName: "Anon", phone: phone() },

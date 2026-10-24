@@ -206,11 +206,14 @@ function validatePassengers(passengers) {
 // passengers (no customer passport, no invented "TEMP-…" values); linking
 // records is a staff decision, never inferred. The one exception is not an
 // inference: a customer logged in with a verified session (sessionCustomer,
-// from the server's own session check) books under their own account.
+// from the server's own session check) books under their own account —
+// only when the contact phone is the account's, since the booking's
+// follow-up (lookup, receipt, files) is checked against the account phone.
 async function ensureOrderAndCustomer(tx, input, amount, sessionCustomer) {
   const organizationId = publicOrganizationId();
   const first = input.passengers[0];
-  const account = sessionCustomer?.organizationId === organizationId ? await tx.customer.findUnique({ where: { id: sessionCustomer.id } }) : null;
+  const sessionAccount = sessionCustomer?.organizationId === organizationId ? await tx.customer.findUnique({ where: { id: sessionCustomer.id } }) : null;
+  const account = sessionAccount?.phone && normalizePhone(sessionAccount.phone) === normalizePhone(input.contact?.phone) ? sessionAccount : null;
   const customer = account || await tx.customer.create({
     data: {
       organizationId,
