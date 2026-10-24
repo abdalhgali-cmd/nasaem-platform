@@ -144,6 +144,7 @@
         <div class="stack" style="justify-content: space-between; margin-bottom: 14px">
           <h2 style="margin: 0">العملاء</h2>
           <label for="customer-search" class="sr-only">بحث العملاء</label><input type="search" id="customer-search" placeholder="بحث بالاسم أو رقم الجواز..." style="max-width: 260px" />
+          <button type="button" class="btn secondary hidden" id="customer-link-review-btn">مراجعة الربط القديم للحجوزات</button>
         </div>
         <table class="stack-table">
           <thead>
@@ -153,6 +154,7 @@
         </table>
         <div class="pagination" id="customers-pagination"></div>
       </div>
+      <div class="card hidden" id="customer-link-review" aria-live="polite"></div>
       <div class="card hidden" id="customer-detail-card" aria-live="polite"></div>
     </section>
 

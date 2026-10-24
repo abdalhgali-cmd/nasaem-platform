@@ -1,5 +1,5 @@
 import { createCustomerSchema, updateCustomerSchema } from "./customers.validators.js";
-import { createCustomer, getCustomerById, listCustomers, lookupCustomer, updateCustomer } from "./customers.service.js";
+import { createCustomer, getCustomerById, listAutoLinkReview, listCustomers, lookupCustomer, updateCustomer } from "./customers.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 
 export async function getCustomers(req, res, next) {
@@ -13,6 +13,12 @@ export async function getCustomerLookup(req, res, next) {
   try {
     const customer = await lookupCustomer({ passportNo: req.query.passportNo, phone: req.query.phone, organizationId: req.user.organizationId });
     return res.status(200).json({ success: true, data: customer });
+  } catch (error) { next(error); }
+}
+
+export async function getAutoLinkReview(req, res, next) {
+  try {
+    return res.status(200).json({ success: true, data: await listAutoLinkReview(req.user.organizationId) });
   } catch (error) { next(error); }
 }
 

@@ -53,6 +53,7 @@
   "GET /api/customers": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/customers/:id": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/customers/lookup": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "GET /api/customers/review/auto-links": ["ADMIN", "SUPER_ADMIN"],
   "GET /api/dashboard/operations": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/dashboard/stats": ["ADMIN", "SUPER_ADMIN"],
   "GET /api/dashboard/summary": ["ADMIN", "SUPER_ADMIN"],
