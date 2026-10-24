@@ -510,7 +510,7 @@ export function allowedActions(request, { audience, role } = {}) {
     if (action === ACTIONS.SAVE_TRAVEL_PLAN && !isEgyptClearanceCode(request.visaType?.code)) return false;
     if (action === ACTIONS.REQUEST_FLIGHT_BOOKING && (!isEgyptClearanceCode(request.visaType?.code) || request.intakeData?.egyptFlight?.choice === "REQUEST")) return false;
     if (action === ACTIONS.PUBLISH_DELIVERABLE && !(request.deliverables || []).some((d) => !isPublished(d))) return false;
-    if (action === ACTIONS.REVIEW_DOCUMENT && !(request.documents || []).some((d) => !d.supersededAt && d.status === "PENDING" && d.classification !== "FINANCIAL_DOCUMENT")) return false;
+    if (action === ACTIONS.REVIEW_DOCUMENT && !(request.documents || []).some((d) => !d.supersededAt && d.classification !== "FINANCIAL_DOCUMENT" && (d.status === "PENDING" || !request.executionStartedAt || MANAGERS.includes(role)))) return false;
     // Offered when allowed for the version currently stored (what the
     // screen will display and send back).
     return checkAction(action, request, { invoiceVersion: request.invoice?.version }) === null;

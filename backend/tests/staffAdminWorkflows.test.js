@@ -65,6 +65,47 @@ describe("dashboard sections per role", () => {
 });
 
 describe("customer requests", () => {
+  test("G-10: managers accept a decided document with a correction reason; ordinary acceptance stays available", async () => {
+    for (const role of ["ADMIN", "SUPER_ADMIN", "EMPLOYEE"]) {
+      const r = request("cr1", { executionStartedAt: now, documents: [{ id: "doc1", label: "جواز", status: "REJECTED" }] });
+      const view = loadBackOffice("admin-dashboard.html", {
+        routes: baseRoutes(role, {
+          "GET /api/contact-requests/cr1": { success: true, data: { ...r, allowedActions: allowedActions(r, { audience: "staff", role }) } },
+          "PATCH /api/contact-requests/cr1/documents/doc1/status": { success: true, data: {} },
+        }),
+        url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+      });
+      await settle(120);
+      const accept = view.document.querySelector('[data-doc-accept="doc1"]');
+      if (role === "EMPLOYEE") {
+        assert.equal(accept, null, "employees cannot correct a decided document after execution");
+        continue;
+      }
+      assert.ok(accept, "a manager can reach correction even with no pending documents");
+      const input = view.document.getElementById("reject-note-doc1");
+      assert.match(input.getAttribute("aria-label"), /تصحيح/);
+      const writes = () => view.calls.filter((c) => c.method === "PATCH" && c.path.endsWith("/documents/doc1/status"));
+      for (const note of ["", "   ", "  نعم  "]) {
+        input.value = note;
+        accept.click();
+        await settle(30);
+        assert.equal(writes().length, 0, "short trimmed reasons never reach the API");
+      }
+      input.value = "  تم التحقق من صلاحية الجواز  ";
+      accept.click();
+      await settle(120);
+      assert.deepEqual(writes()[0].body, { status: "ACCEPTED", reviewNote: "تم التحقق من صلاحية الجواز" });
+    }
+    const view = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("EMPLOYEE", { "PATCH /api/contact-requests/cr1/documents/d-cr1/status": { success: true, data: {} } }),
+      url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+    });
+    await settle(120);
+    view.document.querySelector('[data-doc-accept="d-cr1"]').click();
+    await settle(120);
+    assert.deepEqual(view.calls.find((c) => c.method === "PATCH" && c.path.endsWith("/documents/d-cr1/status")).body, { status: "ACCEPTED" });
+  });
+
   test("a deep link opens the request detail directly", async () => {
     const { document } = loadBackOffice("admin-dashboard.html", {
       routes: baseRoutes("EMPLOYEE"),

@@ -149,14 +149,16 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
           // reject with a reason); accepting it here as a "document" would
           // not confirm the payment, so no document buttons are shown.
           const isReceipt = d.classification === "FINANCIAL_DOCUMENT";
+          const correction = Boolean(r.executionStartedAt) && d.status !== "PENDING";
+          const canReview = crAllowed(r, "REVIEW_DOCUMENT") && (!correction || ["ADMIN", "SUPER_ADMIN"].includes(user.role));
           const controls = isReceipt
             ? '<span class="muted small">إيصال دفع — يُراجع من قسم «الدفع»</span>'
-            : crAllowed(r, "REVIEW_DOCUMENT") && d.status === "PENDING"
+            : canReview
               ? `<div class="stack wrap">
-                  <button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}">قبول</button>
+                  <button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>قبول</button>
                   <label class="sr-only" for="reject-note-${escapeHtml(d.id)}">سبب الرفض</label>
-                  <input id="reject-note-${escapeHtml(d.id)}" placeholder="سبب الرفض" maxlength="500" style="max-width: 180px" />
-                  <button type="button" class="btn secondary" data-doc-reject="${escapeHtml(d.id)}">رفض</button>
+                  <input id="reject-note-${escapeHtml(d.id)}" aria-label="${correction ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض"}" placeholder="${correction ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض"}" maxlength="500" style="max-width: 240px" />
+                  <button type="button" class="btn secondary" data-doc-reject="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>رفض</button>
                 </div>`
               : d.reviewNote
                 ? `<span class="muted small">${escapeHtml(d.reviewNote)}</span>`
@@ -559,11 +561,16 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     }
     if (handleEgyptClick(t, { base, act })) return undefined;
     const accept = t.closest("[data-doc-accept]");
-    if (accept) return act(accept, () => api.patch(`${base}/documents/${encodeURIComponent(accept.dataset.docAccept)}/status`, { status: "ACCEPTED" }), "تم قبول المستند.");
+    if (accept) {
+      const note = document.getElementById(`reject-note-${accept.dataset.docAccept}`)?.value.trim();
+      if (accept.dataset.docCorrection && (!note || note.length < 5)) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تصحيح القرار (5 أحرف على الأقل).");
+      return act(accept, () => api.patch(`${base}/documents/${encodeURIComponent(accept.dataset.docAccept)}/status`, { status: "ACCEPTED", ...(note ? { reviewNote: note } : {}) }), "تم قبول المستند.");
+    }
     const reject = t.closest("[data-doc-reject]");
     if (reject) {
       const note = document.getElementById(`reject-note-${reject.dataset.docReject}`)?.value.trim();
       if (!note) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب رفض المستند.");
+      if (reject.dataset.docCorrection && note.length < 5) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تصحيح القرار (5 أحرف على الأقل).");
       return act(reject, () => api.patch(`${base}/documents/${encodeURIComponent(reject.dataset.docReject)}/status`, { status: "REJECTED", reviewNote: note }), "تم رفض المستند وإبلاغ العميل بالسبب.");
     }
     const taskDone = t.closest("[data-cr-task-done]");
