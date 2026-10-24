@@ -347,9 +347,20 @@ Owner decisions 2026-10-24: G-05 confirming without a receipt is allowed with a 
 
 - VERIFIED locally: backend 999/999 (before the jsdom test was added; that file 14/14); full Playwright 122/123, the one failure was this change's own effect (`platform3` confirmed a declared transfer without a reason), fixed and re-run 1/1; web tsc + eslint clean; static admin in sync.
 - Codex (read-only): backend PASS; staff UIs PASS WITH GAPS (stale screen hid the reason field) → fixed in `d19323d`.
-- NOT TESTED: GitHub Actions on this branch; staging; no migration.
-- KNOWN LIMITS: accepting a previously rejected document after execution needs a reason, but the accept button has no note field (the server message says so; managers can reject-with-note first). WhatsApp timeout handling (G-14) unchanged.
-- NEXT (not started): remaining P1 — G-03 (flight booking lifecycle), G-06 (hotel/ferry travelers), G-07 (procedure snapshot), G-27 (flight passport match) — several need owner decisions (04 §15, 07 §6).
+- VERIFIED (GitHub Actions, PR #137, run 40075836975 on `d751660`): Backend tests, Frontend typecheck + build, Playwright E2E, PostgreSQL backup + restore drill — all success.
+- E-mail confirmation delivery (owner request): `requestEmailDelivery.test.js` 3/3 — a request submitted through the public API with a valid synthetic address (`example.test`) makes the server call the mail API (a local 127.0.0.1 stub, not capture) exactly once with the reference and no passport data, with `Authorization` and `Idempotency-Key` = delivery id; a 503 is retried by the reconciler with the same key and delivered once; competing senders while the provider is still answering produce one HTTP request and one attempt. NOT TESTED: arrival in a real inbox (needs the owner's mail provider credentials, SPF/DKIM; decision 2 in 07 §6).
+- Codex final (read-only): e-mail test + sender PASS WITH GAPS → concurrency test and stronger retry assertions added; staff UIs + policy PASS.
+- NOT TESTED: staging; no migration.
+- KNOWN LIMITS: accepting a previously rejected document after execution needs a reason, but the accept button has no note field (the server message says so; managers can reject-with-note first). A staff re-send that gets a temporary 5xx is retried automatically with the delivery's own idempotency key, not the re-send's (same rule as the paid-receipt e-mail; keeping the key needs a column). WhatsApp timeout handling (G-14) unchanged.
+
+### Remaining P1 — plan only, NOT STARTED (needs owner decisions)
+
+| Gap | Problem (verified in 02b/03) | Proposed plan | Owner decision needed |
+|---|---|---|---|
+| G-03 | Website flight bookings have no receipt rejection, cancellation, refund, PNR or customer notifications | A: move flight bookings onto the ContactRequest workflow (reuses receipt review, cancellation, refunds, notifications, outbox, tracking); B: keep `flight_bookings` and add the missing transitions (reject receipt → re-upload, cancel before ticketing, refund record, PNR required before FINAL_TICKET_ISSUED, notifications) | A or B (07 §6 decision 4); refund policy and who may cancel; whether seats are held (decremented) while a booking is open |
+| G-06 | Website hotel / ferry requests send `travelerCount` with no travelers and can never become "ready" | A: collect traveler names (and passport where the provider needs it) on the hotel/ferry forms; B: readiness for hotels/ferries not traveler-based (lead guest only) | Which data hotels and ferries really need per traveler |
+| G-07 | Editing or deleting a visa type/service changes old requests (`onDelete: SetNull`); Egypt rules can be lost | Additive migration: snapshot service code + procedure version on each request; refuse hard delete of a catalog item that has requests (deactivate instead); backfill existing rows | Approval of the migration and backfill on staging (real backup + restore first, per CLAUDE.md); whether hard delete stays possible at all |
+| G-27 | A public flight booking may attach to another customer's record found by passport (and its phone) | Never match an unauthenticated booking to an existing customer by passport; create a new customer, flag a possible duplicate for staff merge (audited) | Matching rule (phone + passport, or never); who may merge customers |
 
 ## BLOCKED (needs owner / infrastructure)
 
