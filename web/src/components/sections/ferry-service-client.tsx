@@ -36,7 +36,9 @@ export function FerryServiceClient() {
   const passengerRows = Array.from({ length: passengerCount }, (_, i) => passengers[i] ?? emptyPassenger());
   function updatePassenger(index: number, patch: Partial<Passenger>) {
     setPassengers((current) => {
-      const next = Array.from({ length: passengerCount }, (_, i) => current[i] ?? emptyPassenger());
+      // Keep entries beyond the current count: lowering then raising the
+      // count must not lose what was typed.
+      const next = Array.from({ length: Math.max(current.length, index + 1) }, (_, i) => current[i] ?? emptyPassenger());
       next[index] = { ...next[index], ...patch };
       return next;
     });

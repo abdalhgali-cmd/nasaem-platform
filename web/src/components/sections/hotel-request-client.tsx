@@ -119,7 +119,7 @@ export function HotelRequestClient() {
                   <p className="text-xs text-muted-foreground">يكفي اسم ضيف واحد لكل غرفة كما في جواز السفر؛ لا نطلب أرقام الجوازات للحجز الفندقي.</p>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {leadGuestNames.map((name, index) => (
-                      <label key={index} className="grid gap-1"><span className="text-xs font-bold">الغرفة {index + 1}</span><input className={inputClass} value={name} onChange={(e) => setLeadGuests((current) => { const next = Array.from({ length: roomCount }, (_, i) => current[i] ?? ""); next[index] = e.target.value; return next; })} aria-label={`اسم الضيف الرئيسي للغرفة ${index + 1}`} /></label>
+                      <label key={index} className="grid gap-1"><span className="text-xs font-bold">الغرفة {index + 1}</span><input className={inputClass} value={name} onChange={(e) => setLeadGuests((current) => { const next = Array.from({ length: Math.max(current.length, index + 1) }, (_, i) => current[i] ?? ""); next[index] = e.target.value; return next; })} aria-label={`اسم الضيف الرئيسي للغرفة ${index + 1}`} /></label>
                     ))}
                   </div>
                 </fieldset>

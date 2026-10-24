@@ -72,6 +72,11 @@ test.describe("hotel and ferry requests collect each traveler's data (AUDIT-00 G
     await expect(page.getByText("أكمل اسم كل راكب وجنسيته ورقم جوازه كما في جواز السفر.")).toBeVisible();
 
     await page.getByLabel("رقم جواز الراكب 2").fill("SYN1000002");
+    // Lowering then raising the count keeps what was typed.
+    await page.getByLabel("عدد المسافرين").fill("1");
+    await page.getByLabel("اسم الراكب 1").fill("راكب 1");
+    await page.getByLabel("عدد المسافرين").fill("2");
+    await expect(page.getByLabel("رقم جواز الراكب 2")).toHaveValue("SYN1000002");
     await page.getByRole("button", { name: "إرسال طلب حجز العبارة" }).click();
     await expect(page.getByText(/رقم الطلب:/)).toBeVisible({ timeout: 15_000 });
     const id = (await page.getByText(/رقم الطلب:/).textContent())!.split("رقم الطلب:")[1].trim();
