@@ -17,7 +17,7 @@ describe("flight booking workflow", () => {
 
   before(async () => {
     admin = await loginAsSuperAdmin();
-    const flightRes = await admin.post("/api/flights").send({ airline: "TARCO", flightNumber: `3T${uniqueSuffix().slice(-4)}`, originCode: "PZU", originName: "Port Sudan", destinationCode: "JED", destinationName: "Jeddah", departureAt: "2026-09-15T08:30:00+02:00", arrivalAt: "2026-09-15T11:30:00+02:00", stops: 0, baggage: "30 KG", cabin: "Economy", price: 1500000, currency: "SDG", availableSeats: 10 });
+    const flightRes = await admin.post("/api/flights").send({ airline: "TARCO", flightNumber: `3T${uniqueSuffix().slice(-4)}`, originCode: "PZU", originName: "Port Sudan", destinationCode: "JED", destinationName: "Jeddah", departureAt: "2030-09-15T08:30:00+02:00", arrivalAt: "2030-09-15T11:30:00+02:00", stops: 0, baggage: "30 KG", cabin: "Economy", price: 1500000, currency: "SDG", availableSeats: 10 });
     assert.equal(flightRes.status, 201);
     flightId = flightRes.body.data.id;
     const bankRes = await admin.post("/api/flight-bookings/admin/bank-accounts").send({ key: `test-bank-${uniqueSuffix()}`, label: "حساب اختبار الطيران", bankName: "Test Bank", accountNumber: `000${uniqueSuffix()}`, active: true });
@@ -81,7 +81,7 @@ describe("flight booking workflow", () => {
 
   test("rejects payment receipt upload before provisional ticket", async () => {
     const testPhone = `24992${uniqueSuffix().slice(-7)}`;
-    const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "Early Receipt Test", phone: testPhone }, passengers: [{ firstName: "EARLY", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }] });
+    const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "Early Receipt Test", phone: testPhone }, passengers: [{ firstName: "EARLY", lastName: "TEST", nationality: "Sudan", birthDate: "1990-01-01", passportNo: `P${uniqueSuffix()}` }] });
     assert.equal(createRes.status, 201);
     const res = await request(app).post(`/api/flight-bookings/${createRes.body.booking.booking_number}/payment-receipt`).field("phone", testPhone).attach("file", pdfBuffer("receipt"), "receipt.pdf");
     assert.equal(res.status, 400);
@@ -98,7 +98,7 @@ describe("flight booking workflow", () => {
 
     before(async () => {
       ownerPhone = `24993${uniqueSuffix().slice(-7)}`;
-      const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "File Isolation Test", phone: ownerPhone }, passengers: [{ firstName: "FILE", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }] });
+      const createRes = await request(app).post("/api/flight-bookings").send({ flightId, amount: 1500000, currency: "SDG", contact: { fullName: "File Isolation Test", phone: ownerPhone }, passengers: [{ firstName: "FILE", lastName: "TEST", nationality: "Sudan", birthDate: "1990-01-01", passportNo: `P${uniqueSuffix()}` }] });
       ownedBooking = createRes.body.booking;
       const provisionalRes = await admin.post(`/api/flight-bookings/${ownedBooking.id}/provisional-ticket`).attach("file", pdfBuffer("provisional ticket contents"), "provisional.pdf");
       assert.equal(provisionalRes.status, 200);
