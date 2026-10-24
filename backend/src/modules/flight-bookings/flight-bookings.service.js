@@ -7,6 +7,7 @@ import { resolveUploadPath, resolveStoredUploadPath } from "../../config/uploadR
 import { publicOrganizationId } from "../../utils/publicOrganization.js";
 import { detectMimeTypeFromSignature, ALLOWED_MIME_TYPES } from "../../middleware/upload.middleware.js";
 import { lockOrder, recalculateOrderPaymentStatus } from "../payments/payments.service.js";
+import { withoutPassportNumbers } from "../../utils/passportMask.js";
 
 const { Prisma } = prismaPackage;
 
@@ -197,27 +198,29 @@ function validatePassengers(passengers) {
 // organization. A client-supplied customerId is never trusted (this route is
 // unauthenticated: honouring it would attach the booking, and the phone
 // check that protects its documents, to someone else's record).
+//
+// Never matched to an existing customer by passport or phone (AUDIT-00
+// G-27, owner rule): every public booking gets its own customer record,
+// holding the booker's own contact phone, so the phone check that protects
+// the booking is always the booker's. Passport numbers stay on the
+// passengers (no customer passport, no invented "TEMP-…" values); linking
+// records is a staff decision, never inferred.
 async function ensureOrderAndCustomer(tx, input, amount) {
   const organizationId = publicOrganizationId();
   const first = input.passengers[0];
-  const passportNo = String(input.contact?.passportNo || first?.passportNo || "").trim();
-  let customer = passportNo ? await tx.customer.findFirst({ where: { passportNo, organizationId } }) : null;
-  if (!customer) {
-    const passportTaken = passportNo ? await tx.customer.findUnique({ where: { passportNo }, select: { id: true } }) : null;
-    customer = await tx.customer.create({
-      data: {
-        organizationId,
-        customerNo: `CUS-${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
-        fullName: String(input.contact?.fullName || `${first?.firstName || ""} ${first?.lastName || ""}`).trim().slice(0, 200),
-        passportNo: passportNo && !passportTaken ? passportNo : `${passportNo || "TEMP"}-${Date.now()}`,
-        nationality: String(first?.nationality || "UNKNOWN").trim().slice(0, 80),
-        birthDate: first?.birthDate ? new Date(first.birthDate) : null,
-        gender: ["MALE", "FEMALE"].includes(first?.gender) ? first.gender : null,
-        phone: input.contact?.phone || null,
-        email: input.contact?.email || null,
-      },
-    });
-  }
+  const customer = await tx.customer.create({
+    data: {
+      organizationId,
+      customerNo: `CUS-${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
+      fullName: String(input.contact?.fullName || `${first?.firstName || ""} ${first?.lastName || ""}`).trim().slice(0, 200),
+      passportNo: null,
+      nationality: String(first?.nationality || "UNKNOWN").trim().slice(0, 80),
+      birthDate: first?.birthDate ? new Date(first.birthDate) : null,
+      gender: ["MALE", "FEMALE"].includes(first?.gender) ? first.gender : null,
+      phone: input.contact?.phone || null,
+      email: input.contact?.email || null,
+    },
+  });
   const order = await tx.order.create({
     data: {
       organizationId,
@@ -332,7 +335,8 @@ export async function listFlightBookings(status, organizationId, search) {
      ORDER BY fb.created_at DESC LIMIT 200`,
     ...params
   );
-  return rows.map(mapBookingRow);
+  // A list never carries passport numbers; the single-booking view does.
+  return rows.map((row) => ({ ...mapBookingRow(row), passengers: withoutPassportNumbers(row.passengers) }));
 }
 
 export async function uploadProvisionalTicket(id, file, organizationId) {

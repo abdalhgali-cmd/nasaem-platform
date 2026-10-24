@@ -3,6 +3,7 @@ import { computeSettlement } from "../payments/settlement.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { safeCustomerSelect } from "../../utils/safeSelects.js";
+import { maskPassport } from "../../utils/passportMask.js";
 
 function toDateOrNull(value) {
   if (!value) return null;
@@ -24,7 +25,9 @@ export async function listCustomers({ page, limit, skip, search, organizationId 
     prisma.customer.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, select: safeCustomerSelect }),
     prisma.customer.count({ where }),
   ]);
-  return { data, meta: buildPaginationMeta(page, limit, total) };
+  // Search still matches the full number; the list shows it masked (the
+  // customer's own page shows it in full).
+  return { data: data.map((customer) => ({ ...customer, passportNo: maskPassport(customer.passportNo) })), meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function lookupCustomer({ passportNo, phone, organizationId }) {
