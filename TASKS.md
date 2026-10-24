@@ -329,7 +329,27 @@ NOT TESTED:
 - FIXED: the intermittent `flight-search-issue-104` "no-results" E2E — fields were filled before hydration; the spec now waits for React to attach handlers (20/20 over 5 repeats).
 - Codex (read-only): P1 infant label trusted → fixed (server age check); P2 rounded total → fixed; P2 invalid calendar dates → fixed; P2 birthday boundary → not reproducible (search matches the date as a UTC day, the same day the server uses), boundary tests added.
 - NOT TESTED: GitHub Actions on this branch; staging; no migration.
-- NEXT (Phase 01 P1, not started): G-04/G-05/G-11/G-12 per `07-phase00-report.md`.
+- NEXT: Phase 01 P1 (below).
+
+## Phase 01 — P1 fixes from AUDIT-00 (2026-10-24, branch `fix/phase01-p1-20261024`, base `fix/phase01-p0-flight-booking-20261024`)
+
+Owner decisions 2026-10-24: G-05 confirming without a receipt is allowed with a written, audited reason; G-11 e-mail stays optional (sent when given, otherwise SKIPPED NO_RECIPIENT).
+
+| Gap | Change | Evidence (local, disposable DB) |
+|---|---|---|
+| G-12 | `PROVIDER_EMAIL_TRANSPORT=capture` is ignored in production (real transport or NOT_CONFIGURED, startup warning; startup is not refused so a misconfigured staging is not taken down) | `providerEmailTransport.test.js` 2/2 |
+| G-04 | Egypt completion needs a current CIRCULAR file (`CIRCULAR_NOT_ISSUED`) and, over land, the entry point (`ENTRY_PORT_MISSING`) | `pricingModes.unit`, `requestProgress`, `serviceJourneys`, `workflowCompletionAndQuoteVersion`; E2E `service-journeys` Egypt |
+| G-08 | Draft document refs resolve through each named traveler's submitted index | `intakeDraftIntegrity.test.js` (fails on old code) |
+| G-09 | Draft claimed conditionally inside the transaction: one draft, one request | same file; the race reproduced on old code (two requests) |
+| G-11 / G-13 | REQUEST_CONFIRMATION EMAIL row in the same insert on every creation path (form, draft, linked flight); same claim/retry/UNCERTAIN rules as the receipt e-mail; staff re-send by channel | `requestEmailConfirmation.test.js` 4/4; `guestSubmissionAndConfirmation` 16/16 |
+| G-05 | Confirm without a current receipt → `RECEIPT_OR_REASON_REQUIRED` unless a reason (≥5 chars); reason + `withoutReceipt` on the audit row; reason field on static admin, web case panel and payment-review (redrawn on that refusal) | `contactRequestInvoice`, `staffAdminWorkflows` (jsdom); E2E `platform3` Security approvals |
+| G-10 | Re-deciding a decided document after execution: managers only (`CORRECTION_MANAGER_ONLY`) with a reason (`CORRECTION_REASON_REQUIRED`), audited with the previous status | `workflowIntegrity.test.js` |
+
+- VERIFIED locally: backend 999/999 (before the jsdom test was added; that file 14/14); full Playwright 122/123, the one failure was this change's own effect (`platform3` confirmed a declared transfer without a reason), fixed and re-run 1/1; web tsc + eslint clean; static admin in sync.
+- Codex (read-only): backend PASS; staff UIs PASS WITH GAPS (stale screen hid the reason field) → fixed in `d19323d`.
+- NOT TESTED: GitHub Actions on this branch; staging; no migration.
+- KNOWN LIMITS: accepting a previously rejected document after execution needs a reason, but the accept button has no note field (the server message says so; managers can reject-with-note first). WhatsApp timeout handling (G-14) unchanged.
+- NEXT (not started): remaining P1 — G-03 (flight booking lifecycle), G-06 (hotel/ferry travelers), G-07 (procedure snapshot), G-27 (flight passport match) — several need owner decisions (04 §15, 07 §6).
 
 ## BLOCKED (needs owner / infrastructure)
 

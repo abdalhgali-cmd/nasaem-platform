@@ -659,8 +659,9 @@ test.describe("Security approvals — full lifecycle through the real customer-f
       await page.getByRole("button", { name: "تم تحويل المبلغ" }).click();
       await expect(page.getByRole("button", { name: "تم تحويل المبلغ" })).not.toBeVisible({ timeout: 15_000 });
 
-      // Staff confirms the payment (admin API).
-      const confirmRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/confirm-payment`, { data: {} });
+      // Staff confirms the payment (admin API). A declared transfer has no
+      // receipt, so the confirmation carries a reason (AUDIT-00 G-05).
+      const confirmRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/confirm-payment`, { data: { reason: "تمت المطابقة مع كشف البنك" } });
       expect(confirmRes.ok(), await confirmRes.text()).toBeTruthy();
 
       // 5. Processing — staff record the start of execution (admin API);
