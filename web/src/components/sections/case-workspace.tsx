@@ -344,7 +344,10 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
   );
 
   const listed = visible.find((row) => row.id === selectedId) ?? null;
-  const needsLinkedFetch = Boolean(selectedId) && !loading && !listed;
+  // The open case always comes from its own endpoint: lists mask passport
+  // numbers, the case's details show them to staff. The list row only
+  // stands in while the details load (and if they cannot be loaded).
+  const needsLinkedFetch = Boolean(selectedId) && !loading;
 
   React.useEffect(() => {
     if (!needsLinkedFetch || !selectedId) return;
@@ -368,8 +371,8 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
     };
   }, [needsLinkedFetch, selectedId, reloadToken]);
 
-  const linked = !listed && linkedCase?.id === selectedId ? linkedCase : null;
-  const selected = listed ?? linked;
+  const linked = linkedCase?.id === selectedId ? linkedCase : null;
+  const selected = linked ?? listed;
 
   return (
     <main className="min-h-screen bg-section py-8 sm:py-10">
@@ -511,7 +514,7 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
 
           {selected ? (
             <div className="min-w-0">
-              {linked ? (
+              {linked && !listed ? (
                 <p className="mb-3 rounded-2xl border border-primary/20 bg-primary/5 p-3 text-xs font-bold text-primary" data-testid="case-linked-note">
                   فُتح هذا الطلب من رابط مباشر، وهو خارج القائمة أو التصفية الحالية.
                 </p>

@@ -12,6 +12,11 @@ export function withMaskedCustomer(row) {
   return row?.customer ? { ...row, customer: { ...row.customer, passportNo: maskPassport(row.customer.passportNo) } } : row;
 }
 
+// A request's travelers with masked passport numbers (for lists).
+export function withMaskedTravelers(row) {
+  return Array.isArray(row?.travelers) ? { ...row, travelers: row.travelers.map((t) => ({ ...t, passportNo: maskPassport(t.passportNo) })) } : row;
+}
+
 // A booking's passenger list without passport numbers.
 export function withoutPassportNumbers(passengers) {
   return Array.isArray(passengers) ? passengers.map(({ passportNo, ...rest }) => rest) : passengers;

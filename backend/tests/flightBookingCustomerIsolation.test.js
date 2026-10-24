@@ -74,6 +74,36 @@ describe("public flight bookings are never linked to an existing customer", () =
   });
 });
 
+describe("a logged-in customer books under their own account (verified session only)", () => {
+  test("with a valid session the booking is the account's and shows in the account's orders", async () => {
+    const accountPhone = `249${uniqueSuffix().slice(-9)}`;
+    const reg = await request(app).post("/api/customer-auth/register").send({ fullName: "Account Holder", phone: accountPhone, password: "Test@12345" });
+    assert.equal(reg.status, 201, JSON.stringify(reg.body));
+    const token = reg.body.data.token;
+    const res = await request(app).post("/api/flight-bookings").set("Authorization", `Bearer ${token}`).send({
+      flightId, currency: "SDG", contact: { fullName: "Account Holder", phone: accountPhone },
+      passengers: [{ firstName: "SYN", lastName: "PAX", nationality: "SD", birthDate: "1990-01-01", passportNo: `ACC${uniqueSuffix()}` }],
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(await customerOf(res.body.booking.id), reg.body.data.customer.id);
+    const orders = await request(app).get("/api/customer/orders").set("Authorization", `Bearer ${token}`);
+    assert.equal(orders.status, 200);
+    const orderId = (await prisma.$queryRawUnsafe(`SELECT order_id FROM flight_bookings WHERE id=$1`, res.body.booking.id))[0].order_id;
+    assert.ok(JSON.stringify(orders.body).includes(orderId), "the booking's order is in the account");
+  });
+
+  test("an invalid or forged session is ignored: a separate record, never someone else's", async () => {
+    const res = await request(app).post("/api/flight-bookings").set("Authorization", "Bearer not.a.jwt").send({
+      flightId, currency: "SDG", contact: { fullName: "Anon", phone: phone() },
+      passengers: [{ firstName: "SYN", lastName: "PAX", nationality: "SD", birthDate: "1990-01-01", passportNo: `FRG${uniqueSuffix()}` }],
+      customerId: "someone-else",
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const created = await prisma.customer.findUnique({ where: { id: await customerOf(res.body.booking.id) } });
+    assert.equal(created.passwordHash, null, "a new, non-account record");
+  });
+});
+
 describe("passport numbers are hidden in lists and shown in details to staff", () => {
   test("staff booking list: passengers without passport numbers; the booking detail shows them", async () => {
     const passportNo = `LST${uniqueSuffix()}`;
@@ -108,7 +138,8 @@ describe("passport numbers are hidden in lists and shown in details to staff", (
   test("operations queue carries no passport numbers", async () => {
     const passportNo = `OPS${uniqueSuffix()}`;
     const customer = await prisma.customer.create({ data: { organizationId: admin.organizationId, customerNo: `OPS-${uniqueSuffix()}`, fullName: "Ops Customer", passportNo, nationality: "SD" } });
-    const order = await prisma.order.create({ data: { organizationId: admin.organizationId, orderNumber: `ORD-OPS-${uniqueSuffix()}`, customerId: customer.id, status: "NEW", totalAmount: 100, currency: "SDG" } });
+    const order = await prisma.order.create({ data: { organizationId: admin.organizationId, orderNumber: `ORD-OPS-${uniqueSuffix()}`, customerId: customer.id, status: "NEW", totalAmount: 100, currency: "SDG", updatedAt: new Date("2000-01-01T00:00:00Z") } });
+    // The queue lists the 50 oldest open orders; this one is dated first.
     const ops = await staffClient(admin).get("/api/dashboard/operations");
     assert.equal(ops.status, 200);
     assert.ok(JSON.stringify(ops.body).includes(order.orderNumber), "the order is in the queue");

@@ -1,6 +1,7 @@
 import prisma from "../../config/database.js";
 import { safeCustomerSelect } from "../../utils/safeSelects.js";
 import { hasCurrentReceipt } from "../contact-request-workflow/workflow-policy.js";
+import { withMaskedCustomer } from "../../utils/passportMask.js";
 
 // `organizationId` scopes every query tied (directly or via a relation) to
 // Customer/Order/User/ContactRequest — mirrors the pattern already used in
@@ -31,7 +32,7 @@ export async function getDashboardStats(organizationId) {
   const serviceIds = serviceSales.map((row) => row.serviceId);
   const services = serviceIds.length ? await prisma.service.findMany({ where: { id: { in: serviceIds } }, select: { id: true, code: true, name: true, category: true } }) : [];
   const serviceMap = new Map(services.map((service) => [service.id, service]));
-  return { customers, orders, payments, offers, documents, users, financial: { salesByCurrency, paidByCurrency, serviceSales: serviceSales.map((row) => ({ ...row, service: serviceMap.get(row.serviceId) || null })) }, latestOrders };
+  return { customers, orders, payments, offers, documents, users, financial: { salesByCurrency, paidByCurrency, serviceSales: serviceSales.map((row) => ({ ...row, service: serviceMap.get(row.serviceId) || null })) }, latestOrders: latestOrders.map(withMaskedCustomer) };
 }
 
 function contactNextAction(request) {
