@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { assertNoHorizontalOverflow, loginAsSeededAdmin } from "./helpers";
 
@@ -64,8 +64,8 @@ test.describe("hotel and ferry requests collect each traveler's data (AUDIT-00 G
     await expect(page.getByTestId("ferry-passengers").getByText(/الراكب \d/)).toHaveCount(2);
 
     for (const n of [1, 2]) {
-      await page.getByLabel(`اسم الراكب ${n}`).fill(`راكب ${n}`);
-      await page.getByLabel(`جنسية الراكب ${n}`).fill("سوداني");
+      await page.getByLabel(`اسم الراكب ${n}`, { exact: true }).fill(`راكب ${n}`);
+      await page.getByLabel(`جنسية الراكب ${n}`, { exact: true }).fill("سوداني");
     }
     await page.getByLabel("رقم جواز الراكب 1").fill("SYN1000001");
     await page.getByRole("button", { name: "إرسال طلب حجز العبارة" }).click();
@@ -90,6 +90,28 @@ test.describe("hotel and ferry requests collect each traveler's data (AUDIT-00 G
   });
 });
 
+// A field is usable on the phone when it sits inside the 360px width, a tap
+// lands on it (nothing covers it) and what is typed stays in it.
+async function expectTappable(locator: Locator) {
+  await locator.scrollIntoViewIfNeeded();
+  await expect(locator).toBeInViewport();
+  const box = await locator.boundingBox();
+  expect(box && box.x >= 0 && box.x + box.width <= 360).toBeTruthy();
+  const hit = await locator.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return Boolean(top && (top === el || el.contains(top) || (el as HTMLInputElement).labels?.[0]?.contains(top)));
+  });
+  expect(hit, "nothing covers it").toBe(true);
+}
+
+async function fillOnPhone(locator: Locator, value: string) {
+  await expectTappable(locator);
+  await locator.tap();
+  await locator.fill(value);
+  await expect(locator).toHaveValue(value);
+}
+
 // Owner acceptance: the forms work on a 360px-wide phone with small and large
 // traveler counts — every field reachable, nothing wider than the screen.
 test.describe("hotel and ferry forms on a 360px phone", () => {
@@ -100,13 +122,11 @@ test.describe("hotel and ferry forms on a 360px phone", () => {
       await openForm(page, "/hotels", "إرسال طلب الفندق");
       await page.getByLabel("عدد الغرف").fill(String(rooms));
       await expect(page.getByTestId("hotel-lead-guests").getByRole("textbox")).toHaveCount(rooms);
-      const last = page.getByLabel(`اسم الضيف الرئيسي للغرفة ${rooms}`);
-      await last.scrollIntoViewIfNeeded();
-      await expect(last).toBeInViewport();
-      await last.fill("ضيف أخير");
+      await fillOnPhone(page.getByLabel("الاسم الكامل").first(), "عميل تجريبي");
+      await fillOnPhone(page.getByLabel("رقم الهاتف / واتساب"), "0912000000");
+      for (let n = 1; n <= rooms; n += 1) await fillOnPhone(page.getByLabel(`اسم الضيف الرئيسي للغرفة ${n}`, { exact: true }), `ضيف ${n}`);
+      await expectTappable(page.getByRole("button", { name: "إرسال طلب الفندق" }));
       expect(await assertNoHorizontalOverflow(page)).toBeLessThanOrEqual(0);
-      const box = await last.boundingBox();
-      expect(box && box.x >= 0 && box.x + box.width <= 360).toBeTruthy();
       await page.screenshot({ path: test.info().outputPath(`hotel-360-${rooms}.png`), fullPage: true });
     });
   }
@@ -116,13 +136,15 @@ test.describe("hotel and ferry forms on a 360px phone", () => {
       await openForm(page, "/ferries", "إرسال طلب حجز العبارة");
       await page.getByLabel("عدد المسافرين").fill(String(passengers));
       await expect(page.getByTestId("ferry-passengers").getByText(/الراكب \d+/)).toHaveCount(passengers);
-      for (const label of [`اسم الراكب ${passengers}`, `جنسية الراكب ${passengers}`, `رقم جواز الراكب ${passengers}`, `تاريخ ميلاد الراكب ${passengers}`]) {
-        const field = page.getByLabel(label);
-        await field.scrollIntoViewIfNeeded();
-        await expect(field).toBeInViewport();
-        const box = await field.boundingBox();
-        expect(box && box.x >= 0 && box.x + box.width <= 360, label).toBeTruthy();
+      await fillOnPhone(page.getByLabel("الاسم الكامل").first(), "عميل تجريبي");
+      await fillOnPhone(page.getByLabel("رقم الهاتف / واتساب"), "0912000000");
+      for (let n = 1; n <= passengers; n += 1) {
+        await fillOnPhone(page.getByLabel(`اسم الراكب ${n}`, { exact: true }), `راكب ${n}`);
+        await fillOnPhone(page.getByLabel(`جنسية الراكب ${n}`, { exact: true }), "سوداني");
+        await fillOnPhone(page.getByLabel(`رقم جواز الراكب ${n}`, { exact: true }), `SYN${String(n).padStart(6, "0")}`);
+        await fillOnPhone(page.getByLabel(`تاريخ ميلاد الراكب ${n}`, { exact: true }), "1990-01-01");
       }
+      await expectTappable(page.getByRole("button", { name: "إرسال طلب حجز العبارة" }));
       expect(await assertNoHorizontalOverflow(page)).toBeLessThanOrEqual(0);
       await page.screenshot({ path: test.info().outputPath(`ferry-360-${passengers}.png`), fullPage: true });
     });
