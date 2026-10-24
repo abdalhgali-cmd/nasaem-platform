@@ -329,7 +329,40 @@ NOT TESTED:
 - FIXED: the intermittent `flight-search-issue-104` "no-results" E2E — fields were filled before hydration; the spec now waits for React to attach handlers (20/20 over 5 repeats).
 - Codex (read-only): P1 infant label trusted → fixed (server age check); P2 rounded total → fixed; P2 invalid calendar dates → fixed; P2 birthday boundary → not reproducible (search matches the date as a UTC day, the same day the server uses), boundary tests added.
 - NOT TESTED: GitHub Actions on this branch; staging; no migration.
-- NEXT (Phase 01 P1, not started): G-04/G-05/G-11/G-12 per `07-phase00-report.md`.
+- NEXT: Phase 01 P1 (below).
+
+## Phase 01 — P1 fixes from AUDIT-00 (2026-10-24, branch `fix/phase01-p1-20261024`, base `fix/phase01-p0-flight-booking-20261024`)
+
+Owner decisions 2026-10-24: G-05 confirming without a receipt is allowed with a written, audited reason; G-11 e-mail stays optional (sent when given, otherwise SKIPPED NO_RECIPIENT).
+
+| Gap | Change | Evidence (local, disposable DB) |
+|---|---|---|
+| G-12 | `PROVIDER_EMAIL_TRANSPORT=capture` is ignored in production (real transport or NOT_CONFIGURED, startup warning; startup is not refused so a misconfigured staging is not taken down) | `providerEmailTransport.test.js` 2/2 |
+| G-04 | Egypt completion needs a current CIRCULAR file (`CIRCULAR_NOT_ISSUED`) and, over land, the entry point (`ENTRY_PORT_MISSING`) | `pricingModes.unit`, `requestProgress`, `serviceJourneys`, `workflowCompletionAndQuoteVersion`; E2E `service-journeys` Egypt |
+| G-08 | Draft document refs resolve through each named traveler's submitted index | `intakeDraftIntegrity.test.js` (fails on old code) |
+| G-09 | Draft claimed conditionally inside the transaction: one draft, one request | same file; the race reproduced on old code (two requests) |
+| G-11 / G-13 | REQUEST_CONFIRMATION EMAIL row in the same insert on every creation path (form, draft, linked flight); same claim/retry/UNCERTAIN rules as the receipt e-mail; staff re-send by channel | `requestEmailConfirmation.test.js` 4/4; `guestSubmissionAndConfirmation` 16/16 |
+| G-05 | Confirm without a current receipt → `RECEIPT_OR_REASON_REQUIRED` unless a reason (≥5 chars); reason + `withoutReceipt` on the audit row; reason field on static admin, web case panel and payment-review (redrawn on that refusal) | `contactRequestInvoice`, `staffAdminWorkflows` (jsdom); E2E `platform3` Security approvals |
+| G-10 | Re-deciding a decided document after execution: managers only (`CORRECTION_MANAGER_ONLY`) with a reason (`CORRECTION_REASON_REQUIRED`), audited with the previous status | `workflowIntegrity.test.js` |
+
+- VERIFIED locally: backend 999/999 (before the jsdom test was added; that file 14/14); full Playwright 122/123, the one failure was this change's own effect (`platform3` confirmed a declared transfer without a reason), fixed and re-run 1/1; web tsc + eslint clean; static admin in sync.
+- Codex (read-only): backend PASS; staff UIs PASS WITH GAPS (stale screen hid the reason field) → fixed in `d19323d`.
+- VERIFIED (GitHub Actions, PR #137, run 40075836975 on `d751660`): Backend tests, Frontend typecheck + build, Playwright E2E, PostgreSQL backup + restore drill — all success.
+- E-mail confirmation delivery (owner request): `requestEmailDelivery.test.js` 3/3 — a request submitted through the public API with a valid synthetic address (`example.test`) makes the server call the mail API (a local 127.0.0.1 stub, not capture) exactly once with the reference and no passport data, with `Authorization` and `Idempotency-Key` = delivery id; a 503 is retried by the reconciler with the same key and delivered once; competing senders while the provider is still answering produce one HTTP request and one attempt. NOT TESTED: arrival in a real inbox (needs the owner's mail provider credentials, SPF/DKIM; decision 2 in 07 §6).
+- Codex final (read-only): e-mail test + sender PASS WITH GAPS → concurrency test and stronger retry assertions added; staff UIs + policy PASS.
+- NOT TESTED: staging; no migration.
+- G-10 follow-up: static admin now exposes decided-document corrections to managers and sends the trimmed reason with acceptance; both acceptance and rejection require at least 5 characters for corrections. The React documents tab labels and validates the same reason. Server authorization and audit enforcement are unchanged. Regression coverage: `staffAdminWorkflows.test.js` and `workflowIntegrity.test.js` (rejected-to-accepted, missing/short reason, non-manager refusal, ordinary acceptance before execution, previous-status/reason audit).
+- G-10 local validation (Windows, disposable PostgreSQL on port 55437): staff UI 15/15; workflow integrity + pricing policy 32/33, including the G-10 regression. The sole failure is the existing history-file download returning 404 instead of 200; reproduced with the pre-fix workflow policy restored. Web TypeScript and targeted ESLint pass; static-admin sync check passes. CI for this follow-up is pending until the commit is pushed and checked; this is not a full green local suite.
+- KNOWN LIMITS: a staff re-send that gets a temporary 5xx is retried automatically with the delivery's own idempotency key, not the re-send's (same rule as the paid-receipt e-mail; keeping the key needs a column). WhatsApp timeout handling (G-14) unchanged. Staging and real mailbox delivery remain unverified.
+
+### Remaining P1 — plan only, NOT STARTED (needs owner decisions)
+
+| Gap | Problem (verified in 02b/03) | Proposed plan | Owner decision needed |
+|---|---|---|---|
+| G-03 | Website flight bookings have no receipt rejection, cancellation, refund, PNR or customer notifications | A: move flight bookings onto the ContactRequest workflow (reuses receipt review, cancellation, refunds, notifications, outbox, tracking); B: keep `flight_bookings` and add the missing transitions (reject receipt → re-upload, cancel before ticketing, refund record, PNR required before FINAL_TICKET_ISSUED, notifications) | A or B (07 §6 decision 4); refund policy and who may cancel; whether seats are held (decremented) while a booking is open |
+| G-06 | Website hotel / ferry requests send `travelerCount` with no travelers and can never become "ready" | A: collect traveler names (and passport where the provider needs it) on the hotel/ferry forms; B: readiness for hotels/ferries not traveler-based (lead guest only) | Which data hotels and ferries really need per traveler |
+| G-07 | Editing or deleting a visa type/service changes old requests (`onDelete: SetNull`); Egypt rules can be lost | Additive migration: snapshot service code + procedure version on each request; refuse hard delete of a catalog item that has requests (deactivate instead); backfill existing rows | Approval of the migration and backfill on staging (real backup + restore first, per CLAUDE.md); whether hard delete stays possible at all |
+| G-27 | A public flight booking may attach to another customer's record found by passport (and its phone) | Never match an unauthenticated booking to an existing customer by passport; create a new customer, flag a possible duplicate for staff merge (audited) | Matching rule (phone + passport, or never); who may merge customers |
 
 ## BLOCKED (needs owner / infrastructure)
 

@@ -177,6 +177,47 @@ describe("execution starts only when the request is really ready", () => {
   });
 });
 
+describe("a document decision after execution is a manager correction (AUDIT-00 G-10)", () => {
+  test("before execution staff may change a decision; after it only a manager, with a reason, audited", async () => {
+    const { id, tracking } = await newRequest();
+    await readyAndPaid({ staff: employee, accountant, tracking, id });
+    const document = (await staffDetail(employee, id)).documents.find((d) => d.status === "ACCEPTED" && d.classification !== "FINANCIAL_DOCUMENT");
+    const review = (client, body) => client.patch(`/api/contact-requests/${id}/documents/${document.id}/status`).send(body);
+    assert.equal((await review(employee, { status: "ACCEPTED" })).status, 200, "ordinary acceptance before execution needs no correction reason");
+    assert.equal((await employee.post(`/api/contact-requests/${id}/start-execution`).send({})).status, 200);
+
+    const byEmployee = await review(employee, { status: "REJECTED", reviewNote: "الصورة غير واضحة" });
+    assert.equal(byEmployee.status, 403, JSON.stringify(byEmployee.body));
+    assert.equal(byEmployee.body.code, "CORRECTION_MANAGER_ONLY");
+    const shortReason = await review(admin, { status: "REJECTED", reviewNote: "لا" });
+    assert.equal(shortReason.status, 409, JSON.stringify(shortReason.body));
+    assert.equal(shortReason.body.code, "CORRECTION_REASON_REQUIRED");
+    assert.equal((await prisma.contactRequestDocument.findUnique({ where: { id: document.id } })).status, "ACCEPTED", "unchanged");
+
+    const corrected = await review(admin, { status: "REJECTED", reviewNote: "تبيّن أن الجواز منتهي" });
+    assert.equal(corrected.status, 200, JSON.stringify(corrected.body));
+    const audit = await prisma.activityLog.findFirst({ where: { entityId: id, action: "CONTACT_REQUEST_DOCUMENT_REVIEWED" }, orderBy: { createdAt: "desc" } });
+    assert.deepEqual(
+      { correction: audit.newValue.correction, previousStatus: audit.newValue.previousStatus, reason: audit.newValue.reason },
+      { correction: true, previousStatus: "ACCEPTED", reason: "تبيّن أن الجواز منتهي" },
+    );
+    const employeeAccept = await review(employee, { status: "ACCEPTED", reviewNote: "تم التحقق من صلاحية الجواز" });
+    assert.equal(employeeAccept.status, 403);
+    assert.equal(employeeAccept.body.code, "CORRECTION_MANAGER_ONLY");
+    for (const body of [{ status: "ACCEPTED" }, { status: "ACCEPTED", reviewNote: "  نعم  " }]) {
+      const refused = await review(admin, body);
+      assert.equal(refused.status, 409, JSON.stringify(refused.body));
+      assert.equal(refused.body.code, "CORRECTION_REASON_REQUIRED");
+    }
+    const accepted = await review(admin, { status: "ACCEPTED", reviewNote: "  تم التحقق من صلاحية الجواز  " });
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+    assert.equal((await prisma.contactRequestDocument.findUnique({ where: { id: document.id } })).status, "ACCEPTED");
+    const acceptanceAudit = await prisma.activityLog.findFirst({ where: { entityId: id, action: "CONTACT_REQUEST_DOCUMENT_REVIEWED" }, orderBy: { createdAt: "desc" } });
+    assert.equal(acceptanceAudit.newValue.previousStatus, "REJECTED");
+    assert.equal(acceptanceAudit.newValue.reason, "تم التحقق من صلاحية الجواز");
+  });
+});
+
 describe("completion and delivery", () => {
   test("one traveler's file does not complete a two-traveler request; full coverage does", async () => {
     const { id, tracking } = await newRequest();

@@ -20,8 +20,15 @@ function isConfigured() {
 // real mail account or a single real message leaving the machine.
 const captured = [];
 
+// Never in production: there a captured message would be reported as
+// accepted although nobody received it. A production server with the
+// variable left set uses the real transport (or reports NOT_CONFIGURED).
 export function isCaptureTransport() {
-  return process.env.PROVIDER_EMAIL_TRANSPORT === "capture";
+  return process.env.PROVIDER_EMAIL_TRANSPORT === "capture" && process.env.NODE_ENV !== "production";
+}
+
+if (process.env.PROVIDER_EMAIL_TRANSPORT === "capture" && process.env.NODE_ENV === "production") {
+  console.warn("[providerEmail] PROVIDER_EMAIL_TRANSPORT=capture is ignored in production; configure PROVIDER_EMAIL_API_URL/KEY to send mail.");
 }
 
 export function getCapturedProviderEmails() {

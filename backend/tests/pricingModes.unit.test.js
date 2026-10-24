@@ -144,7 +144,8 @@ describe("progress by pricing mode", () => {
 });
 
 describe("Egypt travel tasks are recognised by their stable key", () => {
-  const request = { visaType: { code: "VISA-EGYPT-CLEARANCE" }, intakeData: { egyptTravel: { entryMode: "AIR", bookingStatus: "NEEDS_NASAEM", entryDate: "2030-01-01" } }, documents: [] };
+  // The circular is issued, so the only thing these tests vary is the task.
+  const request = { visaType: { code: "VISA-EGYPT-CLEARANCE" }, intakeData: { egyptTravel: { entryMode: "AIR", bookingStatus: "NEEDS_NASAEM", entryDate: "2030-01-01" } }, documents: [], deliverables: [{ id: "c1", kind: "CIRCULAR", publishedAt: new Date(), supersededAt: null }] };
   test("a keyed task blocks whatever its title", () => {
     const task = { status: "OPEN", source: "SYSTEM", systemKey: "EGYPT_TRAVEL_CIRCULAR", title: "Prepare circular (renamed)" };
     assert.equal(isEgyptTravelTask(task), true);
@@ -155,5 +156,22 @@ describe("Egypt travel tasks are recognised by their stable key", () => {
     assert.equal(isEgyptTravelTask(task), false);
     assert.deepEqual(egyptTravelBlockers({ ...request, tasks: [task] }), []);
     assert.equal(isEgyptTravelTask({ status: "OPEN", source: "MANUAL", systemKey: "EGYPT_TRAVEL_CIRCULAR" }), false);
+  });
+});
+
+describe("Egypt completion needs the issued circular and, over land, the entry point (AUDIT-00 G-04)", () => {
+  const plan = (entryMode, extra = {}) => ({ visaType: { code: "VISA-EGYPT-CLEARANCE" }, intakeData: { egyptTravel: { entryMode, bookingStatus: "NEEDS_NASAEM", entryDate: "2030-01-01", ...extra } }, documents: [], tasks: [] });
+  const circular = { id: "c1", kind: "CIRCULAR", publishedAt: new Date(), supersededAt: null };
+  const codes = (request) => egyptTravelBlockers(request).map((r) => r.code);
+
+  test("no circular, or only a superseded one → CIRCULAR_NOT_ISSUED", () => {
+    assert.deepEqual(codes({ ...plan("AIR"), deliverables: [] }), ["CIRCULAR_NOT_ISSUED"]);
+    assert.deepEqual(codes({ ...plan("AIR"), deliverables: [{ ...circular, supersededAt: new Date() }] }), ["CIRCULAR_NOT_ISSUED"]);
+    assert.deepEqual(codes({ ...plan("AIR"), deliverables: [circular] }), []);
+  });
+
+  test("over land: the entry point is required too", () => {
+    assert.deepEqual(codes({ ...plan("BORDER"), deliverables: [circular] }), ["ENTRY_PORT_MISSING"]);
+    assert.deepEqual(codes({ ...plan("BORDER", { entryPort: "أرقين" }), deliverables: [circular] }), []);
   });
 });

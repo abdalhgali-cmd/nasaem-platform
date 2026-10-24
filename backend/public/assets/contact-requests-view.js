@@ -149,14 +149,18 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
           // reject with a reason); accepting it here as a "document" would
           // not confirm the payment, so no document buttons are shown.
           const isReceipt = d.classification === "FINANCIAL_DOCUMENT";
+          const correction = Boolean(r.executionStartedAt) && d.status !== "PENDING";
+          // Pending documents are reviewed as before; after execution a
+          // manager may correct a decided one (only the opposite decision).
+          const canReview = crAllowed(r, "REVIEW_DOCUMENT") && (d.status === "PENDING" || (correction && ["ADMIN", "SUPER_ADMIN"].includes(user.role)));
           const controls = isReceipt
             ? '<span class="muted small">إيصال دفع — يُراجع من قسم «الدفع»</span>'
-            : crAllowed(r, "REVIEW_DOCUMENT") && d.status === "PENDING"
+            : canReview
               ? `<div class="stack wrap">
-                  <button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}">قبول</button>
+                  ${d.status === "ACCEPTED" ? "" : `<button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>قبول</button>`}
                   <label class="sr-only" for="reject-note-${escapeHtml(d.id)}">سبب الرفض</label>
-                  <input id="reject-note-${escapeHtml(d.id)}" placeholder="سبب الرفض" maxlength="500" style="max-width: 180px" />
-                  <button type="button" class="btn secondary" data-doc-reject="${escapeHtml(d.id)}">رفض</button>
+                  <input id="reject-note-${escapeHtml(d.id)}" aria-label="${correction ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض"}" placeholder="${correction ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض"}" maxlength="500" style="max-width: 240px" />
+                  ${d.status === "REJECTED" ? "" : `<button type="button" class="btn secondary" data-doc-reject="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>رفض</button>`}
                 </div>`
               : d.reviewNote
                 ? `<span class="muted small">${escapeHtml(d.reviewNote)}</span>`
@@ -248,6 +252,12 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     lines.push(transferReceiptsHtml(r));
     if (crAllowed(r, "CONFIRM_PAYMENT")) {
       lines.push(`<p class="muted small">راجع إيصال التحويل أعلاه وطابقه مع كشف البنك، ثم اقبل الدفع أو ارفضه مع بيان السبب. رفع الإيصال لا يعني أن الدفع تم.</p>`);
+      // No current receipt: the customer only declared the transfer. The
+      // confirmation then needs a written reason (audited).
+      const hasReceipt = (r.documents || []).some((d) => d.classification === "FINANCIAL_DOCUMENT" && !d.supersededAt && d.status !== "REJECTED");
+      if (!hasReceipt) {
+        lines.push(`<div class="field"><label for="cr-confirm-reason">لا يوجد إيصال تحويل. سبب التأكيد بدون إيصال (يُسجَّل في السجل)</label><input id="cr-confirm-reason" data-cr-confirm-reason="1" minlength="5" maxlength="500" placeholder="مثال: تمت المطابقة مع كشف البنك" /></div>`);
+      }
       lines.push(`<button type="button" class="btn" data-cr-confirm-payment="1">تأكيد استلام الدفع</button>`);
       lines.push(`<form class="card inset" data-cr-form="reject-payment">
         <h4>رفض الإيصال</h4>
@@ -553,11 +563,16 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     }
     if (handleEgyptClick(t, { base, act })) return undefined;
     const accept = t.closest("[data-doc-accept]");
-    if (accept) return act(accept, () => api.patch(`${base}/documents/${encodeURIComponent(accept.dataset.docAccept)}/status`, { status: "ACCEPTED" }), "تم قبول المستند.");
+    if (accept) {
+      const note = document.getElementById(`reject-note-${accept.dataset.docAccept}`)?.value.trim();
+      if (accept.dataset.docCorrection && (!note || note.length < 5)) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تصحيح القرار (5 أحرف على الأقل).");
+      return act(accept, () => api.patch(`${base}/documents/${encodeURIComponent(accept.dataset.docAccept)}/status`, { status: "ACCEPTED", ...(note ? { reviewNote: note } : {}) }), "تم قبول المستند.");
+    }
     const reject = t.closest("[data-doc-reject]");
     if (reject) {
       const note = document.getElementById(`reject-note-${reject.dataset.docReject}`)?.value.trim();
       if (!note) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب رفض المستند.");
+      if (reject.dataset.docCorrection && note.length < 5) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تصحيح القرار (5 أحرف على الأقل).");
       return act(reject, () => api.patch(`${base}/documents/${encodeURIComponent(reject.dataset.docReject)}/status`, { status: "REJECTED", reviewNote: note }), "تم رفض المستند وإبلاغ العميل بالسبب.");
     }
     const taskDone = t.closest("[data-cr-task-done]");
@@ -565,7 +580,21 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const publish = t.closest("[data-cr-publish]");
     if (publish) return act(publish, () => api.post(`${base}/deliverables/${encodeURIComponent(publish.dataset.crPublish)}/publish`, {}), "تم نشر الملف للعميل.");
     const confirm = t.closest("[data-cr-confirm-payment]");
-    if (confirm) return act(confirm, () => api.post(`${base}/confirm-payment`, {}), "تم تأكيد استلام الدفع.");
+    if (confirm) {
+      const reasonField = detailCard.querySelector("[data-cr-confirm-reason]");
+      const reason = reasonField ? reasonField.value.trim() : "";
+      if (reasonField && reason.length < 5) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تأكيد الدفع بدون إيصال (5 أحرف على الأقل).");
+      return act(confirm, async () => {
+        try {
+          await api.post(`${base}/confirm-payment`, reason ? { reason } : {});
+        } catch (error) {
+          // The receipt changed since this view was drawn (e.g. rejected):
+          // redraw so the reason field shows; act() then shows the message.
+          if (error?.code === "RECEIPT_OR_REASON_REQUIRED") await openDetail(openId, { focus: false });
+          throw error;
+        }
+      }, "تم تأكيد استلام الدفع.");
+    }
     const contacted = t.closest("[data-cr-contacted]");
     if (contacted) return act(contacted, () => api.patch(`${base}/status`, { status: "CONTACTED" }), "تم تحديث الحالة.");
   });

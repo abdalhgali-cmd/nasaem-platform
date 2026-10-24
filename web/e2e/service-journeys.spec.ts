@@ -481,6 +481,13 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         await expect(office.locator("#cr-outcome option[value=COMPLETED]")).toBeDisabled();
         await expect(detail.locator("[data-cr-completion-blockers]")).toContainText("تجهيز تعميم الموافقة الأمنية لمصر");
         await staffAct(detail.locator("[data-cr-task-done]").first(), "تم إنجاز المهمة");
+        // a completed task is not the circular itself (AUDIT-00 G-04)
+        await expect(detail.locator("[data-cr-completion-blockers]")).toContainText("لم يُرفع ملف التعميم بعد");
+        const circular = await office.request.post(`${BACKEND}/api/contact-requests/${id}/egypt/circular`, {
+          multipart: { file: { name: "circular.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF") } },
+        });
+        expect(circular.status(), await circular.text()).toBe(201);
+        await openStaffRequest(id, travelers[0]);
         await expect(detail.locator("[data-cr-completion-blockers]")).toHaveCount(0);
         await office.locator("#cr-outcome").selectOption("COMPLETED");
         await staffAct(detail.locator('[data-cr-form="close"] button[type="submit"]'), "تم إغلاق الطلب");

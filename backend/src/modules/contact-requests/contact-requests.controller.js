@@ -1,4 +1,4 @@
-import { confirmationOutlook, listCustomerMessages, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
+import { CONFIRMATION_CHANNELS, confirmationOutlook, listCustomerMessages, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
 import prisma from "../../config/database.js";
 import {
   assignContactRequestSchema,
@@ -444,7 +444,7 @@ export async function storeOfferFromPricing(req, res, next) {
 export async function confirmPayment(req, res, next) {
   try {
     const { id } = req.params;
-    const result = await confirmContactRequestPayment(id, req.user.id);
+    const result = await confirmContactRequestPayment(id, req.user.id, { reason: typeof req.body?.reason === "string" ? req.body.reason : undefined });
     if (result.refusal) return sendRefusal(res, result.refusal);
 
     if (result.error === "NOT_FOUND") {
@@ -551,7 +551,7 @@ export async function reviewDocument(req, res, next) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
-    const result = await updateContactRequestDocumentStatus(id, documentId, parsed.data, req.user.id);
+    const result = await updateContactRequestDocumentStatus(id, documentId, parsed.data, req.user.id, { reviewerRole: req.user.role });
     if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Document not found" });
 
@@ -617,7 +617,9 @@ export async function getCustomerMessages(req, res, next) {
 export async function retryCustomerConfirmation(req, res, next) {
   try {
     if (!(await findStaffCase(req))) return res.status(404).json({ success: false, message: "Contact request not found" });
-    const delivery = await sendRequestConfirmation(req.params.id, { manual: true });
+    const channel = req.body?.channel ?? req.query?.channel ?? "WHATSAPP";
+    if (!CONFIRMATION_CHANNELS.includes(channel)) return res.status(400).json({ success: false, message: "Unknown channel" });
+    const delivery = await sendRequestConfirmation(req.params.id, { manual: true, channel });
     return res.status(200).json({ success: true, data: delivery });
   } catch (error) {
     next(error);

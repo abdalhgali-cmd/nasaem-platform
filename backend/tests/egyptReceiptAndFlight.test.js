@@ -74,8 +74,8 @@ describe("paid receipt on payment confirmation", () => {
     clearCapturedProviderEmails();
     const req = await underReviewRequest();
     const [a, b] = await Promise.all([
-      accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({}),
-      accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({}),
+      accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({ reason: "تمت المطابقة مع كشف البنك" }),
+      accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({ reason: "تمت المطابقة مع كشف البنك" }),
     ]);
     assert.deepEqual([a.status, b.status].sort(), [200, 409], "exactly one confirmation wins");
     const receipts = await prisma.paymentReceipt.findMany({ where: { contactRequestId: req.id } });
@@ -113,7 +113,7 @@ describe("paid receipt on payment confirmation", () => {
 
   test("no e-mail address: the receipt is still issued and downloadable; the e-mail is SKIPPED, never blocking", async () => {
     const req = await underReviewRequest({ email: null });
-    assert.equal((await accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({})).status, 200);
+    assert.equal((await accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({ reason: "تمت المطابقة مع كشف البنك" })).status, 200);
     await deliverPaymentReceipt(req.id);
     const delivery = await settledReceiptDelivery(req.id);
     assert.equal(delivery.status, "SKIPPED");
@@ -126,7 +126,7 @@ describe("paid receipt on payment confirmation", () => {
   test("mail API not configured: SKIPPED NOT_CONFIGURED, payment unaffected; staff re-send with a corrected address is audited", async () => {
     delete process.env.PROVIDER_EMAIL_TRANSPORT;
     const req = await underReviewRequest();
-    assert.equal((await accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({})).status, 200);
+    assert.equal((await accountant.post(`/api/contact-requests/${req.id}/confirm-payment`).send({ reason: "تمت المطابقة مع كشف البنك" })).status, 200);
     await deliverPaymentReceipt(req.id);
     let delivery = await settledReceiptDelivery(req.id);
     assert.equal(delivery.status, "SKIPPED");
@@ -161,7 +161,7 @@ describe("paid receipt on payment confirmation", () => {
     const phone = testPhone();
     const row = await prisma.contactRequest.create({ data: { name: "TEST-EGR", phone, phoneNormalized: normalizePhone(phone), message: "TEST-EGR", paymentStatus: "UNDER_REVIEW" } });
     created.push(row.id);
-    assert.equal((await accountant.post(`/api/contact-requests/${row.id}/confirm-payment`).send({})).status, 200);
+    assert.equal((await accountant.post(`/api/contact-requests/${row.id}/confirm-payment`).send({ reason: "تمت المطابقة مع كشف البنك" })).status, 200);
     assert.equal(await prisma.paymentReceipt.count({ where: { contactRequestId: row.id } }), 0);
   });
 });

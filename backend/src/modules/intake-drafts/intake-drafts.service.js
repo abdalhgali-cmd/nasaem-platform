@@ -3,6 +3,7 @@ import path from "path";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { normalizePhone } from "../../utils/phone.js";
+import { pendingConfirmationCreate } from "../customer-messages/customer-messages.service.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from "../egypt-clearance/egypt-clearance-variants.js";
@@ -258,6 +259,8 @@ export async function removeDraftDocument(token, documentId) {
   return { deleted: true };
 }
 
+class DraftAlreadySubmitted extends Error {}
+
 // DRAFT → SUBMITTED. Creates exactly one ContactRequest from the draft's
 // accumulated state, re-points the already-uploaded documents at it (they
 // keep their id, file, OCR result and requirement link — nothing is
@@ -287,6 +290,10 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
 
   const travelers = Array.isArray(draft.travelers) ? draft.travelers : [];
   const travelerRefs = draft.documentTravelerRefs || {};
+  // Only named travelers are created; keep each one's index in the
+  // submitted list so document refs (by that index) find the right person.
+  const namedTravelers = travelers.map((traveler, index) => ({ traveler, index })).filter(({ traveler }) => traveler?.fullName);
+  const positionBySubmittedIndex = new Map(namedTravelers.map(({ index }, position) => [index, position]));
 
   // Egypt clearance: the variant fixes the entry method (recorded as the
   // answer); a draft claiming the other one is refused.
@@ -319,10 +326,9 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   // a fixed-price item is recorded as FIXED only when the customer confirmed
   // the total and currency the server recomputes; without a confirmation it
   // is a quote request (reason kept); a mismatch creates nothing (409).
-  const namedTravelers = travelers.filter((traveler) => traveler?.fullName).length;
   const pricing = await resolveSubmissionPricing(
     { serviceId: draft.serviceId, visaTypeId: draft.visaTypeId, travelerCount: draft.travelerCount, acceptedTotal, acceptedCurrency },
-    { travelers: namedTravelers }
+    { travelers: namedTravelers.length }
   );
   if (pricing.error) return pricing;
 
@@ -334,6 +340,9 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
         phone: draft.phone,
         phoneNormalized: normalizePhone(draft.phone),
         email: draft.email || null,
+        // Written with the request (AUDIT-00 G-13): a crash right after the
+        // insert still leaves the confirmations for the reconciler.
+        customerMessages: pendingConfirmationCreate(normalizePhone(draft.phone), draft.email),
         serviceId: draft.serviceId || null,
         visaTypeId: draft.visaTypeId || null,
         travelerCount: draft.travelerCount ?? null,
@@ -352,11 +361,10 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
         },
         requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
         message: message || draft.notes || "طلب خدمة عبر نموذج الحجز الإلكتروني",
-        travelers: travelers.length
+        travelers: namedTravelers.length
           ? {
-              create: travelers
-                .filter((traveler) => traveler?.fullName)
-                .map((traveler, index) => ({
+              create: namedTravelers
+                .map(({ traveler }, index) => ({
                   fullName: traveler.fullName,
                   passportNo: traveler.passportNo || null,
                   nationality: traveler.nationality || null,
@@ -372,8 +380,11 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
     });
 
     for (const document of draft.documents) {
+      // A ref is the traveler's index in the submitted list (unnamed ones
+      // included); a ref to an unnamed, not created traveler stays unassigned.
       const ref = travelerRefs[document.id];
-      const travelerId = ref !== undefined && created.travelers[Number(ref)] ? created.travelers[Number(ref)].id : null;
+      const position = ref !== undefined ? positionBySubmittedIndex.get(Number(ref)) : undefined;
+      const travelerId = position !== undefined ? created.travelers[position]?.id ?? null : null;
 
       await tx.contactRequestDocument.update({
         where: { id: document.id },
@@ -381,13 +392,21 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
       });
     }
 
-    await tx.intakeDraft.update({
-      where: { id: draft.id },
+    // Claimed only if no other submission got there first (AUDIT-00 G-09):
+    // a concurrent submit waits on this row, then finds it taken and rolls
+    // back its own request, so one draft makes exactly one request.
+    const claimed = await tx.intakeDraft.updateMany({
+      where: { id: draft.id, submittedContactRequestId: null },
       data: { submittedContactRequestId: created.id },
     });
+    if (claimed.count !== 1) throw new DraftAlreadySubmitted();
 
     return created;
+  }).catch((error) => {
+    if (error instanceof DraftAlreadySubmitted) return null;
+    throw error;
   });
+  if (!contactRequest) return { error: "ALREADY_SUBMITTED" };
 
   await announceNewContactRequest(contactRequest, { documentCount: draft.documents.length });
 

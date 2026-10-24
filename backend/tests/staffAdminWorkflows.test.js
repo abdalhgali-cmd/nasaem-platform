@@ -65,6 +65,47 @@ describe("dashboard sections per role", () => {
 });
 
 describe("customer requests", () => {
+  test("G-10: managers accept a decided document with a correction reason; ordinary acceptance stays available", async () => {
+    for (const role of ["ADMIN", "SUPER_ADMIN", "EMPLOYEE"]) {
+      const r = request("cr1", { executionStartedAt: now, documents: [{ id: "doc1", label: "جواز", status: "REJECTED" }] });
+      const view = loadBackOffice("admin-dashboard.html", {
+        routes: baseRoutes(role, {
+          "GET /api/contact-requests/cr1": { success: true, data: { ...r, allowedActions: allowedActions(r, { audience: "staff", role }) } },
+          "PATCH /api/contact-requests/cr1/documents/doc1/status": { success: true, data: {} },
+        }),
+        url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+      });
+      await settle(120);
+      const accept = view.document.querySelector('[data-doc-accept="doc1"]');
+      if (role === "EMPLOYEE") {
+        assert.equal(accept, null, "employees cannot correct a decided document after execution");
+        continue;
+      }
+      assert.ok(accept, "a manager can reach correction even with no pending documents");
+      const input = view.document.getElementById("reject-note-doc1");
+      assert.match(input.getAttribute("aria-label"), /تصحيح/);
+      const writes = () => view.calls.filter((c) => c.method === "PATCH" && c.path.endsWith("/documents/doc1/status"));
+      for (const note of ["", "   ", "  نعم  "]) {
+        input.value = note;
+        accept.click();
+        await settle(30);
+        assert.equal(writes().length, 0, "short trimmed reasons never reach the API");
+      }
+      input.value = "  تم التحقق من صلاحية الجواز  ";
+      accept.click();
+      await settle(120);
+      assert.deepEqual(writes()[0].body, { status: "ACCEPTED", reviewNote: "تم التحقق من صلاحية الجواز" });
+    }
+    const view = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("EMPLOYEE", { "PATCH /api/contact-requests/cr1/documents/d-cr1/status": { success: true, data: {} } }),
+      url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+    });
+    await settle(120);
+    view.document.querySelector('[data-doc-accept="d-cr1"]').click();
+    await settle(120);
+    assert.deepEqual(view.calls.find((c) => c.method === "PATCH" && c.path.endsWith("/documents/d-cr1/status")).body, { status: "ACCEPTED" });
+  });
+
   test("a deep link opens the request detail directly", async () => {
     const { document } = loadBackOffice("admin-dashboard.html", {
       routes: baseRoutes("EMPLOYEE"),
@@ -100,6 +141,54 @@ describe("customer requests", () => {
     assert.ok(ad.querySelector("[data-cr-confirm-payment]"), "accountant confirms payment");
     assert.equal(ad.querySelector('[data-cr-form="close"]'), null);
     assert.equal(ad.querySelector("[data-doc-accept]"), null);
+  });
+
+  test("confirming a declared transfer without a receipt asks for a reason (AUDIT-00 G-05)", async () => {
+    const receipt = { id: "rcpt", label: "إيصال", status: "PENDING", classification: "FINANCIAL_DOCUMENT" };
+    let withReceipt = false;
+    const detail = () => {
+      const r = request("cr1", withReceipt ? { documents: [request("cr1").documents[0], receipt] } : {});
+      return { success: true, data: { ...r, allowedActions: allowedActions(r, { audience: "staff", role: "ACCOUNTANT" }) } };
+    };
+    let confirmReply = { status: 200, body: { success: true, data: {} } };
+    const view = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("ACCOUNTANT", { "GET /api/contact-requests/cr1": () => ({ body: detail() }), "POST /api/contact-requests/cr1/confirm-payment": () => confirmReply }),
+      url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+    });
+    await settle(120);
+    const d = view.document.getElementById("cr-detail");
+    const posts = () => view.calls.filter((c) => c.method === "POST" && c.path.endsWith("/confirm-payment"));
+    const alertText = () => view.document.getElementById("cr-action-alert").textContent;
+
+    // No receipt: the reason field is shown; blank or short reasons never reach the server.
+    for (const value of ["", "   ", "تم "]) {
+      d.querySelector("[data-cr-confirm-reason]").value = value;
+      d.querySelector("[data-cr-confirm-payment]").click();
+      await settle(40);
+      assert.equal(posts().length, 0, JSON.stringify(value));
+      assert.match(alertText(), /بدون إيصال/);
+    }
+    d.querySelector("[data-cr-confirm-reason]").value = "  تمت المطابقة مع كشف البنك  ";
+    d.querySelector("[data-cr-confirm-payment]").click();
+    await settle(120);
+    assert.deepEqual(posts()[0].body, { reason: "تمت المطابقة مع كشف البنك" });
+
+    // With a current receipt: no field, nothing extra sent. If the receipt was
+    // rejected meanwhile, the server's refusal redraws the view with the field.
+    withReceipt = true;
+    view.window.location.hash = "#/requests/cr2";
+    await settle(80);
+    view.window.location.hash = "#/requests/cr1";
+    await settle(120);
+    const fresh = view.document.getElementById("cr-detail");
+    assert.equal(fresh.querySelector("[data-cr-confirm-reason]"), null);
+    withReceipt = false;
+    confirmReply = { status: 409, body: { success: false, code: "RECEIPT_OR_REASON_REQUIRED", message: "لا يوجد إيصال تحويل لهذا الطلب. اكتب سبب تأكيد الدفع بدون إيصال." } };
+    fresh.querySelector("[data-cr-confirm-payment]").click();
+    await settle(160);
+    assert.deepEqual(posts().at(-1).body, {});
+    assert.ok(view.document.getElementById("cr-detail").querySelector("[data-cr-confirm-reason]"), "the reason field appears after the refusal");
+    assert.match(alertText(), /بدون إيصال/);
   });
 
   test("a closed request is read-only: no review, payment, execution, file or close controls; only an admin reopen", async () => {

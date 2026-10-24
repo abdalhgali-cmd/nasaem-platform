@@ -1,6 +1,6 @@
 import path from "path";
 import prisma from "../../config/database.js";
-import { ACTIONS, checkAction, paymentLockReasons } from "../contact-request-workflow/workflow-policy.js";
+import { ACTIONS, checkAction, documentCorrectionRefusal, paymentLockReasons } from "../contact-request-workflow/workflow-policy.js";
 import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
@@ -199,15 +199,19 @@ export async function updateContactRequestDocumentStatus(
   contactRequestId,
   documentId,
   { status, reviewNote },
-  reviewerUserId
+  reviewerUserId,
+  { reviewerRole } = {}
 ) {
   // Decided under the request's row lock: a closed request's documents are
   // no longer reviewed, and a receipt is decided in the payment step.
   const result = await withLockedRequest(contactRequestId, null, async (tx, request) => {
     const document = request.documents.find((candidate) => candidate.id === documentId);
     if (!document) return { error: "NOT_FOUND" };
-    const refusal = checkAction(ACTIONS.REVIEW_DOCUMENT, request, { document: { ...document, status: "PENDING" } });
+    const refusal =
+      checkAction(ACTIONS.REVIEW_DOCUMENT, request, { document: { ...document, status: "PENDING" } }) ||
+      documentCorrectionRefusal(request, document, { role: reviewerRole, reviewNote });
     if (refusal) refuseWith(refusal);
+    const correction = document.status !== "PENDING" && Boolean(request.executionStartedAt);
     const updated = await tx.contactRequestDocument.update({
       where: { id: documentId },
       data: {
@@ -223,7 +227,7 @@ export async function updateContactRequestDocumentStatus(
       action: "CONTACT_REQUEST_DOCUMENT_REVIEWED",
       entityId: contactRequestId,
       organizationId: request.organizationId,
-      newValue: { documentId, status },
+      newValue: { documentId, status, ...(correction ? { correction: true, previousStatus: document.status, reason: String(reviewNote).trim().slice(0, 500) } : {}) },
     });
     // Fixed price paid after the document review: did this decision open
     // the payment (same accepted price)?
