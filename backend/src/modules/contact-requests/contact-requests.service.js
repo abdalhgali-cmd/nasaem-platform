@@ -10,7 +10,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { createNotification, notifyRequestCustomer } from "../../utils/notifications.js";
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
-import { resolveUmrahContacts } from "../umrah/umrah-packages.js";
+import { resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { umrahStaffQueue } from "../umrah/umrah-staff-queue.js";
 import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions, hasCurrentReceipt, confirmWithoutReceiptRefusal } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
@@ -134,8 +134,9 @@ async function createContactRequestOnce(data, req, files) {
   // SERVICE_CATEGORY_FEATURE_FLAGS's own comment for this disclosed
   // boundary.
   let umrahContacts = null;
+  let umrahTravel = null;
   if (data.serviceId) {
-    const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true } });
+    const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true, features: true } });
     const flagKey = service ? SERVICE_CATEGORY_FEATURE_FLAGS[service.category] : null;
     if (flagKey && !(await isFeatureEnabled(flagKey))) {
       return { error: "FEATURE_DISABLED" };
@@ -145,6 +146,9 @@ async function createContactRequestOnce(data, req, files) {
     const umrah = resolveUmrahContacts(data.visaTypeId ? null : service?.category, data);
     if (umrah.error) return umrah;
     umrahContacts = umrah.contacts;
+    const travel = resolveUmrahTravel(data.visaTypeId ? null : service?.category, service?.features, data.preferredTravelDate);
+    if (travel.error) return travel;
+    umrahTravel = travel.travel;
   }
 
   // Platform 3.0 Phase 5: capture the selected visa type's (or, since
@@ -275,12 +279,13 @@ async function createContactRequestOnce(data, req, files) {
     // comment); a submission with neither keeps intakeData exactly as it
     // was before this release.
     intakeData:
-      data.intakeData || data.answers || egyptEntryMode || umrahContacts || egyptRoute
+      data.intakeData || data.answers || egyptEntryMode || umrahContacts || umrahTravel || egyptRoute
         ? {
             ...(data.intakeData || {}),
             ...(data.answers ? { answers: data.answers } : {}),
             ...(egyptEntryMode ? { egyptEntryMode } : {}),
             ...(umrahContacts ? { umrahContacts } : {}),
+            ...(umrahTravel ? { umrahTravel } : {}),
             ...(egyptRoute ? { egyptRoute } : {}),
             ...(egyptFlight ? { egyptFlight } : {}),
           }

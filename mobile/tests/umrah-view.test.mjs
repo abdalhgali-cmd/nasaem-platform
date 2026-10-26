@@ -82,3 +82,17 @@ test("home Umrah kinds link to the cheapest fixed package; a quoted one is not b
   assert.equal(offers[1].packageId, null, "a quoted package with a base price is still not bookable");
   assert.equal(offers[1].priceText, null);
 });
+
+test("preferred travel date: required for flight/sea packages, optional for visa only, never a past day", async () => {
+  const { umrahTravelDateRequired, validateUmrahTravelDate, UMRAH_TRAVEL_DATE_NOTE } = await import("../www/js/umrah-view.js");
+  const pkg = (kind) => ({ category: "UMRAH_PACKAGE", features: [`KIND: ${kind}`] });
+  assert.equal(umrahTravelDateRequired(pkg("AIR")), true);
+  assert.equal(umrahTravelDateRequired(pkg("SEA")), true);
+  assert.equal(umrahTravelDateRequired(pkg("VISA_ONLY")), false);
+  assert.equal(umrahTravelDateRequired({ category: "flight", features: ["KIND: AIR"] }), false);
+  assert.deepEqual(validateUmrahTravelDate("", true), ["حدّد تاريخ السفر المفضل لهذه الباقة."]);
+  assert.deepEqual(validateUmrahTravelDate("", false), []);
+  assert.deepEqual(validateUmrahTravelDate("2026-10-01", true, "2026-10-26"), ["تاريخ السفر المفضل في الماضي. اختر تاريخًا قادمًا."]);
+  assert.deepEqual(validateUmrahTravelDate("2026-12-01", true, "2026-10-26"), []);
+  assert.match(UMRAH_TRAVEL_DATE_NOTE, /ليس حجزًا مؤكدًا/);
+});

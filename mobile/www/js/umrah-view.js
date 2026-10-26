@@ -84,6 +84,24 @@ export function umrahNeedsGuarantor(item) {
   return Boolean(item) && !item.isVisaType && UMRAH_CATEGORIES.includes(String(item.category || ""));
 }
 
+// Umrah with flight or sea services needs a preferred travel date; visa only:
+// optional. Provisional, not a booking (server: umrah-packages.js
+// resolveUmrahTravel).
+export function umrahTravelDateRequired(item) {
+  const kind = umrahPackageDetails(item).kind;
+  return umrahNeedsGuarantor(item) && (kind === "AIR" || kind === "SEA");
+}
+
+export const UMRAH_TRAVEL_DATE_NOTE = "تاريخ مبدئي وليس حجزًا مؤكدًا؛ تؤكد الوكالة الموعد لاحقًا.";
+
+export function validateUmrahTravelDate(value, required, today = new Date().toISOString().slice(0, 10)) {
+  const date = String(value || "").trim();
+  if (!date) return required ? ["حدّد تاريخ السفر المفضل لهذه الباقة."] : [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return ["تاريخ السفر المفضل غير صحيح."];
+  if (date < today) return ["تاريخ السفر المفضل في الماضي. اختر تاريخًا قادمًا."];
+  return [];
+}
+
 const PHONE = /^\+?[0-9][0-9\s-]{5,19}$/;
 
 export function isContactPhone(value) {

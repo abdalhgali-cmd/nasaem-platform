@@ -7,7 +7,7 @@ import { pendingConfirmationCreate } from "../customer-messages/customer-message
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from "../egypt-clearance/egypt-clearance-variants.js";
-import { resolveUmrahContacts } from "../umrah/umrah-packages.js";
+import { resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -271,7 +271,7 @@ class DraftAlreadySubmitted extends Error {}
 // Everything runs in one transaction: either the request exists with all
 // its travelers and documents attached, or nothing changed and the
 // customer's draft is still intact to retry.
-export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone, departureCity, arrivalAirport, entryPort } = {}) {
+export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone, preferredTravelDate, departureCity, arrivalAirport, entryPort } = {}) {
   const found = await findMutableDraft(token);
   if (found.error) return found;
 
@@ -315,11 +315,15 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
 
   // Umrah: the guarantor's phone and extra contact (same rule as POST /contact-requests).
   let umrahContacts = null;
+  let umrahTravel = null;
   if (draft.serviceId && !draft.visaTypeId) {
-    const service = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { category: true } });
+    const service = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { category: true, features: true } });
     const umrah = resolveUmrahContacts(service?.category, { guarantorPhone, extraContactName, extraContactPhone });
     if (umrah.error) return umrah;
     umrahContacts = umrah.contacts;
+    const travel = resolveUmrahTravel(service?.category, service?.features, preferredTravelDate);
+    if (travel.error) return travel;
+    umrahTravel = travel.travel;
   }
 
   // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
@@ -357,6 +361,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
           ...(answers ? { answers } : {}),
           ...(egyptEntryMode ? { egyptEntryMode } : {}),
           ...(umrahContacts ? { umrahContacts } : {}),
+          ...(umrahTravel ? { umrahTravel } : {}),
           ...(egyptRoute ? { egyptRoute } : {}),
         },
         requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,

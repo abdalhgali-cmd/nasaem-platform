@@ -166,9 +166,11 @@ type CaseRow = {
   readiness: Readiness;
   progress?: { serviceKind?: string; serviceKindLabel?: string; pricingMode?: string } | null;
   /** Umrah only (backend umrah-staff-queue.js): the next staff step; lower rank = sooner. */
-  umrahQueue?: { nextAction: string; rank: number } | null;
+  umrahQueue?: { nextAction: string; rank: number; preferredTravelDate?: string | null } | null;
   intakeData?: {
     umrahContacts?: { guarantorPhone?: string; guarantorPhoneMissing?: boolean; extraContact?: { name?: string; phone?: string } } | null;
+    /** Umrah: the customer's preferred travel date (provisional, not a booking). */
+    umrahTravel?: { preferredDate?: string; preferredDateMissing?: boolean } | null;
   } | null;
 };
 
@@ -345,10 +347,13 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
   const visible = React.useMemo(() => {
     const rows = queueFilter === "ALL" ? cases : cases.filter((row) => row.readiness?.queue === queueFilter);
     if (serviceKindFilter !== "UMRAH") return rows;
-    // Umrah: the request needing staff soonest first, then the oldest.
+    // Umrah: the request needing staff soonest first, then the nearest
+    // preferred travel date (none last), then the oldest.
+    const dateKey = (row: CaseRow) => row.umrahQueue?.preferredTravelDate || "9999-12-31";
     return [...rows].sort(
       (a, b) =>
         (a.umrahQueue?.rank ?? 9) - (b.umrahQueue?.rank ?? 9) ||
+        dateKey(a).localeCompare(dateKey(b)) ||
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
   }, [cases, queueFilter, serviceKindFilter]);
@@ -521,6 +526,11 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
                         الخطوة التالية: {row.umrahQueue.nextAction}
                       </p>
                     ) : null}
+                    {row.umrahQueue?.preferredTravelDate ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground" data-testid="case-preferred-travel-date">
+                        السفر المفضل (مبدئي): <span dir="ltr">{row.umrahQueue.preferredTravelDate}</span>
+                      </p>
+                    ) : null}
                   </button>
                 </li>
               ))}
@@ -672,6 +682,16 @@ function CaseDetail({
           {caseRow.intakeData?.umrahContacts?.guarantorPhoneMissing ? (
             <p className="mt-1 text-sm font-bold text-amber-700" data-testid="case-guarantor-phone-missing">
               رقم هاتف الضامن لم يُرسل (تطبيق قديم) — اطلبه من العميل.
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahTravel?.preferredDate ? (
+            <p className="mt-1 text-sm text-muted-foreground" data-testid="case-umrah-travel-date">
+              تاريخ السفر المفضل (مبدئي، ليس حجزًا): <span dir="ltr">{caseRow.intakeData.umrahTravel.preferredDate}</span>
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahTravel?.preferredDateMissing ? (
+            <p className="mt-1 text-sm font-bold text-amber-700" data-testid="case-umrah-travel-date-missing">
+              تاريخ السفر المفضل لم يُرسل (تطبيق قديم) — اطلبه من العميل.
             </p>
           ) : null}
           {caseRow.intakeData?.umrahContacts?.extraContact?.phone ? (

@@ -13,7 +13,7 @@ describe("Umrah staff next step", () => {
   });
 
   test("a receipt under review comes first", () => {
-    assert.deepEqual(umrahStaffQueue(base, progress("PAYMENT_REVIEW")), { nextAction: "مراجعة إيصال الدفع وتأكيده", rank: 0 });
+    assert.deepEqual(umrahStaffQueue(base, progress("PAYMENT_REVIEW")), { nextAction: "مراجعة إيصال الدفع وتأكيده", rank: 0, preferredTravelDate: null });
   });
 
   test("a missing guarantor phone is asked for before execution", () => {
@@ -22,9 +22,16 @@ describe("Umrah staff next step", () => {
   });
 
   test("paid: start the service's own execution step, or say what blocks it", () => {
-    assert.deepEqual(umrahStaffQueue(base, progress("PAYMENT_ACCEPTED")), { nextAction: "بدء جارٍ إصدار التأشيرة", rank: 2 });
+    assert.deepEqual(umrahStaffQueue(base, progress("PAYMENT_ACCEPTED")), { nextAction: "بدء جارٍ إصدار التأشيرة", rank: 2, preferredTravelDate: null });
     const blocked = progress("PAYMENT_ACCEPTED", { canStartExecution: false, blockers: [{ message: "مستندات مرفوضة" }] });
-    assert.deepEqual(umrahStaffQueue(base, blocked), { nextAction: "مستندات مرفوضة", rank: 3 });
+    assert.deepEqual(umrahStaffQueue(base, blocked), { nextAction: "مستندات مرفوضة", rank: 3, preferredTravelDate: null });
+  });
+
+  test("a missing preferred travel date (older app) is asked for; a given one is returned for sorting", () => {
+    const missing = { ...base, intakeData: { umrahTravel: { preferredDateMissing: true } } };
+    assert.equal(umrahStaffQueue(missing, progress("AWAITING_PAYMENT")).nextAction, "طلب تاريخ السفر المفضل من العميل");
+    const given = { ...base, intakeData: { umrahTravel: { preferredDate: "2026-12-01", provisional: true } } };
+    assert.equal(umrahStaffQueue(given, progress("IN_EXECUTION")).preferredTravelDate, "2026-12-01");
   });
 
   test("execution, delivery, waiting on the customer, closed", () => {
