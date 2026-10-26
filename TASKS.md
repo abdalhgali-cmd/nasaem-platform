@@ -6,6 +6,19 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
+## Umrah + Egypt only — audit and first fix (2026-10-26, branch `ccr-089babd5-hgh9qj`, base `fix/egypt-intake-staging-20261024` @ `fef0f41` / PR #139)
+
+Scope: Umrah and Egypt security approval only (`docs/CLAUDE_NASAEM_UMRAH_EGYPT_ONLY.md`); other services untouched. Not merged, nothing deployed, no migration, no live data.
+
+| Area | Status | Evidence |
+|---|---|---|
+| Umrah: 3 types, server SAR/SDG price, guarantor phone, receipt → under review, «جارٍ إصدار التأشيرة/التذاكر», per-pilgrim delivery | EXISTS (earlier sections, #99) | `umrahPackageTypes.test.js`, `umrah-payment-journey.spec.ts` |
+| Egypt: air/land variants, server USD+SDG, route defaults, approval → optional agency ticket → travel data → circular, close gate | EXISTS (#100, #128–#137) | `egyptApprovalWorkflow`, `egyptClearanceVariants`, G-04 |
+| P1 FIXED — website `/track` travel follow-up diverged from the app and server: over land it asked «هل لديك حجز؟», **required a ticket file** (server: air only) and never collected «منفذ الدخول» (needed for completion, `ENTRY_PORT_MISSING`); by air it had no flight-details fields | FIXED | `web/src/components/sections/egypt-clearance-travel-followup.tsx`: land → entry point (prefilled from the request) + arrival date, no ticket; air → own ticket + optional flight number/airline/times, or agency ticket. E2E `egypt-passport-upload.spec.ts` 6/6 locally (fresh DB, real backend); on the old form the new assertions fail |
+| Real Android device, staging | NOT VERIFIED | no device, no staging access/approval |
+
+**NEXT:** admin Egypt queue check against the doc (sorted by travel date, assignee, next action, near-travel alert); Umrah copy shortening (PR #135 is a separate open branch).
+
 ## Egypt security approval — complete customer & staff workflow (2026-10-19, branch `feat/egypt-approval-workflow-20261019`, stacked on `feat/mobile-home-concept-c-20261019` `8794eb2` / PR #127)
 
 | Item | Status / evidence |

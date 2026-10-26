@@ -185,6 +185,45 @@ test.describe.serial("Egypt Security Approval on the website", () => {
           await expect(page.getByTestId("payment-under-review")).toContainText("قيد المراجعة", { timeout: 15_000 });
           const after = (await (await admin.get(`${BACKEND}/api/contact-requests/${list[0].id}`)).json()).data;
           expect(after.paymentStatus).toBe("UNDER_REVIEW");
+        } else {
+          await page.goto("/track");
+          await page.locator("#phone").fill(`+${phone}`);
+          await page.getByRole("button", { name: "إرسال رمز التحقق" }).click();
+          await page.locator("#code").fill(readTrackingLoginCode(phone));
+          await page.getByRole("button", { name: "تأكيد" }).click();
+        }
+
+        // Travel follow-up on /track, same rules as the app: by air an
+        // optional agency ticket or the customer's own ticket with optional
+        // flight details; over land the entry point and arrival date, never
+        // a ticket.
+        const followup = page.locator("article").filter({ hasText: "استكمال السفر والتعميم" });
+        await expect(followup).toBeVisible({ timeout: 20_000 });
+        const travelDate = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+        await followup.locator('input[type="date"]').fill(travelDate);
+        if (mode === "AIR") {
+          await expect(followup.getByTestId("egypt-followup-entry-port")).toHaveCount(0);
+          await followup.locator('input[type="file"]').setInputFiles(DOCUMENT_FIXTURE);
+          await followup.locator('input[name="flightNumber"]').fill("SD 345");
+          await followup.locator('input[name="airline"]').fill("سودانير");
+        } else {
+          await expect(followup.getByText("هل لديك حجز بالفعل؟")).toHaveCount(0);
+          await expect(followup.locator('input[type="file"]')).toHaveCount(0);
+          await expect(followup.getByTestId("egypt-followup-entry-port")).toHaveValue("أرقين");
+          await followup.getByTestId("egypt-followup-entry-port").fill("قسطل");
+        }
+        const saved = page.waitForResponse((r) => /\/egypt-travel-plan$/.test(r.url()));
+        await followup.getByRole("button", { name: "حفظ بيانات السفر والتعميم" }).click();
+        expect((await saved).status()).toBe(200);
+        const planned = (await (await admin.get(`${BACKEND}/api/contact-requests/${list[0].id}`)).json()).data;
+        expect(planned.intakeData.egyptTravel.entryDate).toBe(travelDate);
+        expect(planned.intakeData.egyptTravel.bookingStatus).toBe("EXISTING");
+        if (mode === "AIR") {
+          expect(planned.intakeData.egyptTravel.ticketDocumentId).toBeTruthy();
+          expect(planned.intakeData.egyptTravel.flightDetails).toMatchObject({ flightNumber: "SD 345", airline: "سودانير" });
+        } else {
+          expect(planned.intakeData.egyptTravel.ticketDocumentId ?? null).toBeNull();
+          expect(planned.intakeData.egyptRoute.entryPort).toBe("قسطل");
         }
       });
     }
