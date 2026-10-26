@@ -171,7 +171,13 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
       await expect(page.locator("#fx-body tr", { hasText: "AED" })).toContainText("فعّال", { timeout: 15_000 });
       await page.locator("#fx-body tr", { hasText: "AED" }).locator("[data-fx-off]").click();
       await expect(page.locator("#fx-body tr", { hasText: "AED" })).toContainText("غير فعّال", { timeout: 15_000 });
-      await expect(page.locator("#fx-history-body tr").first()).toContainText("AED: غير فعّال");
+      // The history is the activity log, written after the response
+      // (fire-and-forget logActivity), so the page's own reload can come
+      // before the row: reload until it is there.
+      await expect(async () => {
+        await page.reload();
+        await expect(page.locator("#fx-history-body tr").first()).toContainText("AED: غير فعّال", { timeout: 2_000 });
+      }).toPass({ timeout: 15_000 });
       await expect(page.locator("#fx-history-body")).toContainText("AED: 117.5");
     } finally {
       await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { AED: original?.AED ?? null } });
