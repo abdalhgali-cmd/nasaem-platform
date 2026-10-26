@@ -145,6 +145,12 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     expect(labels.some((label) => label.includes("الجواز"))).toBe(true);
     expect((detail.documents as Array<{ classification: string | null }>).some((d) => d.classification === "FINANCIAL_DOCUMENT")).toBe(true);
 
+    // Staff Umrah queue: the request shows its next step, receipt review first.
+    await page.goto("/admin/cases");
+    await page.getByTestId("case-service-filter").selectOption("UMRAH");
+    const queueRow = page.getByRole("button").filter({ hasText: customer });
+    await expect(queueRow.getByTestId("case-next-action")).toHaveText("الخطوة التالية: مراجعة إيصال الدفع وتأكيده", { timeout: 15_000 });
+
     const confirmed = await admin.post(`${BACKEND}/api/contact-requests/${found[0].id}/confirm-payment`, { data: {} });
     expect(confirmed.ok(), await confirmed.text()).toBeTruthy();
     const after = (await (await admin.get(`${BACKEND}/api/contact-requests/${found[0].id}`)).json()).data;

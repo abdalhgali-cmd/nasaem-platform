@@ -165,6 +165,8 @@ type CaseRow = {
   providerSubmissions: ProviderSubmission[];
   readiness: Readiness;
   progress?: { serviceKind?: string; serviceKindLabel?: string; pricingMode?: string } | null;
+  /** Umrah only (backend umrah-staff-queue.js): the next staff step; lower rank = sooner. */
+  umrahQueue?: { nextAction: string; rank: number } | null;
   intakeData?: {
     umrahContacts?: { guarantorPhone?: string; guarantorPhoneMissing?: boolean; extraContact?: { name?: string; phone?: string } } | null;
   } | null;
@@ -294,7 +296,9 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
 
     (async () => {
       try {
-        const params = new URLSearchParams({ limit: "50" });
+        // The Umrah queue is re-ordered "needs action first" below, so it
+        // loads the largest page the API allows.
+        const params = new URLSearchParams({ limit: serviceKindFilter === "UMRAH" ? "100" : "50" });
         if (ownerFilter !== "ALL") params.set("assignedUserId", ownerFilter);
         if (serviceKindFilter !== "ALL") params.set("serviceKind", serviceKindFilter);
         if (paymentFilter !== "ALL") params.set("paymentStatus", paymentFilter);
@@ -338,10 +342,16 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
     })();
   }, []);
 
-  const visible = React.useMemo(
-    () => (queueFilter === "ALL" ? cases : cases.filter((row) => row.readiness?.queue === queueFilter)),
-    [cases, queueFilter]
-  );
+  const visible = React.useMemo(() => {
+    const rows = queueFilter === "ALL" ? cases : cases.filter((row) => row.readiness?.queue === queueFilter);
+    if (serviceKindFilter !== "UMRAH") return rows;
+    // Umrah: the request needing staff soonest first, then the oldest.
+    return [...rows].sort(
+      (a, b) =>
+        (a.umrahQueue?.rank ?? 9) - (b.umrahQueue?.rank ?? 9) ||
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  }, [cases, queueFilter, serviceKindFilter]);
 
   const listed = visible.find((row) => row.id === selectedId) ?? null;
   // The open case always comes from its own endpoint: lists mask passport
@@ -506,6 +516,11 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
                         {row.assignedUser?.fullName ?? "بلا موظف"}
                       </span>
                     </div>
+                    {row.umrahQueue ? (
+                      <p className="mt-2 text-xs font-bold text-foreground" data-testid="case-next-action">
+                        الخطوة التالية: {row.umrahQueue.nextAction}
+                      </p>
+                    ) : null}
                   </button>
                 </li>
               ))}

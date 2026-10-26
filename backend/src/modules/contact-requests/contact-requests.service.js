@@ -11,6 +11,7 @@ import { createNotification, notifyRequestCustomer } from "../../utils/notificat
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { resolveUmrahContacts } from "../umrah/umrah-packages.js";
+import { umrahStaffQueue } from "../umrah/umrah-staff-queue.js";
 import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions, hasCurrentReceipt, confirmWithoutReceiptRefusal } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
@@ -596,7 +597,11 @@ export async function listContactRequests({ page, limit, skip, status, organizat
   return {
     // Readiness is computed on the full rows; the list itself never carries
     // full passport numbers (the request's own page does).
-    data: data.map((contactRequest) => withMaskedTravelers({ ...contactRequest, readiness: computeReadiness(contactRequest), progress: deriveRequestProgress(contactRequest) })),
+    data: data.map((contactRequest) => {
+      const progress = deriveRequestProgress(contactRequest);
+      const umrahQueue = umrahStaffQueue(contactRequest, progress);
+      return withMaskedTravelers({ ...contactRequest, readiness: computeReadiness(contactRequest), progress, ...(umrahQueue ? { umrahQueue } : {}) });
+    }),
     meta: buildPaginationMeta(page, limit, total),
   };
 }
