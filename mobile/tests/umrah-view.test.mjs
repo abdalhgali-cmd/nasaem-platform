@@ -96,3 +96,21 @@ test("preferred travel date: required for flight/sea packages, optional for visa
   assert.deepEqual(validateUmrahTravelDate("2026-12-01", true, "2026-10-26"), []);
   assert.match(UMRAH_TRAVEL_DATE_NOTE, /ليس حجزًا مؤكدًا/);
 });
+
+test("Umrah load state: network and server failures are never reported as «not bookable»", async () => {
+  const { umrahLoadState } = await import("../www/js/umrah-view.js");
+  const offline = umrahLoadState({ error: { status: 0, offline: true, message: "لا يوجد اتصال بالإنترنت." } });
+  assert.equal(offline.kind, "NETWORK");
+  assert.equal(offline.retry, true);
+  assert.doesNotMatch(offline.message, /غير متاحة للحجز/);
+  const server = umrahLoadState({ error: { status: 502, message: "x" } });
+  assert.equal(server.kind, "API_ERROR");
+  assert.match(server.message, /502/);
+  assert.equal(server.retry, true);
+  assert.equal(umrahLoadState({ packages: [] }).kind, "NONE");
+  const quote = { category: "UMRAH_PACKAGE", pricingMode: "QUOTE", basePrice: "1200", currency: "SAR" };
+  const unpriced = umrahLoadState({ packages: [quote, { ...quote, pricingMode: "FIXED", basePrice: "0" }] });
+  assert.equal(unpriced.kind, "UNPRICED");
+  assert.match(unpriced.message, /لم تُحدِّد أسعارها الثابتة/);
+  assert.equal(umrahLoadState({ packages: [quote, { ...quote, pricingMode: "FIXED", basePrice: "1500" }] }).kind, "READY");
+});

@@ -46,6 +46,29 @@ export const UMRAH_KIND_ORDER = Object.freeze(["VISA_ONLY", "AIR", "SEA"]);
 
 // Umrah is booked only at a fixed price: a package without one is unavailable.
 export const UMRAH_UNAVAILABLE = "غير متاحة للحجز حاليًا";
+// A published package whose fixed price the agency has not set yet.
+export const UMRAH_PRICE_MISSING = "لم تُحدِّد الوكالة سعر هذه الباقة بعد";
+
+// What the Umrah screen shows after loading the packages, kept apart so a
+// network or server problem is never reported as "not bookable":
+//   NETWORK     — no connection / timeout (retry)
+//   API_ERROR   — the server answered with an error (retry)
+//   NONE        — the server answered: no Umrah package is published
+//   UNPRICED    — packages are published, none has a fixed price yet
+//   READY       — at least one package can be booked
+export function umrahLoadState({ error = null, packages = [] } = {}) {
+  if (error) {
+    if (error.offline || !error.status) {
+      return { kind: "NETWORK", retry: true, message: error.message || "تعذر الوصول إلى الخادم. تحقق من الاتصال وحاول مرة أخرى." };
+    }
+    return { kind: "API_ERROR", retry: true, message: `تعذر تحميل باقات العمرة من الخادم (رمز ${error.status}). أعد المحاولة بعد قليل.` };
+  }
+  if (!packages.length) return { kind: "NONE", retry: false, message: "لا توجد باقات عمرة منشورة حاليًا." };
+  if (!packages.some((pkg) => umrahPriceText(pkg))) {
+    return { kind: "UNPRICED", retry: false, message: "باقات العمرة منشورة، لكن الوكالة لم تُحدِّد أسعارها الثابتة بعد؛ لذلك لا يمكن حجزها حاليًا." };
+  }
+  return { kind: "READY", retry: false, message: "" };
+}
 
 // One line per Umrah kind the agency has published, in UMRAH_KIND_ORDER: the
 // lowest fixed price of that kind ("من" when several packages share it) and

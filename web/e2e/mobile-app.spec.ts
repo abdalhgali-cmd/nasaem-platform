@@ -473,3 +473,86 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: originalRates?.SAR ?? 0 } });
   });
 });
+
+// Umrah packages in the app: a network or server failure is said as such
+// with a retry (never «غير متاحة للحجز»); published packages without a
+// fixed price are listed with the reason; with the agency's fixed prices the
+// three types show their SAR price (and the server's SDG), and a flight
+// package needs the preferred travel date before it is sent.
+test.describe.serial("customer app: Umrah packages", () => {
+  test("network failure and server error show their own message and a retry, never «not bookable»", async ({ page }) => {
+    await skipOnboarding(page);
+    await page.route("**/api/services/public/packages", (route) => route.abort("internetdisconnected"));
+    await page.locator("#homeUmrahBtn").click();
+    const failure = page.locator("#umrahLoadError");
+    await expect(failure).toHaveAttribute("data-state", "NETWORK");
+    await expect(page.locator("#packagesList")).not.toContainText("غير متاحة للحجز");
+    await page.unroute("**/api/services/public/packages");
+    await page.route("**/api/services/public/packages", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ success: false, message: "bad gateway" }) }));
+    await page.locator("#umrahRetryBtn").click();
+    await expect(page.locator("#umrahLoadError")).toHaveAttribute("data-state", "API_ERROR");
+    await expect(page.locator("#umrahLoadError")).toContainText("502");
+    await page.unroute("**/api/services/public/packages");
+    await page.locator("#umrahRetryBtn").click();
+    // Back to the server's real answer (packages listed, or a stated reason).
+    await expect(page.locator("#umrahLoadError")).toHaveCount(0);
+    await expect(page.locator(".package-card, #umrahUnavailable").first()).toBeVisible();
+  });
+
+  test("the three types at the agency's fixed price; a flight package needs the preferred date; request reaches the staff queue", async ({ page }) => {
+    test.setTimeout(120_000);
+    const api = await staff(page);
+    const services = (await (await api.get(`${BACKEND}/api/services?limit=200`)).json()).data as Array<{ id: string; code: string; pricingMode?: string; basePrice?: string | number | null; currency?: string; priceUnit?: string; active?: boolean }>;
+    // Test fixture prices (the agency sets the real ones in the back-office).
+    const prices: Record<string, number> = { "SVC-UMRAH-VISA": 450, "SVC-UMRAH-AIR": 2100, "SVC-UMRAH-SEA": 1700 };
+    const rows = Object.keys(prices).map((code) => services.find((s) => s.code === code));
+    expect(rows.every(Boolean), "the seed creates the three Umrah types").toBeTruthy();
+    const originals = rows.map((s) => ({ id: s!.id, data: { pricingMode: s!.pricingMode ?? "QUOTE", basePrice: s!.basePrice ?? 0, currency: s!.currency ?? "SAR", priceUnit: s!.priceUnit ?? "PER_REQUEST", active: s!.active ?? false } }));
+
+    // Published but unpriced: listed with the reason, not selectable.
+    for (const s of rows) await api.patch(`${BACKEND}/api/services/${s!.id}`, { data: { pricingMode: "QUOTE", active: true } });
+    try {
+      await skipOnboarding(page);
+      await page.locator("#homeUmrahBtn").click();
+      await expect(page.locator("#umrahUnavailable")).toHaveAttribute("data-state", "UNPRICED");
+      await expect(page.locator(`.package-card[data-id="${rows[1]!.id}"]`)).toContainText("لم تُحدِّد الوكالة سعر هذه الباقة بعد");
+      await expect(page.locator(`.package-card[data-id="${rows[1]!.id}"]`)).toBeDisabled();
+
+      for (const s of rows) {
+        const res = await api.patch(`${BACKEND}/api/services/${s!.id}`, { data: { pricingMode: "FIXED", basePrice: prices[s!.code], currency: "SAR", priceUnit: "PER_TRAVELER", active: true } });
+        expect(res.ok(), await res.text()).toBeTruthy();
+      }
+      const published = (await (await api.get(`${BACKEND}/api/services/public/packages`)).json()).data as Array<{ id: string; code: string; priceSdg: number | null }>;
+      await skipOnboarding(page);
+      await page.locator("#homeUmrahBtn").click();
+      for (const s of rows) {
+        const card = page.locator(`.package-card[data-id="${s!.id}"]`);
+        await expect(card).toBeEnabled();
+        await expect(card.locator(".package-price")).toContainText(`${prices[s!.code].toLocaleString("en-US")} SAR`);
+        const sdg = published.find((p) => p.id === s!.id)?.priceSdg;
+        if (sdg) await expect(card.locator(".package-price small")).toContainText(Math.round(sdg).toLocaleString("en-US"));
+      }
+
+      // Flight services: the preferred date is required and provisional.
+      await page.locator(`.package-card[data-id="${rows[1]!.id}"]`).click();
+      const phone = localPhone();
+      await fillData(page, { name: "عميل عمرة جوية", phone, travelers: ["عميل عمرة جوية"] });
+      await expect(page.locator("#umrahTravelDateNote")).toContainText("ليس حجزًا مؤكدًا");
+      await uploadAllSlots(page);
+      await page.locator("#confirmTotal").check();
+      await page.locator("#nextStepBtn").click();
+      await expect(page.getByRole("alert").filter({ hasText: "حدّد تاريخ السفر المفضل لهذه الباقة." })).toBeVisible();
+      const date = new Date(Date.now() + 50 * 86_400_000).toISOString().slice(0, 10);
+      await page.fill('[name="preferredTravelDate"]', date);
+      const reference = await submitFromReview(page);
+      const request = await staffRequest(api, reference);
+      expect(request.pricingMode).toBe("FIXED");
+      expect(request.intakeData.umrahTravel).toEqual({ preferredDate: date, provisional: true });
+      expect(request.intakeData.umrahContacts.guarantorPhone).toBe("+966501234567");
+      const queue = (await (await api.get(`${BACKEND}/api/contact-requests?limit=100&serviceKind=UMRAH&search=${normalized(phone)}`)).json()).data as Array<{ id: string; umrahQueue?: { preferredTravelDate?: string } }>;
+      expect(queue.find((row) => row.id === reference)?.umrahQueue?.preferredTravelDate).toBe(date);
+    } finally {
+      for (const original of originals) await api.patch(`${BACKEND}/api/services/${original.id}`, { data: original.data });
+    }
+  });
+});

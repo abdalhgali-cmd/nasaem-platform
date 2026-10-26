@@ -1,6 +1,6 @@
 import { esc, toast, skeletonList, confirmDialog } from "../ui.js";
 import { startingPrice, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE, shortDescription, durationOf } from "../service-view.js";
-import { isUmrahPackage, umrahPackageDetails, umrahPriceText, UMRAH_UNAVAILABLE } from "../umrah-view.js";
+import { isUmrahPackage, umrahLoadState, umrahPackageDetails, umrahPriceText, UMRAH_PRICE_MISSING } from "../umrah-view.js";
 import { icon } from "../icons.js";
 import { loadCatalog, loadPackages } from "../catalog.js";
 import { loadAgency, whatsappLink } from "../agency.js";
@@ -32,20 +32,33 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   `;
 
   const packagesList = bodyEl.querySelector("#packagesList");
-  let packages;
+  let packages = [];
   let item;
+  let loadError = null;
   try {
     [packages, item] = await Promise.all([loadPackages().then((list) => list.filter(isUmrahPackage)), umrahBaseItem(params.item)]);
   } catch (error) {
-    packagesList.innerHTML = `<p class="field-hint">تعذر تحميل الباقات: ${esc(error.message)}</p>`;
-    toast(error.message, { tone: "error" });
+    loadError = error;
+  }
+
+  // A network or server failure is said as such, with a retry; only an
+  // answer from the server can say that nothing is bookable.
+  const state = umrahLoadState({ error: loadError, packages });
+  if (state.kind === "NETWORK" || state.kind === "API_ERROR") {
+    packagesList.innerHTML = `
+      <p class="info-note error-note" id="umrahLoadError" data-state="${state.kind}" role="alert">${icon("info", { size: 15 })} ${esc(state.message)}</p>
+      <button type="button" class="primary" id="umrahRetryBtn">إعادة المحاولة</button>`;
+    packagesList.querySelector("#umrahRetryBtn").addEventListener("click", () => renderUmrahScreen({ bodyEl, params }));
     return;
   }
 
   const bookable = packages.filter((pkg) => umrahPriceText(pkg));
   if (!bookable.length) {
+    // No package published, or published ones without a fixed price yet:
+    // the published ones are still listed (not selectable) with the reason.
     packagesList.innerHTML = `
-      <p class="info-note" id="umrahUnavailable">${icon("info", { size: 15 })} ${esc(UMRAH_UNAVAILABLE)}</p>
+      <p class="info-note" id="umrahUnavailable" data-state="${state.kind}">${icon("info", { size: 15 })} ${esc(state.message)}</p>
+      ${packages.map((pkg) => packageCard(pkg)).join("")}
       <a class="secondary" id="umrahWhatsapp" target="_blank" rel="noopener">تواصل معنا عبر واتساب</a>`;
     loadAgency().then((agency) => {
       const link = packagesList.querySelector("#umrahWhatsapp");
@@ -104,7 +117,7 @@ function packageCard(pkg) {
       </div>
       ${fixed
         ? `<strong class="package-price"><bdi>${esc(fixed)}</bdi>${sdg ? `<small><bdi>${esc(sdg)}</bdi></small>` : ""}</strong>`
-        : `<span class="pending-price">${esc(UMRAH_UNAVAILABLE)}</span>`}
+        : `<span class="pending-price">${esc(UMRAH_PRICE_MISSING)}</span>`}
     </button>`;
 }
 
