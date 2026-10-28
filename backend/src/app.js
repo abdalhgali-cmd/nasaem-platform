@@ -59,7 +59,16 @@ if (corsRejected.length) console.warn(`[startup] CORS_ORIGIN entries ignored (no
 app.use(cors(corsOptionsFor(process.env.CORS_ORIGIN)));
 app.use(helmet());
 app.use(compression());
-app.use(express.json({ limit: "2mb" }));
+app.use(
+  express.json({
+    limit: "2mb",
+    // Staging-only operator routes verify a signature over the exact bytes
+    // sent (modules/staging-ops/staging-guard.js); nothing else keeps them.
+    verify: (req, res, buf) => {
+      if (req.originalUrl?.startsWith("/api/admin/staging/")) req.rawBody = Buffer.from(buf);
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));

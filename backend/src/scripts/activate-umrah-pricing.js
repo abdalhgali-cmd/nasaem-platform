@@ -1,21 +1,27 @@
-// Sets the owner-approved Umrah prices (decision 2026-10-28) on a STAGING (or
-// local) API through the same validated, audited endpoint as the admin
-// screen (PATCH /api/services/:id). Touches only the three Umrah types below:
-// pricing mode, price, currency, unit and published state. Never their
-// descriptions (INCLUDED/EXCLUDED), other services, requests or customers.
+// Sets the owner-approved Umrah prices (decision 2026-10-28) on STAGING only.
 //
-//   NASAEM_API_BASE=https://<staging-host>/api \
+//   NASAEM_API_BASE=https://adaptable-quietude-staging.up.railway.app/api \
 //   NASAEM_ADMIN_EMAIL=... NASAEM_ADMIN_PASSWORD=... \
-//   node src/scripts/activate-umrah-pricing.js            # dry run: prints before / planned
+//   NASAEM_STAGING_ATTESTATION_KEY=...   (staging's ENVIRONMENT_ATTESTATION_KEY)
+//   node src/scripts/activate-umrah-pricing.js            # dry run: verifies staging, prints before / planned
 //   node src/scripts/activate-umrah-pricing.js --apply    # applies, then re-reads and verifies
 //
-// Runs only against an exact, fixed allow-list of hosts: the staging API and
-// the local machine. There is no override: a host merely containing
-// "staging" is not enough, and redirects are refused so a request can never
-// land on another host. (A local port forwarded to production is not
-// detectable from here; the script also needs that environment's own admin
-// account.)
-// Prints no password, token or customer data.
+// Production protection, in layers (owner decision 2026-10-28, option C):
+// 1. A fixed host allow-list (the staging API, localhost, 127.0.0.1), HTTPS
+//    for any non-local host, and no redirects.
+// 2. The server must PROVE it is staging (modules/staging-ops/staging-guard.js):
+//    it answers a fresh nonce with an HMAC only a server holding staging's
+//    key can produce. A hostname, including localhost forwarded to
+//    production, proves nothing; this does.
+// 3. The write itself goes to a staging-only route that checks a signature
+//    made with the same key on every request and applies the prices the
+//    server holds, in one transaction. Production has no key, so it answers
+//    404 even if a proxy routed this request there. The generic
+//    PATCH /api/services is not used.
+// Prints no password, token, key or customer data, and no server message
+// text (status and code only).
+import crypto from "node:crypto";
+
 const APPROVED = Object.freeze([
   { code: "SVC-UMRAH-VISA", label: "تأشيرة عمرة فقط", basePrice: 795 },
   { code: "SVC-UMRAH-AIR", label: "عمرة بالخدمات بالطيران", basePrice: 3500 },
@@ -23,53 +29,113 @@ const APPROVED = Object.freeze([
 ]);
 const TARGET = { pricingMode: "FIXED", currency: "SAR", priceUnit: "PER_TRAVELER", active: true };
 const FIELDS = ["pricingMode", "basePrice", "currency", "priceUnit", "active"];
+const REQUEST_CONTEXT = "nasaem-env-request:v1";
+const ANSWER_CONTEXT = "nasaem-env-attest:v1";
+const MAX_SKEW_MS = 2 * 60 * 1000;
 
 const apply = process.argv.includes("--apply");
 const base = String(process.env.NASAEM_API_BASE || "").replace(/\/+$/, "");
 const email = process.env.NASAEM_ADMIN_EMAIL;
 const password = process.env.NASAEM_ADMIN_PASSWORD;
+const key = process.env.NASAEM_STAGING_ATTESTATION_KEY || "";
 
 function fail(message) {
   console.error(`refused: ${message}`);
   process.exit(1);
 }
 
-let host;
+let url;
 try {
-  host = new URL(base).hostname;
+  url = new URL(base);
 } catch {
   fail("NASAEM_API_BASE must be the API base URL, e.g. https://<staging-host>/api");
 }
-const ALLOWED_HOSTS = new Set(["adaptable-quietude-staging.up.railway.app", "localhost", "127.0.0.1"]);
+const host = url.hostname;
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
+const ALLOWED_HOSTS = new Set(["adaptable-quietude-staging.up.railway.app", ...LOCAL_HOSTS]);
 if (!ALLOWED_HOSTS.has(host)) fail(`${host} is not an allowed staging or local host`);
-if (!email || !password) fail("NASAEM_ADMIN_EMAIL and NASAEM_ADMIN_PASSWORD are required (an ADMIN account of that environment)");
+if (!LOCAL_HOSTS.has(host) && url.protocol !== "https:") fail("a non-local host must be reached over https");
+if (!email || !password) fail("NASAEM_ADMIN_EMAIL and NASAEM_ADMIN_PASSWORD are required (an ADMIN account of staging)");
+if (!/^(?:[0-9a-fA-F]{2}){32,}$/.test(key)) fail("NASAEM_STAGING_ATTESTATION_KEY is required (staging's ENVIRONMENT_ATTESTATION_KEY, hex)");
 
-async function call(path, { method = "GET", token, body } = {}) {
-  const res = await fetch(`${base}${path}`, {
-    method,
-    redirect: "error",
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+const hmac = (message) => crypto.createHmac("sha256", key).update(message).digest("hex");
+const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
+
+class CallError extends Error {
+  constructor(method, path, status, code) {
+    super(`${method} ${path} → ${status}${code ? ` ${code}` : ""}`);
+    this.status = status;
+  }
+}
+
+async function call(path, { method = "GET", token, body, signed = false } = {}) {
+  const payload = body === undefined ? undefined : JSON.stringify(body);
+  const headers = { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  let nonce = null;
+  if (signed) {
+    nonce = crypto.randomBytes(32).toString("hex");
+    const timestamp = String(Date.now());
+    const fullPath = `${url.pathname.replace(/\/+$/, "")}${path}`;
+    headers["X-Nasaem-Env-Timestamp"] = timestamp;
+    headers["X-Nasaem-Env-Nonce"] = nonce;
+    headers["X-Nasaem-Env-Signature"] = hmac([REQUEST_CONTEXT, method, fullPath, timestamp, nonce, sha256(payload || "")].join("|"));
+  }
+  const res = await fetch(`${base}${path}`, { method, redirect: "error", headers, body: payload });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${json.code || ""} ${json.message || ""}`.trim());
-  return json;
+  // Only a code of the expected shape is printed; never other server text.
+  if (!res.ok) throw new CallError(method, path, res.status, typeof json.code === "string" && /^[A-Z_]{1,40}$/.test(json.code) ? json.code : "");
+  return { json, nonce };
+}
+
+// The server's signed answer must be for THIS request's nonce, recent, say
+// "staging" and carry a valid HMAC under the operator's copy of the key.
+function verifyAnswer(answer, nonce) {
+  if (!answer || typeof answer !== "object") return "no attestation in the answer";
+  const { environment, issuedAt, signature } = answer;
+  if (environment !== "staging") return "the server does not say it is staging";
+  if (answer.nonce !== nonce) return "the attestation is for another request";
+  if (!Number.isSafeInteger(issuedAt) || Math.abs(Date.now() - issuedAt) > MAX_SKEW_MS) return "the attestation is not recent";
+  if (typeof signature !== "string" || !/^[0-9a-f]{64}$/.test(signature)) return "the attestation signature is malformed";
+  const expected = Buffer.from(hmac([ANSWER_CONTEXT, environment, nonce, issuedAt].join("|")), "hex");
+  const got = Buffer.from(signature, "hex");
+  if (!crypto.timingSafeEqual(expected, got)) return "the attestation signature is wrong";
+  return null;
 }
 
 const view = (s) => (s ? Object.fromEntries(FIELDS.map((f) => [f, f === "basePrice" ? Number(s[f]) : s[f]])) : null);
 const matches = (s, approved) => s && s.pricingMode === TARGET.pricingMode && Number(s.basePrice) === approved.basePrice && s.currency === TARGET.currency && s.priceUnit === TARGET.priceUnit && s.active === true;
 
 async function readUmrah(token) {
-  const list = (await call("/services?limit=200", { token })).data || [];
+  const list = (await call("/services?limit=200", { token })).json.data || [];
   return Object.fromEntries(APPROVED.map((a) => [a.code, list.find((s) => s.code === a.code) || null]));
 }
 
-const login = await call("/auth/login", { method: "POST", body: { email, password } });
-const token = login.data?.token;
+let token;
+try {
+  token = (await call("/auth/login", { method: "POST", body: { email, password } })).json.data?.token;
+} catch (error) {
+  fail(`login failed (${error.message})`);
+}
 if (!token) fail("login answered without a token");
 
+// Proof of environment, before anything else is shown or changed.
+let proofError;
+try {
+  const { json, nonce } = await call("/admin/staging/attest", { method: "POST", token, body: {}, signed: true });
+  proofError = verifyAnswer(json.data, nonce);
+} catch (error) {
+  proofError = error.status === 404 ? "the server cannot prove it is staging (not staging, or a different key)" : `attestation failed (${error.message})`;
+}
 console.log(`target: ${host} — ${apply ? "APPLY" : "dry run (add --apply to change)"}`);
-const before = await readUmrah(token);
+console.log(`environment: ${proofError ? `NOT VERIFIED — ${proofError}` : "staging (verified by the server's signature)"}`);
+if (apply && proofError) fail("not applying: the target did not prove it is staging; nothing was changed");
+
+let before;
+try {
+  before = await readUmrah(token);
+} catch (error) {
+  fail(`could not read the packages (${error.message})`);
+}
 for (const approved of APPROVED) {
   const row = before[approved.code];
   if (!row) fail(`${approved.code} does not exist on ${host} (run prisma/setup-umrah-packages.js there first; nothing changed)`);
@@ -81,38 +147,33 @@ for (const approved of APPROVED) {
 }
 
 try {
-  const rates = (await call("/flights/admin/rates", { token })).data || {};
+  const rates = (await call("/flights/admin/rates", { token })).json.data || {};
   console.log(`SAR→SDG exchange rate: ${Number(rates.SAR) > 0 ? `active (${rates.SAR})` : "not active — the SDG price will not be shown"}`);
 } catch (error) {
   console.log(`SAR→SDG exchange rate: not readable (${error.message})`);
 }
 
-if (!apply) process.exit(0);
+if (!apply) process.exit(proofError ? 1 : 0);
 
-// One PATCH per package, not one transaction: if one fails, the ones before
-// it stay applied. The script then still re-reads all three and reports each
-// one's real state; running it again completes the rest.
-let applyError = null;
-for (const approved of APPROVED) {
-  const row = before[approved.code];
-  if (matches(row, approved)) continue;
-  try {
-    await call(`/services/${row.id}`, { method: "PATCH", token, body: { ...TARGET, basePrice: approved.basePrice } });
-  } catch (error) {
-    // The change may still have been saved (e.g. the response was lost): the
-    // read-back below says what is really stored.
-    applyError = error;
+// One signed request; staging applies all three in one transaction or none.
+try {
+  const { json, nonce } = await call("/admin/staging/umrah-pricing", { method: "POST", token, body: {}, signed: true });
+  const answerError = verifyAnswer(json.data?.attestation, nonce);
+  if (answerError) {
+    console.error(`the write was answered without a valid staging signature (${answerError}); checking what is stored`);
     process.exitCode = 1;
-    console.error(`${approved.code}: outcome unknown (${error.message}); stopping, checking what is stored`);
-    break;
   }
+} catch (error) {
+  // Lost response or refusal: the read-back below says what is really stored.
+  console.error(`apply: outcome unknown (${error.message}); checking what is stored`);
+  process.exitCode = 1;
 }
 
 let after;
 let published;
 try {
   after = await readUmrah(token);
-  published = (await call("/services/public/packages")).data || [];
+  published = (await call("/services/public/packages")).json.data || [];
 } catch (error) {
   console.error(`could not re-read the packages (${error.message}): state unknown, run the dry run to see it`);
   process.exit(1);
@@ -125,7 +186,7 @@ for (const approved of APPROVED) {
   ok = ok && saved && visible;
   console.log(`${approved.code}: saved ${saved ? "yes" : "NO"} · public ${visible ? "yes" : "NO"}${pub?.priceSdg ? ` · SDG ${pub.priceSdg}` : ""}`);
 }
-if (applyError || !ok) {
-  console.error(applyError ? "partly applied: run again to complete (packages already set are left as is)" : "verification failed: check the rows above");
+if (!ok) {
+  console.error("verification failed: check the rows above");
   process.exitCode = 1;
 }
