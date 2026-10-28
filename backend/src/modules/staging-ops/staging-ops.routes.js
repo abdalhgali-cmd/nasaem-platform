@@ -47,6 +47,10 @@ router.post("/attest", (req, res) => res.status(200).json({ success: true, data:
 router.post("/umrah-pricing", async (req, res, next) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
+      // One activation at a time: a second concurrent run waits here, then
+      // finds the packages already created and priced (no unique-key clash
+      // between two setups that both saw a package missing).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('nasaem:staging:umrah-pricing'))`;
       const prepared = await ensureUmrahPackageTypes(tx, { quiet: true });
       const codes = APPROVED_UMRAH_PRICES.map((a) => a.code);
       const locked = await tx.$queryRaw`SELECT id FROM "Service" WHERE code = ANY(${codes}) FOR UPDATE`;

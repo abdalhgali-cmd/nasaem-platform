@@ -275,6 +275,31 @@ describe("the activation script", () => {
     }
   });
 
+  test("two signed activations at the same moment, packages missing: both succeed, each package created once", async () => {
+    asStaging();
+    const stamp = Date.now();
+    const air = await prisma.service.update({ where: { code: "SVC-UMRAH-AIR" }, data: { code: `SVC-UMRAH-AIR-HIDDEN-${stamp}` } });
+    const sea = await prisma.service.update({ where: { code: "SVC-UMRAH-SEA" }, data: { code: `SVC-UMRAH-SEA-HIDDEN-${stamp}` } });
+    try {
+      const urlPath = "/api/admin/staging/umrah-pricing";
+      const send = () => request(app).post(urlPath).set(signedHeaders({ urlPath }).headers).set("Authorization", `Bearer ${adminToken}`).send("{}");
+      const [first, second] = await Promise.all([send(), send()]);
+      assert.equal(first.status, 200, JSON.stringify(first.body));
+      assert.equal(second.status, 200, JSON.stringify(second.body));
+      for (const code of ["SVC-UMRAH-AIR", "SVC-UMRAH-SEA"]) assert.equal(await prisma.service.count({ where: { code } }), 1, `${code} once`);
+    } finally {
+      for (const code of ["SVC-UMRAH-AIR", "SVC-UMRAH-SEA"]) {
+        const created = await prisma.service.findUnique({ where: { code } });
+        if (created) {
+          await prisma.visaRequirement.deleteMany({ where: { serviceId: created.id } });
+          await prisma.service.delete({ where: { id: created.id } });
+        }
+      }
+      await prisma.service.update({ where: { id: air.id }, data: { code: "SVC-UMRAH-AIR" } });
+      await prisma.service.update({ where: { id: sea.id }, data: { code: "SVC-UMRAH-SEA" } });
+    }
+  });
+
   test("verified staging: dry run changes nothing; --apply sets exactly the approved prices; a rerun changes nothing; no secret printed", async () => {
     asStaging();
     const other = await prisma.service.findFirst({ where: { code: { notIn: CODES } }, orderBy: { code: "asc" } });
