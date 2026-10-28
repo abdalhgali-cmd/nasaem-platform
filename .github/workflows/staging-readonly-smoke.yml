@@ -1,0 +1,57 @@
+name: Staging read-only smoke
+
+# Read-only checks against the live STAGING API and website, from a GitHub
+# runner (the agent sandbox cannot reach Railway). GET/OPTIONS only and the
+# unauthenticated probe of a staging-only route: nothing is created or
+# changed, no secret is used, no customer data is read (the public package
+# catalog only). Production is never contacted.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/staging-readonly-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      API: https://adaptable-quietude-staging.up.railway.app/api
+      SITE: https://nasaem-website-staging-staging.up.railway.app
+    steps:
+      - name: API health
+        run: curl -sS -m 30 -w "\nHTTP %{http_code}\n" "$API/health"
+
+      - name: Published packages (Umrah rows, public fields only)
+        run: |
+          curl -sS -m 30 -o packages.json -w "HTTP %{http_code}\n" "$API/services/public/packages"
+          node -e '
+            const rows = (JSON.parse(require("fs").readFileSync("packages.json","utf8")).data || []);
+            console.log(`published packages: ${rows.length}`);
+            for (const r of rows) console.log(JSON.stringify({ code: r.code, category: r.category, pricingMode: r.pricingMode, basePrice: r.basePrice, currency: r.currency, priceUnit: r.priceUnit, priceSdg: r.priceSdg ?? null, kind: (r.features||[]).find(f => /^KIND:/.test(f)) || null }));
+          '
+
+      - name: Which backend build is running (route presence, unauthenticated)
+        run: |
+          probe() { printf "%-55s → " "$1 $2"; curl -sS -m 30 -o /dev/null -w "%{http_code}\n" -X "$1" "$API$2"; }
+          probe GET /customers/review/auto-links          # 401 = has #138 (Track A); 404 = older
+          probe POST /admin/staging/attest                 # always 404 without a valid staging proof (expected)
+          probe GET /services/public/packages
+
+      - name: CORS from the staging website (preflight for the request forms)
+        run: |
+          for path in /intake-drafts /contact-requests; do
+            echo "--- OPTIONS $path (Origin: $SITE)"
+            curl -sS -m 30 -o /dev/null -D - -X OPTIONS "$API$path" \
+              -H "Origin: $SITE" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type" \
+              | grep -iE "^HTTP|^access-control-allow-(origin|credentials|methods)" || true
+          done
+
+      - name: Website pages
+        run: |
+          for path in / /umrah /visas/egypt-security-approval /track; do
+            printf "%-40s → " "$path"; curl -sS -m 30 -o /dev/null -w "%{http_code}\n" "$SITE$path"
+          done
