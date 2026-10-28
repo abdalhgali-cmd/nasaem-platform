@@ -138,11 +138,17 @@ try {
 }
 for (const approved of APPROVED) {
   const row = before[approved.code];
-  if (!row) fail(`${approved.code} does not exist on ${host} (run prisma/setup-umrah-packages.js there first; nothing changed)`);
   console.log(`${approved.code} ${approved.label}`);
+  if (!row) {
+    // Created by the staging route itself (same transaction as the prices).
+    console.log("  before:  does not exist — will be created (setup), then priced");
+    console.log(`  planned: ${JSON.stringify({ ...TARGET, basePrice: approved.basePrice })}`);
+    continue;
+  }
   console.log(`  before:  ${JSON.stringify(view(row))}`);
   console.log(`  planned: ${JSON.stringify({ ...TARGET, basePrice: approved.basePrice })}${matches(row, approved) ? "  (already set)" : ""}`);
   const features = Array.isArray(row.features) ? row.features : [];
+  if (!features.some((f) => /^KIND:/.test(f))) console.log("  type: missing — the package type (KIND) will be added by the setup step");
   console.log(`  description (unchanged): ${features.filter((f) => /^(KIND|INCLUDED|EXCLUDED):/.test(f)).join(" | ") || "none"}`);
 }
 
@@ -158,6 +164,7 @@ if (!apply) process.exit(proofError ? 1 : 0);
 // One signed request; staging applies all three in one transaction or none.
 try {
   const { json, nonce } = await call("/admin/staging/umrah-pricing", { method: "POST", token, body: {}, signed: true });
+  if (Array.isArray(json.data?.prepared) && json.data.prepared.length) console.log(`setup: ${json.data.prepared.join(", ")}`);
   const answerError = verifyAnswer(json.data?.attestation, nonce);
   if (answerError) {
     console.error(`the write was answered without a valid staging signature (${answerError}); checking what is stored`);

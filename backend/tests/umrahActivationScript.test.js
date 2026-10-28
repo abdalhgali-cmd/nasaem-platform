@@ -234,6 +234,47 @@ describe("the activation script", () => {
     }
   });
 
+  test("staging as found on 2026-10-28 (visa only QUOTE 1200 per request, no type; flight and sea missing): one signed run prepares and prices all three", async () => {
+    asStaging();
+    const stamp = Date.now();
+    const air = await prisma.service.update({ where: { code: "SVC-UMRAH-AIR" }, data: { code: `SVC-UMRAH-AIR-HIDDEN-${stamp}` } });
+    const sea = await prisma.service.update({ where: { code: "SVC-UMRAH-SEA" }, data: { code: `SVC-UMRAH-SEA-HIDDEN-${stamp}` } });
+    const visaFeatures = original["SVC-UMRAH-VISA"].features;
+    await prisma.service.update({ where: { code: "SVC-UMRAH-VISA" }, data: { pricingMode: "QUOTE", basePrice: 1200, priceUnit: "PER_REQUEST", features: [] } });
+    try {
+      const dry = await run();
+      assert.equal(dry.code, 0, dry.out);
+      assert.match(dry.out, /SVC-UMRAH-AIR[\s\S]*does not exist — will be created/);
+      assert.match(dry.out, /type: missing/);
+      assert.equal(await prisma.service.count({ where: { code: { in: ["SVC-UMRAH-AIR", "SVC-UMRAH-SEA"] } } }), 0, "the dry run creates nothing");
+
+      const applied = await run(["--apply"]);
+      assert.equal(applied.code, 0, applied.out);
+      assert.match(applied.out, /setup: .*SVC-UMRAH-AIR \(created inactive\).*SVC-UMRAH-SEA \(created inactive\)/);
+      const rows = await umrahRows();
+      for (const code of CODES) {
+        assert.equal(rows[code].pricingMode, "FIXED", code);
+        assert.equal(Number(rows[code].basePrice), APPROVED[code], code);
+        assert.equal(rows[code].priceUnit, "PER_TRAVELER", code);
+        assert.equal(rows[code].active, true, code);
+        assert.ok(rows[code].features.some((f) => /^KIND:/.test(f)), `${code} has its type`);
+      }
+      const published = (await request(app).get("/api/services/public/packages")).body.data;
+      for (const code of CODES) assert.ok(published.some((p) => p.code === code && p.pricingMode === "FIXED" && Number(p.basePrice) === APPROVED[code]), `${code} published`);
+    } finally {
+      for (const code of ["SVC-UMRAH-AIR", "SVC-UMRAH-SEA"]) {
+        const created = await prisma.service.findUnique({ where: { code } });
+        if (created) {
+          await prisma.visaRequirement.deleteMany({ where: { serviceId: created.id } });
+          await prisma.service.delete({ where: { id: created.id } });
+        }
+      }
+      await prisma.service.update({ where: { id: air.id }, data: { code: "SVC-UMRAH-AIR" } });
+      await prisma.service.update({ where: { id: sea.id }, data: { code: "SVC-UMRAH-SEA" } });
+      await prisma.service.update({ where: { code: "SVC-UMRAH-VISA" }, data: { features: visaFeatures } });
+    }
+  });
+
   test("verified staging: dry run changes nothing; --apply sets exactly the approved prices; a rerun changes nothing; no secret printed", async () => {
     asStaging();
     const other = await prisma.service.findFirst({ where: { code: { notIn: CODES } }, orderBy: { code: "asc" } });

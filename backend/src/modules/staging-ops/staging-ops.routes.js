@@ -5,6 +5,7 @@ import prisma from "../../config/database.js";
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
 import { redactSensitive } from "../../utils/activityLog.js";
 import { pricingConfigError } from "../contact-request-pricing/fixed-price.js";
+import { ensureUmrahPackageTypes } from "../../../prisma/setup-umrah-packages.js";
 import { requireStagingProof, requireStagingServer, signStagingAnswer } from "./staging-guard.js";
 
 // Operator actions that exist only on staging (see staging-guard.js). On any
@@ -34,13 +35,19 @@ router.use(requireStagingServer, limiter, requireStagingProof, requireAuth, requ
 // Signed statement "this server is staging", bound to the caller's nonce.
 router.post("/attest", (req, res) => res.status(200).json({ success: true, data: signStagingAnswer(req) }));
 
-// Applies the approved Umrah prices in one transaction: all three or none.
-// Touches only pricing mode, price, currency, unit and published state of
-// these three services; never their descriptions, other services, requests
-// or customers. Already-approved rows are left as they are.
+// Prepares and prices the three Umrah types in one transaction: all or
+// nothing. First the additive package setup (prisma/setup-umrah-packages.js):
+// the flight and sea packages are created if missing, and a package without a
+// type gets its KIND line (descriptions are only added where none exist).
+// Seen on staging 2026-10-28: SVC-UMRAH-AIR / -SEA did not exist and
+// SVC-UMRAH-VISA had no type, so nothing could be activated. Then pricing
+// mode, price, currency, unit and published state of these three services.
+// Never other services, requests or customers. Already-approved rows are
+// left as they are.
 router.post("/umrah-pricing", async (req, res, next) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
+      const prepared = await ensureUmrahPackageTypes(tx, { quiet: true });
       const codes = APPROVED_UMRAH_PRICES.map((a) => a.code);
       const locked = await tx.$queryRaw`SELECT id FROM "Service" WHERE code = ANY(${codes}) FOR UPDATE`;
       const rows = await tx.service.findMany({ where: { id: { in: locked.map((r) => r.id) } } });
@@ -73,10 +80,12 @@ router.post("/umrah-pricing", async (req, res, next) => {
         });
         changes.push({ code: approved.code, before: view(row), after: view(updated), changed: true });
       }
-      return { changes };
-    });
+      return { prepared, changes };
+      // Setup copies the visa package's requirements: allow more than the
+      // default 5 s for the whole all-or-nothing step.
+    }, { timeout: 20_000 });
     if (result.error === "MISSING") return res.status(409).json({ success: false, code: "UMRAH_PACKAGES_MISSING", missing: result.missing });
-    return res.status(200).json({ success: true, data: { attestation: signStagingAnswer(req), changes: result.changes } });
+    return res.status(200).json({ success: true, data: { attestation: signStagingAnswer(req), prepared: result.prepared, changes: result.changes } });
   } catch (error) {
     next(error);
   }

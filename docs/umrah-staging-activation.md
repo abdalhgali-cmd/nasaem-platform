@@ -26,7 +26,14 @@ The script sets `pricingMode = FIXED`, `currency = SAR`, `priceUnit = PER_TRAVEL
 
 ## Before
 1. Staging must run a backend that has this PR's Umrah changes (the preferred travel date and the staff next step). Without them, the app still works, but the date rule is not enforced by the server.
-2. If `SVC-UMRAH-AIR` or `SVC-UMRAH-SEA` does not exist on staging, run `node prisma/setup-umrah-packages.js` there once. It is additive and creates the packages inactive and unpriced.
+2. No separate setup is needed. The signed activation first runs the additive package setup in the same transaction:
+   - it creates `SVC-UMRAH-AIR` and `SVC-UMRAH-SEA` if they are missing;
+   - it adds the package type to `SVC-UMRAH-VISA` if it has none.
+
+   **Staging as read on 2026-10-28** (read-only smoke, GitHub Actions run 40650899602):
+   - `SVC-UMRAH-VISA` was QUOTE, 1200 SAR per request, with no type.
+   - `SVC-UMRAH-AIR` and `SVC-UMRAH-SEA` did not exist.
+   - The legacy `SVC-UMRAH-GROUP` (3800) and `SVC-UMRAH-SERVICES` (4500) are published as QUOTE. They are left as they are.
 3. Check each package's description: «يشمل» (included) and «لا يشمل» (not included). The current defaults are:
    - Visa only: includes the Umrah visa. Excludes travel tickets, accommodation and transport inside Saudi Arabia.
    - With flight services: includes the visa and flight tickets. Excludes accommodation and transport inside Saudi Arabia.
