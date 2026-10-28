@@ -28,7 +28,10 @@ Scope: Umrah and Egypt security approval only (`docs/CLAUDE_NASAEM_UMRAH_EGYPT_O
 
 | CI Playwright on `b8cd2f9`: 1/132 — `mobile-app` «back-office … audits an exchange rate» | FIXED (test only; not caused by this PR) | Same root cause as `activityLog`: the FX history is read from the activity log, written fire-and-forget, so the page's reload right after saving can miss the newest row. The test now reloads until the row is there (6/6 locally). **Product note (exchange rates, out of this PR's scope):** awaiting `logActivity` in `flights.controller.js` (rates update) would make the history consistent immediately |
 
-**NEXT:** owner sets the approved Umrah prices on staging; install the new QA APK from CI and re-check on a device.
+| Approved Umrah prices (owner 2026-10-28): VISA 795, AIR 3500, SEA 2650 SAR per pilgrim, FIXED, active | READY — NOT APPLIED ON STAGING | Staging unreachable from this environment (proxy 403, no admin credentials), so nothing was written there. `backend/src/scripts/activate-umrah-pricing.js` (admin `PATCH /api/services/:id`, only these 3 codes, dry run by default, refuses non-staging hosts, no secrets printed, re-reads + checks the public catalog). Rehearsed on a fresh seeded DB: before QUOTE/1200, QUOTE/0 inactive ×2 → saved + public, rerun idempotent. Runbook `docs/umrah-staging-activation.md` (descriptions to confirm: tickets round trip / baggage) |
+| E2E at the approved prices | VERIFIED (local) | `mobile-app` «customer app: Umrah at the approved prices»: exact SAR prices + server SDG on all three cards, no «يبدأ من»/quote wording; 1/2/3 pilgrims → totals 795 / 7,000 / 7,950 SAR shown and stored on the invoice; double tap → one request; guarantor, documents, preferred date stored; `/admin/cases` Umrah filter shows next step + date, request opens with guarantor and date |
+
+**NEXT:** owner runs the activation script on staging (or gives this environment access), then installs the QA APK and tests on a device.
 
 ## Egypt security approval — complete customer & staff workflow (2026-10-19, branch `feat/egypt-approval-workflow-20261019`, stacked on `feat/mobile-home-concept-c-20261019` `8794eb2` / PR #127)
 
