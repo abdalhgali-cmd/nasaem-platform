@@ -558,7 +558,18 @@ test.describe.serial("customer app: Umrah packages", () => {
       const queue = (await (await api.get(`${BACKEND}/api/contact-requests?limit=100&serviceKind=UMRAH&search=${normalized(phone)}`)).json()).data as Array<{ id: string; umrahQueue?: { preferredTravelDate?: string } }>;
       expect(queue.find((row) => row.id === reference)?.umrahQueue?.preferredTravelDate).toBe(date);
     } finally {
-      for (const original of originals) await api.patch(`${BACKEND}/api/services/${original.id}`, { data: original.data });
+      // Every package is restored even if one restore fails; then any
+      // failure is reported, so later specs never run on changed prices.
+      const failed: string[] = [];
+      for (const original of originals) {
+        try {
+          const res = await api.patch(`${BACKEND}/api/services/${original.id}`, { data: original.data });
+          if (!res.ok()) failed.push(`${original.id}: ${res.status()} ${await res.text()}`);
+        } catch (error) {
+          failed.push(`${original.id}: ${String(error)}`);
+        }
+      }
+      expect(failed, "catalog restored").toEqual([]);
     }
   });
 });
@@ -578,11 +589,13 @@ test.describe.serial("customer app: Umrah at the approved prices", () => {
     const rows = Object.keys(APPROVED).map((code) => services.find((s) => s.code === code)!);
     expect(rows.every(Boolean)).toBeTruthy();
     const originals = rows.map((s) => ({ id: s.id, data: { pricingMode: s.pricingMode ?? "QUOTE", basePrice: s.basePrice ?? 0, currency: s.currency ?? "SAR", priceUnit: s.priceUnit ?? "PER_REQUEST", active: s.active ?? false } }));
-    for (const s of rows) {
-      const res = await api.patch(`${BACKEND}/api/services/${s.id}`, { data: { pricingMode: "FIXED", basePrice: APPROVED[s.code], currency: "SAR", priceUnit: "PER_TRAVELER", active: true } });
-      expect(res.ok(), await res.text()).toBeTruthy();
-    }
     try {
+      // Inside the try: if the second or third price fails to apply, the
+      // finally block still restores the ones already changed.
+      for (const s of rows) {
+        const res = await api.patch(`${BACKEND}/api/services/${s.id}`, { data: { pricingMode: "FIXED", basePrice: APPROVED[s.code], currency: "SAR", priceUnit: "PER_TRAVELER", active: true } });
+        expect(res.ok(), await res.text()).toBeTruthy();
+      }
       const published = (await (await api.get(`${BACKEND}/api/services/public/packages`)).json()).data as Array<{ id: string; priceSdg: number | null }>;
       const cases: Array<{ code: string; pilgrims: number; date: boolean }> = [
         { code: "SVC-UMRAH-VISA", pilgrims: 1, date: false },
@@ -649,7 +662,18 @@ test.describe.serial("customer app: Umrah at the approved prices", () => {
       await expect(staffPage.getByTestId("case-umrah-travel-date")).toContainText(air.date!);
       await staffPage.close();
     } finally {
-      for (const original of originals) await api.patch(`${BACKEND}/api/services/${original.id}`, { data: original.data });
+      // Every package is restored even if one restore fails; then any
+      // failure is reported, so later specs never run on changed prices.
+      const failed: string[] = [];
+      for (const original of originals) {
+        try {
+          const res = await api.patch(`${BACKEND}/api/services/${original.id}`, { data: original.data });
+          if (!res.ok()) failed.push(`${original.id}: ${res.status()} ${await res.text()}`);
+        } catch (error) {
+          failed.push(`${original.id}: ${String(error)}`);
+        }
+      }
+      expect(failed, "catalog restored").toEqual([]);
     }
   });
 });

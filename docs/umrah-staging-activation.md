@@ -29,7 +29,8 @@ read -rs NASAEM_ADMIN_PASSWORD && export NASAEM_ADMIN_PASSWORD
 node src/scripts/activate-umrah-pricing.js           # dry run: before / planned / description / exchange rate
 node src/scripts/activate-umrah-pricing.js --apply   # applies, re-reads, checks the public catalog
 ```
-- The script refuses any host that is neither staging nor localhost.
+- The script runs only against a fixed list of hosts: `adaptable-quietude-staging.up.railway.app`, `localhost` and `127.0.0.1`. There is no override. Redirects are refused. Never point `localhost` at a tunnel to production.
+- If one change fails, the script stops, re-reads and reports what is really stored for all three packages, and exits with an error. Running it again completes the rest.
 - It prints no password, token or customer data.
 - It can be run again safely: a package that is already set is left as is.
 
