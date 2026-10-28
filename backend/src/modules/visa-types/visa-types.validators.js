@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SUPPORTED_CURRENCIES, VISA_ENTRY_TYPES, VISA_TYPE_CATEGORIES } from "../../utils/enums.js";
+import { catalogPriceSchema } from "../../utils/priceSchema.js";
 
 export const createVisaTypeSchema = z.object({
   code: z.string().min(1, "Visa code is required"),
@@ -7,7 +8,7 @@ export const createVisaTypeSchema = z.object({
   nameEn: z.string().trim().max(200).optional().nullable(),
   country: z.string().min(2, "Country is required"),
   description: z.string().optional().nullable(),
-  basePrice: z.coerce.number().nonnegative(),
+  basePrice: catalogPriceSchema,
   currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
   // Explicit pricing configuration (contact-request-pricing/fixed-price.js):
   // never inferred from basePrice.

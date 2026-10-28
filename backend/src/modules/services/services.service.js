@@ -1,5 +1,6 @@
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { pricingConfigError } from "../contact-request-pricing/fixed-price.js";
 import { getCurrencyRates } from "../flights/flights.service.js";
 import { ensureUmrahGuarantorRequirement, isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
 
@@ -181,6 +182,10 @@ export async function updateService(id, data) {
     if (data.code !== undefined && data.code !== existing.code && (await serviceInUse(tx, id))) {
       return { error: "CODE_IN_USE" };
     }
+    // Checked on the locked row merged with the change, so two concurrent
+    // edits (one to FIXED, one to price 0) cannot together leave FIXED at 0.
+    const pricingError = pricingConfigError({ ...existing, ...data });
+    if (pricingError) return { error: "INVALID_PRICING", message: pricingError };
     const updated = await tx.service.update({ where: { id }, data });
     // Moved into an Umrah category: inherit the guarantor residence too.
     if (isUmrahServiceCategory(updated.category) && !isUmrahServiceCategory(existing.category)) {
