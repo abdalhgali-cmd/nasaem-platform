@@ -28,6 +28,20 @@ export function umrahPackageDetails(item) {
   };
 }
 
+// Keep comparison cards scannable on a phone. Complete source arrays remain
+// available to the request flow; the chooser shows the first useful facts and
+// reports how many remain instead of becoming a wall of text.
+export function umrahPackageSummary(item, { includedLimit = 3, excludedLimit = 2 } = {}) {
+  const details = umrahPackageDetails(item);
+  return {
+    ...details,
+    included: details.included.slice(0, includedLimit),
+    excluded: details.excluded.slice(0, excludedLimit),
+    moreIncluded: Math.max(0, details.included.length - includedLimit),
+    moreExcluded: Math.max(0, details.excluded.length - excludedLimit),
+  };
+}
+
 // The price line of a package card: the exact fixed price (per pilgrim or per
 // request), otherwise null (the card says the agency prices it after review).
 export function umrahPriceText(item) {
