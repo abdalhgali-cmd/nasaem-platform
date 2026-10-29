@@ -82,7 +82,7 @@ function registerAllScreens() {
 // The app is usable without an account: every launch ends on the public
 // shell (Home, Services, Requests, Account). An account session, if one is
 // stored, is checked in the background and only unlocks account content.
-const TAB_TITLES = { home: "", services: "الخدمات", requests: "طلباتي", account: "حسابي" };
+const TAB_TITLES = { home: "", services: "ابدأ طلب", requests: "متابعة الطلبات", account: "المزيد" };
 const ACCOUNT_DEPENDENT_TABS = new Set(["home", "requests", "account"]);
 const SESSION_ENDED_NOTICE = "انتهت جلسة حسابك. يمكنك متابعة التصفح، وسجّل الدخول متى شئت لعرض حسابك.";
 

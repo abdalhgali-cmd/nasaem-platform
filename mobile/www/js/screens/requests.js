@@ -147,7 +147,7 @@ export async function renderGuestTrackingScreen({ bodyEl }) {
   const locked = getSessionState() === SessionState.LOCKED;
   bodyEl.innerHTML = `
     <p class="mode-banner mode-banner-guest">${icon("phone", { size: 16 })}<span>متابعة برقم الهاتف — بدون حساب</span></p>
-    ${locked ? `<p class="field-hint">حسابك مقفل بالبصمة. افتحه من «حسابي» لعرض طلبات الحساب.</p>` : ""}
+    ${locked ? `<p class="field-hint">حسابك مقفل بالبصمة. افتحه من «المزيد» لعرض طلبات الحساب.</p>` : ""}
     <div id="guestTrackingBody"></div>`;
   const container = bodyEl.querySelector("#guestTrackingBody");
 

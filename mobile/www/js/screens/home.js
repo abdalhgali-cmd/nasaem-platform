@@ -2,12 +2,12 @@ import { api } from "../api.js";
 import { esc, skeletonGrid } from "../ui.js";
 import { icon, iconForService } from "../icons.js";
 import { getCustomer, isAccountUnlocked } from "../auth.js";
-import { loadCatalog, loadHomepage, loadPackages } from "../catalog.js";
+import { loadCatalog, loadPackages } from "../catalog.js";
 import { go, goToTab } from "../router.js";
 import { openServiceById, openServiceItem, VISAS_HUB_CODE } from "./services.js";
-import { homeBentoTiles, publishedServiceCount, serviceCountText, hubVisaTypes, homeFeaturedServices, startingPrice, priceText, sdgText, durationOf } from "../service-view.js";
-import { firstName, greeting, buildBannerSlides, nextSlide, readPendingPayment } from "../experience-core.js";
-import { prefersReducedMotion, stagger, watchSnapIndex, scrollToSlide, tapFeedback } from "../motion.js";
+import { homeBentoTiles } from "../service-view.js";
+import { firstName, greeting, readPendingPayment } from "../experience-core.js";
+import { stagger, tapFeedback } from "../motion.js";
 import { loadAgency, whatsappLink } from "../agency.js";
 import { umrahKindOffers, UMRAH_UNAVAILABLE } from "../umrah-view.js";
 import { egyptVariantOptions } from "../egypt-view.js";
@@ -51,8 +51,6 @@ function serviceCard(item) {
     </button>`;
 }
 
-const AUTOPLAY_MS = 5500;
-
 // Public home for everyone. Personal parts (name, bell, coupons, account
 // activity) appear only for a verified, unlocked account; a guest gets the
 // public content and a clear "track your request" action instead.
@@ -71,24 +69,15 @@ export async function renderHomeScreen({ bodyEl }) {
         ${icon("bell", { size: 22 })}<span class="home-bell-dot" id="homeBellDot" hidden></span>
       </button>` : ""}
     </header>
-    <div class="hc-search-wrap">
-      <button class="hc-search" id="startNowBtn">${icon("search", { size: 19 })}<span>ابحث عن خدمة أو ابدأ طلبك</span></button>
-    </div>
-
     <div id="pendingPaymentMount"></div>
 
     <section class="hc-bento-wrap" aria-label="خدمات الوكالة">
+      <div class="hc-section-intro">
+        <h2>اختر خدمتك</h2>
+        <p>ابدأ طلب العمرة أو الموافقة الأمنية لمصر، دون إنشاء حساب.</p>
+      </div>
+      <p class="field-hint stale-note" id="catalogStale" hidden>${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>
       <div class="hc-bento" id="homeBento">${skeletonGrid(4)}</div>
-    </section>
-
-    <section class="section home-journey" aria-label="كيف يعمل طلبك">
-      <div class="section-head"><h2>كيف يعمل طلبك</h2></div>
-      <ol class="home-journey-grid">
-        <li><span>١</span><strong>اختر الخدمة</strong></li>
-        <li><span>٢</span><strong>المتطلبات</strong></li>
-        <li><span>٣</span><strong>الدفع</strong></li>
-        <li><span>٤</span><strong>المتابعة</strong></li>
-      </ol>
     </section>
 
     <section class="section">
@@ -99,20 +88,14 @@ export async function renderHomeScreen({ bodyEl }) {
       </button>
     </section>
 
-
-
-    <section class="home-banner" aria-roledescription="شرائح العروض" aria-label="إعلانات نسائم الحرمين">
-      <div class="banner-track" id="bannerTrack"><div class="banner-slide skeleton-banner"></div></div>
-      <div class="banner-dots" id="bannerDots"></div>
-    </section>
-
-    <section class="section" id="featuredSection" hidden>
-      <div class="section-head">
-        <h2>خدمات مختارة</h2>
-        <button class="link-btn" id="seeAllServices">عرض الكل</button>
-      </div>
-      <p class="field-hint stale-note" id="catalogStale" hidden>${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>
-      <div id="featuredList" class="featured-list"></div>
+    <section class="section home-journey" aria-label="كيف يعمل طلبك">
+      <div class="section-head"><h2>خطوات واضحة من البداية</h2></div>
+      <ol class="home-journey-grid">
+        <li><span>١</span><strong>اختر الخدمة</strong></li>
+        <li><span>٢</span><strong>أرسل المتطلبات</strong></li>
+        <li><span>٣</span><strong>ادفع للحساب المعتمد</strong></li>
+        <li><span>٤</span><strong>تابع حتى التسليم</strong></li>
+      </ol>
     </section>
 
     <section class="section" id="activitySection" hidden>
@@ -130,98 +113,20 @@ export async function renderHomeScreen({ bodyEl }) {
   `;
   showPendingPayment(bodyEl.querySelector("#pendingPaymentMount"));
 
-  const allServices = () => goToTab("services", "services", { title: "الخدمات" });
-  bodyEl.querySelector("#seeAllServices").addEventListener("click", allServices);
-  bodyEl.querySelector("#startNowBtn").addEventListener("click", () => {
-    tapFeedback();
-    goToTab("services", "services", { title: "الخدمات" });
-  });
   bodyEl.querySelector("#homeBell")?.addEventListener("click", () => {
     tapFeedback();
     go("notifications", {}, { title: "الإشعارات", tab: "home" });
   });
   bodyEl.querySelector("#homeTrackBtn")?.addEventListener("click", () => goToTab("requests", "requests", { title: "طلباتي" }));
 
-  const stopBanner = mountBanner(bodyEl, { signedIn });
-  loadCatalogSection(bodyEl, { allServices });
+  loadCatalogSection(bodyEl);
   if (signedIn) loadActivitySection(bodyEl);
   loadAgency().then((agency) => {
     const strip = bodyEl.querySelector("#helpStrip");
     if (strip) strip.href = whatsappLink(agency.whatsapp, "السلام عليكم، أحتاج مساعدة في طلبي");
   });
 
-  return { cleanup: () => stopBanner() };
-}
-
-// Banner carousel: only content the agency published (homepage hero and
-// sections) and coupons available to this customer; a brand slide otherwise.
-// Swipe works natively (scroll-snap, RTL-aware); auto-advance pauses while
-// the customer touches it, when the app is in the background, and is off
-// entirely under reduced motion.
-function mountBanner(bodyEl, { signedIn }) {
-  const track = bodyEl.querySelector("#bannerTrack");
-  const dotsEl = bodyEl.querySelector("#bannerDots");
-  let timer = 0;
-  let resumeTimer = 0;
-  let stopWatch = () => {};
-  let index = 0;
-  let count = 0;
-  let disposed = false;
-
-  const stop = () => {
-    clearInterval(timer);
-    timer = 0;
-  };
-  const start = () => {
-    stop();
-    if (disposed || count < 2 || prefersReducedMotion() || document.hidden) return;
-    timer = setInterval(() => scrollToSlide(track, nextSlide(index, count)), AUTOPLAY_MS);
-  };
-  const pause = () => {
-    stop();
-    clearTimeout(resumeTimer);
-    resumeTimer = setTimeout(start, AUTOPLAY_MS);
-  };
-  const onVisibility = () => (document.hidden ? stop() : start());
-
-  (async () => {
-    const [homepage, couponsRes] = await Promise.all([
-      loadHomepage().catch(() => ({ hero: null, sections: [] })),
-      // Coupons are personal: only for a verified account, never for guests.
-      signedIn ? api("/customer/coupons").catch(() => ({ data: { available: [] } })) : Promise.resolve({ data: { available: [] } }),
-    ]);
-    if (disposed) return;
-    const slides = buildBannerSlides({ hero: homepage.hero, sections: homepage.sections || [], coupons: couponsRes.data?.available || [] });
-    count = slides.length;
-    track.innerHTML = slides.map((slide, i) => `
-      <article class="banner-slide banner-${slide.kind}" role="group" aria-roledescription="شريحة" aria-label="${i + 1} من ${slides.length}">
-        <div class="banner-copy">
-          <span class="banner-eyebrow">${esc(slide.eyebrow)}</span>
-          <strong>${esc(slide.title)}</strong>
-          ${slide.text ? `<p>${esc(slide.text)}</p>` : ""}
-          ${slide.action ? `<span class="banner-action">${esc(slide.action)}</span>` : ""}
-        </div>
-        <span class="banner-icon" aria-hidden="true">${icon(slide.icon && slide.kind !== "hero" ? slide.icon : "plane", { size: 30 })}</span>
-      </article>`).join("");
-    dotsEl.innerHTML = count > 1 ? slides.map((_, i) => `<span class="banner-dot" data-i="${i}"></span>`).join("") : "";
-    const dots = [...dotsEl.children];
-    stopWatch = watchSnapIndex(track, (i) => {
-      index = i;
-      dots.forEach((dot, d) => dot.classList.toggle("active", d === i));
-    });
-    track.addEventListener("pointerdown", pause, { passive: true });
-    track.addEventListener("touchstart", pause, { passive: true });
-    document.addEventListener("visibilitychange", onVisibility);
-    start();
-  })();
-
-  return () => {
-    disposed = true;
-    stop();
-    clearTimeout(resumeTimer);
-    stopWatch();
-    document.removeEventListener("visibilitychange", onVisibility);
-  };
+  return { cleanup: () => {} };
 }
 
 // One bento tile per published service; the label is the catalog's own name.
@@ -231,20 +136,6 @@ function bentoTile(shortcut) {
     <button type="button" class="hc-tile" data-key="${esc(shortcut.key)}">
       <span class="hc-tile-icon">${icon(shortcut.icon, { size: 22 })}</span>
       <span class="hc-tile-label">${esc(label)}</span>
-    </button>`;
-}
-
-function featuredRow(item) {
-  const price = startingPrice(item);
-  const duration = durationOf(item);
-  return `
-    <button class="featured-row" data-id="${esc(item.id)}">
-      <span class="featured-icon">${icon(iconForService(item), { size: 22 })}</span>
-      <span class="featured-body">
-        <b>${esc(item.name)}</b>
-        <small>${[price ? `من <bdi>${esc(priceText(price))}</bdi>` : "", sdgText(price) ? `<bdi>${esc(sdgText(price))}</bdi>` : "", duration ? esc(duration) : ""].filter(Boolean).join(" · ")}</small>
-      </span>
-      ${icon("chevron-start", { size: 16 })}
     </button>`;
 }
 
@@ -313,7 +204,7 @@ function egyptTile(options) {
     </div>`;
 }
 
-async function loadCatalogSection(bodyEl, { allServices }) {
+async function loadCatalogSection(bodyEl) {
   const bento = bodyEl.querySelector("#homeBento");
   try {
     const catalog = await loadCatalog();
@@ -329,8 +220,6 @@ async function loadCatalogSection(bodyEl, { allServices }) {
     // (USD + the server's SDG) when the agency published them.
     const egyptOptions = egyptVariantOptions(catalog);
     const egyptCard = egyptOptions.some((option) => option.bookable) ? egyptTile(egyptOptions) : "";
-    const visaCount = hubVisaTypes(catalog).length;
-    const total = publishedServiceCount(catalog);
     bento.innerHTML = [
       umrah ? umrahTile() : "",
       egyptCard,
@@ -341,10 +230,6 @@ async function loadCatalogSection(bodyEl, { allServices }) {
             ${icon("chevron-start", { size: 18 })}
           </button>`
         : bentoTile(shortcut)),
-      total ? `<button type="button" class="hc-tile hc-tile-all" id="allServicesFromHome">
-          <span class="hc-tile-icon">${icon("grid", { size: 22 })}</span>
-          <span class="hc-tile-label">كل الخدمات (<bdi>${total}</bdi>)</span>
-        </button>` : "",
     ].join("");
     stagger(bento);
     if (umrah) fillUmrahKinds(bento, umrah);
@@ -356,7 +241,6 @@ async function loadCatalogSection(bodyEl, { allServices }) {
       });
     });
     bento.querySelector("#homeUmrahBtn")?.addEventListener("click", () => { tapFeedback(); openServiceItem(umrah); });
-    bento.querySelector("#allServicesFromHome")?.addEventListener("click", () => { tapFeedback(); allServices(); });
     bento.querySelectorAll(".hc-tile[data-key]").forEach((button) => {
       button.addEventListener("click", () => {
         tapFeedback();
@@ -366,22 +250,6 @@ async function loadCatalogSection(bodyEl, { allServices }) {
       });
     });
 
-    // Services with a price the agency announced, straight from the catalog
-    // (the back-office price and rate); none are listed when none are priced.
-    const featured = homeFeaturedServices(catalog, shortcuts);
-    const section = bodyEl.querySelector("#featuredSection");
-    if (featured.length) {
-      bodyEl.querySelector("#featuredList").innerHTML = featured.map(featuredRow).join("");
-      bodyEl.querySelectorAll(".featured-row").forEach((row) => {
-        row.addEventListener("click", () => {
-          const item = [...catalog.services, ...catalog.visaTypes].find((candidate) => candidate.id === row.dataset.id);
-          if (item) openServiceItem(item);
-        });
-      });
-      section.hidden = false;
-    } else {
-      section.hidden = !catalog.stale;
-    }
   } catch (error) {
     bento.innerHTML = `<p class="field-hint">تعذر تحميل الخدمات: ${esc(error.message)}</p>`;
   }

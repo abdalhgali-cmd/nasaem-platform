@@ -72,9 +72,9 @@ function renderGuest(bodyEl) {
   bodyEl.innerHTML = `
     <section class="guest-card">
       <div class="guest-card-icon">${icon("user", { size: 28 })}</div>
-      <h2>أنت تتصفح كضيف</h2>
-      <p>يمكنك استخدام كل الخدمات وإرسال طلباتك ومتابعتها برقم هاتفك دون حساب.</p>
-      <p class="guest-card-benefits">الحساب اختياري: يجمع طلباتك ومستنداتك في مكان واحد، ويتيح الدخول بالبصمة.</p>
+      <h2>الحساب اختياري</h2>
+      <p>يمكنك بدء الطلب ومتابعته برقم هاتفك دون تسجيل.</p>
+      <p class="guest-card-benefits">إذا أنشأت حسابًا، ستجد طلباتك ومستنداتك في مكان واحد ويمكنك حمايتها بالبصمة.</p>
       <button class="primary" id="guestLoginBtn">تسجيل الدخول</button>
       <button class="secondary" id="guestRegisterBtn">إنشاء حساب</button>
     </section>
