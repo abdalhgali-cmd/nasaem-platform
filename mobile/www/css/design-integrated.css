@@ -105,6 +105,22 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 /* Banner copy is shown in full on home (no 2-line clamp), so large system text never hides it. */
 .screen[data-screen="home"] .banner-copy p {display:block;-webkit-line-clamp:unset;overflow:visible;}
 
+/* Trust cues live next to the decision they qualify: service start, document
+   upload, payment and the request's next action. */
+.info-trust {display:grid;gap:8px;margin:0 16px 14px;padding:13px;border:1px solid #dce5ef;border-radius:16px;background:#f7fafc;}
+.info-trust span {display:flex;align-items:flex-start;gap:8px;color:#18314f;font-size:.8125rem;line-height:1.55;}
+.info-trust svg {flex:none;margin-top:2px;color:#98731e;}
+.info-trust-inline {margin:10px 0 14px;}
+.document-privacy-note {display:flex;align-items:flex-start;gap:8px;margin:0 0 12px;padding:10px 12px;border-radius:12px;background:#eef5fb;color:#29435f;font-size:.78rem;line-height:1.6;}
+.document-privacy-note svg {flex:none;margin-top:2px;color:#0b5b91;}
+.payment-safety {display:grid;gap:3px;margin:10px 0 14px;padding:12px;border:1px solid #d6e4d8;border-radius:14px;background:#f2f8f3;color:#24472b;line-height:1.55;}
+.payment-safety strong {font-size:.9rem;}
+.payment-safety span,.payment-safety small {font-size:.78rem;}
+.payment-safety small {color:#4f6654;}
+.request-next-action {display:grid;gap:3px;margin-top:10px;padding:11px 12px;border-radius:13px;background:#fff7df;border:1px solid #ead89f;text-align:start;}
+.request-next-action small {color:#745d1b;font-size:.75rem;font-weight:700;}
+.request-next-action strong {color:#3d3214;font-size:.875rem;line-height:1.6;}
+
 /* Services stay server-backed and each opens its existing real journey. */
 .screen[data-screen="services"] .screen-head-root {background:#082b58;color:#fff;}
 .screen[data-screen="services"] .screen-head-root h1 {color:#fff;}

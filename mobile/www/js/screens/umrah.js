@@ -25,6 +25,11 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   bodyEl.innerHTML = `
     <section class="section umrah-choose">
       <h2 class="umrah-title" id="umrahChooseTitle">اختر باقة العمرة</h2>
+      <div class="info-trust info-trust-inline" aria-label="ما نلتزم به قبل بدء الطلب">
+        <span>${icon("wallet", { size: 17 })}<b>السعر الظاهر للباقة هو الإجمالي الذي تؤكده قبل الإرسال</b></span>
+        <span>${icon("requests", { size: 17 })}<b>تحصل على رقم مرجعي وتتابع الطلب دون حساب</b></span>
+        <span>${icon("shield-check", { size: 17 })}<b>لا نعلن اكتمال الخدمة قبل تسليم النتيجة المؤكدة</b></span>
+      </div>
       <div id="packagesList" class="package-list" role="radiogroup" aria-labelledby="umrahChooseTitle">${skeletonList(3)}</div>
     </section>
 

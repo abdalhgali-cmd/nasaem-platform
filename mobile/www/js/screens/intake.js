@@ -371,6 +371,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     stepBody.innerHTML = `
       <section class="form-section" id="travelersSection">
         <h3>${needsGuarantor ? "المعتمرون وجوازاتهم" : "المسافرون"}</h3>
+        <p class="document-privacy-note">${icon("shield-check", { size: 16 })}<span>تُستخدم بيانات الجواز والمستندات لتنفيذ هذا الطلب، ويقتصر الوصول عليها على الموظفين المخولين.</span></p>
         <div id="travelersBox">${v.travelers.map((traveler, index) => travelerCard(traveler, index, list)).join("")}</div>
         ${v.travelers.length < maxTravelers ? `<button type="button" class="secondary add-traveler" id="addTravelerBtn">${icon("plus", { size: 18 })} أضف ${travelerWord === "المعتمر" ? "معتمرًا" : "مسافرًا"}</button>` : ""}
       </section>

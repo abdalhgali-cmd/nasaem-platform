@@ -24,6 +24,7 @@ import {
   receiptPickerHtml,
   selectedSettlementAccount,
   settlementOptionsHtml,
+  paymentSafetyHtml,
 } from "../payment-receipt.js";
 import { savePendingPayment, clearPendingPayment, clearPendingPaymentFor } from "../experience-core.js";
 import { egyptStepsHtml, isEgyptPaymentJourney } from "../egypt-view.js";
@@ -100,6 +101,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
       ${params.resumed ? `<p class="field-hint" id="paymentResumed">طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.</p>` : ""}
       <p class="field-hint">طلبك محفوظ برقم <code dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ إلى أحد الحسابات المعتمدة ثم ارفع إشعار التحويل.</p>
       <h4>الدفع بالتحويل البنكي</h4>
+      ${paymentSafetyHtml()}
       <p class="payment-amount">قيمة الفاتورة: <strong id="directPaymentAmount"><bdi>${esc(amountText)}</bdi></strong></p>
       ${sdgText ? `<p class="field-hint">ما يعادل <bdi>${esc(sdgText)}</bdi> بسعر الصرف المثبّت على الفاتورة وقت تأكيد الطلب</p>`
         : summary.currency && summary.currency !== "SDG" ? `<p class="field-hint" id="paymentSdgUnavailable">المقابل بالجنيه السوداني غير متاح لهذه الفاتورة؛ حوّل بالعملة الظاهرة.</p>` : ""}

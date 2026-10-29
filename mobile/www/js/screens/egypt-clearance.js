@@ -18,6 +18,11 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
       <h2>الموافقة الأمنية لمصر</h2>
       <p>سعر ثابت، ولا يلزم شراء تذكرة من نسائم.</p>
     </div>
+    <section class="info-trust" aria-label="ما نلتزم به قبل بدء الطلب">
+      <span>${icon("wallet", { size: 17 })}<b>كل طريقة دخول تعرض سعرها الحقيقي قبل بدء الطلب</b></span>
+      <span>${icon("requests", { size: 17 })}<b>رقم مرجعي ومتابعة لكل طلب دون حساب</b></span>
+      <span>${icon("shield-check", { size: 17 })}<b>لا نعلن صدور الموافقة قبل رفعها من فريق الوكالة</b></span>
+    </section>
     <div id="egyptStepsMount">${egyptStepsHtml(1, esc)}</div>
     <section class="section" id="egyptVariants" hidden></section>
     <div id="egyptIntakeMount"></div>

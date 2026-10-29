@@ -10,6 +10,17 @@ import { formatAmount } from "./payment-view.js";
 export const RECEIPT_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 export const RECEIPT_PDF_TYPE = "application/pdf";
 
+// Shown beside every bank-account list, not buried in the legal pages. It
+// names the only trusted payment source and makes the receipt/confirmation
+// distinction explicit at the moment the customer is about to transfer.
+export function paymentSafetyHtml() {
+  return `<aside class="payment-safety" role="note">
+    <strong>ادفع بأمان</strong>
+    <span>حوّل فقط إلى حساب يظهر داخل هذه الصفحة. لا تعتمد أي حساب يُرسل لك في محادثة خاصة.</span>
+    <small>رفع إشعار التحويل لا يعني تأكيد الدفع؛ تؤكد الوكالة الاستلام بعد مطابقته مع البنك.</small>
+  </aside>`;
+}
+
 // The ways to pay, from the server's `settlementOptions`. A server without
 // them (older backend) sends only `accounts` in the invoice currency.
 export function normalizeSettlementOptions({ settlementOptions, accounts, amount, currency } = {}) {
@@ -54,7 +65,7 @@ export function settlementOptionsHtml(options, esc, { invoiceAmount, invoiceCurr
 
 // When no active account can take this payment, say exactly that.
 export function noSettlementAccountHtml(esc, currency) {
-  return `<p class="field-hint" id="noPaymentAccount" role="status">لا يوجد حاليًا حساب دفع مفعّل يقبل السداد ${currency && currency !== "SDG" ? `بعملة الفاتورة (${esc(currency)}) أو بمقابلها بالجنيه` : "لهذه العملة"}. لا تحوّل أي مبلغ قبل أن تتواصل معك الوكالة؛ طلبك محفوظ ويمكنك متابعته من «طلباتي».</p>`;
+  return `<p class="field-hint" id="noPaymentAccount" role="status">لا يوجد حاليًا حساب دفع مفعّل يقبل السداد ${currency && currency !== "SDG" ? `بعملة الفاتورة (${esc(currency)}) أو بمقابلها بالجنيه` : "لهذه العملة"}. لا تحوّل أي مبلغ قبل أن يظهر حساب معتمد هنا؛ طلبك محفوظ ويمكنك متابعته.</p>`;
 }
 
 export function receiptPickerHtml(esc, icon) {
