@@ -55,7 +55,7 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
             className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-white/5 px-4 py-2 text-xs font-bold text-accent backdrop-blur-sm"
           >
             <span className="size-1.5 rounded-full bg-accent motion-safe:animate-pulse" />
-            اختر خدمتك وابدأ الطلب مباشرة
+            العمرة والموافقة الأمنية لمصر
           </motion.span>
 
           <motion.h1
@@ -82,7 +82,7 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
             <Button asChild variant="outline" size="lg" className="border-white/30 text-white hover:border-white/60 hover:bg-white/10">
               <Link href="#services">
                 <LayoutGrid className="size-4" aria-hidden="true" />
-                استعرض الخدمات
+                استعرض الخدمتين
               </Link>
             </Button>
             <Button asChild variant="ghost" className="text-white/85 hover:bg-white/10 hover:text-white">

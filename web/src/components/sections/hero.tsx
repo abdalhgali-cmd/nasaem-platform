@@ -45,12 +45,11 @@ export async function Hero() {
           logoUrl={logoUrl}
           defaultTitleNode={
             <>
-              نُنجز رحلتك بثقة —{" "}
-              <span className="text-gold-shimmer">عمرة، تأشيرات، وسفر</span>{" "}
-              دون تعقيد
+              خدمتك أوضح من البداية —{" "}
+              <span className="text-gold-shimmer">العمرة والموافقة الأمنية لمصر</span>
             </>
           }
-          defaultDescription={`${siteConfig.name} تساعدك في تنظيم تفاصيل رحلتك: باقات العمرة، خدمات التأشيرات، وحجوزات الطيران والفنادق — مع توضيح الخطوات ومتابعة الطلب حتى اكتماله.`}
+          defaultDescription={`${siteConfig.name} تتيح في الإصدار الأول طلب العمرة أو الموافقة الأمنية لمصر، مع المستندات والدفع والمتابعة في مسار واضح.`}
         />
       </Container>
     </section>

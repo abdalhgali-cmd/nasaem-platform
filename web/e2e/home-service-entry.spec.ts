@@ -1,14 +1,17 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Homepage — primary service entry", () => {
-  test("shows the core services and a direct tracking action", async ({ page }) => {
+  test("shows only the two first-release services and a direct tracking action", async ({ page }) => {
     await page.goto("/");
 
     const entry = page.locator("#start-request");
     await expect(entry).toBeVisible();
 
-    for (const label of ["العمرة", "الموافقة الأمنية", "التأشيرات", "الطيران", "البواخر", "الفنادق", "العروض"]) {
+    for (const label of ["العمرة", "الموافقة الأمنية"]) {
       await expect(entry.getByRole("tab", { name: label })).toBeVisible();
+    }
+    for (const label of ["التأشيرات", "الطيران", "البواخر", "الفنادق", "العروض"]) {
+      await expect(entry.getByRole("tab", { name: label })).toHaveCount(0);
     }
 
     await expect(page.getByRole("link", { name: "تتبع طلبك" }).first()).toHaveAttribute("href", "/track");
@@ -24,25 +27,19 @@ test.describe("Homepage — primary service entry", () => {
     await expect(trustSignals.getByText("تتبع حالة الطلب")).toBeVisible();
   });
 
-  test("visa and security entries route directly to their guest flows", async ({ page }) => {
+  test("Egypt security routes directly to its guest flow", async ({ page }) => {
     await page.goto("/");
     const entry = page.locator("#start-request");
 
     await entry.getByRole("tab", { name: "الموافقة الأمنية" }).click();
     await expect(entry.getByRole("link", { name: /ابدأ الطلب/ })).toHaveAttribute("href", "/visas/egypt-security-approval");
 
-    await entry.getByRole("tab", { name: "التأشيرات" }).click();
-    await entry.getByRole("combobox").selectOption({ label: "الزيارة العائلية" });
-    await expect(entry.getByRole("link", { name: /ابدأ الطلب/ })).toHaveAttribute("href", "/visas/saudi-family-visit");
     await expect(entry.getByText("يمكنك بدء الطلب كزائر دون إنشاء حساب.")).toBeVisible();
   });
 
-  test("ferry entry routes customers into the ferry booking page", async ({ page }) => {
+  test("keeps existing-request tracking prominent", async ({ page }) => {
     await page.goto("/");
-    const entry = page.locator("#start-request");
-    await entry.getByRole("tab", { name: "البواخر" }).click();
-
-    await expect(entry.getByRole("link", { name: /ابدأ الطلب/ })).toHaveAttribute("href", "/ferries");
+    await expect(page.getByRole("link", { name: "تتبع طلبك" }).first()).toHaveAttribute("href", "/track");
   });
 
   test("shows API prices and requirements, and never guesses a missing fixed price", async ({ page }) => {
@@ -50,31 +47,26 @@ test.describe("Homepage — primary service entry", () => {
       contentType: "application/json",
       body: JSON.stringify({
         data: {
-          services: [
-            { id: "flight-fixed", code: "SVC-FLIGHT", name: "تذاكر الطيران", category: "flight", description: "رحلات من الكتالوج", basePrice: "1250", currency: "SAR", priceSdg: null, pricingMode: "FIXED", priceUnit: "PER_TRAVELER", iconKey: null, imageKey: null },
-            { id: "hotel-unpriced", code: "SVC-HOTEL", name: "حجز الفنادق", category: "hotel", description: null, basePrice: "0", currency: "SAR", priceSdg: null, pricingMode: "FIXED", priceUnit: "PER_REQUEST", iconKey: null, imageKey: null },
-          ],
-          visaTypes: [],
+          services: [],
+          visaTypes: [{ id: "egypt-air", code: "VISA-EGYPT-CLEARANCE-AIR", name: "الموافقة الأمنية — جوي", category: "VISA", description: null, basePrice: "85", currency: "USD", priceSdg: "51000", pricingMode: "FIXED", priceUnit: "PER_REQUEST", iconKey: null, imageKey: null }],
         },
       }),
     }));
-    await page.route("**/api/services/public/packages", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: [] }) }));
-    await page.route("**/api/services/flight-fixed/requirements/public", (route) => route.fulfill({
+    await page.route("**/api/services/public/packages", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: [{ id: "umrah-flight", code: "SVC-UMRAH-FLIGHT", name: "عمرة بالطيران", category: "UMRAH_PACKAGE", description: null, basePrice: "3500", currency: "SAR", priceSdg: null, pricingMode: "FIXED", priceUnit: "PER_TRAVELER", iconKey: null, imageKey: null }] }) }));
+    await page.route("**/api/services/umrah-flight/requirements/public", (route) => route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ data: [{ id: "passport", name: "صورة جواز السفر", required: true, type: "DOCUMENT" }] }),
     }));
-    await page.route("**/api/services/hotel-unpriced/requirements/public", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: [] }) }));
+    await page.route("**/api/visa-types/egypt-air/requirements/public", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: [{ id: "passport-egypt", name: "صورة جواز السفر", required: true, type: "DOCUMENT" }] }) }));
 
     await page.goto("/");
     const entry = page.locator("#start-request");
-    await entry.getByRole("tab", { name: "الطيران" }).click();
-    await expect(entry.getByText("1,250 SAR")).toBeVisible();
+    await expect(entry.getByText("3,500 SAR")).toBeVisible();
     await expect(entry.getByText("لكل مسافر")).toBeVisible();
     await expect(entry.getByTestId("homepage-required-documents").getByText("صورة جواز السفر")).toBeVisible();
 
-    await entry.getByRole("tab", { name: "الفنادق" }).click();
-    await expect(entry.getByText("غير متاح للحجز").first()).toBeVisible();
-    await expect(entry.getByRole("link", { name: /ابدأ الطلب/ })).toHaveCount(0);
+    await entry.getByRole("tab", { name: "الموافقة الأمنية" }).click();
+    await expect(entry.getByText("85 USD")).toBeVisible();
   });
 
   test("keeps one service-selection section and fits an Android viewport in RTL", async ({ page }) => {
@@ -88,26 +80,23 @@ test.describe("Homepage — primary service entry", () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("redesigned hero: the agency logo, a services shortcut, and service cards only for published services", async ({ page, request }) => {
+  test("redesigned hero: the agency logo, a services shortcut, and only first-release service cards", async ({ page }) => {
     await page.goto("/");
     const emblem = page.getByTestId("hero-emblem");
     await expect(emblem.getByRole("img", { name: "نسائم الحرمين للسفر والسياحة" })).toBeVisible();
     await expect(emblem.locator("img")).toHaveAttribute("src", /logo-dark\.png|site-assets\/logo-dark/);
 
-    await page.getByRole("link", { name: "استعرض الخدمات" }).click();
+    await page.getByRole("link", { name: "استعرض الخدمتين" }).click();
     await expect(page).toHaveURL(/#services$/);
     const cards = page.getByTestId("home-service-card");
     await expect(cards.first()).toBeVisible();
 
-    // Every card goes to its own page, and only services the catalog publishes get one.
-    const catalog = (await (await request.get("http://localhost:5000/api/services/public")).json()).data;
-    const hasFlights = catalog.services.some((item: { category: string }) => item.category.toLowerCase().includes("flight"));
+    // Every published card goes to one of the two first-release services.
     const hrefs = await cards.evaluateAll((els) => Object.fromEntries(els.map((el) => [el.getAttribute("data-service"), el.getAttribute("href")])));
-    if (hasFlights) expect(hrefs.flights).toBe("/flights");
-    else expect(hrefs.flights).toBeUndefined();
-    for (const [key, href] of Object.entries({ umrah: "/umrah", egypt: "/visas/egypt-security-approval", visas: "/visas", ferries: "/ferries", hotels: "/hotels", packages: "/packages" })) {
+    for (const [key, href] of Object.entries({ umrah: "/umrah", egypt: "/visas/egypt-security-approval" })) {
       if (hrefs[key] !== undefined) expect(hrefs[key]).toBe(href);
     }
+    for (const key of ["visas", "flights", "ferries", "hotels", "packages"]) expect(hrefs[key]).toBeUndefined();
     // No prices on the homepage cards (each page shows the agency's own).
     await expect(page.getByTestId("home-services")).not.toContainText(/SAR|USD|SDG/);
   });
