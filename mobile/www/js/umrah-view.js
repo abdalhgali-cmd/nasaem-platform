@@ -46,6 +46,29 @@ export const UMRAH_KIND_ORDER = Object.freeze(["VISA_ONLY", "AIR", "SEA"]);
 
 // Umrah is booked only at a fixed price: a package without one is unavailable.
 export const UMRAH_UNAVAILABLE = "غير متاحة للحجز حاليًا";
+// A published package whose fixed price the agency has not set yet.
+export const UMRAH_PRICE_MISSING = "لم تُحدِّد الوكالة سعر هذه الباقة بعد";
+
+// What the Umrah screen shows after loading the packages, kept apart so a
+// network or server problem is never reported as "not bookable":
+//   NETWORK     — no connection / timeout (retry)
+//   API_ERROR   — the server answered with an error (retry)
+//   NONE        — the server answered: no Umrah package is published
+//   UNPRICED    — packages are published, none has a fixed price yet
+//   READY       — at least one package can be booked
+export function umrahLoadState({ error = null, packages = [] } = {}) {
+  if (error) {
+    if (error.offline || !error.status) {
+      return { kind: "NETWORK", retry: true, message: error.message || "تعذر الوصول إلى الخادم. تحقق من الاتصال وحاول مرة أخرى." };
+    }
+    return { kind: "API_ERROR", retry: true, message: `تعذر تحميل باقات العمرة من الخادم (رمز ${error.status}). أعد المحاولة بعد قليل.` };
+  }
+  if (!packages.length) return { kind: "NONE", retry: false, message: "لا توجد باقات عمرة منشورة حاليًا." };
+  if (!packages.some((pkg) => umrahPriceText(pkg))) {
+    return { kind: "UNPRICED", retry: false, message: "باقات العمرة منشورة، لكن الوكالة لم تُحدِّد أسعارها الثابتة بعد؛ لذلك لا يمكن حجزها حاليًا." };
+  }
+  return { kind: "READY", retry: false, message: "" };
+}
 
 // One line per Umrah kind the agency has published, in UMRAH_KIND_ORDER: the
 // lowest fixed price of that kind ("من" when several packages share it) and
@@ -82,6 +105,24 @@ export function umrahKindOffers(packages) {
 // Same rule as the server: an Umrah service or package request (not a visa type).
 export function umrahNeedsGuarantor(item) {
   return Boolean(item) && !item.isVisaType && UMRAH_CATEGORIES.includes(String(item.category || ""));
+}
+
+// Umrah with flight or sea services needs a preferred travel date; visa only:
+// optional. Provisional, not a booking (server: umrah-packages.js
+// resolveUmrahTravel).
+export function umrahTravelDateRequired(item) {
+  const kind = umrahPackageDetails(item).kind;
+  return umrahNeedsGuarantor(item) && (kind === "AIR" || kind === "SEA");
+}
+
+export const UMRAH_TRAVEL_DATE_NOTE = "تاريخ مبدئي وليس حجزًا مؤكدًا؛ تؤكد الوكالة الموعد لاحقًا.";
+
+export function validateUmrahTravelDate(value, required, today = new Date().toISOString().slice(0, 10)) {
+  const date = String(value || "").trim();
+  if (!date) return required ? ["حدّد تاريخ السفر المفضل لهذه الباقة."] : [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return ["تاريخ السفر المفضل غير صحيح."];
+  if (date < today) return ["تاريخ السفر المفضل في الماضي. اختر تاريخًا قادمًا."];
+  return [];
 }
 
 const PHONE = /^\+?[0-9][0-9\s-]{5,19}$/;

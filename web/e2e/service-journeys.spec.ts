@@ -242,6 +242,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     await app.fill('[name="phone"]', phone);
     // Umrah asks for the guarantor's phone (required).
     if (await app.locator('[name="guarantorPhone"]').count()) await app.fill('[name="guarantorPhone"]', "+966501234567");
+    // Umrah with flight/sea services also needs the preferred (provisional) travel date.
+    if (await app.locator('[name="preferredTravelDate"][required]').count()) {
+      await app.fill('[name="preferredTravelDate"]', new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10));
+    }
     await answerAgencyQuestions();
     // An Egypt passport slot has two inputs (camera, gallery): one file each.
     const keys = [...new Set(await app.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || "")))];

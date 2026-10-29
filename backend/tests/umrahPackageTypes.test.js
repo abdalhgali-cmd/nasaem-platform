@@ -7,7 +7,7 @@ import prisma from "../src/config/database.js";
 import { app, request, uniqueSuffix } from "./helpers/api.js";
 import { createStaffUser, staffClient } from "./helpers/staff.js";
 import { PDF, testPhone } from "./helpers/workflow.js";
-import { resolveUmrahContacts, umrahPackageKind } from "../src/modules/umrah/umrah-packages.js";
+import { resolveUmrahContacts, resolveUmrahTravel, umrahPackageKind } from "../src/modules/umrah/umrah-packages.js";
 
 // Issue #99: three Umrah package types (visa only / flight services / sea
 // services), each at its own fixed price; applicant + every pilgrim's
@@ -64,7 +64,7 @@ async function checklist(service) {
 }
 
 // Two pilgrims, each with a passport, plus the guarantor's residence permit.
-async function submit(service, { phone, guarantorPhone = GUARANTOR, extra, acceptedTotal = PRICE * 2, submissionKey } = {}) {
+async function submit(service, { phone, guarantorPhone = GUARANTOR, extra, acceptedTotal = PRICE * 2, submissionKey, preferredTravelDate } = {}) {
   const travelers = [{ fullName: "المعتمر الأول", passportNo: "P1000001", isPrimary: true }, { fullName: "المعتمر الثاني", passportNo: "P1000002" }];
   const labels = [];
   const ids = [];
@@ -93,6 +93,7 @@ async function submit(service, { phone, guarantorPhone = GUARANTOR, extra, accep
   if (guarantorPhone !== null) req = req.field("guarantorPhone", guarantorPhone);
   if (extra) req = req.field("extraContactName", extra.name).field("extraContactPhone", extra.phone);
   if (submissionKey) req = req.field("submissionKey", submissionKey);
+  if (preferredTravelDate !== undefined) req = req.field("preferredTravelDate", preferredTravelDate);
   labels.forEach((label, index) => {
     req = req.attach("documents", PDF(), { filename: `doc-${index}.pdf`, contentType: "application/pdf" });
   });
@@ -160,6 +161,74 @@ describe("Umrah package types and contacts", () => {
     assert.equal(changed.res.body.code, "PRICE_CHANGED");
     assert.equal(Number(changed.res.body.details.total), PRICE * 2);
     assert.equal(await requestsFor(phone), 0);
+  });
+
+  test("preferred travel date rules: required for flight/sea, optional for visa only, provisional; an older client without the field is flagged", () => {
+    const now = new Date("2026-10-26T12:00:00Z");
+    const air = ["KIND: AIR"];
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", air, "2026-12-01", now), { travel: { preferredDate: "2026-12-01", provisional: true } });
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", ["KIND: SEA"], "", now), { error: "TRAVEL_DATE_REQUIRED" });
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", air, undefined, now), { travel: { preferredDateMissing: true } });
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", ["KIND: VISA_ONLY"], "", now), { travel: null });
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", ["KIND: VISA_ONLY"], undefined, now), { travel: null });
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", [], "", now), { travel: null }, "a package with no type: optional");
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", air, "2026-02-30", now), { error: "TRAVEL_DATE_INVALID" });
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", air, "01/12/2026", now), { error: "TRAVEL_DATE_INVALID" });
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", air, "2026-10-24", now), { error: "TRAVEL_DATE_PASSED" });
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", air, "2026-10-25", now).travel?.preferredDate, "2026-10-25", "one day of slack");
+    assert.deepEqual(resolveUmrahTravel("UMRAH_PACKAGE", air, "2030-01-01", now), { error: "TRAVEL_DATE_INVALID" });
+    assert.deepEqual(resolveUmrahTravel("flight", air, "", now), { travel: null }, "other services ignore it");
+  });
+
+  test("POST /contact-requests: flight package without a date refused (nothing created), with a date stored; visa only without one accepted; old client flagged", async () => {
+    const air = await umrahPackage("AIR");
+    const phone = testPhone();
+    const refused = await submit(air, { phone, preferredTravelDate: "" });
+    assert.equal(refused.res.status, 400, JSON.stringify(refused.res.body));
+    assert.equal(refused.res.body.code, "TRAVEL_DATE_REQUIRED");
+    assert.match(refused.res.body.message, /ليس حجزًا مؤكدًا/);
+    const past = await submit(air, { phone, preferredTravelDate: "2020-01-01" });
+    assert.equal(past.res.body.code, "TRAVEL_DATE_PASSED");
+    assert.equal(await requestsFor(phone), 0);
+
+    const date = new Date(Date.now() + 40 * 86_400_000).toISOString().slice(0, 10);
+    const ok = await submit(air, { phone, preferredTravelDate: date });
+    assert.equal(ok.res.status, 201, JSON.stringify(ok.res.body));
+    const stored = await prisma.contactRequest.findUnique({ where: { id: ok.res.body.data.id }, select: { intakeData: true } });
+    assert.deepEqual(stored.intakeData.umrahTravel, { preferredDate: date, provisional: true });
+
+    const oldPhone = testPhone();
+    const old = await submit(air, { phone: oldPhone });
+    assert.equal(old.res.status, 201, JSON.stringify(old.res.body));
+    const oldStored = await prisma.contactRequest.findUnique({ where: { id: old.res.body.data.id }, select: { intakeData: true } });
+    assert.deepEqual(oldStored.intakeData.umrahTravel, { preferredDateMissing: true });
+    const staffRow = (await admin.get(`/api/contact-requests?limit=100&serviceKind=UMRAH&search=${oldPhone}`)).body.data.find((row) => row.id === old.res.body.data.id);
+    // Staff see the flag (the next step asks for it once the documents are reviewed: umrahStaffQueue.test.js).
+    assert.equal(staffRow?.intakeData?.umrahTravel?.preferredDateMissing, true);
+
+    const visa = await umrahPackage("VISA_ONLY");
+    const visaPhone = testPhone();
+    const visaOnly = await submit(visa, { phone: visaPhone, preferredTravelDate: "" });
+    assert.equal(visaOnly.res.status, 201, JSON.stringify(visaOnly.res.body));
+    const visaStored = await prisma.contactRequest.findUnique({ where: { id: visaOnly.res.body.data.id }, select: { intakeData: true } });
+    assert.equal(visaStored.intakeData.umrahTravel, undefined);
+  });
+
+  test("the draft route applies the same travel date rule", async () => {
+    const service = await umrahPackage("SEA", { passport: false });
+    const created = await request(app).post("/api/intake-drafts").send({ serviceKind: "package", serviceId: service.id });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const token = created.body.data.token;
+    const patched = await request(app).patch(`/api/intake-drafts/${token}`).send({ name: "TEST-WF مسودة عمرة بحرية", phone: testPhone(), travelerCount: 1, travelers: [{ fullName: "A" }] });
+    assert.equal(patched.status, 200, JSON.stringify(patched.body));
+    const refused = await request(app).post(`/api/intake-drafts/${token}/submit`).send({ acceptedTotal: PRICE, acceptedCurrency: "SAR", guarantorPhone: GUARANTOR, preferredTravelDate: "" });
+    assert.equal(refused.status, 400, JSON.stringify(refused.body));
+    assert.equal(refused.body.code, "TRAVEL_DATE_REQUIRED");
+    const date = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
+    const accepted = await request(app).post(`/api/intake-drafts/${token}/submit`).send({ acceptedTotal: PRICE, acceptedCurrency: "SAR", guarantorPhone: GUARANTOR, preferredTravelDate: date });
+    assert.equal(accepted.status, 201, JSON.stringify(accepted.body));
+    const stored = await prisma.contactRequest.findUnique({ where: { id: accepted.body.data.id }, select: { intakeData: true } });
+    assert.equal(stored.intakeData.umrahTravel.preferredDate, date);
   });
 
   test("the draft route applies the same contact rules", async () => {

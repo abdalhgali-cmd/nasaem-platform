@@ -50,10 +50,9 @@ export async function patchVisaType(req, res, next) {
     if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
 
     const before = await getVisaTypeById(req.params.id);
-    const pricingError = before && pricingConfigError({ ...before, ...parsed.data });
-    if (pricingError) return res.status(400).json({ success: false, code: "INVALID_PRICING", message: pricingError });
     const visaType = await updateVisaType(req.params.id, parsed.data);
     if (!visaType) return res.status(404).json({ success: false, message: "Visa type not found" });
+    if (visaType.error === "INVALID_PRICING") return res.status(400).json({ success: false, code: "INVALID_PRICING", message: visaType.message });
     if (visaType.error === "CODE_IN_USE") return res.status(409).json({ success: false, code: "CODE_IN_USE", message: "هذا الرمز مستخدم في طلبات أو طلبات مالية قائمة ولا يمكن تغييره. أنشئ عنصرًا جديدًا بالرمز الجديد بدلًا من ذلك." });
 
     logActivity({ userId: req.user?.id, action: "VISA_TYPE_UPDATED", entity: "VisaType", entityId: visaType.id, req, oldValue: before, newValue: visaType });

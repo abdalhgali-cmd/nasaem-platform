@@ -751,6 +751,11 @@ export function ServiceIntakeWizard({
   const needsGuarantor =
     service === "umrah" ||
     (service === "package" && ["UMRAH_PACKAGE", "umrah", "umrah_package"].includes(selectedPackage?.category ?? ""));
+  // Umrah with flight or sea services needs a preferred travel date (visa
+  // only: optional). Provisional, not a booking; same rule as the server
+  // (umrah-packages.js resolveUmrahTravel).
+  const umrahKind = needsGuarantor ? umrahPackageDetails(selectedPackage?.features).kind : null;
+  const travelDateRequired = umrahKind === "AIR" || umrahKind === "SEA";
   const extraContactValid =
     (!extraContactName.trim() && !extraContactPhone.trim()) || isValidContactPhone(extraContactPhone);
 
@@ -1165,7 +1170,7 @@ export function ServiceIntakeWizard({
     }
 
     if (current === "trip") {
-      return travelerCount >= 1;
+      return travelerCount >= 1 && (!travelDateRequired || Boolean(travelDate));
     }
 
     if (current === "customer") {
@@ -1206,6 +1211,9 @@ export function ServiceIntakeWizard({
       if (email) formData.append("email", email);
       if (needsGuarantor) {
         formData.append("guarantorPhone", guarantorPhone.trim());
+        // Always sent for Umrah (empty when not given): the server requires it
+        // for flight/sea packages from this form.
+        formData.append("preferredTravelDate", travelDate);
         if (extraContactPhone.trim()) {
           formData.append("extraContactName", extraContactName.trim());
           formData.append("extraContactPhone", extraContactPhone.trim());
@@ -1567,18 +1575,33 @@ export function ServiceIntakeWizard({
       {current === "trip" ? (
         <StepShell
           title="متى ترغب في أداء العمرة؟"
-          description="حدد عدد المسافرين، ويمكنك إضافة تاريخ السفر المتوقع الآن أو تركه لوقت لاحق."
+          description={
+            needsGuarantor
+              ? "حدد عدد المعتمرين وتاريخ السفر المفضل. التاريخ مبدئي وليس حجزًا مؤكدًا؛ تؤكد الوكالة الموعد لاحقًا."
+              : "حدد عدد المسافرين، ويمكنك إضافة تاريخ السفر المتوقع الآن أو تركه لوقت لاحق."
+          }
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <label className={labelClass}>تاريخ السفر المتوقع (اختياري)</label>
+              <label className={labelClass} htmlFor="wizard-travel-date">
+                {needsGuarantor ? "تاريخ السفر المفضل" : "تاريخ السفر المتوقع"}
+                {travelDateRequired ? " *" : " (اختياري)"}
+              </label>
               <input
+                id="wizard-travel-date"
                 type="date"
+                required={travelDateRequired}
                 min={new Date().toISOString().slice(0, 10)}
                 value={travelDate}
                 onChange={(e) => setTravelDate(e.target.value)}
                 className={inputClass}
+                data-testid="wizard-travel-date"
               />
+              {needsGuarantor ? (
+                <p className="text-xs text-muted-foreground" data-testid="wizard-travel-date-note">
+                  تاريخ مبدئي وليس حجزًا مؤكدًا.
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-col gap-1.5">
               <label className={labelClass}>عدد المسافرين</label>
@@ -1973,7 +1996,11 @@ export function ServiceIntakeWizard({
             <div className="rounded-xl border border-border/70 p-4">
               <span className="font-bold text-foreground">تفاصيل الرحلة</span>
               <div className="mt-2 flex flex-col gap-1 text-muted-foreground">
-                {travelDate ? <span>تاريخ السفر المتوقع: {travelDate}</span> : null}
+                {travelDate ? (
+                  <span data-testid="review-travel-date">
+                    {needsGuarantor ? `تاريخ السفر المفضل (مبدئي، ليس حجزًا مؤكدًا): ${travelDate}` : `تاريخ السفر المتوقع: ${travelDate}`}
+                  </span>
+                ) : null}
                 <span>عدد المسافرين: {travelerCount}</span>
                 {travelers
                   .filter((t) => t.fullName.trim())

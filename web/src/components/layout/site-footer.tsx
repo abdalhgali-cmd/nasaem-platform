@@ -14,10 +14,7 @@ import type { PublicSiteSettings } from "@/lib/public-settings";
 
 const serviceLinks = [
   { label: "باقات العمرة", href: "/umrah" },
-  { label: "تأشيرات الزيارة والعمل", href: "/visas" },
-  { label: "حجز تذاكر الطيران", href: "/flights" },
-  { label: "حجز الفنادق", href: "/hotels" },
-  { label: "باقات السفر الشاملة", href: "/packages" },
+  { label: "الموافقة الأمنية لمصر", href: "/visas/egypt-security-approval" },
 ];
 
 const trustBadges = [

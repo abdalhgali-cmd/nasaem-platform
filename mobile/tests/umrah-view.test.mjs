@@ -82,3 +82,35 @@ test("home Umrah kinds link to the cheapest fixed package; a quoted one is not b
   assert.equal(offers[1].packageId, null, "a quoted package with a base price is still not bookable");
   assert.equal(offers[1].priceText, null);
 });
+
+test("preferred travel date: required for flight/sea packages, optional for visa only, never a past day", async () => {
+  const { umrahTravelDateRequired, validateUmrahTravelDate, UMRAH_TRAVEL_DATE_NOTE } = await import("../www/js/umrah-view.js");
+  const pkg = (kind) => ({ category: "UMRAH_PACKAGE", features: [`KIND: ${kind}`] });
+  assert.equal(umrahTravelDateRequired(pkg("AIR")), true);
+  assert.equal(umrahTravelDateRequired(pkg("SEA")), true);
+  assert.equal(umrahTravelDateRequired(pkg("VISA_ONLY")), false);
+  assert.equal(umrahTravelDateRequired({ category: "flight", features: ["KIND: AIR"] }), false);
+  assert.deepEqual(validateUmrahTravelDate("", true), ["حدّد تاريخ السفر المفضل لهذه الباقة."]);
+  assert.deepEqual(validateUmrahTravelDate("", false), []);
+  assert.deepEqual(validateUmrahTravelDate("2026-10-01", true, "2026-10-26"), ["تاريخ السفر المفضل في الماضي. اختر تاريخًا قادمًا."]);
+  assert.deepEqual(validateUmrahTravelDate("2026-12-01", true, "2026-10-26"), []);
+  assert.match(UMRAH_TRAVEL_DATE_NOTE, /ليس حجزًا مؤكدًا/);
+});
+
+test("Umrah load state: network and server failures are never reported as «not bookable»", async () => {
+  const { umrahLoadState } = await import("../www/js/umrah-view.js");
+  const offline = umrahLoadState({ error: { status: 0, offline: true, message: "لا يوجد اتصال بالإنترنت." } });
+  assert.equal(offline.kind, "NETWORK");
+  assert.equal(offline.retry, true);
+  assert.doesNotMatch(offline.message, /غير متاحة للحجز/);
+  const server = umrahLoadState({ error: { status: 502, message: "x" } });
+  assert.equal(server.kind, "API_ERROR");
+  assert.match(server.message, /502/);
+  assert.equal(server.retry, true);
+  assert.equal(umrahLoadState({ packages: [] }).kind, "NONE");
+  const quote = { category: "UMRAH_PACKAGE", pricingMode: "QUOTE", basePrice: "1200", currency: "SAR" };
+  const unpriced = umrahLoadState({ packages: [quote, { ...quote, pricingMode: "FIXED", basePrice: "0" }] });
+  assert.equal(unpriced.kind, "UNPRICED");
+  assert.match(unpriced.message, /لم تُحدِّد أسعارها الثابتة/);
+  assert.equal(umrahLoadState({ packages: [quote, { ...quote, pricingMode: "FIXED", basePrice: "1500" }] }).kind, "READY");
+});

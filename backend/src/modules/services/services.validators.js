@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ICON_KEYS, SUPPORTED_CURRENCIES } from "../../utils/enums.js";
+import { catalogPriceSchema } from "../../utils/priceSchema.js";
 
 const featuresSchema = z.array(z.string().trim().min(1).max(200)).max(20).optional().nullable();
 
@@ -8,7 +9,7 @@ export const createServiceSchema = z.object({
   name: z.string().min(2, "Service name is required"),
   category: z.string().min(2, "Category is required"),
   description: z.string().optional().nullable(),
-  basePrice: z.coerce.number().nonnegative(),
+  basePrice: catalogPriceSchema,
   currency: z.enum(SUPPORTED_CURRENCIES).default("SAR"),
   // Explicit pricing configuration (contact-request-pricing/fixed-price.js):
   // never inferred from basePrice.

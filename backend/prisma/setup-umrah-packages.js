@@ -36,26 +36,28 @@ export const UMRAH_PACKAGE_TYPES = [
 
 const hasDetails = (features) => features.some((feature) => typeof feature === "string" && /^(INCLUDED|EXCLUDED):/.test(feature));
 
-export async function ensureUmrahPackageTypes() {
+// `db` is the Prisma client or a transaction (the staging activation route
+// runs this inside its own transaction, so setup and prices land together).
+export async function ensureUmrahPackageTypes(db = prisma, { quiet = false } = {}) {
   const changed = [];
-  const visaOnly = await prisma.service.findUnique({
+  const visaOnly = await db.service.findUnique({
     where: { code: VISA_ONLY_CODE },
     include: { requirements: { where: { active: true } } },
   });
 
   for (const type of UMRAH_PACKAGE_TYPES) {
-    const existing = type.code === VISA_ONLY_CODE ? visaOnly : await prisma.service.findUnique({ where: { code: type.code } });
+    const existing = type.code === VISA_ONLY_CODE ? visaOnly : await db.service.findUnique({ where: { code: type.code } });
     if (existing) {
       const features = Array.isArray(existing.features) ? existing.features : [];
       if (umrahPackageKind(features)) continue;
       const kind = type.features.filter((feature) => feature.startsWith("KIND:"));
       const details = hasDetails(features) ? [] : type.features.filter((feature) => !feature.startsWith("KIND:"));
-      await prisma.service.update({ where: { id: existing.id }, data: { features: [...kind, ...features, ...details] } });
+      await db.service.update({ where: { id: existing.id }, data: { features: [...kind, ...features, ...details] } });
       changed.push(`${type.code} (type set)`);
       continue;
     }
 
-    const service = await prisma.service.create({
+    const service = await db.service.create({
       data: {
         code: type.code,
         name: type.name,
@@ -72,13 +74,13 @@ export async function ensureUmrahPackageTypes() {
     for (const requirement of visaOnly?.requirements ?? []) {
       // eslint-disable-next-line no-unused-vars
       const { id, visaTypeId, serviceId, createdAt, updatedAt, conditionRequirementId, conditionOperator, conditionValue, ...fields } = requirement;
-      await prisma.visaRequirement.create({ data: { ...fields, serviceId: service.id } });
+      await db.visaRequirement.create({ data: { ...fields, serviceId: service.id } });
     }
-    await ensureUmrahGuarantorRequirement(prisma, service.id);
+    await ensureUmrahGuarantorRequirement(db, service.id);
     changed.push(`${type.code} (created inactive)`);
   }
 
-  console.log(changed.length ? `Umrah package types: ${changed.join(", ")}` : "Umrah package types already set; nothing changed.");
+  if (!quiet) console.log(changed.length ? `Umrah package types: ${changed.join(", ")}` : "Umrah package types already set; nothing changed.");
   return changed;
 }
 

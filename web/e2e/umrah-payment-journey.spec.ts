@@ -81,6 +81,16 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     await next.click();
     await expect(page.getByRole("heading", { name: "متى ترغب في أداء العمرة؟" })).toBeVisible();
     await page.locator('input[type="number"]').fill("2");
+    // Preferred travel date: provisional, required for flight/sea, optional for visa only.
+    await expect(page.getByTestId("wizard-travel-date-note")).toHaveText("تاريخ مبدئي وليس حجزًا مؤكدًا.");
+    const preferredDate = new Date(Date.now() + 45 * 86_400_000).toISOString().slice(0, 10);
+    if (type.kind === "VISA_ONLY") {
+      await expect(page.getByRole("button", { name: "التالي" })).toBeEnabled();
+    } else {
+      await expect(page.getByRole("button", { name: "التالي" })).toBeDisabled();
+      await page.getByTestId("wizard-travel-date").fill(preferredDate);
+      await expect(page.getByRole("button", { name: "التالي" })).toBeEnabled();
+    }
     await page.getByRole("button", { name: "التالي" }).click();
     await page.getByPlaceholder("اسم المسافر 1").fill(customer);
     await page.getByPlaceholder("اسم المسافر 2").fill(`${customer} الثاني`);
@@ -145,12 +155,20 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     expect(labels.some((label) => label.includes("الجواز"))).toBe(true);
     expect((detail.documents as Array<{ classification: string | null }>).some((d) => d.classification === "FINANCIAL_DOCUMENT")).toBe(true);
 
+    // Staff Umrah queue: the request shows its next step, receipt review first.
+    await page.goto("/admin/cases");
+    await page.getByTestId("case-service-filter").selectOption("UMRAH");
+    const queueRow = page.getByRole("button").filter({ hasText: customer });
+    await expect(queueRow.getByTestId("case-next-action")).toHaveText("الخطوة التالية: مراجعة إيصال الدفع وتأكيده", { timeout: 15_000 });
+
     const confirmed = await admin.post(`${BACKEND}/api/contact-requests/${found[0].id}/confirm-payment`, { data: {} });
     expect(confirmed.ok(), await confirmed.text()).toBeTruthy();
     const after = (await (await admin.get(`${BACKEND}/api/contact-requests/${found[0].id}`)).json()).data;
     expect(after.paymentStatus).toBe("CONFIRMED");
     expect(after.intakeData.umrahContacts).toEqual({ guarantorPhone: "+966 50 123 4567", extraContact: { name: "قريب المعتمر", phone: "0912345678" } });
     expect(after.travelers).toHaveLength(2);
+    if (type.kind === "VISA_ONLY") expect(after.intakeData.umrahTravel).toBeUndefined();
+    else expect(after.intakeData.umrahTravel).toEqual({ preferredDate, provisional: true });
 
     // Execution and delivery: documents accepted, execution started with the
     // type's wording, each pilgrim's final file published → completed.

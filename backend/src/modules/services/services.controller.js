@@ -127,8 +127,6 @@ export async function patchService(req, res, next) {
     }
 
     const before = await getServiceById(id);
-    const pricingError = before && pricingConfigError({ ...before, ...parsed.data });
-    if (pricingError) return res.status(400).json({ success: false, code: "INVALID_PRICING", message: pricingError });
     const service = await updateService(id, parsed.data);
 
     if (!service) {
@@ -137,6 +135,7 @@ export async function patchService(req, res, next) {
         message: "Service not found",
       });
     }
+    if (service.error === "INVALID_PRICING") return res.status(400).json({ success: false, code: "INVALID_PRICING", message: service.message });
     if (service.error === "CODE_IN_USE") return res.status(409).json({ success: false, code: "CODE_IN_USE", message: "هذا الرمز مستخدم في طلبات أو طلبات مالية قائمة ولا يمكن تغييره. أنشئ عنصرًا جديدًا بالرمز الجديد بدلًا من ذلك." });
 
     logActivity({ userId: req.user?.id, action: "SERVICE_UPDATED", entity: "Service", entityId: service.id, req, oldValue: before, newValue: service });

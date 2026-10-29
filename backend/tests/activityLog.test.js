@@ -4,6 +4,19 @@ import assert from "node:assert/strict";
 import { loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 import { redactSensitive } from "../src/utils/activityLog.js";
 
+// logActivity() is fire-and-forget (the request answers before the log row
+// is written), so read the log until the expected entries are there instead
+// of once right after the write.
+async function readLogsUntil(admin, limit, ready, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await admin.get(`/api/activity-logs?limit=${limit}`);
+    assert.equal(res.status, 200);
+    if (ready(res.body.data) || Date.now() > deadline) return res.body.data;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 // Platform 3.0 Phase 16: ActivityLog gained oldValue/newValue columns for
 // "sensitive configuration changes should record ... old value where
 // safe; new value where safe" — this is the evidence that they're
@@ -73,10 +86,9 @@ describe("audit log old/new value capture (real writes)", () => {
     assert.equal(patchRes.status, 200);
 
     try {
-      const logsRes = await admin.get("/api/activity-logs?limit=5");
-      assert.equal(logsRes.status, 200);
+      const logs = await readLogsUntil(admin, 5, (data) => data.some((log) => log.action === "THEME_UPDATED" && log.newValue?.primary === testColor));
 
-      const entry = logsRes.body.data.find((log) => log.action === "THEME_UPDATED");
+      const entry = logs.find((log) => log.action === "THEME_UPDATED");
       assert.ok(entry, "expected a THEME_UPDATED activity log entry");
       assert.equal(entry.newValue.primary, testColor);
       // oldValue may be null (no theme previously set) — either way it must
@@ -98,17 +110,18 @@ describe("audit log old/new value capture (real writes)", () => {
     const deleteRes = await admin.delete(`/api/airlines/${airlineId}`);
     assert.equal(deleteRes.status, 200);
 
-    const logsRes = await admin.get("/api/activity-logs?limit=10");
-    assert.equal(logsRes.status, 200);
+    const logs = await readLogsUntil(admin, 10, (data) =>
+      ["AIRLINE_CREATED", "AIRLINE_DELETED"].every((action) => data.some((log) => log.action === action && log.entityId === airlineId))
+    );
 
-    const createdLog = logsRes.body.data.find(
+    const createdLog = logs.find(
       (log) => log.action === "AIRLINE_CREATED" && log.entityId === airlineId
     );
     assert.ok(createdLog, "expected an AIRLINE_CREATED activity log entry");
     assert.equal(createdLog.newValue.name, name);
     assert.equal(createdLog.oldValue, null);
 
-    const deletedLog = logsRes.body.data.find(
+    const deletedLog = logs.find(
       (log) => log.action === "AIRLINE_DELETED" && log.entityId === airlineId
     );
     assert.ok(deletedLog, "expected an AIRLINE_DELETED activity log entry");
@@ -139,10 +152,9 @@ describe("audit log old/new value capture (real writes)", () => {
     const visaTypeId = createRes.body.data.id;
 
     try {
-      const logsRes = await admin.get("/api/activity-logs?limit=10");
-      assert.equal(logsRes.status, 200);
+      const logs = await readLogsUntil(admin, 10, (data) => data.some((log) => log.action === "VISA_TYPE_CREATED" && log.entityId === visaTypeId));
 
-      const createdLog = logsRes.body.data.find(
+      const createdLog = logs.find(
         (log) => log.action === "VISA_TYPE_CREATED" && log.entityId === visaTypeId
       );
       assert.ok(createdLog, "expected a VISA_TYPE_CREATED activity log entry — its absence means the write silently failed");
