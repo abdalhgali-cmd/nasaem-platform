@@ -53,7 +53,7 @@ export async function renderNotificationsScreen({ bodyEl }) {
         });
       });
     } catch (error) {
-      listEl.innerHTML = errorState(error.message, { onRetry: load });
+      listEl.innerHTML = errorState(error.message, { onRetry: load, title: "تعذر تحديث الإشعارات", hint: "يمكنك متابعة طلباتك مباشرة من تبويب متابعة." });
     }
   }
 

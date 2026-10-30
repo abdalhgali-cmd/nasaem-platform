@@ -101,7 +101,7 @@ export async function renderMyRequestsScreen({ bodyEl }) {
       all = res.data || [];
       renderFilter(bodyEl.querySelector(".segmented-btn.active").dataset.filter);
     } catch (error) {
-      listEl.innerHTML = errorState(error.message, { onRetry: load });
+      listEl.innerHTML = errorState(error.message, { onRetry: load, title: "تعذر تحديث طلباتك", hint: "طلباتك المحفوظة لم تتغير. تحقق من الاتصال ثم أعد المحاولة." });
     }
   }
 
@@ -410,7 +410,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     } catch (error) {
       // A background refresh that fails (offline) keeps what is on screen.
       if (options?.quiet) return;
-      bodyEl.innerHTML = errorState(error.message, { onRetry: load });
+      bodyEl.innerHTML = errorState(error.message, { onRetry: load, title: "تعذر تحديث تفاصيل الطلب", hint: "لم نغيّر حالة الطلب. أعد المحاولة عند عودة الاتصال." });
     }
   }
 

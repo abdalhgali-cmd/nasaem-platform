@@ -428,7 +428,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
           <p class="field-hint">السعر النهائي وتعليمات الدفع تصلك بعد مراجعة الوكالة.</p>
         </section>`}
       ${totalReviewHtml()}
-      <div id="uploadProgressWrap" class="upload-progress-wrap" hidden>
+      <div id="uploadProgressWrap" class="upload-progress-wrap" role="progressbar" aria-label="رفع المستندات" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
         <div class="upload-progress-bar"><div id="uploadProgressFill" class="upload-progress-fill"></div></div>
         <span id="uploadProgressLabel">0%</span>
       </div>`;
@@ -626,6 +626,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       const outcome = await submitRequestForm(payload, submissionKey, (percent) => {
         if (progressFill) progressFill.style.width = `${percent}%`;
         if (progressLabel) progressLabel.textContent = `${percent}%`;
+        if (progressWrap) progressWrap.setAttribute("aria-valuenow", String(Math.round(percent)));
       });
       // Only now - with the server's confirmation in hand - is the draft dropped.
       dropDraft();
@@ -688,7 +689,20 @@ export function renderRequestSubmittedScreen({ bodyEl, params }) {
     </div>
   `;
   bodyEl.querySelector("#copyReferenceBtn").addEventListener("click", async () => {
+    const button = bodyEl.querySelector("#copyReferenceBtn");
     const copied = await copyText(reference);
+    if (copied) {
+      const label = button.querySelector("span");
+      if (label) label.textContent = "تم النسخ ✓";
+      button.classList.add("copy-success");
+      button.disabled = true;
+      setTimeout(() => {
+        if (!button.isConnected) return;
+        if (label) label.textContent = "نسخ الرقم";
+        button.classList.remove("copy-success");
+        button.disabled = false;
+      }, 1600);
+    }
     toast(copied ? "تم نسخ الرقم المرجعي" : "تعذر النسخ، يمكنك تحديد الرقم ونسخه يدويًا", { tone: copied ? "default" : "error" });
   });
   bodyEl.querySelector("#trackRequestBtn").addEventListener("click", () => {
