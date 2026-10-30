@@ -111,8 +111,10 @@ export async function renderMyRequestsScreen({ bodyEl }) {
       listEl.innerHTML = emptyState({
         icon: "requests",
         title: filter === "current" ? "لا توجد طلبات حالية" : "لا توجد طلبات سابقة",
-        hint: filter === "current" ? "ابدأ طلبًا جديدًا من الصفحة الرئيسية." : "",
+        hint: filter === "current" ? "اختر العمرة أو الموافقة الأمنية لمصر، وسيظهر كل تحديث هنا." : "ستظهر هنا الطلبات المكتملة أو المغلقة.",
+        action: filter === "current" ? '<button type="button" class="primary" id="emptyStartRequestBtn">ابدأ طلبًا جديدًا</button>' : "",
       });
+      listEl.querySelector("#emptyStartRequestBtn")?.addEventListener("click", () => goToTab("services", "services", { title: "ابدأ طلب" }));
       return;
     }
     listEl.innerHTML = items.map((request) => `

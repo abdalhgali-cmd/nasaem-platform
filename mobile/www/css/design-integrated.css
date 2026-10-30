@@ -154,7 +154,7 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 .icon-btn {min-width:48px;min-height:48px;width:48px;height:48px;flex-basis:48px;}
 .screen-head-spacer {width:48px;}
 @media (prefers-reduced-motion:reduce) {
-  .hc-tile, .hc-feature-cta, .home-journey-grid, .welcome-guest, .home-umrah-orbit, .package-card, .package-radio, .hc-egypt-option, .variant-card {animation:none;transition:none;}
+  .hc-tile, .hc-feature-cta, .home-journey-grid, .welcome-guest, .home-umrah-orbit, .package-card, .package-radio, .hc-egypt-option, .variant-card, .journey-meter > span {animation:none;transition:none;}
   button.hc-tile:active, .hc-feature-cta:active, .package-card:active, button.hc-egypt-option:active, .variant-card:active {transform:none;}
 }
 
@@ -238,7 +238,11 @@ button.hc-egypt-option:active {transform:scale(.98);background:#e5f2ee;border-co
 
 /* Request tracking: the customer's moments, the task first, every server stage one tap away. */
 .journey-block {display:grid;gap:10px;}
+.journey-summary {display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
 .journey-headline {margin:0;font-size:1.25rem;font-weight:800;line-height:1.4;color:#082b58;}
+.journey-count {flex:none;padding:4px 8px;border-radius:999px;background:#eef2f7;color:#56647a;font-size:.7rem;font-weight:700;white-space:nowrap;}
+.journey-meter {height:7px;overflow:hidden;border-radius:999px;background:#e7ebf1;}
+.journey-meter > span {display:block;width:var(--journey-progress);height:100%;border-radius:inherit;background:linear-gradient(90deg,#c49535,#e4c36d);transition:width .28s ease-out;}
 .journey-action {min-height:48px;}
 .journey-stages {list-style:none;margin:4px 0 0;padding:0;display:grid;gap:0;}
 .journey-stage {position:relative;display:flex;gap:12px;align-items:flex-start;padding:0 0 16px;}

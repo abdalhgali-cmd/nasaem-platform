@@ -23,7 +23,7 @@ export async function renderNotificationsScreen({ bodyEl }) {
       const res = await api("/customer/notifications?limit=50");
       const items = res.data || [];
       if (!items.length) {
-        listEl.innerHTML = emptyState({ icon: "bell", title: "لا توجد إشعارات جديدة" });
+        listEl.innerHTML = emptyState({ icon: "bell", title: "أنت على اطلاع", hint: "لا توجد تحديثات جديدة الآن. ستظهر هنا تغييرات الطلب والدفع والتسليم." });
         return;
       }
       listEl.innerHTML = items.map((notification) => `
