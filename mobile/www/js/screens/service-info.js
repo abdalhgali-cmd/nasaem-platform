@@ -91,6 +91,12 @@ export async function renderServiceInfoScreen({ bodyEl, setTitle, params }) {
       </section>
       <p class="info-note">${icon("info", { size: 15 })} ${esc(variants.length ? FIXED_PRICE_NOTE_VARIANTS : priceNote(item))}</p>
 
+      <section class="info-trust" aria-label="ما نلتزم به قبل بدء الطلب">
+        <span>${icon("wallet", { size: 17 })}<b>لا دفع قبل ظهور المبلغ والحساب المعتمد</b></span>
+        <span>${icon("requests", { size: 17 })}<b>رقم مرجعي ومتابعة لكل طلب</b></span>
+        <span>${icon("shield-check", { size: 17 })}<b>لا نعلن اكتمال الخدمة قبل تأكيد الجهة المنفذة</b></span>
+      </section>
+
       ${features.length ? `<section class="info-card"><h3>${icon("star", { size: 18 })} ماذا تشمل الخدمة</h3><ul class="need-list">${features.map((feature) => `<li><span class="need-mark">${icon("check", { size: 14 })}</span><span>${esc(feature)}</span></li>`).join("")}</ul></section>` : ""}
 
       <div id="needsMount"><div class="skeleton-row"></div></div>
@@ -102,7 +108,7 @@ export async function renderServiceInfoScreen({ bodyEl, setTitle, params }) {
         </ol>
       </section>
     </div>
-    <div class="sticky-cta"><button class="primary" id="startRequestBtn">ابدأ الطلب الآن</button></div>`;
+    <div class="sticky-cta"><button class="primary" id="startRequestBtn">راجع المتطلبات وابدأ الطلب</button></div>`;
 
   bodyEl.querySelector("#startRequestBtn").addEventListener("click", () => startRequest(item));
 

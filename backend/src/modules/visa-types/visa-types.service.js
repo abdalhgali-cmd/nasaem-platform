@@ -1,5 +1,6 @@
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { pricingConfigError } from "../contact-request-pricing/fixed-price.js";
 
 export async function listVisaTypes({ page, limit, skip }, { category } = {}) {
   const where = category ? { category } : {};
@@ -62,6 +63,9 @@ export async function updateVisaType(id, data) {
     if (data.code !== undefined && data.code !== existing.code && (await tx.contactRequest.count({ where: { visaTypeId: id } })) > 0) {
       return { error: "CODE_IN_USE" };
     }
+    // On the locked row merged with the change (see updateService).
+    const pricingError = pricingConfigError({ ...existing, ...data });
+    if (pricingError) return { error: "INVALID_PRICING", message: pricingError };
     return tx.visaType.update({ where: { id }, data });
   });
 }

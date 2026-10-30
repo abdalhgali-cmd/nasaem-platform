@@ -165,8 +165,12 @@ type CaseRow = {
   providerSubmissions: ProviderSubmission[];
   readiness: Readiness;
   progress?: { serviceKind?: string; serviceKindLabel?: string; pricingMode?: string } | null;
+  /** Umrah only (backend umrah-staff-queue.js): the next staff step; lower rank = sooner. */
+  umrahQueue?: { nextAction: string; rank: number; preferredTravelDate?: string | null } | null;
   intakeData?: {
     umrahContacts?: { guarantorPhone?: string; guarantorPhoneMissing?: boolean; extraContact?: { name?: string; phone?: string } } | null;
+    /** Umrah: the customer's preferred travel date (provisional, not a booking). */
+    umrahTravel?: { preferredDate?: string; preferredDateMissing?: boolean } | null;
   } | null;
 };
 
@@ -294,7 +298,9 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
 
     (async () => {
       try {
-        const params = new URLSearchParams({ limit: "50" });
+        // The Umrah queue is re-ordered "needs action first" below, so it
+        // loads the largest page the API allows.
+        const params = new URLSearchParams({ limit: serviceKindFilter === "UMRAH" ? "100" : "50" });
         if (ownerFilter !== "ALL") params.set("assignedUserId", ownerFilter);
         if (serviceKindFilter !== "ALL") params.set("serviceKind", serviceKindFilter);
         if (paymentFilter !== "ALL") params.set("paymentStatus", paymentFilter);
@@ -338,10 +344,19 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
     })();
   }, []);
 
-  const visible = React.useMemo(
-    () => (queueFilter === "ALL" ? cases : cases.filter((row) => row.readiness?.queue === queueFilter)),
-    [cases, queueFilter]
-  );
+  const visible = React.useMemo(() => {
+    const rows = queueFilter === "ALL" ? cases : cases.filter((row) => row.readiness?.queue === queueFilter);
+    if (serviceKindFilter !== "UMRAH") return rows;
+    // Umrah: the request needing staff soonest first, then the nearest
+    // preferred travel date (none last), then the oldest.
+    const dateKey = (row: CaseRow) => row.umrahQueue?.preferredTravelDate || "9999-12-31";
+    return [...rows].sort(
+      (a, b) =>
+        (a.umrahQueue?.rank ?? 9) - (b.umrahQueue?.rank ?? 9) ||
+        dateKey(a).localeCompare(dateKey(b)) ||
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  }, [cases, queueFilter, serviceKindFilter]);
 
   const listed = visible.find((row) => row.id === selectedId) ?? null;
   // The open case always comes from its own endpoint: lists mask passport
@@ -506,6 +521,16 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
                         {row.assignedUser?.fullName ?? "بلا موظف"}
                       </span>
                     </div>
+                    {row.umrahQueue ? (
+                      <p className="mt-2 text-xs font-bold text-foreground" data-testid="case-next-action">
+                        الخطوة التالية: {row.umrahQueue.nextAction}
+                      </p>
+                    ) : null}
+                    {row.umrahQueue?.preferredTravelDate ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground" data-testid="case-preferred-travel-date">
+                        السفر المفضل (مبدئي): <span dir="ltr">{row.umrahQueue.preferredTravelDate}</span>
+                      </p>
+                    ) : null}
                   </button>
                 </li>
               ))}
@@ -657,6 +682,16 @@ function CaseDetail({
           {caseRow.intakeData?.umrahContacts?.guarantorPhoneMissing ? (
             <p className="mt-1 text-sm font-bold text-amber-700" data-testid="case-guarantor-phone-missing">
               رقم هاتف الضامن لم يُرسل (تطبيق قديم) — اطلبه من العميل.
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahTravel?.preferredDate ? (
+            <p className="mt-1 text-sm text-muted-foreground" data-testid="case-umrah-travel-date">
+              تاريخ السفر المفضل (مبدئي، ليس حجزًا): <span dir="ltr">{caseRow.intakeData.umrahTravel.preferredDate}</span>
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahTravel?.preferredDateMissing ? (
+            <p className="mt-1 text-sm font-bold text-amber-700" data-testid="case-umrah-travel-date-missing">
+              تاريخ السفر المفضل لم يُرسل (تطبيق قديم) — اطلبه من العميل.
             </p>
           ) : null}
           {caseRow.intakeData?.umrahContacts?.extraContact?.phone ? (

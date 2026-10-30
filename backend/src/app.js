@@ -14,6 +14,7 @@ import errorMiddleware from "./middleware/error.middleware.js";
 import { createCsrfProtection } from "./middleware/csrf.middleware.js";
 import { createApiRateLimiter } from "./middleware/rateLimits.js";
 import { trustProxyHops } from "./utils/trustProxy.js";
+import { corsOptionsFor, parseAllowedOrigins } from "./utils/allowedOrigins.js";
 
 // Must run before the cors() call below reads process.env.CORS_ORIGIN.
 // server.js used to be the only place calling dotenv.config(), before its
@@ -48,15 +49,26 @@ app.set("trust proxy", trustProxyHops(process.env.NODE_ENV));
 // frontend/ back-office served by this same app — carry no Origin header
 // and are unaffected either way); a misconfigured deployment now fails
 // safe instead of silently granting universal CORS access.
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN?.split(",").map((origin) => origin.trim()) ?? false,
-    credentials: true,
-  })
-);
+// Entries are parsed once, by the same reader the CSRF check uses
+// (utils/allowedOrigins.js): exact origins only, a trailing "/" tolerated,
+// anything wider dropped. A dropped entry is reported at startup, because a
+// refused origin otherwise shows up only as a 204 preflight followed by
+// nothing.
+const corsRejected = parseAllowedOrigins(process.env.CORS_ORIGIN).rejected;
+if (corsRejected.length) console.warn(`[startup] CORS_ORIGIN entries ignored (not an exact http(s) origin): ${corsRejected.join(", ")}`);
+app.use(cors(corsOptionsFor(process.env.CORS_ORIGIN)));
 app.use(helmet());
 app.use(compression());
-app.use(express.json({ limit: "2mb" }));
+app.use(
+  express.json({
+    limit: "2mb",
+    // Staging-only operator routes verify a signature over the exact bytes
+    // sent (modules/staging-ops/staging-guard.js); nothing else keeps them.
+    verify: (req, res, buf) => {
+      if (req.originalUrl?.startsWith("/api/admin/staging/")) req.rawBody = Buffer.from(buf);
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));

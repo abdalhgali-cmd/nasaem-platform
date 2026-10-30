@@ -171,7 +171,13 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
       await expect(page.locator("#fx-body tr", { hasText: "AED" })).toContainText("فعّال", { timeout: 15_000 });
       await page.locator("#fx-body tr", { hasText: "AED" }).locator("[data-fx-off]").click();
       await expect(page.locator("#fx-body tr", { hasText: "AED" })).toContainText("غير فعّال", { timeout: 15_000 });
-      await expect(page.locator("#fx-history-body tr").first()).toContainText("AED: غير فعّال");
+      // The history is the activity log, written after the response
+      // (fire-and-forget logActivity), so the page's own reload can come
+      // before the row: reload until it is there.
+      await expect(async () => {
+        await page.reload();
+        await expect(page.locator("#fx-history-body tr").first()).toContainText("AED: غير فعّال", { timeout: 2_000 });
+      }).toPass({ timeout: 15_000 });
       await expect(page.locator("#fx-history-body")).toContainText("AED: 117.5");
     } finally {
       await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { AED: original?.AED ?? null } });
@@ -471,5 +477,203 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await page.locator(".request-row").first().click();
     await expect(page.locator(".pay-state-ok")).toContainText("تم قبول الدفع");
     await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: originalRates?.SAR ?? 0 } });
+  });
+});
+
+// Umrah packages in the app: a network or server failure is said as such
+// with a retry (never «غير متاحة للحجز»); published packages without a
+// fixed price are listed with the reason; with the agency's fixed prices the
+// three types show their SAR price (and the server's SDG), and a flight
+// package needs the preferred travel date before it is sent.
+test.describe.serial("customer app: Umrah packages", () => {
+  test("network failure and server error show their own message and a retry, never «not bookable»", async ({ page }) => {
+    await skipOnboarding(page);
+    await page.route("**/api/services/public/packages", (route) => route.abort("internetdisconnected"));
+    await page.locator("#homeUmrahBtn").click();
+    const failure = page.locator("#umrahLoadError");
+    await expect(failure).toHaveAttribute("data-state", "NETWORK");
+    await expect(page.locator("#packagesList")).not.toContainText("غير متاحة للحجز");
+    await page.unroute("**/api/services/public/packages");
+    await page.route("**/api/services/public/packages", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ success: false, message: "bad gateway" }) }));
+    await page.locator("#umrahRetryBtn").click();
+    await expect(page.locator("#umrahLoadError")).toHaveAttribute("data-state", "API_ERROR");
+    await expect(page.locator("#umrahLoadError")).toContainText("502");
+    await page.unroute("**/api/services/public/packages");
+    await page.locator("#umrahRetryBtn").click();
+    // Back to the server's real answer (packages listed, or a stated reason).
+    await expect(page.locator("#umrahLoadError")).toHaveCount(0);
+    await expect(page.locator(".package-card, #umrahUnavailable").first()).toBeVisible();
+  });
+
+  test("the three types at the agency's fixed price; a flight package needs the preferred date; request reaches the staff queue", async ({ page }) => {
+    test.setTimeout(120_000);
+    const api = await staff(page);
+    const services = (await (await api.get(`${BACKEND}/api/services?limit=200`)).json()).data as Array<{ id: string; code: string; pricingMode?: string; basePrice?: string | number | null; currency?: string; priceUnit?: string; active?: boolean }>;
+    // Test fixture prices (the agency sets the real ones in the back-office).
+    const prices: Record<string, number> = { "SVC-UMRAH-VISA": 450, "SVC-UMRAH-AIR": 2100, "SVC-UMRAH-SEA": 1700 };
+    const rows = Object.keys(prices).map((code) => services.find((s) => s.code === code));
+    expect(rows.every(Boolean), "the seed creates the three Umrah types").toBeTruthy();
+    const originals = rows.map((s) => ({ id: s!.id, data: { pricingMode: s!.pricingMode ?? "QUOTE", basePrice: s!.basePrice ?? 0, currency: s!.currency ?? "SAR", priceUnit: s!.priceUnit ?? "PER_REQUEST", active: s!.active ?? false } }));
+
+    // Published but unpriced: listed with the reason, not selectable.
+    for (const s of rows) await api.patch(`${BACKEND}/api/services/${s!.id}`, { data: { pricingMode: "QUOTE", active: true } });
+    try {
+      await skipOnboarding(page);
+      await page.locator("#homeUmrahBtn").click();
+      await expect(page.locator("#umrahUnavailable")).toHaveAttribute("data-state", "UNPRICED");
+      await expect(page.locator(`.package-card[data-id="${rows[1]!.id}"]`)).toContainText("لم تُحدِّد الوكالة سعر هذه الباقة بعد");
+      await expect(page.locator(`.package-card[data-id="${rows[1]!.id}"]`)).toBeDisabled();
+
+      for (const s of rows) {
+        const res = await api.patch(`${BACKEND}/api/services/${s!.id}`, { data: { pricingMode: "FIXED", basePrice: prices[s!.code], currency: "SAR", priceUnit: "PER_TRAVELER", active: true } });
+        expect(res.ok(), await res.text()).toBeTruthy();
+      }
+      const published = (await (await api.get(`${BACKEND}/api/services/public/packages`)).json()).data as Array<{ id: string; code: string; priceSdg: number | null }>;
+      await skipOnboarding(page);
+      await page.locator("#homeUmrahBtn").click();
+      for (const s of rows) {
+        const card = page.locator(`.package-card[data-id="${s!.id}"]`);
+        await expect(card).toBeEnabled();
+        await expect(card.locator(".package-price")).toContainText(`${prices[s!.code].toLocaleString("en-US")} SAR`);
+        const sdg = published.find((p) => p.id === s!.id)?.priceSdg;
+        if (sdg) await expect(card.locator(".package-price small")).toContainText(Math.round(sdg).toLocaleString("en-US"));
+      }
+
+      // Flight services: the preferred date is required and provisional.
+      await page.locator(`.package-card[data-id="${rows[1]!.id}"]`).click();
+      const phone = localPhone();
+      await fillData(page, { name: "عميل عمرة جوية", phone, travelers: ["عميل عمرة جوية"] });
+      await expect(page.locator("#umrahTravelDateNote")).toContainText("ليس حجزًا مؤكدًا");
+      await uploadAllSlots(page);
+      await page.locator("#confirmTotal").check();
+      await page.locator("#nextStepBtn").click();
+      await expect(page.getByRole("alert").filter({ hasText: "حدّد تاريخ السفر المفضل لهذه الباقة." })).toBeVisible();
+      const date = new Date(Date.now() + 50 * 86_400_000).toISOString().slice(0, 10);
+      await page.fill('[name="preferredTravelDate"]', date);
+      const reference = await submitFromReview(page);
+      const request = await staffRequest(api, reference);
+      expect(request.pricingMode).toBe("FIXED");
+      expect(request.intakeData.umrahTravel).toEqual({ preferredDate: date, provisional: true });
+      expect(request.intakeData.umrahContacts.guarantorPhone).toBe("+966501234567");
+      const queue = (await (await api.get(`${BACKEND}/api/contact-requests?limit=100&serviceKind=UMRAH&search=${normalized(phone)}`)).json()).data as Array<{ id: string; umrahQueue?: { preferredTravelDate?: string } }>;
+      expect(queue.find((row) => row.id === reference)?.umrahQueue?.preferredTravelDate).toBe(date);
+    } finally {
+      // Every package is restored even if one restore fails; then any
+      // failure is reported, so later specs never run on changed prices.
+      const failed: string[] = [];
+      for (const original of originals) {
+        try {
+          const res = await api.patch(`${BACKEND}/api/services/${original.id}`, { data: original.data });
+          if (!res.ok()) failed.push(`${original.id}: ${res.status()} ${await res.text()}`);
+        } catch (error) {
+          failed.push(`${original.id}: ${String(error)}`);
+        }
+      }
+      expect(failed, "catalog restored").toEqual([]);
+    }
+  });
+});
+
+// Owner-approved Umrah prices (2026-10-28), rehearsed end to end on a fresh
+// database exactly as backend/src/scripts/activate-umrah-pricing.js sets them
+// on staging: visa only 795, flight 3500, sea 2650 SAR per pilgrim. 1, 2 and
+// 3 pilgrims; total = price × pilgrims, accepted by the server; a double tap
+// sends once; each request in the staff Umrah queue with its next step.
+test.describe.serial("customer app: Umrah at the approved prices", () => {
+  const APPROVED: Record<string, number> = { "SVC-UMRAH-VISA": 795, "SVC-UMRAH-AIR": 3500, "SVC-UMRAH-SEA": 2650 };
+
+  test("three types, exact prices, totals for 1/2/3 pilgrims, one request per send, staff queue", async ({ page, browser }) => {
+    test.setTimeout(180_000);
+    const api = await staff(page);
+    const services = (await (await api.get(`${BACKEND}/api/services?limit=200`)).json()).data as Array<{ id: string; code: string; pricingMode?: string; basePrice?: string | number | null; currency?: string; priceUnit?: string; active?: boolean }>;
+    const rows = Object.keys(APPROVED).map((code) => services.find((s) => s.code === code)!);
+    expect(rows.every(Boolean)).toBeTruthy();
+    const originals = rows.map((s) => ({ id: s.id, data: { pricingMode: s.pricingMode ?? "QUOTE", basePrice: s.basePrice ?? 0, currency: s.currency ?? "SAR", priceUnit: s.priceUnit ?? "PER_REQUEST", active: s.active ?? false } }));
+    try {
+      // Inside the try: if the second or third price fails to apply, the
+      // finally block still restores the ones already changed.
+      for (const s of rows) {
+        const res = await api.patch(`${BACKEND}/api/services/${s.id}`, { data: { pricingMode: "FIXED", basePrice: APPROVED[s.code], currency: "SAR", priceUnit: "PER_TRAVELER", active: true } });
+        expect(res.ok(), await res.text()).toBeTruthy();
+      }
+      const published = (await (await api.get(`${BACKEND}/api/services/public/packages`)).json()).data as Array<{ id: string; priceSdg: number | null }>;
+      const cases: Array<{ code: string; pilgrims: number; date: boolean }> = [
+        { code: "SVC-UMRAH-VISA", pilgrims: 1, date: false },
+        { code: "SVC-UMRAH-AIR", pilgrims: 2, date: true },
+        { code: "SVC-UMRAH-SEA", pilgrims: 3, date: true },
+      ];
+      const sent: Array<{ id: string; phone: string; code: string; pilgrims: number; date: string | null }> = [];
+      for (const c of cases) {
+        const pkg = rows.find((s) => s.code === c.code)!;
+        await skipOnboarding(page);
+        await page.locator("#homeUmrahBtn").click();
+        // Every card shows its exact price, never «يبدأ من» or a quote.
+        for (const s of rows) {
+          const card = page.locator(`.package-card[data-id="${s.id}"]`);
+          await expect(card.locator(".package-price")).toContainText(`${APPROVED[s.code].toLocaleString("en-US")} SAR`);
+          const sdg = published.find((p) => p.id === s.id)?.priceSdg;
+          if (sdg) await expect(card.locator(".package-price small")).toContainText(Math.round(sdg).toLocaleString("en-US"));
+        }
+        await expect(page.locator("#packagesList")).not.toContainText(/يبدأ من|عرض سعر|عند الطلب/);
+        await page.locator(`.package-card[data-id="${pkg.id}"]`).click();
+        const phone = localPhone();
+        await fillData(page, { name: `معتمر ${c.code}`, phone, travelers: Array.from({ length: c.pilgrims }, (_, i) => `معتمر ${i + 1} ${c.code}`) });
+        if (!c.date) await expect(page.locator('[name="preferredTravelDate"]')).not.toHaveAttribute("required", "");
+        const date = c.date ? new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10) : null;
+        if (date) await page.fill('[name="preferredTravelDate"]', date);
+        await uploadAllSlots(page);
+        await expect(page.locator("#fixedTotalAmount")).toContainText(`${(APPROVED[c.code] * c.pilgrims).toLocaleString("en-US")} SAR`);
+        await page.locator("#confirmTotal").check();
+        // A double tap on send creates one request.
+        await page.locator("#nextStepBtn").dblclick();
+        const reference = page.locator("#requestReference");
+        const payment = page.getByTestId("direct-payment-step");
+        await reference.or(payment).first().waitFor({ timeout: 30_000 });
+        if (await payment.isVisible()) await page.locator("#paymentLaterBtn").click();
+        const id = (await reference.innerText()).trim();
+        sent.push({ id, phone, code: c.code, pilgrims: c.pilgrims, date });
+      }
+
+      for (const s of sent) {
+        const list = (await (await api.get(`${BACKEND}/api/contact-requests?limit=100&serviceKind=UMRAH&search=${normalized(s.phone)}`)).json()).data as Array<{ id: string; umrahQueue?: { nextAction: string; preferredTravelDate: string | null } }>;
+        expect(list, "one request per send").toHaveLength(1);
+        expect(list[0].umrahQueue?.nextAction).toBeTruthy();
+        expect(list[0].umrahQueue?.preferredTravelDate ?? null).toBe(s.date);
+        const request = await staffRequest(api, s.id);
+        expect(request.pricingMode).toBe("FIXED");
+        expect(Number(request.invoice.amount)).toBe(APPROVED[s.code] * s.pilgrims);
+        expect(request.invoice.currency).toBe("SAR");
+        expect(request.travelers).toHaveLength(s.pilgrims);
+        expect(request.intakeData.umrahContacts.guarantorPhone).toBe("+966501234567");
+        expect(request.documents.length).toBeGreaterThanOrEqual(s.pilgrims);
+      }
+
+      // Staff: the Umrah filter in /admin/cases shows the next step and the date; the request opens with guarantor and date.
+      const staffPage = await browser.newPage();
+      await loginAsSeededAdmin(staffPage);
+      await staffPage.goto("http://localhost:3000/admin/cases");
+      await staffPage.getByTestId("case-service-filter").selectOption("UMRAH");
+      const air = sent[1];
+      const row = staffPage.getByRole("button").filter({ hasText: `معتمر ${air.code}` }).first();
+      await expect(row.getByTestId("case-next-action")).toBeVisible({ timeout: 15_000 });
+      await expect(row.getByTestId("case-preferred-travel-date")).toContainText(air.date!);
+      await row.click();
+      await expect(staffPage.getByTestId("case-guarantor-phone")).toContainText("+966501234567");
+      await expect(staffPage.getByTestId("case-umrah-travel-date")).toContainText(air.date!);
+      await staffPage.close();
+    } finally {
+      // Every package is restored even if one restore fails; then any
+      // failure is reported, so later specs never run on changed prices.
+      const failed: string[] = [];
+      for (const original of originals) {
+        try {
+          const res = await api.patch(`${BACKEND}/api/services/${original.id}`, { data: original.data });
+          if (!res.ok()) failed.push(`${original.id}: ${res.status()} ${await res.text()}`);
+        } catch (error) {
+          failed.push(`${original.id}: ${String(error)}`);
+        }
+      }
+      expect(failed, "catalog restored").toEqual([]);
+    }
   });
 });

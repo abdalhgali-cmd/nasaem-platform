@@ -166,6 +166,8 @@
   "PATCH /api/visa-types/egypt/config": ["ADMIN", "SUPER_ADMIN"],
   "PATCH /api/visa-types/reorder": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
   "PATCH /api/visa-types/requirements/:id": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
+  "POST /api/admin/staging/attest": ["ADMIN", "SUPER_ADMIN"],
+  "POST /api/admin/staging/umrah-pricing": ["ADMIN", "SUPER_ADMIN"],
   "POST /api/airlines": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
   "POST /api/airlines/:id/logo": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
   "POST /api/airports": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],

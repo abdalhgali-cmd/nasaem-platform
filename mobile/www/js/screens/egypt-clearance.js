@@ -18,6 +18,11 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
       <h2>الموافقة الأمنية لمصر</h2>
       <p>سعر ثابت، ولا يلزم شراء تذكرة من نسائم.</p>
     </div>
+    <section class="info-trust" aria-label="ما نلتزم به قبل بدء الطلب">
+      <span>${icon("wallet", { size: 17 })}<b>كل طريقة دخول تعرض سعرها الحقيقي قبل بدء الطلب</b></span>
+      <span>${icon("requests", { size: 17 })}<b>رقم مرجعي ومتابعة لكل طلب دون حساب</b></span>
+      <span>${icon("shield-check", { size: 17 })}<b>لا نعلن صدور الموافقة قبل رفعها من فريق الوكالة</b></span>
+    </section>
     <div id="egyptStepsMount">${egyptStepsHtml(1, esc)}</div>
     <section class="section" id="egyptVariants" hidden></section>
     <div id="egyptIntakeMount"></div>
@@ -71,9 +76,12 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
         .map(
           (option) => `
             <button type="button" class="variant-card${option.bookable ? "" : " variant-unavailable"}" role="radio" aria-checked="false" data-code="${esc(option.code)}" ${option.bookable ? "" : 'disabled aria-disabled="true"'}>
-              <strong>${esc(option.name)}</strong>
-              <span class="variant-price${option.bookable ? "" : " variant-price-quote"}"><bdi>${esc(option.priceText)}</bdi></span>
-              ${option.sdgText ? `<small class="variant-sdg"><bdi>${esc(option.sdgText)}</bdi></small>` : ""}
+              <span class="variant-method-icon" aria-hidden="true">${icon(option.entryMode === "AIR" ? "plane" : "map-pin", { size: 22 })}</span>
+              <span class="variant-copy"><strong>${esc(option.name)}</strong>
+                <span class="variant-price${option.bookable ? "" : " variant-price-quote"}"><bdi>${esc(option.priceText)}</bdi></span>
+                ${option.sdgText ? `<small class="variant-sdg"><bdi>${esc(option.sdgText)}</bdi></small>` : ""}
+              </span>
+              ${option.bookable ? `<span class="variant-choose">اختر ${icon("chevron-start", { size: 14 })}</span>` : ""}
             </button>`
         )
         .join("")}

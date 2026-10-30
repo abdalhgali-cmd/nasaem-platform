@@ -11,7 +11,7 @@ import {
 } from "../intake-core.js";
 import { setTrackingPrefill } from "../tracking.js";
 import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-view.js";
-import { isUmrahPackage, umrahNeedsGuarantor, validateUmrahContacts } from "../umrah-view.js";
+import { isUmrahPackage, umrahNeedsGuarantor, umrahTravelDateRequired, validateUmrahContacts, validateUmrahTravelDate, UMRAH_TRAVEL_DATE_NOTE } from "../umrah-view.js";
 import { EGYPT_AIR_ROUTE_DEFAULTS, egyptVariantEntryMode, validateEgyptRoute } from "../egypt-view.js";
 import { selectOptions } from "../egypt-view.js";
 import { QUALITY_MESSAGES, analyzePassportFile } from "../passport-quality.js";
@@ -144,6 +144,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   const submissionKey = newSubmissionKey();
   const storageKey = draftKey(item);
   const needsGuarantor = umrahNeedsGuarantor(item);
+  const travelDateRequired = umrahTravelDateRequired(item);
   // Egypt clearance variant: its entry method decides the route fields.
   const egyptMode = egyptVariantEntryMode(item);
   const travelerWord = needsGuarantor ? "المعتمر" : "المسافر";
@@ -168,6 +169,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       travelers: Array.from({ length: startCount }, (_, index) => ({ fullName: index === 0 ? customer?.fullName || "" : "", passportNo: "", nationality: "" })),
       answers: {},
       guarantorPhone: "",
+      preferredTravelDate: "",
       departureCity: EGYPT_AIR_ROUTE_DEFAULTS.departureCity,
       arrivalAirport: EGYPT_AIR_ROUTE_DEFAULTS.arrivalAirport,
       entryPort: "",
@@ -250,7 +252,10 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     if (!stepBody.querySelector('[name="name"]')) return;
     state.values.name = read("name").trim();
     state.values.phone = read("phone").trim();
-    if (needsGuarantor) state.values.guarantorPhone = read("guarantorPhone").trim();
+    if (needsGuarantor) {
+      state.values.guarantorPhone = read("guarantorPhone").trim();
+      state.values.preferredTravelDate = read("preferredTravelDate").trim();
+    }
     if (egyptMode === "AIR") {
       state.values.departureCity = read("departureCity").trim();
       state.values.arrivalAirport = read("arrivalAirport").trim();
@@ -366,6 +371,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     stepBody.innerHTML = `
       <section class="form-section" id="travelersSection">
         <h3>${needsGuarantor ? "المعتمرون وجوازاتهم" : "المسافرون"}</h3>
+        <p class="document-privacy-note">${icon("shield-check", { size: 16 })}<span>تُستخدم بيانات الجواز والمستندات لتنفيذ هذا الطلب، ويقتصر الوصول عليها على الموظفين المخولين.</span></p>
         <div id="travelersBox">${v.travelers.map((traveler, index) => travelerCard(traveler, index, list)).join("")}</div>
         ${v.travelers.length < maxTravelers ? `<button type="button" class="secondary add-traveler" id="addTravelerBtn">${icon("plus", { size: 18 })} أضف ${travelerWord === "المعتمر" ? "معتمرًا" : "مسافرًا"}</button>` : ""}
       </section>
@@ -397,6 +403,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
           ${shared.map((slot) => slotRow(slot)).join("")}
           ${needsGuarantor ? `<label class="field"><span>رقم هاتف الضامن *</span><input name="guarantorPhone" inputmode="tel" dir="ltr" value="${esc(v.guarantorPhone || "")}" autocomplete="off"></label>` : ""}
         </section>` : ""}
+      ${needsGuarantor ? `
+        <section class="form-section" id="umrahTravelSection">
+          <h3>موعد السفر</h3>
+          <label class="field"><span>تاريخ السفر المفضل${travelDateRequired ? " *" : " (اختياري)"}</span><input name="preferredTravelDate" type="date" min="${new Date().toISOString().slice(0, 10)}" value="${esc(v.preferredTravelDate || "")}"${travelDateRequired ? " required" : ""}></label>
+          <p class="field-hint" id="umrahTravelDateNote">${UMRAH_TRAVEL_DATE_NOTE}</p>
+        </section>` : ""}
       <section class="form-section" id="contactSection">
         <h3>للتواصل معك</h3>
         <label class="field"><span>${needsGuarantor ? "اسم مقدم الطلب *" : "اسمك *"}</span><input name="name" value="${esc(v.name)}" autocomplete="name"></label>
@@ -416,7 +428,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
           <p class="field-hint">السعر النهائي وتعليمات الدفع تصلك بعد مراجعة الوكالة.</p>
         </section>`}
       ${totalReviewHtml()}
-      <div id="uploadProgressWrap" class="upload-progress-wrap" hidden>
+      <div id="uploadProgressWrap" class="upload-progress-wrap" role="progressbar" aria-label="رفع المستندات" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
         <div class="upload-progress-bar"><div id="uploadProgressFill" class="upload-progress-fill"></div></div>
         <span id="uploadProgressLabel">0%</span>
       </div>`;
@@ -542,6 +554,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       ...(egyptMode && state.values.email && !EMAIL_PATTERN.test(state.values.email) ? ["البريد الإلكتروني غير صالح؛ صحّحه أو اتركه فارغًا."] : []),
       ...validateSlots(slots(), state.files).map((problem) => problem.message),
       ...(needsGuarantor ? validateUmrahContacts(state.values) : []),
+      ...(needsGuarantor ? validateUmrahTravelDate(state.values.preferredTravelDate, travelDateRequired) : []),
       ...Object.values(validateContact({ name: state.values.name, phone: state.values.phone })),
       ...missingAnswers(requirements, state.values.answers).filter((m) => answerRequirements().some((r) => r.id === m.key)).map((m) => m.message),
     ];
@@ -571,7 +584,12 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     payload.set("name", v.name);
     payload.set("phone", v.phone);
     if (v.email) payload.set("email", v.email);
-    if (needsGuarantor) payload.set("guarantorPhone", v.guarantorPhone);
+    if (needsGuarantor) {
+      payload.set("guarantorPhone", v.guarantorPhone);
+      // Always sent for Umrah (empty when not given): the server requires it
+      // for flight/sea packages from this version on.
+      payload.set("preferredTravelDate", v.preferredTravelDate || "");
+    }
     if (egyptMode === "AIR") {
       payload.set("departureCity", v.departureCity);
       payload.set("arrivalAirport", v.arrivalAirport);
@@ -608,6 +626,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       const outcome = await submitRequestForm(payload, submissionKey, (percent) => {
         if (progressFill) progressFill.style.width = `${percent}%`;
         if (progressLabel) progressLabel.textContent = `${percent}%`;
+        if (progressWrap) progressWrap.setAttribute("aria-valuenow", String(Math.round(percent)));
       });
       // Only now - with the server's confirmation in hand - is the draft dropped.
       dropDraft();
@@ -670,7 +689,20 @@ export function renderRequestSubmittedScreen({ bodyEl, params }) {
     </div>
   `;
   bodyEl.querySelector("#copyReferenceBtn").addEventListener("click", async () => {
+    const button = bodyEl.querySelector("#copyReferenceBtn");
     const copied = await copyText(reference);
+    if (copied) {
+      const label = button.querySelector("span");
+      if (label) label.textContent = "تم النسخ ✓";
+      button.classList.add("copy-success");
+      button.disabled = true;
+      setTimeout(() => {
+        if (!button.isConnected) return;
+        if (label) label.textContent = "نسخ الرقم";
+        button.classList.remove("copy-success");
+        button.disabled = false;
+      }, 1600);
+    }
     toast(copied ? "تم نسخ الرقم المرجعي" : "تعذر النسخ، يمكنك تحديد الرقم ونسخه يدويًا", { tone: copied ? "default" : "error" });
   });
   bodyEl.querySelector("#trackRequestBtn").addEventListener("click", () => {

@@ -159,6 +159,12 @@ const GROUP_DEFAULT_DETAIL = {
 // task, so it never takes this place.
 const ACTION_PRIORITY = ["DOCUMENTS", "PAYMENT", "PAYMENT_REVIEW", "QUOTE", "TRAVEL_PLAN", "DELIVERY"];
 
+export function journeyCompletion(stages = []) {
+  const total = stages.length;
+  const done = stages.filter((stage) => stage?.state === "done").length;
+  return { done, total, percent: total ? Math.round((done / total) * 100) : 0 };
+}
+
 export function customerJourney(progress, request = null) {
   const steps = progressSteps(progress);
   if (!steps.length) return null;
@@ -171,7 +177,8 @@ export function customerJourney(progress, request = null) {
       const candidate = step ? stepAction(step, request) : null;
       if (candidate && candidate.label !== "عرض المستندات") { customerAction = candidate; break; }
     }
-    return egyptJourney(request, { fallbackHeadline: progress.label || "", customerAction });
+    const journey = egyptJourney(request, { fallbackHeadline: progress.label || "", customerAction });
+    return journey ? { ...journey, completion: journeyCompletion(journey.stages) } : null;
   }
   const byKey = new Map(steps.map((step) => [step.key, step]));
   // A closed or finished request has no current stage on the server: then
@@ -203,7 +210,7 @@ export function customerJourney(progress, request = null) {
     const candidate = step ? stepAction(step, request) : null;
     if (candidate && candidate.label !== "عرض المستندات") { action = candidate; break; }
   }
-  return { stages, headline, action };
+  return { stages, headline, action, completion: journeyCompletion(stages) };
 }
 
 export function journeyBlockHtml(progress, esc, request = null) {
@@ -211,7 +218,11 @@ export function journeyBlockHtml(progress, esc, request = null) {
   if (!journey) return "";
   return `
     <div class="detail-block journey-block" id="requestJourney">
-      <p class="journey-headline" role="status">${esc(journey.headline)}</p>
+      <div class="journey-summary">
+        <p class="journey-headline" role="status">${esc(journey.headline)}</p>
+        ${journey.completion.total ? `<span class="journey-count">اكتملت ${journey.completion.done} من ${journey.completion.total}</span>` : ""}
+      </div>
+      ${journey.completion.total ? `<div class="journey-meter" role="progressbar" aria-label="تقدم الطلب" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${journey.completion.percent}"><span style="--journey-progress:${journey.completion.percent}%"></span></div>` : ""}
       ${journey.action ? `<button type="button" class="primary journey-action" id="journeyActionBtn" data-progress-target="${esc(journey.action.target)}" data-progress-mode="${esc(journey.action.mode)}">${esc(journey.action.label)}</button>` : ""}
       <ol class="journey-stages" aria-label="مراحل طلبك">
         ${journey.stages.map((stage) => `

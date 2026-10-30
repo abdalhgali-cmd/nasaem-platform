@@ -10,7 +10,7 @@ import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable,
 import { bindProgressTrack, journeyBlockHtml } from "../progress-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
-import { bindCopyButtons, bindReceiptPicker, isAlreadySubmitted, needsRefresh, noSettlementAccountHtml, normalizeSettlementOptions, receiptPickerHtml, selectedSettlementAccount, settlementOptionsHtml } from "../payment-receipt.js";
+import { bindCopyButtons, bindReceiptPicker, isAlreadySubmitted, needsRefresh, noSettlementAccountHtml, normalizeSettlementOptions, paymentSafetyHtml, receiptPickerHtml, selectedSettlementAccount, settlementOptionsHtml } from "../payment-receipt.js";
 import { egyptVariantEntryMode, isEgyptClearanceItem } from "../egypt-view.js";
 import { egyptFilesHtml, egyptPrepHtml, isEgyptOverview } from "../egypt-journey.js";
 
@@ -101,7 +101,7 @@ export async function renderMyRequestsScreen({ bodyEl }) {
       all = res.data || [];
       renderFilter(bodyEl.querySelector(".segmented-btn.active").dataset.filter);
     } catch (error) {
-      listEl.innerHTML = errorState(error.message, { onRetry: load });
+      listEl.innerHTML = errorState(error.message, { onRetry: load, title: "تعذر تحديث طلباتك", hint: "طلباتك المحفوظة لم تتغير. تحقق من الاتصال ثم أعد المحاولة." });
     }
   }
 
@@ -111,8 +111,10 @@ export async function renderMyRequestsScreen({ bodyEl }) {
       listEl.innerHTML = emptyState({
         icon: "requests",
         title: filter === "current" ? "لا توجد طلبات حالية" : "لا توجد طلبات سابقة",
-        hint: filter === "current" ? "ابدأ طلبًا جديدًا من الصفحة الرئيسية." : "",
+        hint: filter === "current" ? "اختر العمرة أو الموافقة الأمنية لمصر، وسيظهر كل تحديث هنا." : "ستظهر هنا الطلبات المكتملة أو المغلقة.",
+        action: filter === "current" ? '<button type="button" class="primary" id="emptyStartRequestBtn">ابدأ طلبًا جديدًا</button>' : "",
       });
+      listEl.querySelector("#emptyStartRequestBtn")?.addEventListener("click", () => goToTab("services", "services", { title: "ابدأ طلب" }));
       return;
     }
     listEl.innerHTML = items.map((request) => `
@@ -147,7 +149,7 @@ export async function renderGuestTrackingScreen({ bodyEl }) {
   const locked = getSessionState() === SessionState.LOCKED;
   bodyEl.innerHTML = `
     <p class="mode-banner mode-banner-guest">${icon("phone", { size: 16 })}<span>متابعة برقم الهاتف — بدون حساب</span></p>
-    ${locked ? `<p class="field-hint">حسابك مقفل بالبصمة. افتحه من «حسابي» لعرض طلبات الحساب.</p>` : ""}
+    ${locked ? `<p class="field-hint">حسابك مقفل بالبصمة. افتحه من «المزيد» لعرض طلبات الحساب.</p>` : ""}
     <div id="guestTrackingBody"></div>`;
   const container = bodyEl.querySelector("#guestTrackingBody");
 
@@ -408,7 +410,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     } catch (error) {
       // A background refresh that fails (offline) keeps what is on screen.
       if (options?.quiet) return;
-      bodyEl.innerHTML = errorState(error.message, { onRetry: load });
+      bodyEl.innerHTML = errorState(error.message, { onRetry: load, title: "تعذر تحديث تفاصيل الطلب", hint: "لم نغيّر حالة الطلب. أعد المحاولة عند عودة الاتصال." });
     }
   }
 
@@ -431,7 +433,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
       <div class="request-summary">
         <span class="status-pill">${esc(requestStatusLabel(request))}</span>
         <h2>${esc(request.service?.name || request.visaType?.name || "طلب خدمة")}</h2>
-        <p>${esc(request.nextAction || "")}</p>
+        <div class="request-next-action" role="status">
+          <small>المطلوب منك الآن</small>
+          <strong>${esc(request.nextAction || (request.status === "CLOSED" ? "الطلب مغلق ولا يلزمك إجراء." : "لا يلزمك إجراء الآن — فريق الوكالة يتابع الطلب."))}</strong>
+        </div>
       </div>
 
       ${journeyBlockHtml(request.progress, esc, request)}
@@ -639,6 +644,7 @@ async function showPaymentStep(panel, { request, currency, price, onUploaded, ke
   panel.innerHTML = `
     <div class="detail-block payment-step" data-testid="tracking-payment-step">
       <h4>الدفع بالتحويل البنكي</h4>
+      ${paymentSafetyHtml()}
       ${price ? `<p class="payment-amount">قيمة الفاتورة: <strong>${esc(price)}</strong></p>` : ""}
       ${loadError
         ? errorState(loadError.message, { onRetry: () => showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt, notice }) })

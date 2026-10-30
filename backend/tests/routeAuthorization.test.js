@@ -11,6 +11,8 @@ const { app, request } = await import("./helpers/api.js");
 
 // "METHOD /api/path" — routes anonymous visitors may call, each protected by its
 // own mechanism (validation, rate limit, unguessable token, phone/OTP ownership).
+const STAGING_ONLY_ROUTES = new Set(["POST /api/admin/staging/attest", "POST /api/admin/staging/umrah-pricing"]);
+
 const PUBLIC_ROUTES = new Set([
   "POST /api/customer-auth/register",
   "POST /api/customer-auth/login",
@@ -82,7 +84,12 @@ describe("API authorization inventory", () => {
       if (PUBLIC_ROUTES.has(`${method} ${path}`)) continue;
       const url = path.replace(/:\w+/g, "x");
       const res = await request(app)[method.toLowerCase()](url).set("X-Requested-With", "XMLHttpRequest").send({});
-      if (![401, 403].includes(res.status)) open.push(`${method} ${path} -> ${res.status}`);
+      // Staging-only operator routes answer 404 to anyone who cannot prove
+      // the server's staging key (modules/staging-ops/staging-guard.js), so a
+      // non-staging server does not even reveal them. 404 counts as refused
+      // for these two routes only.
+      const refused = STAGING_ONLY_ROUTES.has(`${method} ${path}`) ? [404] : [401, 403];
+      if (!refused.includes(res.status)) open.push(`${method} ${path} -> ${res.status}`);
     }
     assert.deepEqual(open, [], "routes reachable without credentials and not in PUBLIC_ROUTES");
   });

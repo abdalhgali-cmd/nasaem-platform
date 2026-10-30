@@ -1,6 +1,6 @@
 import { esc, toast, skeletonList, confirmDialog } from "../ui.js";
 import { startingPrice, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE, shortDescription, durationOf } from "../service-view.js";
-import { isUmrahPackage, umrahPackageDetails, umrahPriceText, UMRAH_UNAVAILABLE } from "../umrah-view.js";
+import { isUmrahPackage, umrahLoadState, umrahPackageSummary, umrahPriceText, UMRAH_PRICE_MISSING } from "../umrah-view.js";
 import { icon } from "../icons.js";
 import { loadCatalog, loadPackages } from "../catalog.js";
 import { loadAgency, whatsappLink } from "../agency.js";
@@ -25,7 +25,11 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   bodyEl.innerHTML = `
     <section class="section umrah-choose">
       <h2 class="umrah-title" id="umrahChooseTitle">اختر باقة العمرة</h2>
-      <p class="field-hint">سعر ثابت ومعلن: لا عرض سعر ولا موافقة لاحقة.</p>
+      <div class="info-trust info-trust-inline" aria-label="ما نلتزم به قبل بدء الطلب">
+        <span>${icon("wallet", { size: 17 })}<b>السعر الظاهر للباقة هو الإجمالي الذي تؤكده قبل الإرسال</b></span>
+        <span>${icon("requests", { size: 17 })}<b>تحصل على رقم مرجعي وتتابع الطلب دون حساب</b></span>
+        <span>${icon("shield-check", { size: 17 })}<b>لا نعلن اكتمال الخدمة قبل تسليم النتيجة المؤكدة</b></span>
+      </div>
       <div id="packagesList" class="package-list" role="radiogroup" aria-labelledby="umrahChooseTitle">${skeletonList(3)}</div>
     </section>
 
@@ -33,20 +37,33 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   `;
 
   const packagesList = bodyEl.querySelector("#packagesList");
-  let packages;
+  let packages = [];
   let item;
+  let loadError = null;
   try {
     [packages, item] = await Promise.all([loadPackages().then((list) => list.filter(isUmrahPackage)), umrahBaseItem(params.item)]);
   } catch (error) {
-    packagesList.innerHTML = `<p class="field-hint">تعذر تحميل الباقات: ${esc(error.message)}</p>`;
-    toast(error.message, { tone: "error" });
+    loadError = error;
+  }
+
+  // A network or server failure is said as such, with a retry; only an
+  // answer from the server can say that nothing is bookable.
+  const state = umrahLoadState({ error: loadError, packages });
+  if (state.kind === "NETWORK" || state.kind === "API_ERROR") {
+    packagesList.innerHTML = `
+      <p class="info-note error-note" id="umrahLoadError" data-state="${state.kind}" role="alert">${icon("info", { size: 15 })} ${esc(state.message)}</p>
+      <button type="button" class="primary" id="umrahRetryBtn">إعادة المحاولة</button>`;
+    packagesList.querySelector("#umrahRetryBtn").addEventListener("click", () => renderUmrahScreen({ bodyEl, params }));
     return;
   }
 
   const bookable = packages.filter((pkg) => umrahPriceText(pkg));
   if (!bookable.length) {
+    // No package published, or published ones without a fixed price yet:
+    // the published ones are still listed (not selectable) with the reason.
     packagesList.innerHTML = `
-      <p class="info-note" id="umrahUnavailable">${icon("info", { size: 15 })} ${esc(UMRAH_UNAVAILABLE)}</p>
+      <p class="info-note" id="umrahUnavailable" data-state="${state.kind}">${icon("info", { size: 15 })} ${esc(state.message)}</p>
+      ${packages.map((pkg) => packageCard(pkg)).join("")}
       <a class="secondary" id="umrahWhatsapp" target="_blank" rel="noopener">تواصل معنا عبر واتساب</a>`;
     loadAgency().then((agency) => {
       const link = packagesList.querySelector("#umrahWhatsapp");
@@ -89,23 +106,23 @@ export async function renderUmrahScreen({ bodyEl, params }) {
 }
 
 function packageCard(pkg) {
-  const details = umrahPackageDetails(pkg);
+  const details = umrahPackageSummary(pkg);
   const fixed = umrahPriceText(pkg);
   const price = startingPrice(pkg);
   const sdg = fixed && price ? sdgText(price) || (sdgUnavailable(price) ? SDG_UNAVAILABLE_NOTICE : "") : "";
   return `
-    <button type="button" class="package-card${fixed ? "" : " package-unavailable"}" role="radio" aria-checked="false" data-id="${esc(pkg.id)}" ${fixed ? "" : 'disabled aria-disabled="true"'}>
+    <button type="button" class="package-card${fixed ? "" : " package-unavailable"}" role="radio" aria-checked="false" data-id="${esc(pkg.id)}" aria-label="${esc(`${pkg.name}${fixed ? `، ${fixed}` : `، ${UMRAH_PRICE_MISSING}`}`)}" ${fixed ? "" : 'disabled aria-disabled="true"'}>
       <span class="package-radio" aria-hidden="true"></span>
       <div class="package-body">
-        <b>${esc(pkg.name)}</b>
-        ${details.kindLabel ? `<span class="package-kind">${esc(details.kindLabel)}</span>` : ""}
-        ${shortDescription(pkg) ? `<span>${esc(shortDescription(pkg))}</span>` : ""}${durationOf(pkg) ? `<span>${esc(durationOf(pkg))}</span>` : ""}
-        ${details.included.length ? `<span class="package-included">يشمل: ${esc(details.included.join("، "))}</span>` : ""}
-        ${details.excluded.length ? `<span class="package-excluded">لا يشمل: ${esc(details.excluded.join("، "))}</span>` : ""}
+        <span class="package-title-row"><b>${esc(pkg.name)}</b>${details.kindLabel ? `<span class="package-kind">${esc(details.kindLabel)}</span>` : ""}</span>
+        ${shortDescription(pkg) ? `<span class="package-description">${esc(shortDescription(pkg, 82))}</span>` : ""}
+        ${durationOf(pkg) ? `<span class="package-duration">${icon("clock", { size: 13 })} ${esc(durationOf(pkg))}</span>` : ""}
+        ${details.included.length ? `<span class="package-included"><i>${icon("check", { size: 13 })}</i><span><b>يشمل</b> ${esc(details.included.join("، "))}${details.moreIncluded ? `، و${details.moreIncluded} إضافية` : ""}</span></span>` : ""}
+        ${details.excluded.length ? `<span class="package-excluded"><i>${icon("close", { size: 13 })}</i><span><b>لا يشمل</b> ${esc(details.excluded.join("، "))}${details.moreExcluded ? `، و${details.moreExcluded} إضافية` : ""}</span></span>` : ""}
       </div>
       ${fixed
         ? `<strong class="package-price"><bdi>${esc(fixed)}</bdi>${sdg ? `<small><bdi>${esc(sdg)}</bdi></small>` : ""}</strong>`
-        : `<span class="pending-price">${esc(UMRAH_UNAVAILABLE)}</span>`}
+        : `<span class="pending-price">${esc(UMRAH_PRICE_MISSING)}</span>`}
     </button>`;
 }
 

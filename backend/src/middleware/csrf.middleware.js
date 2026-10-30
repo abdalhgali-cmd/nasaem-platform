@@ -24,18 +24,10 @@
 //      trusted origin. With no provenance header at all, the request must
 //      carry X-Requested-With, a custom header no cross-site form or
 //      simple request can set. Every back-office page sends it.
+import { parseAllowedOrigins } from "../utils/allowedOrigins.js";
+
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const SESSION_COOKIES = ["accessToken", "customerAccessToken", "trackingAccessToken"];
-
-function parseOriginList(...values) {
-  return new Set(
-    values
-      .filter(Boolean)
-      .flatMap((value) => value.split(","))
-      .map((origin) => origin.trim().replace(/\/+$/, ""))
-      .filter(Boolean)
-  );
-}
 
 function originOf(url) {
   try {
@@ -46,7 +38,7 @@ function originOf(url) {
 }
 
 export function createCsrfProtection({ trustedOrigins } = {}) {
-  const configured = trustedOrigins || parseOriginList(process.env.CORS_ORIGIN, process.env.CSRF_TRUSTED_ORIGINS);
+  const configured = trustedOrigins || parseAllowedOrigins(process.env.CORS_ORIGIN, process.env.CSRF_TRUSTED_ORIGINS).origins;
 
   function isTrusted(origin, req) {
     if (!origin || origin === "null") return false;
