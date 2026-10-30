@@ -59,10 +59,20 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 /* Full width: the feature carries the published Umrah kinds and prices,
    so the service tiles beside it would only be stretched. */
 .hc-tile-feature {grid-column:1 / -1;background:#082b58;border-color:#082b58;color:#fff;padding:16px;}
+.home-umrah-hero {position:relative;isolation:isolate;overflow:hidden;min-height:260px;padding:20px;background:
+  radial-gradient(circle at 8% 12%,rgba(214,170,75,.27),transparent 32%),
+  linear-gradient(145deg,#0b417e 0%,#082b58 48%,#04162e 100%);box-shadow:0 16px 36px rgba(5,26,54,.18);}
+.home-umrah-hero::before {content:"";position:absolute;z-index:-1;inset:0;pointer-events:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23ecd08b' stroke-width='.65' opacity='.42'%3E%3Cpath d='M36 7l7 22 22 7-22 7-7 22-7-22-22-7 22-7z'/%3E%3Ccircle cx='36' cy='36' r='17'/%3E%3C/g%3E%3C/svg%3E");opacity:.12;mask-image:linear-gradient(90deg,transparent,#000);}
+.home-umrah-orbit {position:absolute;z-index:-1;left:-46px;top:-58px;width:170px;height:170px;border:1px solid rgba(236,208,139,.24);border-radius:50%;box-shadow:0 0 0 22px rgba(236,208,139,.045),0 0 0 46px rgba(236,208,139,.035);}
+.home-umrah-heading {display:flex;align-items:center;gap:10px;}
+.home-umrah-kicker {font-size:.78rem;font-weight:700;letter-spacing:.01em;color:#ecd08b;}
 .hc-tile-feature .hc-tile-icon {background:rgba(255,255,255,.12);color:#fff;}
 .hc-feature-copy {display:grid;gap:3px;}
-.hc-feature-copy strong {font-size:1.25rem;line-height:1.35;font-weight:800;}
+.hc-feature-copy strong {font-size:1.45rem;line-height:1.35;font-weight:850;}
 .hc-feature-copy small {font-size:0.8125rem;line-height:1.5;color:rgba(255,255,255,.86);font-weight:400;}
+.home-umrah-assurances {display:flex;flex-wrap:wrap;gap:7px;}
+.home-umrah-assurances span {display:flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid rgba(255,255,255,.15);border-radius:999px;background:rgba(255,255,255,.08);color:#fff;font-size:.72rem;font-weight:650;}
+.home-umrah-assurances svg {color:#ecd08b;}
 .hc-feature-cta {min-height:max(48px,3rem);display:flex;align-items:center;justify-content:center;gap:6px;border-radius:14px;background:#d6aa4b;color:#051a36;font-size:0.9375rem;font-weight:800;border:0;transition:transform .14s ease-out;}
 .hc-feature-cta:active {transform:scale(.97);}
 /* The published Umrah kinds and their real prices, inside the feature tile. */
@@ -99,6 +109,11 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
   .home-journey-grid li span {flex:none;}
 }
 .track-card {min-height:70px;}
+.home-current-request {padding-top:8px!important;padding-bottom:0!important;}
+.home-current-request .section-head h2 {font-size:1.0625rem;color:#0f1f3a;}
+.home-current-request .last-order-card {border-color:#d8e1eb;box-shadow:0 8px 22px rgba(8,43,88,.07);}
+.last-order-meta {display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:4px;}
+.last-order-meta time {color:#687388;font-size:.7rem;}
 .screen[data-screen="home"] .track-card, .screen[data-screen="home"] .help-strip, .screen[data-screen="home"] .pending-payment-card {border-radius:20px;border-color:#e2e7ef;}
 .screen[data-screen="home"] .home-banner .banner-track {box-shadow:none;border:1px solid #e2e7ef;border-radius:20px;}
 .screen[data-screen="home"] .home-banner .banner-slide {min-height:104px;}
@@ -117,6 +132,8 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 .payment-safety strong {font-size:.9rem;}
 .payment-safety span,.payment-safety small {font-size:.78rem;}
 .payment-safety small {color:#4f6654;}
+.copy-success {background:#e6f4ea!important;border-color:#9cc9a8!important;color:#245b34!important;}
+.empty-state-hint {display:block;margin:-6px auto 14px;max-width:26rem;color:#687388;font-size:.75rem;line-height:1.6;}
 .request-next-action {display:grid;gap:3px;margin-top:10px;padding:11px 12px;border-radius:13px;background:#fff7df;border:1px solid #ead89f;text-align:start;}
 .request-next-action small {color:#745d1b;font-size:.75rem;font-weight:700;}
 .request-next-action strong {color:#3d3214;font-size:.875rem;line-height:1.6;}
@@ -139,8 +156,8 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 .icon-btn {min-width:48px;min-height:48px;width:48px;height:48px;flex-basis:48px;}
 .screen-head-spacer {width:48px;}
 @media (prefers-reduced-motion:reduce) {
-  .hc-tile, .hc-feature-cta, .home-journey-grid, .welcome-guest {animation:none;transition:none;}
-  button.hc-tile:active, .hc-feature-cta:active {transform:none;}
+  .hc-tile, .hc-feature-cta, .home-journey-grid, .welcome-guest, .home-umrah-orbit, .package-card, .package-radio, .hc-egypt-option, .variant-card, .journey-meter > span {animation:none;transition:none;}
+  button.hc-tile:active, .hc-feature-cta:active, .package-card:active, button.hc-egypt-option:active, .variant-card:active {transform:none;}
 }
 
 /* Services directory (B/A direction, unchanged). */
@@ -169,27 +186,50 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 button.hc-umrah-kind {width:100%;min-height:48px;border:0;color:#fff;font:inherit;text-align:start;cursor:pointer;transition:background-color .14s ease-out;}
 button.hc-umrah-kind:active {background:rgba(255,255,255,.2);}
 .hc-umrah-kind.is-unavailable {opacity:.75;}
-.hc-tile-egypt {grid-column:1 / -1;gap:10px;}
+.hc-tile-egypt {grid-column:1 / -1;gap:10px;background:linear-gradient(145deg,#fff 0%,#f0f8f6 100%);border-color:#cfe3dc;}
 .hc-egypt-head {display:flex;align-items:center;gap:10px;}
 .hc-egypt-head strong {font-size:1rem;font-weight:700;}
+.hc-tile-egypt .hc-tile-icon {background:#dcefe9;color:#176553;}
 .hc-egypt-options {display:grid;grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr));gap:8px;}
-.hc-egypt-option {min-height:48px;display:grid;gap:2px;align-content:start;padding:8px 10px;border-radius:12px;background:#eaf0f8;border:0;color:#0f1f3a;font:inherit;text-align:start;cursor:pointer;}
+.hc-egypt-option {min-height:48px;display:grid;gap:2px;align-content:start;padding:8px 10px;border-radius:12px;background:#fff;border:1px solid #d7e7e2;color:#0f1f3a;font:inherit;text-align:start;cursor:pointer;transition:transform .16s ease-out,border-color .16s ease-out,background-color .16s ease-out;}
 .hc-egypt-option span {font-size:.8125rem;color:#56607a;}
 .hc-egypt-option b {font-size:.9375rem;font-weight:700;color:#082b58;}
 .hc-egypt-option small {font-size:.75rem;color:#56607a;}
-button.hc-egypt-option:active {background:#dbe5f2;}
+button.hc-egypt-option:active {transform:scale(.98);background:#e5f2ee;border-color:#9bc8bb;}
 .hc-egypt-option.is-unavailable {opacity:.7;cursor:default;}
 .variant-card .variant-sdg, .variant-prices small {display:block;font-size:.75rem;font-weight:600;color:var(--text-muted);}
 
 .umrah-choose {padding-top:12px!important;}
 .umrah-title {font-size:1.125rem;font-weight:700;color:#0f1f3a;margin:0 0 2px;}
-.package-card {align-items:flex-start;min-height:48px;border-width:1.5px;cursor:pointer;}
+.package-card {position:relative;align-items:flex-start;min-height:48px;border-width:1.5px;cursor:pointer;transition:transform .18s ease-out,border-color .18s ease-out,box-shadow .18s ease-out,background-color .18s ease-out;}
+.package-card:not([disabled]):active {transform:scale(.985);}
 .package-card .package-body {flex:1;min-width:0;display:grid;gap:2px;}
-.package-card .package-radio {flex:none;width:22px;height:22px;margin-top:2px;border-radius:50%;border:2px solid #b9c4d6;background:#fff;}
-.package-card.selected {border-color:#082b58;box-shadow:0 0 0 3px rgba(8,43,88,.08);}
-.package-card.selected .package-radio {border:7px solid #082b58;}
+.package-title-row {display:flex;flex-wrap:wrap;align-items:center;gap:5px 8px;}
+.package-card .package-title-row > b {font-size:.94rem;line-height:1.45;}
+.package-card .package-kind {margin:0;padding:3px 8px;background:#edf2f8;font-size:.68rem;line-height:1.35;}
+.package-card .package-description {font-size:.76rem;line-height:1.55;color:#5f6a7e;}
+.package-card .package-duration {display:flex;align-items:center;gap:4px;margin-top:3px;color:#4c5b70;font-size:.72rem;}
+.package-card .package-included,.package-card .package-excluded {display:flex;align-items:flex-start;gap:6px;margin-top:6px;padding:7px 8px;border-radius:10px;font-size:.72rem;line-height:1.55;}
+.package-card .package-included {background:#edf7f0;color:#28583a;}
+.package-card .package-excluded {background:#faf1ef;color:#78433a;}
+.package-card .package-included i,.package-card .package-excluded i {display:grid;place-items:center;flex:none;width:19px;height:19px;border-radius:50%;font-style:normal;}
+.package-card .package-included i {background:#d5eadb;color:#27613a;}
+.package-card .package-excluded i {background:#f0dcd7;color:#8b473c;}
+.package-card .package-included b,.package-card .package-excluded b {display:inline;color:inherit;font-size:inherit;}
+.package-card .package-radio {position:relative;flex:none;width:22px;height:22px;margin-top:2px;border-radius:50%;border:2px solid #b9c4d6;background:#fff;transition:border-color .18s ease-out,background-color .18s ease-out;}
+.package-card.selected {border-color:#c89a36;background:#fffdf6;box-shadow:0 0 0 3px rgba(214,170,75,.16),0 10px 24px rgba(8,43,88,.07);}
+.package-card.selected .package-radio {border-color:#c89a36;background:#d6aa4b;}
+.package-card.selected .package-radio::after {content:"";position:absolute;inset:5px;border-radius:50%;background:#fff;}
 .package-card.package-unavailable {opacity:.65;cursor:not-allowed;}
 .package-card .package-price {text-align:end;font-size:.9375rem;}
+.variant-list {grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));}
+.variant-card {position:relative;display:grid;grid-template-columns:auto 1fr;align-items:start;gap:8px 10px;min-height:128px;transition:transform .18s ease-out,border-color .18s ease-out,background-color .18s ease-out,box-shadow .18s ease-out;}
+.variant-card:not([disabled]):active {transform:scale(.985);}
+.variant-method-icon {display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:#e5f2ee;color:#176553;}
+.variant-copy {display:grid;gap:3px;min-width:0;}
+.variant-copy strong {line-height:1.45;color:#17304b;}
+.variant-choose {grid-column:1 / -1;display:flex;align-items:center;justify-content:flex-end;gap:3px;color:#176553;font-size:.75rem;font-weight:750;}
+.variant-card.selected {border-color:#299178;background:#f1faf7;box-shadow:0 0 0 3px rgba(41,145,120,.11);}
 
 .intake-single .form-section h3 {font-size:1rem;}
 .traveler-card {position:relative;}
@@ -200,7 +240,11 @@ button.hc-egypt-option:active {background:#dbe5f2;}
 
 /* Request tracking: the customer's moments, the task first, every server stage one tap away. */
 .journey-block {display:grid;gap:10px;}
+.journey-summary {display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
 .journey-headline {margin:0;font-size:1.25rem;font-weight:800;line-height:1.4;color:#082b58;}
+.journey-count {flex:none;padding:4px 8px;border-radius:999px;background:#eef2f7;color:#56647a;font-size:.7rem;font-weight:700;white-space:nowrap;}
+.journey-meter {height:7px;overflow:hidden;border-radius:999px;background:#e7ebf1;}
+.journey-meter > span {display:block;width:var(--journey-progress);height:100%;border-radius:inherit;background:linear-gradient(90deg,#c49535,#e4c36d);transition:width .28s ease-out;}
 .journey-action {min-height:48px;}
 .journey-stages {list-style:none;margin:4px 0 0;padding:0;display:grid;gap:0;}
 .journey-stage {position:relative;display:flex;gap:12px;align-items:flex-start;padding:0 0 16px;}

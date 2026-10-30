@@ -76,9 +76,12 @@ export async function renderEgyptClearanceScreen({ bodyEl, params }) {
         .map(
           (option) => `
             <button type="button" class="variant-card${option.bookable ? "" : " variant-unavailable"}" role="radio" aria-checked="false" data-code="${esc(option.code)}" ${option.bookable ? "" : 'disabled aria-disabled="true"'}>
-              <strong>${esc(option.name)}</strong>
-              <span class="variant-price${option.bookable ? "" : " variant-price-quote"}"><bdi>${esc(option.priceText)}</bdi></span>
-              ${option.sdgText ? `<small class="variant-sdg"><bdi>${esc(option.sdgText)}</bdi></small>` : ""}
+              <span class="variant-method-icon" aria-hidden="true">${icon(option.entryMode === "AIR" ? "plane" : "map-pin", { size: 22 })}</span>
+              <span class="variant-copy"><strong>${esc(option.name)}</strong>
+                <span class="variant-price${option.bookable ? "" : " variant-price-quote"}"><bdi>${esc(option.priceText)}</bdi></span>
+                ${option.sdgText ? `<small class="variant-sdg"><bdi>${esc(option.sdgText)}</bdi></small>` : ""}
+              </span>
+              ${option.bookable ? `<span class="variant-choose">اختر ${icon("chevron-start", { size: 14 })}</span>` : ""}
             </button>`
         )
         .join("")}

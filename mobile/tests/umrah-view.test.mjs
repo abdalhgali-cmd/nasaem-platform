@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isContactPhone, umrahNeedsGuarantor, umrahPackageDetails, umrahPriceText, validateUmrahContacts } from "../www/js/umrah-view.js";
+import { isContactPhone, umrahNeedsGuarantor, umrahPackageDetails, umrahPackageSummary, umrahPriceText, validateUmrahContacts } from "../www/js/umrah-view.js";
 
 const air = { id: "a", code: "SVC-UMRAH-AIR", name: "عمرة مع خدمات الطيران", category: "UMRAH_PACKAGE", pricingMode: "FIXED", basePrice: "1500", currency: "SAR", priceUnit: "PER_TRAVELER", features: ["KIND: AIR", "INCLUDED: إصدار تأشيرة العمرة", "INCLUDED: تذاكر الطيران", "EXCLUDED: السكن"] };
 
@@ -8,6 +8,19 @@ test("package type, inclusions and exclusions come from the package's features",
   assert.deepEqual(umrahPackageDetails(air), { kind: "AIR", kindLabel: "مع خدمات الطيران", included: ["إصدار تأشيرة العمرة", "تذاكر الطيران"], excluded: ["السكن"] });
   assert.equal(umrahPackageDetails({ features: ["KIND: other"] }).kind, null);
   assert.equal(umrahPackageDetails({}).kind, null);
+});
+
+test("package comparison stays compact and reports hidden real features", () => {
+  const item = {
+    ...air,
+    features: ["KIND: AIR", "INCLUDED: التأشيرة", "INCLUDED: الطيران", "INCLUDED: الاستقبال", "INCLUDED: النقل", "EXCLUDED: السكن", "EXCLUDED: الوجبات", "EXCLUDED: التأمين"],
+  };
+  const summary = umrahPackageSummary(item);
+  assert.deepEqual(summary.included, ["التأشيرة", "الطيران", "الاستقبال"]);
+  assert.deepEqual(summary.excluded, ["السكن", "الوجبات"]);
+  assert.equal(summary.moreIncluded, 1);
+  assert.equal(summary.moreExcluded, 1);
+  assert.deepEqual(umrahPackageDetails(item).included, ["التأشيرة", "الطيران", "الاستقبال", "النقل"], "source details remain complete");
 });
 
 test("a fixed package shows its exact price per pilgrim or per request; a quoted one shows none", () => {

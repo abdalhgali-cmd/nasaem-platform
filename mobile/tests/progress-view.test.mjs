@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { progressBlockHtml, progressSteps } from "../www/js/progress-view.js";
+import { journeyCompletion, progressBlockHtml, progressSteps } from "../www/js/progress-view.js";
 import { paymentState } from "../www/js/payment-view.js";
 
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -68,7 +68,13 @@ test("customer journey: four moments, agency review folded into them", async () 
   ]);
   assert.equal(journey.headline, "جارٍ إصدار التأشيرة", "the server's own line");
   assert.equal(journey.action, null);
+  assert.deepEqual(journey.completion, { done: 2, total: 4, percent: 50 });
   assert.ok(!journey.stages.some((s) => /مراجعة/.test(s.label)), "no internal review step");
+});
+
+test("journey completion is derived only from server-backed stage states", () => {
+  assert.deepEqual(journeyCompletion([{ state: "done" }, { state: "current" }, { state: "upcoming" }]), { done: 1, total: 3, percent: 33 });
+  assert.deepEqual(journeyCompletion([]), { done: 0, total: 0, percent: 0 });
 });
 
 test("customer journey: receipt under review is a sub-status of «الدفع»", async () => {
@@ -102,6 +108,8 @@ test("journey block keeps every server stage one tap away and escapes server tex
   const html = journeyBlockHtml(fixedSteps({ label: "<b>x</b>", RECEIVED: "done", DOCUMENTS: "done", PAYMENT: "current", PAYMENT_REVIEW: "upcoming", EXECUTION: "upcoming", DELIVERY: "upcoming" }), esc, { status: "NEW", allowedActions: ["UPLOAD_RECEIPT"] });
   assert.match(html, /id="requestProgress"/, "full stage list inside «التفاصيل»");
   assert.match(html, /id="journeyActionBtn"/);
+  assert.match(html, /role="progressbar"/);
+  assert.match(html, /اكتملت 1 من 4/);
   assert.doesNotMatch(html, /<b>x<\/b>/);
   assert.equal(journeyBlockHtml(null, esc), "");
 });

@@ -7,6 +7,8 @@ export function toast(message, { tone = "default" } = {}) {
   if (!el) return;
   el.textContent = message;
   el.dataset.tone = tone;
+  el.setAttribute("role", tone === "error" ? "alert" : "status");
+  el.setAttribute("aria-live", tone === "error" ? "assertive" : "polite");
   el.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
@@ -47,7 +49,7 @@ export function emptyState({ icon: iconName = "inbox", title, hint = "", action 
   `;
 }
 
-export function errorState(message, { onRetry } = {}) {
+export function errorState(message, { onRetry, title = "تعذر تحميل البيانات", hint = "" } = {}) {
   const id = `retry-${Math.random().toString(36).slice(2, 8)}`;
   if (onRetry) {
     queueMicrotask(() => {
@@ -57,8 +59,9 @@ export function errorState(message, { onRetry } = {}) {
   return `
     <div class="empty-state empty-state-error">
       <div class="empty-state-icon">${icon("alert", { size: 26 })}</div>
-      <strong>تعذر تحميل البيانات</strong>
+      <strong>${esc(title)}</strong>
       <p>${esc(message)}</p>
+      ${hint ? `<small class="empty-state-hint">${esc(hint)}</small>` : ""}
       ${onRetry ? `<button id="${id}" class="secondary">إعادة المحاولة</button>` : ""}
     </div>
   `;

@@ -1,6 +1,6 @@
 import { esc, toast, skeletonList, confirmDialog } from "../ui.js";
 import { startingPrice, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE, shortDescription, durationOf } from "../service-view.js";
-import { isUmrahPackage, umrahLoadState, umrahPackageDetails, umrahPriceText, UMRAH_PRICE_MISSING } from "../umrah-view.js";
+import { isUmrahPackage, umrahLoadState, umrahPackageSummary, umrahPriceText, UMRAH_PRICE_MISSING } from "../umrah-view.js";
 import { icon } from "../icons.js";
 import { loadCatalog, loadPackages } from "../catalog.js";
 import { loadAgency, whatsappLink } from "../agency.js";
@@ -106,19 +106,19 @@ export async function renderUmrahScreen({ bodyEl, params }) {
 }
 
 function packageCard(pkg) {
-  const details = umrahPackageDetails(pkg);
+  const details = umrahPackageSummary(pkg);
   const fixed = umrahPriceText(pkg);
   const price = startingPrice(pkg);
   const sdg = fixed && price ? sdgText(price) || (sdgUnavailable(price) ? SDG_UNAVAILABLE_NOTICE : "") : "";
   return `
-    <button type="button" class="package-card${fixed ? "" : " package-unavailable"}" role="radio" aria-checked="false" data-id="${esc(pkg.id)}" ${fixed ? "" : 'disabled aria-disabled="true"'}>
+    <button type="button" class="package-card${fixed ? "" : " package-unavailable"}" role="radio" aria-checked="false" data-id="${esc(pkg.id)}" aria-label="${esc(`${pkg.name}${fixed ? `، ${fixed}` : `، ${UMRAH_PRICE_MISSING}`}`)}" ${fixed ? "" : 'disabled aria-disabled="true"'}>
       <span class="package-radio" aria-hidden="true"></span>
       <div class="package-body">
-        <b>${esc(pkg.name)}</b>
-        ${details.kindLabel ? `<span class="package-kind">${esc(details.kindLabel)}</span>` : ""}
-        ${shortDescription(pkg) ? `<span>${esc(shortDescription(pkg))}</span>` : ""}${durationOf(pkg) ? `<span>${esc(durationOf(pkg))}</span>` : ""}
-        ${details.included.length ? `<span class="package-included">يشمل: ${esc(details.included.join("، "))}</span>` : ""}
-        ${details.excluded.length ? `<span class="package-excluded">لا يشمل: ${esc(details.excluded.join("، "))}</span>` : ""}
+        <span class="package-title-row"><b>${esc(pkg.name)}</b>${details.kindLabel ? `<span class="package-kind">${esc(details.kindLabel)}</span>` : ""}</span>
+        ${shortDescription(pkg) ? `<span class="package-description">${esc(shortDescription(pkg, 82))}</span>` : ""}
+        ${durationOf(pkg) ? `<span class="package-duration">${icon("clock", { size: 13 })} ${esc(durationOf(pkg))}</span>` : ""}
+        ${details.included.length ? `<span class="package-included"><i>${icon("check", { size: 13 })}</i><span><b>يشمل</b> ${esc(details.included.join("، "))}${details.moreIncluded ? `، و${details.moreIncluded} إضافية` : ""}</span></span>` : ""}
+        ${details.excluded.length ? `<span class="package-excluded"><i>${icon("close", { size: 13 })}</i><span><b>لا يشمل</b> ${esc(details.excluded.join("، "))}${details.moreExcluded ? `، و${details.moreExcluded} إضافية` : ""}</span></span>` : ""}
       </div>
       ${fixed
         ? `<strong class="package-price"><bdi>${esc(fixed)}</bdi>${sdg ? `<small><bdi>${esc(sdg)}</bdi></small>` : ""}</strong>`

@@ -71,6 +71,11 @@ export async function renderHomeScreen({ bodyEl }) {
     </header>
     <div id="pendingPaymentMount"></div>
 
+    <section class="section home-current-request" id="activitySection" hidden>
+      <div class="section-head"><h2 id="activityTitle">طلبك الحالي</h2></div>
+      <div class="activity-list" id="activityList"></div>
+    </section>
+
     <section class="hc-bento-wrap" aria-label="خدمات الوكالة">
       <div class="hc-section-intro">
         <h2>اختر خدمتك</h2>
@@ -96,11 +101,6 @@ export async function renderHomeScreen({ bodyEl }) {
         <li><span>٣</span><strong>ادفع للحساب المعتمد</strong></li>
         <li><span>٤</span><strong>تابع حتى التسليم</strong></li>
       </ol>
-    </section>
-
-    <section class="section" id="activitySection" hidden>
-      <div class="section-head"><h2>نشاطك</h2></div>
-      <div class="activity-list" id="activityList"></div>
     </section>
 
     <section class="section">
@@ -149,12 +149,20 @@ function publishedUmrah(catalog) {
 
 function umrahTile() {
   return `
-    <div class="hc-tile hc-tile-feature">
-      <span class="hc-tile-icon">${icon("umrah", { size: 24 })}</span>
-      <span class="hc-feature-copy"><strong>العمرة</strong><small>تأشيرة فقط أو عمرة مع خدمات الطيران أو البحر — بسعر ثابت</small></span>
+    <article class="hc-tile hc-tile-feature home-umrah-hero">
+      <span class="home-umrah-orbit" aria-hidden="true"></span>
+      <div class="home-umrah-heading">
+        <span class="hc-tile-icon">${icon("umrah", { size: 24 })}</span>
+        <span class="home-umrah-kicker">رحلتك إلى بيت الله</span>
+      </div>
+      <span class="hc-feature-copy"><strong>عمرة بخطوات واضحة</strong><small>اختر تأشيرة فقط أو باقة مع خدمات الطيران أو البحر، واعرف السعر قبل إرسال الطلب.</small></span>
+      <div class="home-umrah-assurances" aria-label="مزايا الطلب">
+        <span>${icon("check-circle", { size: 14 })} سعر منشور</span>
+        <span>${icon("requests", { size: 14 })} متابعة مباشرة</span>
+      </div>
       <ul class="hc-umrah-kinds" id="homeUmrahKinds" aria-label="أنواع العمرة وأسعارها" hidden></ul>
       <button type="button" class="hc-feature-cta" id="homeUmrahBtn">اختر باقة العمرة ${icon("chevron-start", { size: 18 })}</button>
-    </div>`;
+    </article>`;
 }
 
 // The published Umrah kinds with their real prices (/services/public/packages).
@@ -273,6 +281,7 @@ async function loadActivitySection(bodyEl) {
     ]);
     if (!list.isConnected) return;
     const cards = [];
+    let hasCurrentRequest = false;
 
     const latestOrder = overviewRes.data?.recentOrders?.[0] || null;
     const latestRequest = requestsRes.data?.[0] || null;
@@ -281,6 +290,7 @@ async function loadActivitySection(bodyEl) {
     let openLatest = null;
 
     if (orderTime >= 0 || requestTime >= 0) {
+      hasCurrentRequest = true;
       const useRequest = requestTime >= orderTime;
       const title = useRequest
         ? (latestRequest.service?.name || latestRequest.visaType?.name || "طلب خدمة")
@@ -288,6 +298,15 @@ async function loadActivitySection(bodyEl) {
       const statusText = useRequest
         ? (latestRequest.status === "CLOSED" && latestRequest.outcome ? REQUEST_OUTCOME_AR[latestRequest.outcome] : REQUEST_STATUS_AR[latestRequest.status]) || latestRequest.status
         : ORDER_STATUS_AR[latestOrder.status] || latestOrder.status;
+      const updatedAt = useRequest
+        ? (latestRequest.updatedAt || latestRequest.createdAt)
+        : (latestOrder.updatedAt || latestOrder.createdAt);
+      let updatedText = "";
+      try {
+        if (updatedAt) updatedText = new Intl.DateTimeFormat("ar", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(updatedAt));
+      } catch {
+        // A malformed legacy timestamp should not hide the current request.
+      }
       openLatest = () => {
         if (useRequest) go("requestDetail", { requestId: latestRequest.id }, { title: "تفاصيل الطلب", tab: "requests" });
         else go("orderDetail", { orderId: latestOrder.id }, { title: "تفاصيل الطلب", tab: "requests" });
@@ -298,7 +317,7 @@ async function loadActivitySection(bodyEl) {
           <div class="last-order-body">
             <small>آخر طلب</small>
             <strong>${esc(title)}</strong>
-            <span class="status-pill">${esc(statusText)}</span>
+            <span class="last-order-meta"><span class="status-pill">${esc(statusText)}</span>${updatedText ? `<time datetime="${esc(updatedAt)}">آخر تحديث ${esc(updatedText)}</time>` : ""}</span>
           </div>
           <span class="chevron">${icon("chevron-start", { size: 18 })}</span>
         </button>`);
@@ -320,6 +339,8 @@ async function loadActivitySection(bodyEl) {
     }
 
     if (!cards.length) return;
+    const title = bodyEl.querySelector("#activityTitle");
+    if (title) title.textContent = hasCurrentRequest ? "طلبك الحالي" : "تنبيهاتك";
     list.innerHTML = cards.join("");
     stagger(list);
     section.hidden = false;

@@ -85,7 +85,7 @@ export function receiptPickerHtml(esc, icon) {
         </label>
       </div>
       <p class="field-error" data-receipt-error role="alert" hidden></p>
-      <div class="upload-progress-wrap" data-receipt-progress hidden>
+      <div class="upload-progress-wrap" data-receipt-progress role="progressbar" aria-label="رفع إشعار التحويل" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
         <div class="upload-progress-bar"><div class="upload-progress-fill" data-receipt-progress-fill></div></div>
         <small data-receipt-progress-text></small>
       </div>
@@ -179,6 +179,7 @@ export function bindReceiptPicker(root, { esc, icon, validate, initialFile = nul
     setProgress(percent) {
       fill.style.width = `${percent}%`;
       progressText.textContent = `جارٍ الرفع… ${Math.round(percent)}%`;
+      progress.setAttribute("aria-valuenow", String(Math.round(percent)));
     },
   };
 }
@@ -216,6 +217,16 @@ export function bindCopyButtons(root, toast) {
       event.preventDefault();
       try {
         await navigator.clipboard.writeText(button.dataset.copy);
+        const original = button.textContent;
+        button.textContent = "تم النسخ ✓";
+        button.classList.add("copy-success");
+        button.disabled = true;
+        setTimeout(() => {
+          if (!button.isConnected) return;
+          button.textContent = original;
+          button.classList.remove("copy-success");
+          button.disabled = false;
+        }, 1600);
         toast("تم النسخ");
       } catch {
         toast("انسخ الرقم يدويًا", { tone: "error" });

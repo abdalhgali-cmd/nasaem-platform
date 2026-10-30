@@ -28,3 +28,12 @@ test("home explains the honest request flow and keeps tracking prominent", () =>
   assert.match(homeSource, /تابع حتى التسليم/);
   assert.match(homeSource, /id="homeTrackBtn"/);
 });
+
+test("home feels alive through a real Umrah hero and current-request data, not promotional claims", () => {
+  assert.match(homeSource, /home-umrah-hero/);
+  assert.match(homeSource, /رحلتك إلى بيت الله/);
+  assert.match(homeSource, /سعر منشور/);
+  assert.match(homeSource, /طلبك الحالي/);
+  assert.match(homeSource, /آخر تحديث/);
+  assert.doesNotMatch(homeSource, /الأكثر طلبًا|الأفضل|عدد العملاء/);
+});
