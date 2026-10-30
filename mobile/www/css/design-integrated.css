@@ -132,6 +132,16 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 .payment-safety strong {font-size:.9rem;}
 .payment-safety span,.payment-safety small {font-size:.78rem;}
 .payment-safety small {color:#4f6654;}
+.payment-journey {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:0 0 18px;padding:0;list-style:none;}
+.payment-journey-step {position:relative;display:grid;justify-items:center;gap:6px;color:#89918b;font-size:.7rem;text-align:center;line-height:1.35;}
+.payment-journey-step:not(:last-child)::after {content:"";position:absolute;top:13px;right:calc(50% + 14px);width:calc(100% - 28px);height:2px;background:#dfe5e0;}
+.payment-journey-dot {position:relative;z-index:1;display:grid;place-items:center;width:28px;height:28px;border:2px solid #d6ded8;border-radius:50%;background:#fff;color:#7c857f;font-weight:800;}
+.payment-journey-step.is-done {color:#315b39;}
+.payment-journey-step.is-done .payment-journey-dot {border-color:#4e8a59;background:#4e8a59;color:#fff;}
+.payment-journey-step.is-done:not(:last-child)::after {background:#75a77d;}
+.payment-journey-step.is-current {color:#183f25;font-weight:800;}
+.payment-journey-step.is-current .payment-journey-dot {border-color:#c9952d;background:#fff8e6;color:#8a6417;box-shadow:0 0 0 4px rgba(201,149,45,.12);}
+.status-note.status-success {border-color:#b9d9bf;background:#eef8f0;color:#244d2c;}
 .copy-success {background:#e6f4ea!important;border-color:#9cc9a8!important;color:#245b34!important;}
 .empty-state-hint {display:block;margin:-6px auto 14px;max-width:26rem;color:#687388;font-size:.75rem;line-height:1.6;}
 .request-next-action {display:grid;gap:3px;margin-top:10px;padding:11px 12px;border-radius:13px;background:#fff7df;border:1px solid #ead89f;text-align:start;}

@@ -28,6 +28,7 @@ import {
 } from "../payment-receipt.js";
 import { savePendingPayment, clearPendingPayment, clearPendingPaymentFor } from "../experience-core.js";
 import { egyptStepsHtml, isEgyptPaymentJourney } from "../egypt-view.js";
+import { paymentJourneyHtml } from "../payment-journey.js";
 
 function paymentPath(id) {
   return `/contact-requests/${encodeURIComponent(id)}/payment-access`;
@@ -94,10 +95,12 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
   const sdgText = summary.currency !== "SDG" && Number(summary.amountSdg) > 0 ? formatAmount(summary.amountSdg, "SDG") : "";
   const options = normalizeSettlementOptions(summary);
   const underReview = summary.paymentStatus === "UNDER_REVIEW";
+  const confirmed = summary.paymentStatus === "CONFIRMED";
 
   bodyEl.innerHTML = `
     ${egyptPayment ? egyptStepsHtml(3, esc) : ""}
     <div class="detail-block payment-step" data-testid="direct-payment-step">
+      ${paymentJourneyHtml(summary)}
       ${params.resumed ? `<p class="field-hint" id="paymentResumed">طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.</p>` : ""}
       <p class="field-hint">طلبك محفوظ برقم <code dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ إلى أحد الحسابات المعتمدة ثم ارفع إشعار التحويل.</p>
       <h4>الدفع بالتحويل البنكي</h4>
@@ -107,6 +110,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
         : summary.currency && summary.currency !== "SDG" ? `<p class="field-hint" id="paymentSdgUnavailable">المقابل بالجنيه السوداني غير متاح لهذه الفاتورة؛ حوّل بالعملة الظاهرة.</p>` : ""}
       ${summary.rejectionReason ? `<p class="field-error" role="alert">لم يُقبل الإشعار السابق: ${esc(summary.rejectionReason)}</p>` : ""}
       ${underReview ? `<p class="status-note" id="paymentUnderReview" role="status"><b>بانتظار مراجعة الدفع</b> — وصل إشعار التحويل، ويؤكد موظف الوكالة استلام المبلغ بعد مطابقته مع البنك.</p>` : ""}
+      ${confirmed ? `<p class="status-note status-success" id="paymentConfirmed" role="status"><b>تم تأكيد الدفع</b> — لا تحتاج إلى إجراء آخر الآن. طلبك في انتظار بدء التنفيذ من فريق الوكالة.</p>` : ""}
       ${summary.paymentOpen && !underReview
         ? options.length
           ? `
@@ -119,18 +123,39 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
           </form>`
           : noSettlementAccountHtml(esc, summary.currency)
         : !underReview ? `<p class="field-hint"><b>${esc(summary.paymentStatusLabel || "")}</b></p>${(summary.lockReasons || []).map((reason) => `<p class="field-hint">${esc(reason)}</p>`).join("")}` : ""}
-      <button type="button" class="secondary" id="paymentLaterBtn">${summary.paymentOpen && !underReview ? options.length ? "سأحوّل لاحقًا" : "متابعة بدون دفع الآن" : "متابعة"}</button>
+      ${!underReview && !confirmed ? `<button type="button" class="secondary" id="paymentLaterBtn">${summary.paymentOpen ? options.length ? "سأحوّل لاحقًا" : "متابعة بدون دفع الآن" : "متابعة"}</button>` : ""}
       <button type="button" class="secondary" id="trackRequestNowBtn">عرض مراحل الطلب في طلباتي</button>
       <p class="field-hint">يمكنك متابعة مراحل الطلب من «طلباتي» بعد التحقق من رقم الهاتف، حتى لو لم تدفع بعد.</p>
       ${summary.paymentOpen && !underReview ? `<p class="field-hint">يبقى «أكمل الدفع» ظاهرًا في الرئيسية حتى ترفع الإشعار.</p>` : ""}
     </div>`;
 
   bindCopyButtons(bodyEl, toast);
-  bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(paymentParams, summary, { keepPending: Boolean(summary.paymentOpen) && !underReview }));
+  bodyEl.querySelector("#paymentLaterBtn")?.addEventListener("click", () => finish(paymentParams, summary, { keepPending: Boolean(summary.paymentOpen) && !underReview }));
   bodyEl.querySelector("#trackRequestNowBtn").addEventListener("click", () => {
     if (params.phone) setTrackingPrefill(params.phone);
     goToTab("requests", "requests", { title: "طلباتي" });
   });
+
+  // Keep the customer in one continuous journey after uploading the receipt.
+  // While finance reviews it, refresh this same screen until the server says
+  // the payment is confirmed (or rejected). The server remains the sole source
+  // of truth; the client never turns an upload into a confirmed payment.
+  if (underReview) {
+    const refreshPaymentState = async () => {
+      if (!bodyEl.isConnected || !bodyEl.querySelector("#paymentUnderReview")) return;
+      try {
+        const current = (await api(paymentPath(params.id), { headers })).data;
+        if (current.paymentStatus !== summary.paymentStatus || current.rejectionReason !== summary.rejectionReason) {
+          await renderRequestPaymentScreen({ bodyEl, params: paymentParams });
+          return;
+        }
+      } catch {
+        // A temporary refresh failure does not interrupt the visible journey.
+      }
+      if (bodyEl.isConnected) setTimeout(refreshPaymentState, 15_000);
+    };
+    setTimeout(refreshPaymentState, 15_000);
+  }
 
   const form = bodyEl.querySelector("#directReceiptForm");
   if (!form) return;
@@ -178,7 +203,8 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
         clearPendingPaymentFor(localStorage, params.id);
         return;
       }
-      finish(paymentParams, request || summary);
+      clearPendingPaymentFor(localStorage, params.id);
+      renderRequestPaymentScreen({ bodyEl, params: paymentParams });
     };
     try {
       const res = await apiUpload(`${paymentPath(params.id)}/receipt`, payload, (percent) => picker.setProgress(percent), headers);
