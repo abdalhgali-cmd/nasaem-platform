@@ -6,6 +6,22 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
+## Admin design system — Phase 1 (Admin Shell, PR #147) and Phase 2 (Operations Center) — 2026-10-31
+
+Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build/`). Next.js `/admin/*` is the approved future admin; the static back-office stays in service. Not merged, nothing deployed, no backend/API/pricing/payment/permission change, no migration.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Phase 0 + 1: admin-scoped tokens (`web/src/app/admin/admin-theme.css`), Admin Shell (official logo, navy rail, breadcrumb, role label, drawer), Appearance colours now public-site only | VERIFIED (local + CI) | PR #147 `feat/admin-ds-shell-20261031`. CI run 41205709340: Backend ✅, Frontend ✅, Backup drill ✅, Playwright 115 passed / 4 failed — the same 4 static-customer-app tests fail on base `bd7e3b9` (run 41026017928: 111/4); Vercel «Account is blocked» on base too |
+| Shell roles, session, notifications | VERIFIED (local) | `web/e2e/admin-shell.spec.ts` 8/8: SUPER_ADMIN, ADMIN, EMPLOYEE, ACCOUNTANT menus; signed-out redirect; notifications link; logout ends the session (`4d0fe06`) |
+| Phase 2: Operations Center on real data only | VERIFIED (local) | Branch `feat/admin-ds-ops-center-20261031` (stacked on #147). Sources: `/dashboard/operations` (all staff), `/contact-requests/egypt/queue?view=schedule`, `/contact-requests?serviceKind=UMRAH`, `/contact-requests/queue-summary` (SUPER_ADMIN/ADMIN/EMPLOYEE; never called for ACCOUNTANT). R1: Egypt panel ordered by travel date, undated last. R2: red only for `pastDue` (dueAt), an open Egypt request past its travel date, or SLA `OVERDUE`; 24 h inactivity amber «ليس تأخرًا عن موعد». Payments read-only, decisions only on `/admin/payment-review` |
+| Operations Center tests | VERIFIED (local) | `ops-model.spec.ts` 9/9 (R2, owners, workload), `admin-operations-center.spec.ts` 4/4 (3 roles, no failed API calls, no approve/reject buttons, row opens its workspace), `web.spec.ts` mobile Operations Center/Payment Review 4/4 (4 filter selects, refresh, search unchanged). Screenshots `docs/admin-design-system/phase-2/` (local DB; TEST-OPS Egypt rows inserted into the disposable DB only) |
+| Known limits (not faked) | OPEN | Request-form rows other than Egypt/Umrah have no owner on `/dashboard/operations` → «يظهر في مساحة العمل»; ACCOUNTANT has no deadline data → no red for that role; Umrah travel date is the customer's provisional preference |
+| Codex review | SKIPPED (owner decision 2026-10-31) | Codex usage limit; owner chose to proceed without it |
+| Real Android device, staging | NOT VERIFIED | no device, no staging access/approval |
+
+**NEXT:** owner visual approval of Phase 2; Phase 3 (Egypt Case Workspace) — directive text was cut off after «Stage A — Security approval», awaiting the rest.
+
 ## Umrah + Egypt only — audit and first fix (2026-10-26, branch `ccr-089babd5-hgh9qj`, base `fix/egypt-intake-staging-20261024` @ `fef0f41` / PR #139)
 
 Scope: Umrah and Egypt security approval only (`docs/CLAUDE_NASAEM_UMRAH_EGYPT_ONLY.md`); other services untouched. Not merged, nothing deployed, no migration, no live data.
