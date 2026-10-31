@@ -102,7 +102,7 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
     <div class="detail-block payment-step" data-testid="direct-payment-step">
       ${paymentJourneyHtml(summary)}
       ${params.resumed ? `<p class="field-hint" id="paymentResumed">طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.</p>` : ""}
-      <p class="field-hint">طلبك محفوظ برقم <code dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ إلى أحد الحسابات المعتمدة ثم ارفع إشعار التحويل.</p>
+      <p class="field-hint">طلبك محفوظ برقم <code id="requestReference" dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ إلى أحد الحسابات المعتمدة ثم ارفع إشعار التحويل.</p>
       <h4>الدفع بالتحويل البنكي</h4>
       ${paymentSafetyHtml()}
       <p class="payment-amount">قيمة الفاتورة: <strong id="directPaymentAmount"><bdi>${esc(amountText)}</bdi></strong></p>

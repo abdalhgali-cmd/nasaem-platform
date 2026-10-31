@@ -316,7 +316,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     await expect(app.locator("#requestJourney .journey-headline")).toHaveText(headline);
   }
 
-  for (const journey of JOURNEYS) {
+  // The current public release offers Umrah and Egypt only. Keep the legacy
+  // journey definitions above for the later catalogue release, but exercise
+  // only services that a customer can actually start in this UI.
+  for (const journey of JOURNEYS.filter((item) => item.name === "Umrah" || item.name === "Egypt clearance")) {
     test(`${journey.name}: request, documents, price, payment, execution, delivery`, async () => {
       test.setTimeout(240_000);
       // Egypt shows its typed files (approval, circular, receipt, tickets).

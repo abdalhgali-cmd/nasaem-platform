@@ -142,6 +142,11 @@ button.hc-tile:active {transform:scale(.97);background:#eaf0f8;}
 .payment-journey-step.is-current {color:#183f25;font-weight:800;}
 .payment-journey-step.is-current .payment-journey-dot {border-color:#c9952d;background:#fff8e6;color:#8a6417;box-shadow:0 0 0 4px rgba(201,149,45,.12);}
 .status-note.status-success {border-color:#b9d9bf;background:#eef8f0;color:#244d2c;}
+.requests-live-bar {display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 16px 12px;padding:8px 11px;border:1px solid #d8e6da;border-radius:12px;background:#f3f9f4;color:#315d39;font-size:.75rem;font-weight:700;}
+.requests-live-bar span {display:flex;align-items:center;gap:6px;}
+.requests-live-bar i {width:8px;height:8px;border-radius:50%;background:#429653;box-shadow:0 0 0 3px rgba(66,150,83,.13);}
+.request-live-status {color:#173e24!important;font-weight:800;}
+.request-next-copy,.request-updated-at {display:block;margin-top:3px;color:#687388;font-size:.7rem;line-height:1.45;}
 .copy-success {background:#e6f4ea!important;border-color:#9cc9a8!important;color:#245b34!important;}
 .empty-state-hint {display:block;margin:-6px auto 14px;max-width:26rem;color:#687388;font-size:.75rem;line-height:1.6;}
 .request-next-action {display:grid;gap:3px;margin-top:10px;padding:11px 12px;border-radius:13px;background:#fff7df;border:1px solid #ead89f;text-align:start;}

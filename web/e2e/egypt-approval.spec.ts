@@ -150,6 +150,8 @@ test.describe.serial("Egypt security approval: customer app and back-office", ()
     await app.setInputFiles('#directReceiptForm [data-receipt-input="PDF"]', { name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });
     await expect(app.locator("[data-receipt-name]")).toContainText("receipt.pdf");
     await app.locator("#sendReceiptBtn").click();
+    // The continuous journey stays on the payment screen after the receipt;
+    // its saved request reference remains visible there.
     await expect(app.locator("#requestReference")).toBeVisible({ timeout: 30_000 });
     airRequestId = (await app.locator("#requestReference").innerText()).trim();
 
