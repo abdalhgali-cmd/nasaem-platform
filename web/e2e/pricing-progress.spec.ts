@@ -17,7 +17,7 @@ const unique = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9
 // These legacy, dynamically-created visa journeys remain covered by backend
 // tests but cannot be entered through the customer UI until the visa directory
 // is released again.
-test.describe.serial.skip("pricing modes and interactive progress", () => {
+test.describe.skip("pricing modes and interactive progress", () => {
   const phone = `09${unique().slice(-8)}`;
   let appContext: BrowserContext;
   let app: Page;
