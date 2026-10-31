@@ -169,7 +169,9 @@ test.describe("Admin Shell — session and notifications", () => {
     await expect(staff).toHaveURL(/\/admin\/notifications$/);
 
     await staff.getByRole("banner").getByRole("button", { name: "تسجيل الخروج" }).click();
-    await expect(staff).toHaveURL(STAFF_LOGIN);
+    // Wait for the end of the redirect chain (/admin-dashboard.html → /login.html)
+    // so the next navigation is not interrupted by it.
+    await expect(staff).toHaveURL(/\/login\.html/);
     await staff.goto("/admin/operations");
     await expect(staff).toHaveURL(STAFF_LOGIN);
     await context.close();
