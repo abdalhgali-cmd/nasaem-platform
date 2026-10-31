@@ -24,6 +24,7 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Moon,
   Plane,
   Users,
   UserRoundCog,
@@ -48,7 +49,7 @@ const navigation = [
   { href: "/admin/roles", label: "الأدوار والصلاحيات", icon: ShieldCheck, roles: ["SUPER_ADMIN", "ADMIN"] },
   { href: "/admin/services", label: "الخدمات", icon: BriefcaseBusiness, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
   { href: "/admin/visas", label: "التأشيرات والمتطلبات", icon: Layers3, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
-  { href: "/admin/umrah", label: "مجموعات العمرة", icon: Sparkles, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
+  { href: "/admin/umrah/groups", label: "مجموعات العمرة", icon: Sparkles, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
   { href: "/admin/approvals", label: "الموافقات", icon: ClipboardCheck, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
   { href: "/admin/pricing", label: "الأسعار والباقات", icon: Settings2, roles: ["SUPER_ADMIN", "ADMIN"] },
   { href: "/admin/features", label: "الخصائص", icon: Flag, roles: ["SUPER_ADMIN", "ADMIN"] },
@@ -60,10 +61,13 @@ const navigation = [
   { href: "/admin/activity", label: "سجل النشاط", icon: Activity, roles: ["SUPER_ADMIN", "ADMIN"] },
   // Same roles as the backend Egypt endpoints (EGYPT_WORK in contact-requests.routes.js).
   { href: "/admin/egypt", label: "الموافقة الأمنية لمصر", icon: Plane, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
+  // Umrah requests. ACCOUNTANT reads requests (GET /contact-requests) for the
+  // payment context, read-only; the other roles work them.
+  { href: "/admin/umrah", label: "طلبات العمرة", icon: Moon, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"] },
 ] as const;
 
 const navigationGroups = [
-  { id: "daily", label: "العمل اليومي", items: [navigation[0], navigation[17], navigation[2], navigation[1], navigation[11], navigation[12]] },
+  { id: "daily", label: "العمل اليومي", items: [navigation[0], navigation[17], navigation[18], navigation[2], navigation[1], navigation[11], navigation[12]] },
   { id: "finance", label: "المال والتقارير", items: [
     { href: "/admin/reports", label: "التقارير", icon: BarChart3, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
     { href: "/admin/payment-review", label: "مراجعة الدفعات", icon: CreditCard, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
@@ -134,7 +138,11 @@ export function AdminShell({ children, title, description }: { children: React.R
     items: group.items.filter((item) => !item.roles || !user || (item.roles as readonly string[]).includes(user.role)),
   })).filter((group) => group.items.length > 0);
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  // The most specific matching item is the active one (/admin/umrah/groups
+  // is «مجموعات العمرة», not also «طلبات العمرة»).
+  const matches = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  const activeHref = visibleGroups.flatMap((group) => group.items.map((item) => item.href as string)).filter(matches).sort((a, b) => b.length - a.length)[0];
+  const isActive = (href: string) => href === activeHref;
   // Breadcrumb: the group and item for the current page, when the page is in
   // the navigation (a few task pages such as /admin/delivery are not).
   const activeGroup = visibleGroups.find((group) => group.items.some((item) => isActive(item.href)));

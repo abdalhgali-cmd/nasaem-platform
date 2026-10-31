@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { CaseWorkflowPanel, PAYMENT_LABEL } from "@/components/sections/case-workflow-panel";
 import { EgyptCasePanel } from "@/components/admin/egypt/egypt-case-panel";
+import { UmrahCasePanel, type UmrahCase } from "@/components/admin/umrah/umrah-case-panel";
 
 // Smart Case Operations — Release C (employee case workspace), with the
 // Release E queues/tasks/SLA, Release F provider section and Release G
@@ -625,7 +626,12 @@ function CaseDetail({
   // Egypt security-approval requests get their own workspace tab (the same
   // panel as the back-office «الموافقة الأمنية لمصر» view).
   const isEgypt = caseRow.progress?.serviceKind === "EGYPT_CLEARANCE";
-  const [tab, setTab] = React.useState<"overview" | "egypt" | "workflow" | "travelers" | "documents" | "tasks" | "provider" | "notes" | "activity">(initialTab === "egypt" && isEgypt ? "egypt" : "overview");
+  // Umrah requests get an «العمرة» tab: the server's stage, steps, next step,
+  // guarantor and per-pilgrim documents/final files in one place.
+  const isUmrah = caseRow.progress?.serviceKind === "UMRAH";
+  const [tab, setTab] = React.useState<"overview" | "egypt" | "umrah" | "workflow" | "travelers" | "documents" | "tasks" | "provider" | "notes" | "activity">(
+    initialTab === "egypt" && isEgypt ? "egypt" : initialTab === "umrah" && isUmrah ? "umrah" : "overview"
+  );
   const [warnings, setWarnings] = React.useState<Warning[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [actionError, setActionError] = React.useState("");
@@ -664,6 +670,7 @@ function CaseDetail({
   const tabs = [
     { key: "overview" as const, label: "نظرة عامة" },
     ...(isEgypt ? [{ key: "egypt" as const, label: "الموافقة الأمنية" }] : []),
+    ...(isUmrah ? [{ key: "umrah" as const, label: "العمرة" }] : []),
     { key: "workflow" as const, label: "سير العمل" },
     { key: "travelers" as const, label: `المسافرون (${caseRow.travelers.length})` },
     { key: "documents" as const, label: `المستندات (${caseRow.documents.filter((d) => !d.supersededAt).length})` },
@@ -768,6 +775,7 @@ function CaseDetail({
 
       <div className="mt-4">
         {tab === "overview" ? <OverviewTab caseRow={caseRow} staff={staff} busy={busy} run={run} /> : null}
+        {tab === "umrah" && isUmrah ? <UmrahCasePanel caseRow={caseRow as unknown as UmrahCase} onOpenTab={setTab} /> : null}
         {tab === "egypt" && isEgypt ? <EgyptCasePanel caseId={caseRow.id} travelers={caseRow.travelers} onChanged={onChanged} /> : null}
         {tab === "workflow" ? <CaseWorkflowPanel caseId={caseRow.id} onChanged={onChanged} /> : null}
         {tab === "travelers" ? <TravelersTab caseRow={caseRow} /> : null}
