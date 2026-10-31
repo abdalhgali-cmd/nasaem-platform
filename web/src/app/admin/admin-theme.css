@@ -1,0 +1,143 @@
+/*
+ * Nasaem Al-Haramain — admin design tokens (Phase 0).
+ *
+ * Source: approved design system, commit ee120037 on claude/sleepy-gates-ta16m1
+ * (design-system-build/nh-ds/project/tokens.json). Brand values are PROVISIONAL:
+ * navy #2E3792 / gold #FAB60D / charcoal #3A3637 are the colours drawn in the
+ * official logo; the brand board prints different hex codes (see the design
+ * system README §3.1). Change them here only.
+ *
+ * Scope: everything is declared on `.nh-admin`, the wrapper rendered by
+ * app/admin/layout.tsx, so the customer website is untouched. Because CSS
+ * custom properties inherit, re-declaring the shared --color-* variables here
+ * also means the public "المظهر" (Appearance) overrides injected on :root by
+ * app/layout.tsx no longer recolour the admin: they keep applying to the
+ * public website exactly as before.
+ */
+
+.nh-admin {
+  /* Brand scales */
+  --nh-navy-50: #eff0fa;
+  --nh-navy-100: #dcdff3;
+  --nh-navy-200: #b9bee6;
+  --nh-navy-600: #3a44a8;
+  --nh-navy-700: #2e3792;
+  --nh-navy-800: #252c78;
+  --nh-navy-950: #10133a;
+  --nh-gold-50: #fff8e6;
+  --nh-gold-100: #fdebb8;
+  --nh-gold-300: #fcd36a;
+  --nh-gold-500: #fab60d;
+  --nh-gold-700: #8a5f00;
+  --nh-charcoal: #3a3637;
+
+  /* Surfaces and text */
+  --nh-canvas: #f5f7fb;
+  --nh-surface: #ffffff;
+  --nh-surface-sunken: #eef2f7;
+  --nh-ink: #0f1b2d;
+  --nh-ink-secondary: #3d4a5c;
+  --nh-ink-muted: #5b6778;
+  --nh-line: #e3e8ef;
+  --nh-line-strong: #cfd7e2;
+  --nh-primary-soft: #e9ebf8;
+  --nh-primary-ink: #2e3792;
+  --nh-on-accent: #1f1a0b;
+  --nh-focus: #3d4fd6;
+
+  /* Navigation rail */
+  --nh-sidebar-bg: var(--nh-navy-950);
+  --nh-sidebar-ink: #e9eef7;
+  --nh-sidebar-ink-muted: #a9aed6;
+  --nh-sidebar-hover: #1a1e4d;
+  --nh-sidebar-active: #262c66;
+  --nh-sidebar-line: #1f2452;
+
+  /* Status (danger is the only one the shell needs today) */
+  --nh-danger: #b42318;
+  --nh-danger-soft: #fdecea;
+  --nh-danger-ink: #b42318;
+
+  /* Shared tokens used by existing admin components (globals.css names) */
+  --color-primary: var(--nh-navy-700);
+  --color-primary-foreground: #ffffff;
+  --color-button: var(--nh-navy-700);
+  --color-button-foreground: #ffffff;
+  --color-accent: var(--nh-gold-500);
+  --color-accent-foreground: var(--nh-on-accent);
+  --color-section: var(--nh-canvas);
+  --color-background: var(--nh-surface);
+  --color-card: var(--nh-surface);
+  --color-foreground: var(--nh-ink);
+  --color-muted-foreground: var(--nh-ink-muted);
+  /* Only ever used as a background in the admin (hover, wells). */
+  --color-muted: var(--nh-surface-sunken);
+  --color-border: var(--nh-line);
+  --color-ring: var(--nh-focus);
+
+  background: var(--nh-canvas);
+  color: var(--nh-ink);
+}
+
+.dark .nh-admin {
+  --nh-navy-50: #121638;
+  --nh-navy-100: #1b2052;
+  --nh-navy-200: #2c3478;
+  --nh-navy-600: #535fd2;
+  --nh-navy-700: #4350c4;
+  --nh-navy-800: #3843ab;
+  --nh-navy-950: #090b24;
+  --nh-gold-50: #2a2210;
+  --nh-gold-100: #3d3112;
+  --nh-gold-300: #c99a1e;
+  --nh-gold-700: #fcd36a;
+
+  --nh-canvas: #070d1c;
+  --nh-surface: #0d1628;
+  --nh-surface-sunken: #0a1222;
+  --nh-ink: #e9eef7;
+  --nh-ink-secondary: #c3cde0;
+  --nh-ink-muted: #9aa8c2;
+  --nh-line: #1e2b45;
+  --nh-line-strong: #2a3a5a;
+  --nh-primary-soft: #1b2052;
+  --nh-primary-ink: #a9b0f0;
+  --nh-focus: #8d97f0;
+
+  --nh-sidebar-hover: #121538;
+  --nh-sidebar-active: #1f2457;
+  --nh-sidebar-line: #161a3c;
+
+  --nh-danger: #c9342a;
+  --nh-danger-soft: #2e1215;
+  --nh-danger-ink: #f87171;
+}
+
+/*
+ * The admin uses these "destructive" utilities in 80+ places, but
+ * --color-destructive has never been defined in globals.css, so Tailwind
+ * generates nothing for them and admin errors render without their red.
+ * They are provided here for the admin scope only; the customer website,
+ * which also references them, is deliberately left as it is.
+ */
+.nh-admin .text-destructive,
+.nh-admin .hover\:text-destructive:hover {
+  color: var(--nh-danger-ink);
+}
+.nh-admin .bg-destructive {
+  background-color: var(--nh-danger);
+}
+.nh-admin .text-destructive-foreground {
+  color: #ffffff;
+}
+.nh-admin .bg-destructive\/5 {
+  background-color: color-mix(in srgb, var(--nh-danger) 5%, transparent);
+}
+.nh-admin .border-destructive\/20 {
+  border-color: color-mix(in srgb, var(--nh-danger) 20%, transparent);
+}
+
+/* Focus stays visible on the navy rail (the default ring is navy). */
+.nh-admin .nh-admin-rail :focus-visible {
+  outline-color: var(--nh-gold-300);
+}
