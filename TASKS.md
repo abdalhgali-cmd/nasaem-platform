@@ -6,7 +6,7 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
-## Admin design system — Phase 1 (Admin Shell, PR #147), Phase 2 (Operations Center, PR #148) and Phase 3 (Egypt Case Workspace) — 2026-10-31
+## Admin design system — Phase 1 (Admin Shell, PR #147), Phase 2 (Operations Center, PR #148), Phase 3 (Egypt, PR #149) and Phase 4 (Umrah) — 2026-10-31
 
 Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build/`). Next.js `/admin/*` is the approved future admin; the static back-office stays in service. Not merged, nothing deployed, no backend/API/pricing/payment/permission change, no migration.
 
@@ -24,7 +24,10 @@ Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build
 | Phase 3 tests | VERIFIED (local) | `admin-egypt-workspace.spec.ts` 3/3: request created via the public intake API; row content = server stage/next action; stage/assignee filters; row opens the tab; approval before payment refused by the server (`NOT_RELEASABLE`, message shown, state unchanged); travel date, priority/dueAt, flight details saved and audited (`EGYPT_TRAVEL_DATE_CHANGED`, `CONTACT_REQUEST_PRIORITY_UPDATED` with the user); EMPLOYEE works the queue; ACCOUNTANT: no menu item, page shows the server refusal, API 403. Admin suite on a fresh DB 28/28. Screenshots `docs/admin-design-system/phase-3/` (overflow 0 at 390 px) |
 | Phase 3 not migrated | OPEN | Egypt alert settings and Egypt pricing administration remain only in the static back-office |
 
-**NEXT:** Phase 4 (Umrah Case Workspace) on the existing Umrah queue (`serviceKind=UMRAH`, `umrahQueue`) and case workflow; Phase 5 directive text was cut off — awaiting the rest.
+| Phase 4: Umrah Case Workspace | VERIFIED (local) | Branch `feat/admin-umrah-workspace-20261031` (stacked on #149). `/admin/umrah` = Umrah requests from `GET /contact-requests?serviceKind=UMRAH` (server filters: search, status, payment, assignee, package, dates; page filters: stage, package type, alerts; sort: next action first / nearest travel date / newest). Case tab «العمرة»: server `progress` steps, `umrahQueue` next step, blockers, guarantor phone + «إقامة الضامن» status (U1), package type (U2), payment state from the server (U3), per-pilgrim documents and final files, completion blockers; work stays in existing tabs. Groups/packages moved unchanged to `/admin/umrah/groups`. ACCOUNTANT: read-only list, no case link, no groups. No backend change |
+| Phase 4 tests | VERIFIED (local) | `admin-umrah-workspace.spec.ts` 3/3: request submitted via the public API with documents; row = server stage/next step; payment/type/assignee filters; tab shows the server's steps in order and state, guarantor, pilgrim documents; full existing workflow receipt → ACCOUNTANT confirms payment → staff accept documents in the UI → execution → final file → server closes it (stage «مغلق», all steps done), audit log with the accountant; EMPLOYEE works requests; ACCOUNTANT read-only and 403 on workflow actions. Fresh-DB admin suite + `umrah-payment-journey` 34/34. Screenshots `docs/admin-design-system/phase-4/` |
+
+**NEXT:** Phase 5 (UX, Umrah + Egypt only), Phase 6 (security review), Phase 7 (end-to-end validation), integration readiness report.
 
 ## Umrah + Egypt only — audit and first fix (2026-10-26, branch `ccr-089babd5-hgh9qj`, base `fix/egypt-intake-staging-20261024` @ `fef0f41` / PR #139)
 
