@@ -27,7 +27,17 @@ Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build
 | Phase 4: Umrah Case Workspace | VERIFIED (local) | Branch `feat/admin-umrah-workspace-20261031` (stacked on #149). `/admin/umrah` = Umrah requests from `GET /contact-requests?serviceKind=UMRAH` (server filters: search, status, payment, assignee, package, dates; page filters: stage, package type, alerts; sort: next action first / nearest travel date / newest). Case tab «العمرة»: server `progress` steps, `umrahQueue` next step, blockers, guarantor phone + «إقامة الضامن» status (U1), package type (U2), payment state from the server (U3), per-pilgrim documents and final files, completion blockers; work stays in existing tabs. Groups/packages moved unchanged to `/admin/umrah/groups`. ACCOUNTANT: read-only list, no case link, no groups. No backend change |
 | Phase 4 tests | VERIFIED (local) | `admin-umrah-workspace.spec.ts` 3/3: request submitted via the public API with documents; row = server stage/next step; payment/type/assignee filters; tab shows the server's steps in order and state, guarantor, pilgrim documents; full existing workflow receipt → ACCOUNTANT confirms payment → staff accept documents in the UI → execution → final file → server closes it (stage «مغلق», all steps done), audit log with the accountant; EMPLOYEE works requests; ACCOUNTANT read-only and 403 on workflow actions. Fresh-DB admin suite + `umrah-payment-journey` 34/34. Screenshots `docs/admin-design-system/phase-4/` |
 
-**NEXT:** Phase 5 (UX, Umrah + Egypt only), Phase 6 (security review), Phase 7 (end-to-end validation), integration readiness report.
+| Phase 5: customer UX (Umrah, Egypt) | VERIFIED (local) | PR #151 `feat/ux-umrah-egypt-20261031`: Umrah «يبدأ من» price RTL order; Egypt live «قبل الإرسال: …» hint; floating WhatsApp hidden on phones on the two booking pages. `customer-ux-umrah-egypt.spec.ts` 3/3; before/after screenshots `docs/admin-design-system/phase-5/` |
+| Phase 6: security | VERIFIED (local) | `security-umrah-egypt.spec.ts` 6/6 (no session, CSRF origin, payment-link token, role boundaries, payment state rules incl. two simultaneous confirmations → one, audit, passport masking). No product change needed |
+| Phase 7: Egypt customer-app journey | FIXED (test) / VERIFIED (local) | `egypt-approval.spec.ts` was stale since `9f236eb` (app stays on the payment screen after the receipt); updated; 4/4 locally |
+| Phase 7: Umrah journey to closed | VERIFIED (local) | `admin-umrah-workspace.spec.ts` + `umrah-payment-journey.spec.ts` |
+| Old failures (base too) | OPEN — owner decision | `mobile-app.spec.ts:135`, `pricing-progress.spec.ts:153`, `service-journeys.spec.ts:320` click home tiles removed by the Umrah/Egypt-only home |
+| Stack integrity | VERIFIED | #147 ⊂ #148 ⊂ #149 ⊂ #150 ⊂ #151; base `bd7e3b9` unchanged; no `backend/` or `mobile/` change in the stack; no migration |
+| Staging | NOT VERIFIED | not reachable from this environment; real backup + restore and owner approval required first |
+
+Final Arabic report: `docs/admin-design-system/FINAL-REPORT-ar.md`.
+
+**NEXT:** owner decisions in the report §8; CI on #151's final SHA.
 
 ## Umrah + Egypt only — audit and first fix (2026-10-26, branch `ccr-089babd5-hgh9qj`, base `fix/egypt-intake-staging-20261024` @ `fef0f41` / PR #139)
 
