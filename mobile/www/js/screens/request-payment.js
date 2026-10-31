@@ -86,7 +86,13 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
   // records saved before we persisted "steps". The server returns only the
   // authenticated request's public visa type code, never private tracking data.
   const egyptPayment = isEgyptPaymentJourney(params, summary);
-  if (egyptPayment && pending.steps !== "EGYPT") {
+  // A receipt under review or an accepted payment leaves nothing to resume:
+  // drop the home card «طلب بانتظار الدفع» (this screen re-renders after the
+  // upload, and would otherwise save it again for a request already paid).
+  const paymentDone = summary.paymentStatus === "UNDER_REVIEW" || summary.paymentStatus === "CONFIRMED";
+  if (paymentDone) {
+    clearPendingPaymentFor(localStorage, params.id);
+  } else if (egyptPayment && pending.steps !== "EGYPT") {
     pending.steps = "EGYPT";
     savePendingPayment(localStorage, pending);
   }
