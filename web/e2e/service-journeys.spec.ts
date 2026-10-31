@@ -1,5 +1,5 @@
 import { devices, expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
+import { loginAsSeededAdmin, openKeptAppService, readTrackingLoginCode } from "./helpers";
 
 // Every service, end to end, in a browser: the customer app (mobile/www)
 // and the staff back-office (backend/public) against the real backend.
@@ -38,9 +38,11 @@ type Journey = {
 
 const visaName = `تأشيرة سياحية تركيا ${unique()}`;
 
-// A home bento tile, then «ابدأ الطلب الآن» on its details page.
-async function shortcut(app: Page, key: string) {
-  await app.locator(`.hc-tile[data-key="${key}"]`).click();
+// Flights, ferries and family visit are hidden from customers (approved
+// scope: Umrah + Egypt only) but kept; their journeys open the service through
+// the app's own dispatcher, then «ابدأ الطلب الآن» (helpers.ts openKeptAppService).
+async function shortcut(app: Page, code: string) {
+  await openKeptAppService(app, { code });
   await app.locator("#startRequestBtn").click();
 }
 
@@ -51,7 +53,7 @@ const JOURNEYS: Journey[] = [
     testRequirementService: "SVC-FLIGHT",
     rejectFirstReceipt: true,
     start: async (app) => {
-      await shortcut(app, "flights");
+      await shortcut(app, "SVC-FLIGHT");
       await app.fill('#flightSearchForm [name="from"]', "KRT");
       await app.fill('#flightSearchForm [name="to"]', "JED");
       await app.fill('#flightSearchForm [name="date"]', "2030-02-10");
@@ -64,7 +66,7 @@ const JOURNEYS: Journey[] = [
     execution: "جارٍ إصدار تذكرة العبّارة",
     testRequirementService: "SVC-FERRY",
     start: async (app) => {
-      await shortcut(app, "ferries");
+      await shortcut(app, "SVC-FERRY");
       const route = app.locator('#ferryForm [name="route"]');
       if (await route.count()) {
         const options = await route.locator("option").evaluateAll((els) => els.map((el) => (el as HTMLOptionElement).value).filter(Boolean));
@@ -94,7 +96,7 @@ const JOURNEYS: Journey[] = [
   {
     name: "family visit",
     execution: "جارٍ استخراج تأشيرة الزيارة العائلية",
-    start: async (app) => shortcut(app, "family"),
+    start: async (app) => shortcut(app, "VISA-FAMILY-VISIT"),
   },
   {
     name: "Egypt clearance",
@@ -113,8 +115,7 @@ const JOURNEYS: Journey[] = [
     execution: "جارٍ استخراج التأشيرة",
     rejectFirstDocument: true,
     start: async (app) => {
-      await app.locator('.hc-tile[data-key="visas"]').click();
-      await app.locator(".package-card", { hasText: visaName }).click();
+      await openKeptAppService(app, { name: visaName });
       await app.locator("#startRequestBtn").click();
     },
   },

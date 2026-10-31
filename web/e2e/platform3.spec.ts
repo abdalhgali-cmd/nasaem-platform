@@ -794,11 +794,18 @@ test.describe("Direct service routing — no intermediate catalog browsing", () 
     await expect(page.locator("h1")).toContainText("الموافقة الأمنية");
   });
 
-  test("Services catalog: Family Visit card goes straight to its dedicated page", async ({ page }) => {
+  // Owner decision (PR #151): the website offers only Umrah and Egypt security
+  // approval. Other services are no longer listed in the catalog, but their
+  // pages and backend are kept (not deleted) and still open directly.
+  test("Services catalog lists only the approved services; hidden services' pages still open directly", async ({ page }) => {
     await page.goto("/services", { waitUntil: "domcontentloaded" });
-    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
-    await page.locator("a").filter({ hasText: "الزيارة العائلية" }).first().click();
-    await expect(page).toHaveURL(/\/visas\/saudi-family-visit$/);
+    const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
+    await expect(section.locator("a").first()).toBeVisible();
+    const hrefs = await section.locator("a").evaluateAll((els) => els.map((el) => el.getAttribute("href")));
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const href of hrefs) expect(["/umrah", "/visas/egypt-security-approval"], `catalog link ${href}`).toContain(href);
+    await expect(section.locator("a").filter({ hasText: "الزيارة العائلية" })).toHaveCount(0);
+    await page.goto("/visas/saudi-family-visit", { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1")).toContainText("الزيارة العائلية");
   });
 
@@ -948,16 +955,17 @@ test.describe("Egypt hero motion — respects prefers-reduced-motion", () => {
 // the pre-existing direct routes (Umrah, Flights, Ferries — never hardcoded
 // to the generic visa flow to begin with) are untouched by this work.
 test.describe("Service page SEO metadata and related services", () => {
-  test("Egypt page has a canonical link, OpenGraph tags, and a related-services section that links elsewhere", async ({ page }) => {
+  test("Egypt page has a canonical link and OpenGraph tags, and no links to services outside the approved scope", async ({ page }) => {
     await page.goto("/visas/egypt-security-approval", { waitUntil: "networkidle" });
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/visas\/egypt-security-approval$/);
     await expect(page.locator('meta[property="og:title"]')).toHaveCount(1);
     await expect(page.locator('meta[property="og:description"]')).toHaveCount(1);
-    const relatedSection = page.locator("section", { has: page.getByText("قد تهمك أيضًا") });
-    await expect(relatedSection).toBeVisible();
-    // At least one related-service card must link somewhere other than this same page.
-    const relatedHrefs = await relatedSection.locator("a").evaluateAll((els) => els.map((el) => el.getAttribute("href")));
-    expect(relatedHrefs.some((href) => href && !href.includes("egypt-security-approval"))).toBeTruthy();
+    // Owner decision (PR #151): no «قد تهمك أيضًا» cross-selling of other visas.
+    await expect(page.locator("section", { has: page.getByText("قد تهمك أيضًا") })).toHaveCount(0);
+    const hrefs = await page.locator("main a[href^='/']").evaluateAll((els) => els.map((el) => el.getAttribute("href") || ""));
+    for (const hidden of ["/visas/saudi-family-visit", "/services/", "/flights", "/ferries", "/hotels"]) {
+      expect(hrefs.filter((href) => href === hidden || (hidden.endsWith("/") && href.startsWith(hidden))), hidden).toEqual([]);
+    }
   });
 
   test("Saudi Family Visit page has a canonical link and OpenGraph tags", async ({ page }) => {
@@ -1041,18 +1049,17 @@ test.describe("Every named service opens its own page — no generic-catalog dea
     await expect(page.getByRole("link", { name: "العمرة", exact: true }).first()).toHaveAttribute("href", "/umrah");
   });
 
-  test("Services catalog sends International Visa, Work Visa, and Tasheel to their own pages, not a shared catalog", async ({ page }) => {
+  test("International Visa, Work Visa and Tasheel are out of the catalog (approved scope) but keep their own pages", async ({ page }) => {
     await page.goto("/services", { waitUntil: "domcontentloaded" });
     const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
-    const hrefs = await section.locator("a").evaluateAll((els) =>
-      Object.fromEntries(els.map((el) => [el.querySelector("h3")?.textContent ?? "", el.getAttribute("href")]))
-    );
-    for (const [name, href] of Object.entries(hrefs)) {
-      if (["التأشيرات الدولية", "تأشيرة العمل", "حجز مواعيد تساهيل"].includes(name)) {
-        expect(href, `${name} must not land on the shared /visas catalog`).not.toMatch(/^\/visas\?/);
-        expect(href, `${name} must not land on the dead-end /contact fallback`).not.toMatch(/^\/contact\?/);
-        expect(href).toMatch(/^\/services\//);
-      }
+    await expect(section.locator("a").first()).toBeVisible();
+    for (const name of ["التأشيرات الدولية", "تأشيرة العمل", "حجز مواعيد تساهيل"]) {
+      await expect(section.locator("a").filter({ hasText: name }), name).toHaveCount(0);
+    }
+    // Their routes are kept (nothing deleted): each still renders its own page.
+    for (const slug of ["intl-visa", "work-visa", "tasheel"]) {
+      const res = await page.goto(`/services/${slug}`, { waitUntil: "domcontentloaded" });
+      expect(res?.status(), slug).toBe(200);
     }
   });
 });

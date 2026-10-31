@@ -1,5 +1,5 @@
 import { devices, expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
+import { loginAsSeededAdmin, openKeptAppService, readTrackingLoginCode } from "./helpers";
 
 // Fixed-price versus quote-required services, and the interactive request
 // progress, in a browser: the customer app (mobile/www, Pixel 5 viewport,
@@ -93,8 +93,10 @@ test.describe.serial("pricing modes and interactive progress", () => {
   // (cards with their own documents), contact.
   async function fillRequest(visaName: string, travelers: string[]) {
     await home();
-    await app.locator('.hc-tile[data-key="visas"]').click();
-    await app.locator(".package-card", { hasText: visaName }).click();
+    // Generic visas are hidden from customers (approved scope); the fixed-price
+    // engine they share with Umrah/Egypt is still exercised through the app's
+    // own dispatcher (see helpers.ts openKeptAppService).
+    await openKeptAppService(app, { name: visaName });
     await app.locator("#startRequestBtn").click();
     await app.locator('[name="t_name_0"]').waitFor({ timeout: 15_000 });
     for (let index = 1; index < travelers.length; index += 1) await app.locator("#addTravelerBtn").click();
@@ -291,9 +293,14 @@ test.describe.serial("pricing modes and interactive progress", () => {
       await app.locator("#sendReceiptBtn").click();
       expect((await uploaded).status()).toBe(201);
 
-      await expect(app.locator("#requestReference")).toBeVisible({ timeout: 15_000 });
-      await expect(app.locator("#submittedPaymentStatus")).toHaveText("بانتظار مراجعة الدفع");
-      const id = (await app.locator("#requestReference").innerText()).trim();
+      // Since 9f236eb («keep payment journey continuous») the customer stays on
+      // the payment screen, now showing «بانتظار مراجعة الدفع» and the reference,
+      // instead of a separate success screen.
+      await expect(app.locator("#paymentUnderReview")).toBeVisible({ timeout: 15_000 });
+      await expect(app.locator("#paymentUnderReview")).toContainText("بانتظار مراجعة الدفع");
+      await expect(app.locator("#sendReceiptBtn")).toHaveCount(0);
+      const id = (await app.getByTestId("direct-payment-step").locator("code").first().innerText()).trim();
+      expect(id).toMatch(/^[a-z0-9]{20,}$/);
       await home();
       await expect(app.locator("#resumePaymentBtn")).toHaveCount(0);
       const sameCustomer = (await (await office.request.get(`${BACKEND}/api/contact-requests?limit=20&search=${encodeURIComponent(id)}`)).json()).data as Array<{ id: string }>;

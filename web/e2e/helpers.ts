@@ -85,3 +85,26 @@ export async function assertNoHorizontalOverflow(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   return overflow;
 }
+
+// Approved product scope (owner decision, PR #151): the customer app offers
+// only Umrah and Egypt security approval, so other services (flights,
+// ferries, family visit, generic visas) have no home tile or catalog entry.
+// Their screens, intake and backend are kept, not deleted. Tests of those
+// kept flows open the service through the app's own dispatcher
+// (mobile/www/js/screens/services.js openServiceItem — what a service card
+// calls), so the flow stays covered and a genuine regression still fails.
+// `match` is a service/visa code or its exact name; the catalog is read fresh.
+export async function openKeptAppService(app: Page, match: { code?: string; name?: string }) {
+  // Module URLs of the app itself (same URLs app.js imports, so the same
+  // module instances and router state are used); resolved in the page only.
+  const modules = { catalog: "/js/catalog.js", services: "/js/screens/services.js" };
+  await app.evaluate(async ({ code, name, modules }) => {
+    const { loadCatalog } = await import(modules.catalog);
+    const { openServiceItem } = await import(modules.services);
+    const catalog = await loadCatalog({ fresh: true });
+    const items = [...(catalog.services || []), ...(catalog.visaTypes || [])];
+    const item = items.find((candidate: { code?: string; name?: string }) => (code && candidate.code === code) || (name && candidate.name === name));
+    if (!item) throw new Error(`service not in the published catalog: ${code || name}`);
+    openServiceItem(item);
+  }, { ...match, modules });
+}
