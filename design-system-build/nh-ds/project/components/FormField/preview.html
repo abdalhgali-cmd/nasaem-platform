@@ -1,0 +1,13 @@
+<!-- @dsCard group="Forms" height=400 -->
+<div class="nh" dir="rtl" lang="ar" style="padding:24px;background:var(--canvas);min-height:100%">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px 24px;max-width:760px">
+<div class="nh-field"><label class="nh-label" for="f1">الاسم الكامل كما في الجواز<span class="req">*</span></label><input id="f1" class="nh-input" value="أحمد محمد عبد الله"></div>
+<div class="nh-field"><label class="nh-label" for="f2">رقم الجواز<span class="req">*</span></label><input id="f2" class="nh-input nh-input--ltr" value="P04718823"><span class="nh-help">بالأحرف اللاتينية كما يظهر في الجواز.</span></div>
+<div class="nh-field"><label class="nh-label" for="f3">الجنسية</label><select id="f3" class="nh-select"><option>سوداني</option><option>مصري</option><option>سعودي</option></select></div>
+<div class="nh-field"><label class="nh-label" for="f4">تاريخ انتهاء الجواز<span class="req">*</span></label><div class="nh-inputwrap"><i data-icon="calendar"></i><input id="f4" class="nh-input nh-input--ltr is-invalid" value="2026-12-01" aria-invalid="true" aria-describedby="e4"></div><span id="e4" class="nh-error"><i data-icon="circle-x"></i>يجب أن يكون الجواز صالحًا ٦ أشهر على الأقل من تاريخ السفر.</span></div>
+<div class="nh-field"><label class="nh-label" for="f5">رقم الهاتف (واتساب)</label><div class="nh-inputwrap"><i data-icon="phone"></i><input id="f5" class="nh-input nh-input--ltr" placeholder="+249 9X XXX XXXX"></div></div>
+<div class="nh-field"><label class="nh-label" for="f6">المرحلة</label><input id="f6" class="nh-input" value="الموافقة الأساسية" disabled></div>
+<div class="nh-field" style="grid-column:1/-1"><label class="nh-label" for="f7">ملاحظة داخلية</label><textarea id="f7" class="nh-textarea" placeholder="تظهر للفريق فقط، لا يراها العميل"></textarea></div>
+</div>
+</div>
+<script>window.NasaemDS && NasaemDS.hydrate();</script>

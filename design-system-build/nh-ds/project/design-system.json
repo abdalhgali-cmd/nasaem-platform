@@ -1,0 +1,9 @@
+{"v":3,"layout":"files","createdOnFiles":{"v":1,"at":"2026-10-31T07:16:24Z"},
+"title":"Nasaem Al-Haramain Admin","namespace":"NasaemDS","libraries":[],
+"sections":{},"groups":["Logos"],
+"assetGroups":{"Logos":{"name":"Logos","tile":"l","order":["nasaem-logo.png","nasaem-logo-dark.png","nasaem-mark.png"],"files":{
+"nasaem-logo.png":{"name":"nasaem-logo.png","blob":"8b824152ef70de269d3a0d5b46e1e1e6","size":747248,"type":"image/png"},
+"nasaem-logo-dark.png":{"name":"nasaem-logo-dark.png","blob":"1ac631bdf31c1386a56a89f942fe827d","size":683764,"type":"image/png"},
+"nasaem-mark.png":{"name":"nasaem-mark.png","blob":"a413328814b38b6086bc518d8ff4f324","size":66556,"type":"image/png"}}}},
+"blobs":{},"docs":{"sections":[]},
+"lastChange":{"by":"Claude","at":"2026-10-31T07:16:24Z","via":"Claude Code (cloud)","note":"Initial admin design system built from nasaem-platform web/ sources"}}

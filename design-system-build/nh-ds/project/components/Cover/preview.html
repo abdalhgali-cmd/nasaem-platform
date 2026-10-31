@@ -1,0 +1,38 @@
+<!-- @dsCard height=336 -->
+<style>
+  .cv { position: relative; width: 960px; height: 336px; background: var(--surface); overflow: hidden; }
+  .cv svg { position: absolute; inset: 0 0 auto 0; display: block; }
+  .cv .deep { fill: var(--navy-950); }
+  [data-theme="dark"] .cv .deep { fill: var(--navy-200); }
+  .cv .brand { fill: var(--navy-700); }
+  .cv .gold { fill: var(--gold-500); }
+  .cv .nile { fill: var(--nile); }
+  .cv .tint { fill: var(--navy-100); }
+  .cv .orbit { fill: none; stroke: var(--gold-300); stroke-width: 2; }
+  .cv .txt { position: absolute; left: 40px; bottom: 32px; max-width: 880px; direction: ltr; }
+  .cv h1 { margin: 0; font-family: var(--font-sans); font-weight: 800; font-size: 64px; line-height: 0.95; letter-spacing: -0.01em; color: var(--ink); }
+  .cv p { margin: 8px 0 0; font-family: var(--font-sans); font-size: 14px; line-height: 20px; color: var(--ink-muted); direction: rtl; text-align: left; }
+</style>
+<div class="cv">
+  <!--
+    blocks: navy-950 (deep, 384x112) · navy-700 (240x112) · gold-500 (112x112) · nile (96x112) · navy-100 tint (128x112); dark theme rebinds deep to navy-200.
+    arrangement: top-band skeleton (the name "Nasaem Al-Haramain Admin" is wider than 440px at 64px), a strip of unequal bands bleeding off the top and both edges.
+    pattern: literal motif — the logo's orbit. Three gold-300 hairline arcs centred on the deep slab's corner, plus one quarter-disc cut into the tint, all from radius steps.
+    scales: band height 112 (space-12 + space-16 multiples), arc radii 48 / 80 / 112, quarter-disc r 96, gaps 0 (flush, like the dense UI).
+  -->
+  <svg width="960" height="112" viewBox="0 0 960 112" aria-hidden="true">
+    <rect class="deep" x="0" y="0" width="384" height="112"/>
+    <rect class="brand" x="384" y="0" width="240" height="112"/>
+    <rect class="gold" x="624" y="0" width="112" height="112"/>
+    <rect class="nile" x="736" y="0" width="96" height="112"/>
+    <rect class="tint" x="832" y="0" width="128" height="112"/>
+    <path class="orbit" d="M 384 64 A 48 48 0 0 0 336 112"/>
+    <path class="orbit" d="M 384 32 A 80 80 0 0 0 304 112"/>
+    <path class="orbit" d="M 384 0 A 112 112 0 0 0 272 112"/>
+    <path class="brand" d="M 960 16 A 96 96 0 0 0 864 112 L 960 112 Z"/>
+  </svg>
+  <div class="txt">
+    <h1>Nasaem Al-Haramain<br>Admin</h1>
+    <p>مركز التحكم لعمليات العمرة والموافقة الأمنية لمصر</p>
+  </div>
+</div>
