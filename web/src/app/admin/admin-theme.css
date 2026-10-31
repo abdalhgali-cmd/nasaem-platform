@@ -53,10 +53,24 @@
   --nh-sidebar-active: #262c66;
   --nh-sidebar-line: #1f2452;
 
-  /* Status (danger is the only one the shell needs today) */
+  /* Status. Red (danger) only for a genuinely missed deadline; amber
+     (warning) for inactivity, approaching dates and advisories. */
   --nh-danger: #b42318;
   --nh-danger-soft: #fdecea;
   --nh-danger-ink: #b42318;
+  --nh-warning: #b45309;
+  --nh-warning-soft: #fdf3e3;
+  --nh-warning-ink: #9a4a06;
+  --nh-success: #15803d;
+  --nh-success-soft: #e8f5ec;
+  --nh-success-ink: #166534;
+  --nh-info: #1d5fc4;
+  --nh-info-soft: #e8f0fc;
+  --nh-info-ink: #1d4fb0;
+  /* Service identity: Egypt security approval (nile) and Umrah (gold). */
+  --nh-nile: #0f766e;
+  --nh-nile-soft: #e6f4f2;
+  --nh-nile-ink: #0b5a54;
 
   /* Shared tokens used by existing admin components (globals.css names) */
   --color-primary: var(--nh-navy-700);
@@ -111,6 +125,18 @@
   --nh-danger: #c9342a;
   --nh-danger-soft: #2e1215;
   --nh-danger-ink: #f87171;
+  --nh-warning: #d97706;
+  --nh-warning-soft: #2d1f0b;
+  --nh-warning-ink: #fbbf24;
+  --nh-success: #177a41;
+  --nh-success-soft: #0f2a1d;
+  --nh-success-ink: #4ade80;
+  --nh-info: #3b82f6;
+  --nh-info-soft: #10203f;
+  --nh-info-ink: #93b8f5;
+  --nh-nile: #2dd4bf;
+  --nh-nile-soft: #0d2a29;
+  --nh-nile-ink: #5eead4;
 }
 
 /*
