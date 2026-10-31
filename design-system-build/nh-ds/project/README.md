@@ -2,7 +2,7 @@
 
 **نسائم الحرمين للسفر والسياحة — Admin design system.** The visual language of the staff back-office (مركز التحكم) where the operations team runs Umrah groups and Egypt security-clearance cases. It is calm, trustworthy and dense: deep navy for authority, white for clarity, and gold used sparingly for the one thing that matters on each screen.
 
-Built from the live codebase (`abdalhgali-cmd/nasaem-platform`): `web/src/app/globals.css` (brand navy `#0b3d91`, gold `#d4af37`, Cairo), `web/src/components/admin/admin-shell.tsx` (navigation groups, roles, Lucide icons), `web/src/components/sections/case-workspace.tsx` (queues, SLA, document states, audit actions) and the legacy `web/public/assets/style.css` (status badge map, teal). It keeps that identity and raises the finish: a navy rail instead of a white one, a stricter status colour map, a real data-table spec, tabular numerals and accessible contrast in both themes.
+Built from the **official brand board, logo and letterhead** (navy `#2E3792`, gold `#FAB60D`, Kaaba charcoal `#3A3637`, display face HS Alwajd) and the live codebase (`abdalhgali-cmd/nasaem-platform`): `web/src/app/globals.css` (Cairo, theme structure), `web/src/components/admin/admin-shell.tsx` (navigation groups, roles, Lucide icons), `web/src/components/sections/case-workspace.tsx` (queues, SLA, document states, audit actions) and the legacy `web/public/assets/style.css` (status badge map, teal). It aligns the admin to the official brand colours (the site theme's `#0b3d91` / `#d4af37` drifted from the logo) and raises the finish: a navy rail instead of a white one, a stricter status colour map, a real data-table spec, tabular numerals and accessible contrast in both themes.
 
 ---
 
@@ -25,14 +25,15 @@ Built from the live codebase (`abdalhgali-cmd/nasaem-platform`): `web/src/app/gl
 
 ## 3. Colour
 
-The palette is two brand hues on a cool neutral ground, plus five status tones and one service hue.
+The palette is the brand board's three colours (navy, gold, charcoal) on a cool neutral ground, plus five status tones and one service hue. The hex labels printed on the brand board (`#13368D`, `#EFE9E1`, `#E45A0B`) do not match its own swatches or the logo; the values below are sampled from the swatches and the logo artwork.
 
 | Role | Token | Light | Dark | Use |
 |---|---|---|---|---|
-| Brand navy | `navy-700` / `primary` | `#0b3d91` | `#3069cf` | Primary actions, links, active tabs, done steps |
-| Deep navy | `navy-950` / `sidebar-bg` | `#06142f` | `#050b18` | Navigation rail, toasts, bulk bar |
-| Brand gold | `gold-500` / `accent` | `#c9a13b` | `#d6b25a` | The one highlight per screen; text on it is `on-accent` |
-| Gold text | `gold-700` / `accent-ink` | `#8a6a1f` | `#e2c677` | Gold words on white (5:1) |
+| Brand navy | `navy-700` / `primary` | `#2e3792` | `#4350c4` | Primary actions, links, active tabs, done steps |
+| Deep navy | `navy-950` / `sidebar-bg` | `#10133a` | `#090b24` | Navigation rail, toasts, bulk bar |
+| Brand gold | `gold-500` / `accent` | `#fab60d` | `#fab60d` | The one highlight per screen; text on it is `on-accent` |
+| Kaaba charcoal | `charcoal` | `#3a3637` | `#3a3637` | Print, cover, emblem tone; never UI text |
+| Gold text | `gold-700` / `accent-ink` | `#8a5f00` | `#fcd36a` | Gold words on white (5.6:1) |
 | Canvas | `canvas` | `#f5f7fb` | `#070d1c` | Page ground behind cards |
 | Surface | `surface` | `#ffffff` | `#0d1628` | Cards, tables, dialogs |
 | Ink | `ink` / `ink-secondary` / `ink-muted` | `#0f1b2d` / `#3d4a5c` / `#5b6778` | `#e9eef7` / `#c3cde0` / `#9aa8c2` | Text hierarchy |
@@ -42,13 +43,14 @@ Status tones each have a solid, a `-soft` ground and an `-ink` text: `info` (new
 
 **Rules**
 - Text is always `ink*` on `canvas`/`surface`; never grey-on-grey below `ink-muted`.
+- The brand gold is vivid. "Subtle" comes from rationing it and from the `gold-50`/`gold-100` tints, never from desaturating the brand value.
 - Gold is never body text on white except as `accent-ink`. Gold fills always carry `on-accent` (dark) text.
 - Service colour ≠ status colour: Egypt = `nile`, Umrah = `gold`, as square tags without a dot. Status badges are round with a dot.
 - Charts: series order `navy-700`, `nile`, `gold-500`, `navy-200`; highlight one series, mute the rest.
 
 ## 4. Typography
 
-**Cairo** for all Arabic and UI text (the existing brand face, loaded from Google Fonts at 400–800). **Inter** with tabular figures for numbers, KPIs and amounts. System mono for references.
+**HS Alwajd** is the brand's display face (the wordmark and print titles, per the brand board). It is a commercial font and is not bundled here: use it in the logo artwork and in print or marketing where the licence covers it. **Cairo** carries all Arabic UI text (already used by the site, loaded from Google Fonts at 400–800); its open geometric forms sit well beside the Alwajd wordmark. **Inter** with tabular figures for numbers, KPIs and amounts. System mono for references.
 
 | Style | Size / line | Weight | Use |
 |---|---|---|---|
@@ -96,7 +98,15 @@ Arabic never goes below 11px, never uses letter-spacing, and never uses italics.
 
 ## 7. Logo
 
-The emblem (Kaaba inside a navy orbit with a departing plane and gold arc) plus the Arabic wordmark. Use `nasaem-logo.png` on light grounds and `nasaem-logo-dark.png` (white wordmark) on dark grounds. In the admin rail, use the emblem alone (`nasaem-mark.png`) on a white tile with a `gold-300` ring, next to the name set in Cairo 800. Never recolour, outline or place the full logo on navy without the dark variant.
+The emblem (Kaaba inside a navy orbit, a departing plane and a gold arc) plus the Arabic wordmark "نسائم الحرمين" in navy over "للسفر والسياحة" in gold, set in HS Alwajd. All files are transparent PNGs extracted from the official logo PDF (see `assets/Logos/`).
+
+- **Horizontal lockup** for headers, the login screen and documents; **stacked** for square spaces and social.
+- **`-dark` variants** turn the navy parts white for navy or dark grounds; the gold line and the charcoal Kaaba stay.
+- **Emblem alone** in the admin sidebar, on a white tile with a `gold-300` ring, beside the name set in Cairo 800.
+- Clear space = the height of the gold line. Minimum emblem 24px; minimum lockup width 120px.
+- Never recolour, outline, add effects, or put the light lockup on navy. The brand board's alternate colourways (navy on yellow, orange on navy) are for marketing, not the admin.
+- The **brand pattern** (repeating emblems) is for print and marketing backgrounds, never behind data.
+- The **agency seal (الختم)** is not part of the UI kit: keep it out of screens and templates, and apply it only through an approved document-issuing flow.
 
 ## 8. Accessibility
 

@@ -1,9 +1,91 @@
-{"v":3,"layout":"files","createdOnFiles":{"v":1,"at":"2026-10-31T07:16:24Z"},
-"title":"Nasaem Al-Haramain Admin","namespace":"NasaemDS","libraries":[],
-"sections":{},"groups":["Logos"],
-"assetGroups":{"Logos":{"name":"Logos","tile":"l","order":["nasaem-logo.png","nasaem-logo-dark.png","nasaem-mark.png"],"files":{
-"nasaem-logo.png":{"name":"nasaem-logo.png","blob":"8b824152ef70de269d3a0d5b46e1e1e6","size":747248,"type":"image/png"},
-"nasaem-logo-dark.png":{"name":"nasaem-logo-dark.png","blob":"1ac631bdf31c1386a56a89f942fe827d","size":683764,"type":"image/png"},
-"nasaem-mark.png":{"name":"nasaem-mark.png","blob":"a413328814b38b6086bc518d8ff4f324","size":66556,"type":"image/png"}}}},
-"blobs":{},"docs":{"sections":[]},
-"lastChange":{"by":"Claude","at":"2026-10-31T07:16:24Z","via":"Claude Code (cloud)","note":"Initial admin design system built from nasaem-platform web/ sources"}}
+{
+ "v": 3,
+ "layout": "files",
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-10-31T07:16:24Z"
+ },
+ "title": "Nasaem Al-Haramain Admin",
+ "namespace": "NasaemDS",
+ "libraries": [],
+ "sections": {},
+ "groups": [
+  "Logos"
+ ],
+ "assetGroups": {
+  "Logos": {
+   "name": "Logos",
+   "tile": "l",
+   "order": [
+    "nasaem-logo-horizontal.png",
+    "nasaem-logo-horizontal-dark.png",
+    "nasaem-logo-stacked.png",
+    "nasaem-logo-stacked-dark.png",
+    "nasaem-emblem.png",
+    "nasaem-logo.png",
+    "nasaem-logo-dark.png",
+    "nasaem-mark.png"
+   ],
+   "files": {
+    "nasaem-logo.png": {
+     "name": "nasaem-logo.png",
+     "blob": "8b824152ef70de269d3a0d5b46e1e1e6",
+     "size": 747248,
+     "type": "image/png"
+    },
+    "nasaem-logo-dark.png": {
+     "name": "nasaem-logo-dark.png",
+     "blob": "1ac631bdf31c1386a56a89f942fe827d",
+     "size": 683764,
+     "type": "image/png"
+    },
+    "nasaem-mark.png": {
+     "name": "nasaem-mark.png",
+     "blob": "a413328814b38b6086bc518d8ff4f324",
+     "size": 66556,
+     "type": "image/png"
+    },
+    "nasaem-logo-horizontal.png": {
+     "name": "nasaem-logo-horizontal.png",
+     "blob": "e6e93a913a247133f0fa5f419a6e63dc",
+     "size": 267220,
+     "type": "image/png"
+    },
+    "nasaem-logo-horizontal-dark.png": {
+     "name": "nasaem-logo-horizontal-dark.png",
+     "blob": "a6c6f4fe6eab2e24f9069478a79de65a",
+     "size": 207924,
+     "type": "image/png"
+    },
+    "nasaem-logo-stacked.png": {
+     "name": "nasaem-logo-stacked.png",
+     "blob": "6d92ec21caab1e88fc80820ac2d0e9d8",
+     "size": 268147,
+     "type": "image/png"
+    },
+    "nasaem-logo-stacked-dark.png": {
+     "name": "nasaem-logo-stacked-dark.png",
+     "blob": "92922aaeec7e54630e036a353db1e94d",
+     "size": 199185,
+     "type": "image/png"
+    },
+    "nasaem-emblem.png": {
+     "name": "nasaem-emblem.png",
+     "blob": "f6514e9e48a457fd4827696cec65fba1",
+     "size": 138536,
+     "type": "image/png"
+    }
+   }
+  }
+ },
+ "blobs": {},
+ "docs": {
+  "sections": []
+ },
+ "lastChange": {
+  "by": "Claude",
+  "at": "2026-10-31T07:35:50Z",
+  "via": "Claude Code (cloud)",
+  "note": "Aligned to the official brand board: navy #2E3792, gold #FAB60D, charcoal; official transparent logos"
+ }
+}
