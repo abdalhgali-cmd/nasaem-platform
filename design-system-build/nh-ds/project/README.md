@@ -2,7 +2,7 @@
 
 **نسائم الحرمين للسفر والسياحة — Admin design system.** The visual language of the staff back-office (مركز التحكم) where the operations team runs Umrah groups and Egypt security-clearance cases. It is calm, trustworthy and dense: deep navy for authority, white for clarity, and gold used sparingly for the one thing that matters on each screen.
 
-Built from the **official brand board, logo and letterhead** (navy `#2E3792`, gold `#FAB60D`, Kaaba charcoal `#3A3637`, display face HS Alwajd) and the live codebase (`abdalhgali-cmd/nasaem-platform`): `web/src/app/globals.css` (Cairo, theme structure), `web/src/components/admin/admin-shell.tsx` (navigation groups, roles, Lucide icons), `web/src/components/sections/case-workspace.tsx` (queues, SLA, document states, audit actions) and the legacy `web/public/assets/style.css` (status badge map, teal). It aligns the admin to the official brand colours (the site theme's `#0b3d91` / `#d4af37` drifted from the logo) and raises the finish: a navy rail instead of a white one, a stricter status colour map, a real data-table spec, tabular numerals and accessible contrast in both themes.
+Built from the **brand board, logo and letterhead PDFs** (provisional colours navy `#2E3792`, gold `#FAB60D`, Kaaba charcoal `#3A3637`, see §3.1; display face HS Alwajd) and the live codebase (`abdalhgali-cmd/nasaem-platform`): `web/src/app/globals.css` (Cairo, theme structure), `web/src/components/admin/admin-shell.tsx` (navigation groups, roles, Lucide icons), `web/src/components/sections/case-workspace.tsx` (queues, SLA, document states, audit actions) and the legacy `web/public/assets/style.css` (status badge map, teal). It aligns the admin, provisionally, to the colours visible in the logo artwork (the site theme uses `#0b3d91` / `#d4af37`) and raises the finish: a navy rail instead of a white one, a stricter status colour map, a real data-table spec, tabular numerals and accessible contrast in both themes.
 
 ---
 
@@ -25,7 +25,7 @@ Built from the **official brand board, logo and letterhead** (navy `#2E3792`, go
 
 ## 3. Colour
 
-The palette is the brand board's three colours (navy, gold, charcoal) on a cool neutral ground, plus five status tones and one service hue. The hex labels printed on the brand board (`#13368D`, `#EFE9E1`, `#E45A0B`) do not match its own swatches or the logo; the values below are sampled from the swatches and the logo artwork.
+The palette is navy, gold and charcoal on a cool neutral ground, plus five status tones and one service hue. **The brand values are provisional**: the brand files disagree with each other (§3.1), and the tokens use the colours sampled from the artwork until the brand owner confirms which set is correct.
 
 | Role | Token | Light | Dark | Use |
 |---|---|---|---|---|
@@ -40,6 +40,27 @@ The palette is the brand board's three colours (navy, gold, charcoal) on a cool 
 | Egypt line | `nile` | `#0f766e` | `#2dd4bf` | Egypt clearance tags and chart series (the legacy dashboard teal) |
 
 Status tones each have a solid, a `-soft` ground and an `-ink` text: `info` (new / to review), `warning` (waiting on customer), `success` (done), `danger` (blocked / rejected); in-progress uses navy. All `-ink` on `-soft` pairs are ≥5.7:1 in both themes; solid fills carry white at ≥5:1.
+
+### 3.1 Open decision: brand colour values (unresolved)
+
+The brand files give two different answers, and this system does not declare either authoritative. Values were measured from the PDFs on 31 Oct 2026. ΔE is CIE76: under 2 is invisible, over 10 is clearly a different colour.
+
+| Role | Hex printed on the brand board | Colour actually drawn (swatch, logo, letterhead) | ΔE | Note |
+|---|---|---|---|---|
+| Navy | `#13368D` | `#2E3792` (swatch, logo vector, letterhead band) | 4.8 | Same family; printed value is darker and bluer |
+| 2nd colour | `#EFE9E1` (warm cream) | `#FAB60D` (gold: swatch and logo line) | 77.4 | Different colour |
+| 3rd colour | `#E45A0B` (orange) | `#3A3637` → black gradient (swatch); `#3A3637` Kaaba in the logo | 86.5 | Different colour |
+
+Other values seen in the same files, for completeness:
+- **Letterhead**: yellow band `#FFCD30` (lighter than the logo's `#FAB60D`) and a dark corner `#282939`.
+- **Brand board alternate logo on navy**: orange-gold `#FDAD42`. An orange is used somewhere, which may be what `#E45A0B` refers to.
+- **Live website theme** (`web/src/app/globals.css`): navy `#0b3d91` (ΔE 8.2 from `#2E3792`) and gold `#d4af37` (ΔE 21.1 from `#FAB60D`).
+
+**Possible explanations** (not verified): the labels are leftover text from the Canva template the board was built on (its title is "Blue and Orange Coffee Shop Brand Board"); or the labels are the intended spec and the artwork was never updated.
+
+**What the tokens do meanwhile**: `navy-700` = `#2E3792`, `gold-500` = `#FAB60D`, `charcoal` = `#3A3637`, because these are what the logo every customer sees is drawn in. If the printed values are confirmed instead, change those three tokens: the scales, contrast notes and components derive from them, and `#EFE9E1` would become a surface tint rather than an accent.
+
+**Decision needed from the brand owner or designer**: confirm one value per role, ideally with the original design file. Until then, previews carry the label "الألوان مؤقتة بانتظار اعتماد الهوية" (colours provisional, pending brand approval).
 
 **Rules**
 - Text is always `ink*` on `canvas`/`surface`; never grey-on-grey below `ink-muted`.
