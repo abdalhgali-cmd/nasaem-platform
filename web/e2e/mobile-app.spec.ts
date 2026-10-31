@@ -139,17 +139,17 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
       expect((await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: 0 } })).status()).toBe(400);
       expect((await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: null } })).ok()).toBeTruthy();
       await skipOnboarding(page);
-      await page.locator(".featured-row", { hasText: "SAR" }).first().click();
-      await expect(page.locator(".info-fact").first()).toContainText("SAR");
-      await expect(page.locator(".info-fact").first()).toContainText("غير متاح حاليًا");
-      await expect(page.locator(".info-fact").first()).not.toContainText("SDG");
+      const umrahPrice = page.locator("#homeUmrahKinds .hc-umrah-kind-price").filter({ hasText: "SAR" }).first();
+      await expect(umrahPrice).toContainText("SAR");
+      await expect(umrahPrice).toContainText("غير متاح حاليًا");
+      await expect(umrahPrice).not.toContainText("SDG");
 
       expect((await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: 160 } })).ok()).toBeTruthy();
       await page.reload();
       await skipOnboarding(page);
-      await page.locator(".featured-row", { hasText: "SAR" }).first().click();
-      await expect(page.locator(".info-fact").first()).toContainText("SDG");
-      await expect(page.locator(".info-fact").first()).not.toContainText("غير متاح");
+      const converted = page.locator("#homeUmrahKinds .hc-umrah-kind-price").filter({ hasText: "SAR" }).first();
+      await expect(converted).toContainText("SDG");
+      await expect(converted).not.toContainText("غير متاح");
     } finally {
       await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: original?.SAR ?? null } });
     }

@@ -13,7 +13,11 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const PDF = Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
 const unique = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9);
 
-test.describe.serial("pricing modes and interactive progress", () => {
+// The first public release intentionally exposes only Umrah and Egypt.
+// These legacy, dynamically-created visa journeys remain covered by backend
+// tests but cannot be entered through the customer UI until the visa directory
+// is released again.
+test.describe.serial.skip("pricing modes and interactive progress", () => {
   const phone = `09${unique().slice(-8)}`;
   let appContext: BrowserContext;
   let app: Page;
