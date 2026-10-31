@@ -2169,8 +2169,9 @@ function PackageOptionDetails({ item }: { item: PublicService }) {
           {perTraveler ? " للمعتمر" : " للطلب"}
         </span>
       ) : price > 0 ? (
-        <span className="text-muted-foreground" dir="ltr">
-          يبدأ من {price.toLocaleString("en-US")} {item.currency}
+        <span className="text-muted-foreground">
+          {/* The phrase stays right-to-left; only the amount is isolated as LTR. */}
+          يبدأ من <span dir="ltr">{price.toLocaleString("en-US")} {item.currency}</span>
         </span>
       ) : null}
       {price > 0 && item.currency !== "SDG" ? (
