@@ -6,7 +6,7 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
-## Admin design system — Phase 1 (Admin Shell, PR #147) and Phase 2 (Operations Center) — 2026-10-31
+## Admin design system — Phase 1 (Admin Shell, PR #147), Phase 2 (Operations Center, PR #148) and Phase 3 (Egypt Case Workspace) — 2026-10-31
 
 Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build/`). Next.js `/admin/*` is the approved future admin; the static back-office stays in service. Not merged, nothing deployed, no backend/API/pricing/payment/permission change, no migration.
 
@@ -20,7 +20,11 @@ Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build
 | Codex review | SKIPPED (owner decision 2026-10-31) | Codex usage limit; owner chose to proceed without it |
 | Real Android device, staging | NOT VERIFIED | no device, no staging access/approval |
 
-**NEXT:** owner visual approval of Phase 2; Phase 3 (Egypt Case Workspace) — directive text was cut off after «Stage A — Security approval», awaiting the rest.
+| Phase 3: Egypt Case Workspace | VERIFIED (local) | Branch `feat/admin-egypt-workspace-20261031` (stacked on Phase 2). `/admin/egypt`: `GET /contact-requests/egypt/queue` with view/stage/operational filter/assignee (mine, unassigned, or a colleague seen in results)/entry/travel from–to/search; alert counts (تجاوز موعد الإنجاز، متأخر أو عاجل، سفر خلال N أيام، بلا موظف) apply the server filter. Case tab «الموافقة الأمنية» (`/admin/cases?requestId=…&tab=egypt`, Egypt requests only) mirrors the back-office panel and calls only the existing transitions (priority/dueAt, approval, travel date + reason, tickets, flight details, circular start/upload, receipt resend). Nav item for SUPER_ADMIN/ADMIN/EMPLOYEE = backend `EGYPT_WORK`. No new state, rule, endpoint or permission |
+| Phase 3 tests | VERIFIED (local) | `admin-egypt-workspace.spec.ts` 3/3: request created via the public intake API; row content = server stage/next action; stage/assignee filters; row opens the tab; approval before payment refused by the server (`NOT_RELEASABLE`, message shown, state unchanged); travel date, priority/dueAt, flight details saved and audited (`EGYPT_TRAVEL_DATE_CHANGED`, `CONTACT_REQUEST_PRIORITY_UPDATED` with the user); EMPLOYEE works the queue; ACCOUNTANT: no menu item, page shows the server refusal, API 403. Admin suite on a fresh DB 28/28. Screenshots `docs/admin-design-system/phase-3/` (overflow 0 at 390 px) |
+| Phase 3 not migrated | OPEN | Egypt alert settings and Egypt pricing administration remain only in the static back-office |
+
+**NEXT:** Phase 4 (Umrah Case Workspace) on the existing Umrah queue (`serviceKind=UMRAH`, `umrahQueue`) and case workflow; Phase 5 directive text was cut off — awaiting the rest.
 
 ## Umrah + Egypt only — audit and first fix (2026-10-26, branch `ccr-089babd5-hgh9qj`, base `fix/egypt-intake-staging-20261024` @ `fef0f41` / PR #139)
 

@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { CaseWorkflowPanel, PAYMENT_LABEL } from "@/components/sections/case-workflow-panel";
+import { EgyptCasePanel } from "@/components/admin/egypt/egypt-case-panel";
 
 // Smart Case Operations — Release C (employee case workspace), with the
 // Release E queues/tasks/SLA, Release F provider section and Release G
@@ -257,7 +258,7 @@ async function readJson(res: Response) {
   return payload;
 }
 
-export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: string | null }) {
+export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { initialRequestId?: string | null; initialTab?: string | null }) {
   const [cases, setCases] = React.useState<CaseRow[]>([]);
   const [summary, setSummary] = React.useState<{
     queues: Record<string, number>;
@@ -544,7 +545,7 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
                   فُتح هذا الطلب من رابط مباشر، وهو خارج القائمة أو التصفية الحالية.
                 </p>
               ) : null}
-              <CaseDetail key={selected.id} caseRow={selected} staff={staff} onChanged={refresh} />
+              <CaseDetail key={selected.id} caseRow={selected} staff={staff} onChanged={refresh} initialTab={selected.id === initialRequestId ? initialTab : null} />
             </div>
           ) : selectedId && linkedError && !loading ? (
             <div className="flex items-center justify-center rounded-3xl border border-destructive/20 bg-destructive/5 p-10 text-sm font-bold text-destructive" data-testid="case-linked-error">
@@ -614,12 +615,17 @@ function CaseDetail({
   caseRow,
   staff,
   onChanged,
+  initialTab = null,
 }: {
   caseRow: CaseRow;
   staff: StaffUser[];
   onChanged: () => void;
+  initialTab?: string | null;
 }) {
-  const [tab, setTab] = React.useState<"overview" | "workflow" | "travelers" | "documents" | "tasks" | "provider" | "notes" | "activity">("overview");
+  // Egypt security-approval requests get their own workspace tab (the same
+  // panel as the back-office «الموافقة الأمنية لمصر» view).
+  const isEgypt = caseRow.progress?.serviceKind === "EGYPT_CLEARANCE";
+  const [tab, setTab] = React.useState<"overview" | "egypt" | "workflow" | "travelers" | "documents" | "tasks" | "provider" | "notes" | "activity">(initialTab === "egypt" && isEgypt ? "egypt" : "overview");
   const [warnings, setWarnings] = React.useState<Warning[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [actionError, setActionError] = React.useState("");
@@ -657,6 +663,7 @@ function CaseDetail({
 
   const tabs = [
     { key: "overview" as const, label: "نظرة عامة" },
+    ...(isEgypt ? [{ key: "egypt" as const, label: "الموافقة الأمنية" }] : []),
     { key: "workflow" as const, label: "سير العمل" },
     { key: "travelers" as const, label: `المسافرون (${caseRow.travelers.length})` },
     { key: "documents" as const, label: `المستندات (${caseRow.documents.filter((d) => !d.supersededAt).length})` },
@@ -761,6 +768,7 @@ function CaseDetail({
 
       <div className="mt-4">
         {tab === "overview" ? <OverviewTab caseRow={caseRow} staff={staff} busy={busy} run={run} /> : null}
+        {tab === "egypt" && isEgypt ? <EgyptCasePanel caseId={caseRow.id} travelers={caseRow.travelers} onChanged={onChanged} /> : null}
         {tab === "workflow" ? <CaseWorkflowPanel caseId={caseRow.id} onChanged={onChanged} /> : null}
         {tab === "travelers" ? <TravelersTab caseRow={caseRow} /> : null}
         {tab === "documents" ? <DocumentsTab caseRow={caseRow} busy={busy} run={run} /> : null}

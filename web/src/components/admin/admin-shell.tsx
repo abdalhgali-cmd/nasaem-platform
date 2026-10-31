@@ -24,6 +24,7 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Plane,
   Users,
   UserRoundCog,
   X,
@@ -57,10 +58,12 @@ const navigation = [
   { href: "/admin/media", label: "الوسائط", icon: ImageIcon, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
   { href: "/admin/settings", label: "إعدادات الموقع", icon: Settings2, roles: ["SUPER_ADMIN", "ADMIN"] },
   { href: "/admin/activity", label: "سجل النشاط", icon: Activity, roles: ["SUPER_ADMIN", "ADMIN"] },
+  // Same roles as the backend Egypt endpoints (EGYPT_WORK in contact-requests.routes.js).
+  { href: "/admin/egypt", label: "الموافقة الأمنية لمصر", icon: Plane, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
 ] as const;
 
 const navigationGroups = [
-  { id: "daily", label: "العمل اليومي", items: [navigation[0], navigation[2], navigation[1], navigation[11], navigation[12]] },
+  { id: "daily", label: "العمل اليومي", items: [navigation[0], navigation[17], navigation[2], navigation[1], navigation[11], navigation[12]] },
   { id: "finance", label: "المال والتقارير", items: [
     { href: "/admin/reports", label: "التقارير", icon: BarChart3, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
     { href: "/admin/payment-review", label: "مراجعة الدفعات", icon: CreditCard, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
