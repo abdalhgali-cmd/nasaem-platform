@@ -50,8 +50,10 @@ test.describe("Admin Shell — SUPER_ADMIN, desktop", () => {
     await expect(page.getByRole("navigation", { name: "تنقل الإدارة" }).getByRole("link", { name: "المستخدمون" })).toHaveAttribute("aria-current", "page");
 
     // Header controls keep their accessible names.
-    await expect(page.getByRole("link", { name: "الإشعارات" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    // (The sidebar also has a «الإشعارات» link, as before; check the header's.)
+    const header = page.getByRole("banner");
+    await expect(header.getByRole("link", { name: "الإشعارات" })).toBeVisible();
+    await expect(header.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
     expect(await assertNoHorizontalOverflow(page)).toBeLessThanOrEqual(1);
   });
 
