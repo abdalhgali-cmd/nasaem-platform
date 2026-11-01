@@ -7,7 +7,6 @@ import { EgyptClearanceHero } from "@/components/sections/egypt-clearance-hero";
 import { type EgyptClearanceRequirement } from "@/components/sections/egypt-clearance-intake";
 import { EGYPT_UNAVAILABLE, EgyptClearanceBooking, type EgyptVariantOption } from "@/components/sections/egypt-clearance-booking";
 import { Faq, type FaqItem } from "@/components/sections/faq";
-import { RelatedServices } from "@/components/sections/related-services";
 import { FadeIn, Stagger } from "@/components/motion/fade-in";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
@@ -131,7 +130,6 @@ export default async function EgyptSecurityApprovalPage() {
     getPublicSiteSettings(),
   ]);
   const visaType = visaTypes.find((visa) => visa.code === VISA_CODE) ?? null;
-  const relatedVisaTypes = visaTypes.filter((visa) => visa.code !== VISA_CODE).slice(0, 3);
   const linkedService = visaType?.serviceId ? (services.find((service) => service.id === visaType.serviceId) ?? null) : null;
   const heroMedia = resolveServiceHeroMedia(linkedService, API_URL);
   const variantOptions: EgyptVariantOption[] = await Promise.all(
@@ -260,7 +258,7 @@ export default async function EgyptSecurityApprovalPage() {
       </section>
 
       <Faq items={faqItems} />
-      <RelatedServices items={relatedVisaTypes} />
+      {/* No «related services»: the approved customer scope is Umrah and Egypt only. */}
 
       <section className="py-16">
         <Container>

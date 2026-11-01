@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
+import { loginAsSeededAdmin, openKeptAppService, readTrackingLoginCode } from "./helpers";
 
 // The customer app (mobile/www) against the real backend and back-office:
 // requests with several travelers, documents on the right traveler, staff
@@ -74,10 +74,11 @@ async function submitFromReview(page: Page): Promise<string> {
   return (await reference.innerText()).trim();
 }
 
-// A home bento tile, then «ابدأ الطلب الآن» on its details page (Umrah and
-// the Egypt approval open their own screen directly, without that page).
-async function startFromShortcut(page: Page, key: string) {
-  await page.locator(`.hc-tile[data-key="${key}"]`).click();
+// Family visit is hidden from customers (approved scope: Umrah + Egypt) but
+// kept: it opens through the app's own dispatcher (helpers.ts
+// openKeptAppService), then «ابدأ الطلب الآن» on its details page.
+async function startKeptService(page: Page, code: string) {
+  await openKeptAppService(page, { code });
   await page.locator("#startRequestBtn").click();
 }
 
@@ -133,27 +134,39 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
   });
 
   test("exchange rate: with no active SAR rate only the original price and an Arabic notice show; with one, the equivalent", async ({ page }) => {
+    // The app offers only Umrah and Egypt (approved scope), so the SAR → SDG
+    // equivalent is checked where customers see SAR prices: the Umrah package
+    // chooser. Its own fixed-price package is a test fixture, deactivated after.
     const api = await staff(page);
+    const headers = { Origin: "http://localhost:3000" };
     const original = (await (await api.get(`${BACKEND}/api/flights/admin/rates`)).json()).data;
+    const stamp = `${Date.now()}`.slice(-8);
+    const name = `باقة اختبار سعر الصرف ${stamp}`;
+    const created = await api.post(`${BACKEND}/api/services`, { headers, data: { code: `E2E-UMRAH-FX-${stamp}`, name, category: "UMRAH_PACKAGE", basePrice: 777, currency: "SAR", active: true, pricingMode: "FIXED", priceUnit: "PER_TRAVELER", features: ["KIND: SEA"] } });
+    expect(created.ok(), await created.text()).toBeTruthy();
+    const packageId = (await created.json()).data.id as string;
+    const packagePrice = () => page.locator(".package-card", { hasText: name }).locator(".package-price");
     try {
       expect((await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: 0 } })).status()).toBe(400);
       expect((await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: null } })).ok()).toBeTruthy();
       await skipOnboarding(page);
-      await page.locator(".featured-row", { hasText: "SAR" }).first().click();
-      await expect(page.locator(".info-fact").first()).toContainText("SAR");
-      await expect(page.locator(".info-fact").first()).toContainText("غير متاح حاليًا");
-      await expect(page.locator(".info-fact").first()).not.toContainText("SDG");
+      await page.locator("#homeUmrahBtn").click();
+      await expect(packagePrice()).toContainText("SAR", { timeout: 15_000 });
+      await expect(packagePrice()).toContainText("غير متاح حاليًا");
+      await expect(packagePrice()).not.toContainText("SDG");
 
       expect((await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: 160 } })).ok()).toBeTruthy();
       await page.reload();
       await skipOnboarding(page);
-      await page.locator(".featured-row", { hasText: "SAR" }).first().click();
-      await expect(page.locator(".info-fact").first()).toContainText("SDG");
-      await expect(page.locator(".info-fact").first()).not.toContainText("غير متاح");
+      await page.locator("#homeUmrahBtn").click();
+      await expect(packagePrice()).toContainText("SDG", { timeout: 15_000 });
+      await expect(packagePrice()).not.toContainText("غير متاح");
     } finally {
       await api.patch(`${BACKEND}/api/flights/admin/rates`, { data: { SAR: original?.SAR ?? null } });
+      await api.patch(`${BACKEND}/api/services/${packageId}`, { headers, data: { active: false } });
     }
   });
+
 
   test("back-office: an admin activates, deactivates and audits an exchange rate", async ({ page }) => {
     const api = await staff(page);
@@ -186,7 +199,7 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
 
   test("family visit for two visitors: each visitor's passport goes to that visitor, and a missing document blocks sending", async ({ page }) => {
     await skipOnboarding(page);
-    await startFromShortcut(page, "family");
+    await startKeptService(page, "VISA-FAMILY-VISIT");
     await fillData(page, { name: "عبدالله محمد", phone: family.phone, travelers: family.travelers });
 
     // Nothing uploaded yet -> cannot send, and it says exactly what is missing

@@ -83,7 +83,10 @@ test.describe("Homepage — admin change reflects publicly", () => {
     }
   });
 
-  test("an admin-created service appears in the public services catalog", async ({ page }) => {
+  // Owner decision (PR #151): the public catalog lists only Umrah and Egypt.
+  // An admin-created service is kept and reachable on its own page, but is not
+  // listed in the catalog.
+  test("an admin-created service gets its own public page but is not listed in the catalog (approved scope)", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
     const code = `E2E-SERVICE-${Date.now()}`;
@@ -93,23 +96,22 @@ test.describe("Homepage — admin change reflects publicly", () => {
     const created = (await createRes.json()).data;
 
     try {
-      // The homepage's Services grid is intentionally capped at 6 curated
-      // entry points (services.tsx) and already has 9 seeded core services
-      // ahead of it in sortOrder — a freshly created service is never
-      // guaranteed a slot there. /services renders the same <Services />
-      // component with no limit, so it's the one surface where "an
-      // admin-created service appears publicly" is actually guaranteed.
       await pollByReloading(
         page,
-        (timeoutMs) => page.getByRole("heading", { name }).count().then((count) => count > 0 ? name : page.locator("body").innerText({ timeout: timeoutMs })),
+        (timeoutMs) => page.locator("h1").innerText({ timeout: timeoutMs }),
         (text) => text.includes(name),
-        "admin-created service on /services",
-        "/services"
+        "admin-created service on its own page",
+        `/services/${code.toLowerCase()}`
       );
+      await page.goto("/services", { waitUntil: "domcontentloaded" });
+      const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
+      await expect(section.locator("a").first()).toBeVisible();
+      await expect(section.locator("a").filter({ hasText: name })).toHaveCount(0);
     } finally {
       await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
     }
   });
+
 
   test("changing the theme's primary color updates the public site's CSS variable", async ({ page }) => {
     test.setTimeout(180_000);
@@ -794,11 +796,18 @@ test.describe("Direct service routing — no intermediate catalog browsing", () 
     await expect(page.locator("h1")).toContainText("الموافقة الأمنية");
   });
 
-  test("Services catalog: Family Visit card goes straight to its dedicated page", async ({ page }) => {
+  // Owner decision (PR #151): the website offers only Umrah and Egypt security
+  // approval. Other services are no longer listed in the catalog, but their
+  // pages and backend are kept (not deleted) and still open directly.
+  test("Services catalog lists only the approved services; hidden services' pages still open directly", async ({ page }) => {
     await page.goto("/services", { waitUntil: "domcontentloaded" });
-    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
-    await page.locator("a").filter({ hasText: "الزيارة العائلية" }).first().click();
-    await expect(page).toHaveURL(/\/visas\/saudi-family-visit$/);
+    const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
+    await expect(section.locator("a").first()).toBeVisible();
+    const hrefs = await section.locator("a").evaluateAll((els) => els.map((el) => el.getAttribute("href")));
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const href of hrefs) expect(["/umrah", "/visas/egypt-security-approval"], `catalog link ${href}`).toContain(href);
+    await expect(section.locator("a").filter({ hasText: "الزيارة العائلية" })).toHaveCount(0);
+    await page.goto("/visas/saudi-family-visit", { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1")).toContainText("الزيارة العائلية");
   });
 
@@ -831,17 +840,15 @@ test.describe("Direct service routing — no intermediate catalog browsing", () 
     const expectedSlug = code.toLowerCase();
 
     try {
-      // Same homepage-curation reasoning as the "admin-created service"
-      // test above — /services (no limit) is where this card is actually
-      // guaranteed to render.
+      // Not listed in the catalog (approved scope, see above): its own route
+      // still renders the generic dynamic template.
       await pollByReloading(
         page,
-        (timeoutMs) => page.locator("a").filter({ hasText: name }).first().getAttribute("href", { timeout: timeoutMs }),
-        (href) => href === `/services/${expectedSlug}`,
-        "generic service card href on /services",
-        "/services"
+        (timeoutMs) => page.locator("h1").innerText({ timeout: timeoutMs }),
+        (text) => text.includes(name),
+        "generic service page",
+        `/services/${expectedSlug}`
       );
-
       await page.goto(`/services/${expectedSlug}`, { waitUntil: "networkidle" });
       await expect(page.locator("h1")).toContainText(name);
       await expect(page.getByText("يتم تحديد التكلفة بعد مراجعة الطلب")).toBeVisible();
@@ -857,72 +864,67 @@ test.describe("Direct service routing — no intermediate catalog browsing", () 
   });
 });
 
+// The Egypt approval's Service row, and its card on /services once a change shows.
+async function egyptCatalogService(page: Page) {
+  const services = (await (await page.request.get(`${BACKEND_URL}/api/services/public`)).json()).data.services as Array<{ id: string; code: string; iconKey: string | null; imageKey: string | null }>;
+  const egypt = services.find((service) => service.code === "SVC-EGYPT-CLEARANCE");
+  expect(egypt, "SVC-EGYPT-CLEARANCE is seeded and published").toBeTruthy();
+  return egypt!;
+}
+// Reloads until the card shows `icon` (the catalog may be served from cache briefly).
+async function egyptCatalogCard(page: Page, icon: string) {
+  return pollByReloading(
+    page,
+    async (timeoutMs) => {
+      const link = page.locator('a[href="/visas/egypt-security-approval"]').filter({ has: page.locator("h3") }).first();
+      await link.locator(icon).waitFor({ timeout: timeoutMs });
+      return link;
+    },
+    () => true,
+    "Egypt card on /services",
+    "/services"
+  );
+}
+
 test.describe("Service media — admin-controlled icon and safe fallbacks", () => {
+  // The catalog lists only the approved services (PR #151), so the icon is
+  // checked on a real catalog card: the Egypt approval's. Its iconKey is set
+  // for the test and restored afterwards.
   test("admin sets a service's icon and the public services catalog card renders it", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
-    const code = `E2E-ICON-${Date.now()}`;
-    const name = `خدمة أيقونة الاختبار ${Date.now()}`;
-    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
-      data: { code, name, category: "e2e_icon_category", basePrice: 0, currency: "SAR", active: true, iconKey: "ship", features: [] },
-    });
-    expect(createRes.ok(), await createRes.text()).toBeTruthy();
-    const created = (await createRes.json()).data;
-
+    const egypt = await egyptCatalogService(page);
+    expect(egypt.imageKey, "the Egypt card has no image in the seed, so its icon renders").toBeFalsy();
+    const set = await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: "ship" } });
+    expect(set.ok(), await set.text()).toBeTruthy();
     try {
-      // Homepage-curation reasoning again: /services is where a freshly
-      // created, arbitrary-category service is actually guaranteed a card.
-      const card = await pollByReloading(
-        page,
-        async (timeoutMs) => {
-          const link = page.locator("a").filter({ hasText: name }).first();
-          await link.waitFor({ timeout: timeoutMs });
-          return link;
-        },
-        () => true,
-        "generic service card on /services",
-        "/services"
-      );
-      // No image was uploaded — the card must render the chosen icon, never
-      // a broken <img>.
+      const card = await egyptCatalogCard(page, "svg.lucide-ship");
       await expect(card.locator("img")).toHaveCount(0);
       await expect(card.locator("svg.lucide-ship")).toBeVisible();
     } finally {
-      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+      await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: egypt.iconKey ?? null } });
     }
   });
+
 
   test("a service with neither icon nor image falls back to the default catalog icon, never a broken image", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
-    const code = `E2E-FALLBACK-${Date.now()}`;
-    const name = `خدمة بدون صورة ${Date.now()}`;
-    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
-      data: { code, name, category: "e2e_fallback_category", basePrice: 0, currency: "SAR", active: true, features: [] },
-    });
-    expect(createRes.ok(), await createRes.text()).toBeTruthy();
-    const created = (await createRes.json()).data;
-
+    const egypt = await egyptCatalogService(page);
+    expect(egypt.imageKey).toBeFalsy();
+    const set = await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: null } });
+    expect(set.ok(), await set.text()).toBeTruthy();
     try {
-      const card = await pollByReloading(
-        page,
-        async (timeoutMs) => {
-          const link = page.locator("a").filter({ hasText: name }).first();
-          await link.waitFor({ timeout: timeoutMs });
-          return link;
-        },
-        () => true,
-        "fallback service card on /services",
-        "/services"
-      );
+      const card = await egyptCatalogCard(page, "svg.lucide-package");
       await expect(card.locator("img")).toHaveCount(0);
       // The default Package icon specifically — the card's "اعرف المزيد"
       // arrow icon is also an <svg>, so plain `svg` would match both.
       await expect(card.locator("svg.lucide-package")).toBeVisible();
     } finally {
-      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+      await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: egypt.iconKey ?? null } });
     }
   });
+
 });
 
 test.describe("Egypt hero motion — respects prefers-reduced-motion", () => {
@@ -948,16 +950,17 @@ test.describe("Egypt hero motion — respects prefers-reduced-motion", () => {
 // the pre-existing direct routes (Umrah, Flights, Ferries — never hardcoded
 // to the generic visa flow to begin with) are untouched by this work.
 test.describe("Service page SEO metadata and related services", () => {
-  test("Egypt page has a canonical link, OpenGraph tags, and a related-services section that links elsewhere", async ({ page }) => {
+  test("Egypt page has a canonical link and OpenGraph tags, and no links to services outside the approved scope", async ({ page }) => {
     await page.goto("/visas/egypt-security-approval", { waitUntil: "networkidle" });
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/visas\/egypt-security-approval$/);
     await expect(page.locator('meta[property="og:title"]')).toHaveCount(1);
     await expect(page.locator('meta[property="og:description"]')).toHaveCount(1);
-    const relatedSection = page.locator("section", { has: page.getByText("قد تهمك أيضًا") });
-    await expect(relatedSection).toBeVisible();
-    // At least one related-service card must link somewhere other than this same page.
-    const relatedHrefs = await relatedSection.locator("a").evaluateAll((els) => els.map((el) => el.getAttribute("href")));
-    expect(relatedHrefs.some((href) => href && !href.includes("egypt-security-approval"))).toBeTruthy();
+    // Owner decision (PR #151): no «قد تهمك أيضًا» cross-selling of other visas.
+    await expect(page.locator("section", { has: page.getByText("قد تهمك أيضًا") })).toHaveCount(0);
+    const hrefs = await page.locator("main a[href^='/']").evaluateAll((els) => els.map((el) => el.getAttribute("href") || ""));
+    for (const hidden of ["/visas/saudi-family-visit", "/services/", "/flights", "/ferries", "/hotels"]) {
+      expect(hrefs.filter((href) => href === hidden || (hidden.endsWith("/") && href.startsWith(hidden))), hidden).toEqual([]);
+    }
   });
 
   test("Saudi Family Visit page has a canonical link and OpenGraph tags", async ({ page }) => {
@@ -1041,18 +1044,17 @@ test.describe("Every named service opens its own page — no generic-catalog dea
     await expect(page.getByRole("link", { name: "العمرة", exact: true }).first()).toHaveAttribute("href", "/umrah");
   });
 
-  test("Services catalog sends International Visa, Work Visa, and Tasheel to their own pages, not a shared catalog", async ({ page }) => {
+  test("International Visa, Work Visa and Tasheel are out of the catalog (approved scope) but keep their own pages", async ({ page }) => {
     await page.goto("/services", { waitUntil: "domcontentloaded" });
     const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
-    const hrefs = await section.locator("a").evaluateAll((els) =>
-      Object.fromEntries(els.map((el) => [el.querySelector("h3")?.textContent ?? "", el.getAttribute("href")]))
-    );
-    for (const [name, href] of Object.entries(hrefs)) {
-      if (["التأشيرات الدولية", "تأشيرة العمل", "حجز مواعيد تساهيل"].includes(name)) {
-        expect(href, `${name} must not land on the shared /visas catalog`).not.toMatch(/^\/visas\?/);
-        expect(href, `${name} must not land on the dead-end /contact fallback`).not.toMatch(/^\/contact\?/);
-        expect(href).toMatch(/^\/services\//);
-      }
+    await expect(section.locator("a").first()).toBeVisible();
+    for (const name of ["التأشيرات الدولية", "تأشيرة العمل", "حجز مواعيد تساهيل"]) {
+      await expect(section.locator("a").filter({ hasText: name }), name).toHaveCount(0);
+    }
+    // Their routes are kept (nothing deleted): each still renders its own page.
+    for (const slug of ["intl-visa", "work-visa", "tasheel"]) {
+      const res = await page.goto(`/services/${slug}`, { waitUntil: "domcontentloaded" });
+      expect(res?.status(), slug).toBe(200);
     }
   });
 });

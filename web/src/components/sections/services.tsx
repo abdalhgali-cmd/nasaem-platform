@@ -7,6 +7,7 @@ import { getSiteAssetUrls } from "@/lib/site-assets";
 import { getPublicServices, type PublicService } from "@/lib/services";
 import { resolveHomepageIcon } from "@/lib/homepage-icons";
 import { resolveServiceHref } from "@/lib/service-routes";
+import { isActiveServiceRoute } from "@/lib/active-services";
 import { formatPrice, formatSdgEquivalent, hasPublishedPrice } from "@/lib/price";
 
 type DisplayService = PublicService & { icon: LucideIcon; href: string; imageUrl?: string };
@@ -24,7 +25,9 @@ export async function Services({ limit, showAllLink = false }: { limit?: number;
     (service) =>
       service.category !== "package" &&
       service.category !== "UMRAH_PACKAGE" &&
-      !service.code.startsWith("SVC-UMRAH-")
+      !service.code.startsWith("SVC-UMRAH-") &&
+      // Only the approved customer services (Umrah, Egypt security approval).
+      isActiveServiceRoute(resolveServiceHref(service))
   );
   const uniqueServices = Array.from(
     new Map(services.map((service) => [resolveServiceHref(service), service])).values()

@@ -11,6 +11,10 @@ type LogoUrls = { light?: string; dark?: string };
 export function SiteChrome({ children, logoUrls, publicSettings }: { children: React.ReactNode; logoUrls: LogoUrls; publicSettings: PublicSiteSettings }) {
   const pathname = usePathname();
   const isAdmin = pathname.startsWith("/admin");
+  // On the Umrah and Egypt booking forms the floating button covered the
+  // form's own «التالي»/«إرسال» buttons on phones; both pages carry an inline
+  // WhatsApp link, so the floating one is left to larger screens there.
+  const bookingForm = pathname === "/umrah" || pathname === "/visas/egypt-security-approval";
 
   if (isAdmin) return <>{children}</>;
 
@@ -19,6 +23,6 @@ export function SiteChrome({ children, logoUrls, publicSettings }: { children: R
     <SiteHeader logoUrls={logoUrls} contactPhone={publicSettings.phone} />
     <main id="main-content" className="flex-1">{children}</main>
     <SiteFooter logoUrls={logoUrls} publicSettings={publicSettings} />
-    <WhatsAppButton whatsapp={publicSettings.whatsapp} />
+    <WhatsAppButton whatsapp={publicSettings.whatsapp} hideOnPhones={bookingForm} />
   </>;
 }
