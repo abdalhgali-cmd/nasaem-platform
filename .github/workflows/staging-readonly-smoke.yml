@@ -55,3 +55,37 @@ jobs:
           for path in / /umrah /visas/egypt-security-approval /track; do
             printf "%-40s → " "$path"; curl -sS -m 30 -o /dev/null -w "%{http_code}\n" "$SITE$path"
           done
+
+      - name: Unified admin on the staging website (read-only)
+        run: |
+          # Which website build is live: the unified admin answers /admin and
+          # /admin/login with 200, and its copy of the old back-office forwards
+          # to /admin (UNIFIED_ADMIN_PATH) and uses the staging API.
+          for path in /admin /admin/login /admin/operations /admin/tools /admin/tools/payment-accounts; do
+            printf "%-40s → " "$path"; curl -sS -m 30 -o /dev/null -w "%{http_code} %{redirect_url}\n" "$SITE$path"
+          done
+          curl -sS -m 30 "$SITE/assets/api.js" -o site-api.js || true
+          printf "website api.js: unified admin %s, staging API %s\n" \
+            "$(grep -q 'UNIFIED_ADMIN_PATH = "/admin"' site-api.js && echo yes || echo NO)" \
+            "$(grep -q 'adaptable-quietude-staging.up.railway.app/api' site-api.js && echo yes || echo NO)"
+          # The API the Next.js build talks to (NEXT_PUBLIC_API_URL is baked in at build time).
+          curl -sS -m 30 "$SITE/admin/login" -o login.html || true
+          chunks=$(grep -oE '/_next/static/[^"]+\.js' login.html | sort -u | head -40)
+          found=""
+          for c in $chunks; do
+            body=$(curl -sS -m 30 "$SITE$c" || true)
+            for host in adaptable-quietude-staging.up.railway.app nasaem-platform-production.up.railway.app localhost:5000; do
+              case "$body" in *"$host"*) found="$found $host";; esac
+            done
+          done
+          echo "API hosts referenced by the website build:$(echo "$found" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+
+      - name: Staff sign-in preflight from the staging website (CORS, no credentials sent)
+        run: |
+          for path in /auth/login /auth/me; do
+            echo "--- OPTIONS $path (Origin: $SITE)"
+            curl -sS -m 30 -o /dev/null -D - -X OPTIONS "$API$path" \
+              -H "Origin: $SITE" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type,x-requested-with" \
+              | grep -iE "^HTTP|^access-control-allow-(origin|credentials|headers)" || true
+          done
+          printf "%-40s → " "API host /admin-dashboard.html"; curl -sS -m 30 -o /dev/null -w "%{http_code} %{redirect_url}\n" "$API/../admin-dashboard.html"
