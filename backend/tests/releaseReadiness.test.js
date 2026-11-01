@@ -1,7 +1,23 @@
 import "./env.js";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import prisma from "../src/config/database.js";
 import { collectReadiness } from "../src/scripts/release-readiness.js";
+
+// Other suites price (or unprice) the Egypt variants, so the order tests run
+// in must not decide these results: the check reads the real database except
+// for the Egypt rows, where the air variant is given as unpriced.
+const unpricedEgyptDb = new Proxy(prisma, {
+  get(target, key) {
+    if (key !== "visaType") return Reflect.get(target, key);
+    return {
+      findMany: async () => [
+        { code: "VISA-EGYPT-CLEARANCE-AIR", name: "جوي", active: true, pricingMode: "QUOTE", basePrice: 0, currency: "USD", priceUnit: "PER_PERSON" },
+        { code: "VISA-EGYPT-CLEARANCE-BORDER", name: "بري", active: true, pricingMode: "FIXED", basePrice: 155, currency: "USD", priceUnit: "PER_PERSON" },
+      ],
+    };
+  },
+});
 
 // The read-only readiness check run on staging/production before a release.
 describe("release readiness check", () => {
@@ -26,11 +42,43 @@ describe("release readiness check", () => {
   });
 
   test("missing WhatsApp, unwritable uploads in production and unpriced services are blockers", async () => {
-    const report = await collectReadiness({ env: { NODE_ENV: "production", JWT_SECRET: "y".repeat(40), CORS_ORIGIN: "https://example.test" } });
+    const report = await collectReadiness({ db: unpricedEgyptDb, env: { NODE_ENV: "production", JWT_SECRET: "y".repeat(40), CORS_ORIGIN: "https://example.test" } });
     assert.ok(report.blockers.some((b) => b.includes("واتساب")), JSON.stringify(report.blockers));
     assert.ok(report.blockers.some((b) => b.includes("UPLOAD_ROOT")));
-    // The seed leaves the Egypt variants unpriced: reported, never invented.
+    // An unpriced variant is reported, never invented; on production it blocks.
     assert.ok(report.blockers.some((b) => b.includes("VISA-EGYPT-CLEARANCE-AIR")));
+    assert.equal(report.blockers.some((b) => b.includes("VISA-EGYPT-CLEARANCE-BORDER")), false);
     assert.ok(Array.isArray(report.prices.umrah) && report.prices.umrah.length > 0);
+    assert.equal(report.prices.testData, false);
+  });
+
+  test("outside production the prices are test data: an unpriced service is a warning, not a blocker", async () => {
+    const report = await collectReadiness({ db: unpricedEgyptDb, env: { NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: "staging", JWT_SECRET: "y".repeat(40), CORS_ORIGIN: "https://example.test" } });
+    assert.equal(report.prices.testData, true);
+    assert.equal(report.environment.deployment, "staging");
+    assert.equal(report.blockers.some((b) => b.includes("VISA-EGYPT-CLEARANCE-AIR")), false, JSON.stringify(report.blockers));
+    assert.ok(report.warnings.some((w) => w.includes("VISA-EGYPT-CLEARANCE-AIR")), JSON.stringify(report.warnings));
+    // Configuration that is not a price still blocks on staging.
+    assert.ok(report.blockers.some((b) => b.includes("واتساب")));
+  });
+});
+
+describe("deployment labels", () => {
+  test("only the production deployment has real prices", async () => {
+    const { deploymentName, pricesAreTestData } = await import("../src/config/deployment.js");
+    assert.equal(pricesAreTestData({ NODE_ENV: "production" }), false);
+    assert.equal(pricesAreTestData({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: "production" }), false);
+    assert.equal(pricesAreTestData({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: "staging" }), true);
+    assert.equal(pricesAreTestData({ NODE_ENV: "development", DEPLOYMENT_ENVIRONMENT: "production" }), true);
+    assert.equal(pricesAreTestData({ NODE_ENV: "test" }), true);
+    assert.equal(deploymentName({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: "Staging" }), "staging");
+  });
+
+  test("/api/health tells the website and dashboard whether prices are test data", async () => {
+    const { app, request } = await import("./helpers/api.js");
+    const res = await request(app).get("/api/health");
+    assert.equal(res.status, 200);
+    assert.equal(res.body.pricesAreTestData, true, "the test suite never runs as production");
+    assert.equal(typeof res.body.environment, "string");
   });
 });

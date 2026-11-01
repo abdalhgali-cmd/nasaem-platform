@@ -12,6 +12,7 @@ import fs from "node:fs";
 import prisma from "../config/database.js";
 import { getCurrencyRateStatuses } from "../modules/flights/flights.service.js";
 import { intakeScope } from "../modules/service-scope/intake-scope.js";
+import { deploymentName, pricesAreTestData } from "../config/deployment.js";
 
 const EGYPT_VARIANTS = ["VISA-EGYPT-CLEARANCE-AIR", "VISA-EGYPT-CLEARANCE-BORDER"];
 const UMRAH_APPROVED_CODES = ["SVC-UMRAH-VISA", "SVC-UMRAH-AIR", "SVC-UMRAH-SEA"];
@@ -20,11 +21,19 @@ const present = (name, env) => Boolean(String(env[name] || "").trim());
 export async function collectReadiness({ db = prisma, env = process.env } = {}) {
   const blockers = [];
   const warnings = [];
+  // Outside production the prices and exchange rates are development/test
+  // data (owner decision 2026-11-01): a missing or unconfirmed price is noted
+  // for the admin dashboard, never a release blocker. On the production
+  // deployment a package nobody can book still blocks.
+  const testPrices = pricesAreTestData(env);
+  const priceIssues = testPrices ? warnings : blockers;
 
   // ---- environment (names only; values of secrets are never read out)
   const environment = {
     NODE_ENV: env.NODE_ENV || null,
     DEPLOYMENT_ENVIRONMENT: env.DEPLOYMENT_ENVIRONMENT || null,
+    deployment: deploymentName(env),
+    pricesAreTestData: testPrices,
     PUBLIC_INTAKE_SCOPE: intakeScope(env) ? intakeScope(env).join(",") : "ALL",
     JWT_SECRET: present("JWT_SECRET", env) ? `present (${String(env.JWT_SECRET).length} chars)` : "missing",
     CORS_ORIGIN: present("CORS_ORIGIN", env) ? "present" : "missing",
@@ -77,13 +86,13 @@ export async function collectReadiness({ db = prisma, env = process.env } = {}) 
   const bookable = (row) => row.active && row.pricingMode === "FIXED" && Number(row.basePrice) > 0 && Boolean(row.currency);
   for (const code of UMRAH_APPROVED_CODES) {
     const row = umrah.find((item) => item.code === code);
-    if (!row) blockers.push(`باقة العمرة ${code} غير موجودة.`);
-    else if (!bookable(row)) blockers.push(`باقة العمرة ${code} غير قابلة للحجز (يجب أن تكون مفعّلة وبسعر ثابت).`);
+    if (!row) priceIssues.push(`باقة العمرة ${code} غير موجودة.`);
+    else if (!bookable(row)) priceIssues.push(`باقة العمرة ${code} غير قابلة للحجز (يجب أن تكون مفعّلة وبسعر ثابت). اضبطها من «الأسعار والباقات».`);
   }
   for (const code of EGYPT_VARIANTS) {
     const row = egypt.find((item) => item.code === code);
-    if (!row) blockers.push(`نوع الموافقة ${code} غير موجود.`);
-    else if (!bookable(row)) blockers.push(`نوع الموافقة ${code} غير قابل للحجز (يجب أن يكون مفعّلًا وبسعر ثابت).`);
+    if (!row) priceIssues.push(`نوع الموافقة ${code} غير موجود.`);
+    else if (!bookable(row)) priceIssues.push(`نوع الموافقة ${code} غير قابل للحجز (يجب أن يكون مفعّلًا وبسعر ثابت). اضبطه من «التأشيرات».`);
   }
   // SVC-UMRAH is the umbrella service (its own page), not a bookable package.
   const otherUmrah = umrah.filter((row) => row.active && row.code !== "SVC-UMRAH" && !UMRAH_APPROVED_CODES.includes(row.code));
@@ -129,7 +138,7 @@ export async function collectReadiness({ db = prisma, env = process.env } = {}) 
     environment,
     uploads,
     migrations,
-    prices: { umrah, egypt },
+    prices: { testData: testPrices, umrah, egypt },
     exchangeRates: rates,
     activePaymentAccounts: accountCount,
     activeStaff: staffCount,
@@ -150,6 +159,7 @@ if (isMain) {
       console.log("\nالبيئة:"); for (const [k, v] of Object.entries(report.environment)) console.log(`  ${k}: ${v ?? "—"}`);
       console.log(`\nالمستندات: ${JSON.stringify(report.uploads)}`);
       console.log(`الترحيلات: ${JSON.stringify(report.migrations)}`);
+      if (report.prices.testData) console.log("\nتنبيه: هذه بيئة غير إنتاجية؛ الأسعار وأسعار الصرف بيانات تجريبية وليست أسعارًا نهائية.");
       console.log("\nأسعار العمرة:"); for (const r of report.prices.umrah) console.log(`  ${r.code} ${r.active ? "مفعّل" : "غير مفعّل"} ${r.pricingMode} ${r.basePrice} ${r.currency} ${r.priceUnit}`);
       console.log("أسعار مصر:"); for (const r of report.prices.egypt) console.log(`  ${r.code} ${r.active ? "مفعّل" : "غير مفعّل"} ${r.pricingMode} ${r.basePrice} ${r.currency} ${r.priceUnit}`);
       console.log(`\nأسعار الصرف: ${JSON.stringify(report.exchangeRates)}`);
