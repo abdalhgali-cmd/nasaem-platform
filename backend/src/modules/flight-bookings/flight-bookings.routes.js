@@ -3,6 +3,7 @@ import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
 import { attachOptionalCustomer } from "../customer-auth/customer-auth.middleware.js";
+import { kindOpenForIntake, SERVICE_NOT_OFFERED_MESSAGE } from "../service-scope/intake-scope.js";
 import { confirmPayment, createFlightBooking, getBankAccounts, getBookingFile, getFlightBooking, getPublicFlightBooking, issueFinalTicket, listFlightBookings, submitPaymentReceipt, uploadProvisionalTicket, upsertBankAccount } from "./flight-bookings.service.js";
 
 const router = Router();
@@ -17,7 +18,10 @@ const publicWriteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, stan
 
 // A logged-in customer (verified session only, never a client-sent id)
 // books under their own account; anyone else gets a record of their own.
-router.post("/", publicWriteLimiter, attachOptionalCustomer, async (req, res, next) => { try { res.status(201).json({ success: true, booking: await createFlightBooking(req.body, { sessionCustomer: req.customer || null }) }); } catch (e) { next(e); } });
+// Standalone flight booking is outside the approved customer scope unless
+// PUBLIC_INTAKE_SCOPE includes FLIGHT (service-scope/intake-scope.js). Existing
+// bookings (lookup, receipt, files, staff actions) are unaffected.
+router.post("/", publicWriteLimiter, attachOptionalCustomer, async (req, res, next) => { if (!kindOpenForIntake("FLIGHT")) return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE }); try { res.status(201).json({ success: true, booking: await createFlightBooking(req.body, { sessionCustomer: req.customer || null }) }); } catch (e) { next(e); } });
 // Payment accounts are shown to a customer only inside their own booking, once
 // the agency has approved it (see getPublicFlightBooking). There is deliberately
 // no anonymous "list every bank account" endpoint.

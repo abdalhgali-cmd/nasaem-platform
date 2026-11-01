@@ -22,6 +22,7 @@
 | `API_RATE_LIMIT`, `API_SESSION_RATE_LIMIT`, `LOGIN_IP_FAILURE_LIMIT` | اختيارية | حدود المعدّل (الافتراضات آمنة) |
 | `PUBLIC_CONTACT_RATE_LIMIT` | **لا تُضبط في الإنتاج** (تُتجاهل فيه) | يرفع حد إرسال الطلبات العامة؛ يُقرأ فقط عند `NODE_ENV=test` أو `development` (الافتراضي 5 كل 15 دقيقة) |
 | `TRACKING_CODE_RATE_LIMIT` | **لا أثر لها في الإنتاج** | يرفع حد طلب رمز التتبع فقط عندما `NODE_ENV` = `test` أو `development` (الاختبارات وبيئة E2E). في الإنتاج يبقى الحد 5 كل 15 دقيقة حتى لو ضُبطت بالخطأ؛ والقيم غير الصحيحة (ليست عددًا صحيحًا 1–1000) تُتجاهل |
+| `PUBLIC_INTAKE_SCOPE` | اختياري (الافتراضي هو النطاق المعتمد) | الخدمات التي تقبل **طلبات جديدة** من العملاء. غير مضبوط = `UMRAH,EGYPT_CLEARANCE` (العمرة والموافقة الأمنية لمصر فقط). `ALL` = كل الخدمات (للاختبارات فقط). لا يؤثر على الطلبات القائمة ولا على طلبات الموظفين ولا على الاستفسارات العامة |
 | `STARTUP_DB_ATTEMPTS`, `STARTUP_DB_RETRY_DELAY_MS`, `DB_COMPAT_ACKNOWLEDGED_MIGRATIONS` | اختيارية | سلوك الإقلاع والتوافق (انظر `docs/admin-remediation-release.md` على فرع #86) |
 
 ## الموقع (Vercel)

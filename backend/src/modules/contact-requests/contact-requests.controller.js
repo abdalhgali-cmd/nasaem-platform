@@ -45,6 +45,7 @@ import {
 } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
+import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-scope/intake-scope.js";
 
 // Platform 3.0 Phase 6: mirrors contact-request-tracking.controller.js's
 // UPLOAD_ERROR_MESSAGES for the same error codes, raised here by
@@ -88,6 +89,11 @@ export async function storeContactRequest(req, res, next) {
         success: true,
         message: "Request received",
       });
+    }
+
+    // Only the approved services accept new applications (service-scope/intake-scope.js).
+    if (await newApplicationRefusal(parsed.data)) {
+      return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
     }
 
     const contactRequest = await createContactRequest(parsed.data, req, req.files);
