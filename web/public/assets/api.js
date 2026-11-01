@@ -33,7 +33,11 @@ const API_BASE = PRODUCTION_WEB_HOSTS.has(window.location.hostname)
 const UNIFIED_ADMIN_PATH = "/admin";
 const EMBEDDED_IN_ADMIN = (() => {
   try {
-    return window.self !== window.top && new URLSearchParams(window.location.search).get("embed") === "1";
+    // Only inside the admin itself: a frame on another site is never
+    // "embedded" (reading its location throws, or the origin differs).
+    return window.self !== window.top
+      && window.top.location.origin === window.location.origin
+      && new URLSearchParams(window.location.search).get("embed") === "1";
   } catch {
     return false;
   }
