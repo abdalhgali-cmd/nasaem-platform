@@ -136,7 +136,7 @@ export function nextStatus(item: OperationItem) {
   return null;
 }
 export function actionTarget(item: { source: string; id: string }) {
-  return item.source === "order" ? `/admin-dashboard.html?order=${encodeURIComponent(item.id)}` : `/admin/cases?requestId=${encodeURIComponent(item.id)}`;
+  return item.source === "order" ? `/admin/tools/orders?id=${encodeURIComponent(item.id)}` : `/admin/cases?requestId=${encodeURIComponent(item.id)}`;
 }
 export function caseHref(id: string) { return `/admin/cases?requestId=${encodeURIComponent(id)}`; }
 

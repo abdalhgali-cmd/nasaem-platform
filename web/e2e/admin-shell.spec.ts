@@ -7,9 +7,8 @@ import { assertNoHorizontalOverflow, loginAsSeededAdmin } from "./helpers";
 
 const BACKEND = "http://localhost:5000";
 const WEB = "http://localhost:3000";
-// Signed out, the shell sends staff to /admin-dashboard.html, whose own
-// script forwards to /login.html?next=%2Fadmin-dashboard.html.
-const STAFF_LOGIN = /\/(admin-dashboard|login)\.html/;
+// Signed out, the shell sends staff to the unified admin's sign-in page.
+const STAFF_LOGIN = /\/admin\/login/;
 
 async function resolvedPrimary(page: Page, container: string) {
   return page.evaluate((sel) => {
@@ -30,7 +29,7 @@ test.describe("Admin Shell — SUPER_ADMIN, desktop", () => {
   });
 
   test("navy rail with the official logo, every group, active item and breadcrumb", async ({ page }) => {
-    await page.goto("/admin/operations");
+    await page.goto("/admin");
     const rail = page.getByRole("navigation", { name: "تنقل الإدارة" });
     await expect(rail).toBeVisible();
 
@@ -61,7 +60,7 @@ test.describe("Admin Shell — SUPER_ADMIN, desktop", () => {
   });
 
   test("admin colours are scoped: the admin uses the design tokens, the public site keeps its own", async ({ page }) => {
-    await page.goto("/admin/operations");
+    await page.goto("/admin");
     await expect(page.locator(".nh-admin")).toHaveCount(1);
     const adminPrimary = await resolvedPrimary(page, ".nh-admin");
     expect(adminPrimary).toBe("rgb(46, 55, 146)"); // #2e3792, provisional brand navy
@@ -96,7 +95,7 @@ test.describe("Admin Shell — role filtering", () => {
     await loginAsSeededAdmin(page);
     const { context, page: employee } = await staffPage(browser, page, "EMPLOYEE", "موظف اختبار القائمة");
 
-    await employee.goto("/admin/operations");
+    await employee.goto("/admin");
     const rail = employee.getByRole("navigation", { name: "تنقل الإدارة" });
     await expect(rail.getByRole("link", { name: "مركز العمليات" })).toBeVisible();
     await expect(rail.getByRole("link", { name: "مساحة عمل الحالات" })).toBeVisible();
@@ -114,7 +113,7 @@ test.describe("Admin Shell — role filtering", () => {
   test("an ADMIN sees every group, like SUPER_ADMIN, with the «مدير النظام» label", async ({ browser, page }) => {
     await loginAsSeededAdmin(page);
     const { context, page: admin } = await staffPage(browser, page, "ADMIN", "مدير اختبار القائمة");
-    await admin.goto("/admin/operations");
+    await admin.goto("/admin");
     const rail = admin.getByRole("navigation", { name: "تنقل الإدارة" });
     for (const group of ["العمل اليومي", "المال والتقارير", "الخدمات والموقع", "الفريق والنظام"]) {
       await expect(rail.getByRole("button", { name: group })).toBeVisible();
@@ -128,7 +127,7 @@ test.describe("Admin Shell — role filtering", () => {
   test("an ACCOUNTANT sees operations, documents and the finance group only", async ({ browser, page }) => {
     await loginAsSeededAdmin(page);
     const { context, page: accountant } = await staffPage(browser, page, "ACCOUNTANT", "محاسب اختبار القائمة");
-    await accountant.goto("/admin/operations");
+    await accountant.goto("/admin");
     await expect(accountant.getByText("تعذر تحميل مركز العمليات")).toHaveCount(0);
     const rail = accountant.getByRole("navigation", { name: "تنقل الإدارة" });
     await expect(accountant.getByRole("banner").getByText("المحاسب")).toBeVisible();
@@ -154,7 +153,7 @@ test.describe("Admin Shell — session and notifications", () => {
   test("signed out: /admin redirects to the staff login page", async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
-    await page.goto("/admin/operations");
+    await page.goto("/admin");
     await expect(page).toHaveURL(STAFF_LOGIN);
     await context.close();
   });
@@ -163,16 +162,15 @@ test.describe("Admin Shell — session and notifications", () => {
     await loginAsSeededAdmin(page);
     // A dedicated account, so logging out never invalidates the shared admin session.
     const { context, page: staff } = await staffPage(browser, page, "EMPLOYEE", "موظف اختبار الخروج");
-    await staff.goto("/admin/operations");
+    await staff.goto("/admin");
     const header = staff.getByRole("banner");
     await header.getByRole("link", { name: "الإشعارات" }).click();
     await expect(staff).toHaveURL(/\/admin\/notifications$/);
 
     await staff.getByRole("banner").getByRole("button", { name: "تسجيل الخروج" }).click();
-    // Wait for the end of the redirect chain (/admin-dashboard.html → /login.html)
-    // so the next navigation is not interrupted by it.
-    await expect(staff).toHaveURL(/\/login\.html/);
-    await staff.goto("/admin/operations");
+    // Wait for the sign-in page so the next navigation is not interrupted.
+    await expect(staff).toHaveURL(STAFF_LOGIN);
+    await staff.goto("/admin");
     await expect(staff).toHaveURL(STAFF_LOGIN);
     await context.close();
   });
@@ -183,7 +181,7 @@ test.describe("Admin Shell — mobile", () => {
 
   test("drawer opens and closes, navigation works, no horizontal overflow", async ({ page }) => {
     await loginAsSeededAdmin(page);
-    await page.goto("/admin/operations");
+    await page.goto("/admin");
     expect(await assertNoHorizontalOverflow(page)).toBeLessThanOrEqual(1);
     await expect(page.getByRole("navigation", { name: "تنقل الإدارة" })).toBeHidden();
 

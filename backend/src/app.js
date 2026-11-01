@@ -15,6 +15,7 @@ import { createCsrfProtection } from "./middleware/csrf.middleware.js";
 import { createApiRateLimiter } from "./middleware/rateLimits.js";
 import { trustProxyHops } from "./utils/trustProxy.js";
 import { corsOptionsFor, parseAllowedOrigins } from "./utils/allowedOrigins.js";
+import { legacyAdminRedirect, parseAdminAppUrl } from "./utils/adminAppUrl.js";
 
 // Must run before the cors() call below reads process.env.CORS_ORIGIN.
 // server.js used to be the only place calling dotenv.config(), before its
@@ -78,6 +79,7 @@ app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 // every piece of data they show comes from /api routes that enforce
 // requireAuth/requireRole. Only files inside public/ are reachable; dotfiles
 // are refused and there is no directory listing or index page.
+app.use(legacyAdminRedirect(parseAdminAppUrl(process.env.ADMIN_APP_URL)));
 app.use(express.static(STAFF_FRONTEND_DIR, { dotfiles: "deny", index: false, redirect: false }));
 
 app.get("/", (req, res) => {

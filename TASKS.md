@@ -6,6 +6,24 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
+## Unified administration dashboard + staging data decision — 2026-11-01
+
+Owner decisions (2026-11-01): (1) all current staging records are disposable test data — a staging backup/restore is NOT a blocker for development or a staging release (production backup requirements unchanged; never delete/overwrite production data); (2) the Operations Center is THE admin dashboard, one entry, no second dashboard. Branch `feat/mobile-home-concept-c-20261019`, stacked on #152. Not merged, nothing deployed, no migration, no price change.
+
+| Item | Status | Evidence |
+|---|---|---|
+| `/admin` = Operations Center; `/admin/login` (same `POST /auth/login`); `/admin/operations` → `/admin`; signed-out/logout → `/admin/login?next=` (same-site `/admin` only) | VERIFIED (local) | `web/e2e/admin-unified.spec.ts` 14/14 |
+| One role-based navigation (6 groups); old back-office gaps (orders, customers, flight bookings, payments log, office order, Egypt prices/alerts, payment accounts, offers, coupons, branches, suppliers, flight inventory, airlines, airports, ferries) open inside it at `/admin/tools/<key>` (embedded existing screens, workflows unchanged) | VERIFIED (local) | same spec: embedded screens without old header/tabs, EMPLOYEE refused by page and API 403, ACCOUNTANT payments; 360/768/1280 no overflow; screenshots `docs/admin-design-system/unified/` |
+| Old addresses (`/login.html`, `/admin-dashboard.html` + `#/…`, `?order=`…) forward to the unified pages (website copy); API host redirects only when `ADMIN_APP_URL` is set | VERIFIED (local) | spec «old back-office addresses»; `backend/tests/adminAppUrl.test.js` 3/3 |
+| Shell + Operations Center specs updated to `/admin` | VERIFIED (local) | `admin-shell.spec.ts` 8/8, `admin-operations-center.spec.ts` 4/4 |
+| Backend suite (fresh DB) | VERIFIED (local) | 1075/1075 |
+| Mobile unit tests | VERIFIED (local) | 142/142 |
+| Web lint, typecheck, build | VERIFIED (local) | clean; `/admin/login`, `/admin/tools`, `/admin/tools/[tool]` built |
+| Full CI on `52dafd6` (PR #153) | VERIFIED | GitHub Actions run 41280799970: Backend tests ✅, Frontend typecheck + build ✅, Playwright E2E (full suite, 4 projects) ✅, PostgreSQL backup + restore drill ✅; QA APK run 41280804837 ✅ (`Nasaem-AlHaramain-release-apk`); Vercel ❌ «Account is blocked» (account, not code — same on #147–#152) |
+| Codex review | SKIPPED | Codex usage limit until 2026-11-04; self-review fixed one issue (embed mode only under a same-origin parent) |
+| Not rebuilt natively yet | OPEN | the embedded `/admin/tools/*` screens (old styling restyled to Cairo/navy/gold) are the next candidates to rebuild |
+| Real device, staging | NOT VERIFIED | no device; staging deploy needs owner approval |
+
 ## Admin design system — Phase 1 (Admin Shell, PR #147), Phase 2 (Operations Center, PR #148), Phase 3 (Egypt, PR #149) and Phase 4 (Umrah) — 2026-10-31
 
 Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build/`). Next.js `/admin/*` is the approved future admin; the static back-office stays in service. Not merged, nothing deployed, no backend/API/pricing/payment/permission change, no migration.

@@ -144,7 +144,7 @@ export default function PaymentReviewPage() {
           </div>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} />تحديث</Button>
-            <Button asChild variant="gold"><Link href="/admin/operations">مركز العمليات</Link></Button>
+            <Button asChild variant="gold"><Link href="/admin">مركز العمليات</Link></Button>
           </div>
         </div>
 
@@ -198,7 +198,7 @@ export default function PaymentReviewPage() {
                       </Button>
                     ) : null}
                     <Button asChild type="button" variant="outline">
-                      <Link href={item.source === "order" ? `/admin-dashboard.html?order=${encodeURIComponent(item.id)}` : `/admin/cases?requestId=${encodeURIComponent(item.id)}`}><ExternalLink className="size-4" />فتح الطلب</Link>
+                      <Link href={item.source === "order" ? `/admin/tools/orders?id=${encodeURIComponent(item.id)}` : `/admin/cases?requestId=${encodeURIComponent(item.id)}`}><ExternalLink className="size-4" />فتح الطلب</Link>
                     </Button>
                   </div>
                 </div>

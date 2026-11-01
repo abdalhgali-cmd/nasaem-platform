@@ -39,7 +39,7 @@ test.describe("Operations Center — mobile viewport", () => {
   });
 
   test("renders without horizontal overflow and the core controls are usable", async ({ page }) => {
-    await page.goto("/admin/operations", { waitUntil: "networkidle" });
+    await page.goto("/admin", { waitUntil: "networkidle" });
 
     // If the login/session cookie didn't actually apply to this page, the
     // fetch in operations-center.tsx 401s and shows this banner instead of

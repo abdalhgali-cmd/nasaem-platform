@@ -60,7 +60,8 @@ one, since both are in-memory.
 |---|---|
 | Customer website (Next.js) | http://localhost:3000 |
 | API health check | http://localhost:5000/api/health |
-| Staff login (static, same origin as the API) | http://localhost:5000/login.html |
+| Staff login (unified admin) | http://localhost:3000/admin/login |
+| Staff login (static, same origin as the API; local/CI only) | http://localhost:5000/login.html |
 | Staff admin dashboard | http://localhost:5000/admin-dashboard.html |
 | Admin/manager app (Next.js, richer pricing/content UI) | http://localhost:3000/admin |
 

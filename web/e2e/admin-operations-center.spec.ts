@@ -33,7 +33,7 @@ test.describe("Operations Center — desktop", () => {
   test("SUPER_ADMIN: service queues, the 6-column table, read-only payments and team workload", async ({ page }) => {
     await loginAsSeededAdmin(page);
     const failures = failedApiCalls(page);
-    await page.goto("/admin/operations");
+    await page.goto("/admin");
     await expect(page.getByRole("heading", { name: "مركز العمليات", level: 1 })).toBeVisible();
     await expect(page.getByText("تعذر تحميل مركز العمليات")).toHaveCount(0);
 
@@ -61,7 +61,7 @@ test.describe("Operations Center — desktop", () => {
     await loginAsSeededAdmin(page);
     const { context, page: employee } = await staffPage(browser, page, "EMPLOYEE");
     const failures = failedApiCalls(employee);
-    await employee.goto("/admin/operations");
+    await employee.goto("/admin");
     await expect(employee.getByRole("heading", { name: "الموافقة الأمنية — حسب تاريخ السفر" })).toBeVisible();
     await expect(employee.getByRole("region", { name: "توزيع العمل" })).toHaveCount(0);
     expect(failures).toEqual([]);
@@ -72,7 +72,7 @@ test.describe("Operations Center — desktop", () => {
     await loginAsSeededAdmin(page);
     const { context, page: accountant } = await staffPage(browser, page, "ACCOUNTANT");
     const failures = failedApiCalls(accountant);
-    await accountant.goto("/admin/operations");
+    await accountant.goto("/admin");
     await expect(accountant.getByRole("region", { name: "قوائم العمل" }).getByText("دفعات للمراجعة", { exact: true })).toBeVisible();
     await expect(accountant.getByRole("heading", { name: "الموافقة الأمنية — حسب تاريخ السفر" })).toHaveCount(0);
     await expect(accountant.getByRole("region", { name: "ملخص الدفعات" })).toBeVisible();
@@ -91,7 +91,7 @@ test.describe("Operations Center — desktop", () => {
     expect(created.ok(), await created.text()).toBeTruthy();
     const id = (await created.json()).data.id as string;
 
-    await page.goto("/admin/operations");
+    await page.goto("/admin");
     await page.getByRole("textbox", { name: "بحث في الطلبات" }).fill(id);
     await page.getByRole("link", { name: `فتح ${id}` }).click();
     await expect(page).toHaveURL(new RegExp(`/admin/cases\\?requestId=${id}`));

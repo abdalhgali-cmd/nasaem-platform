@@ -1,6 +1,12 @@
 function renderHeader(user, activePage) {
   const header = document.getElementById("app-header");
   if (!header) return;
+  // Inside the unified admin, its own header (user, notifications, sign-out)
+  // is the only one.
+  if (typeof EMBEDDED_IN_ADMIN !== "undefined" && EMBEDDED_IN_ADMIN) {
+    header.remove();
+    return;
+  }
 
   const links = [
     { href: "/admin-dashboard.html", label: "لوحة التحكم", key: "dashboard" },

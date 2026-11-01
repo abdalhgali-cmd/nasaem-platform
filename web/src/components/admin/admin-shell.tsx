@@ -29,9 +29,24 @@ import {
   Users,
   UserRoundCog,
   X,
+  Contact,
+  ShoppingBag,
+  PlaneTakeoff,
+  FilePlus2,
+  Receipt,
+  Wallet,
+  Landmark,
+  BadgePercent,
+  Ticket,
+  LayoutTemplate,
+  MapPin,
+  Ship,
+  Building2,
+  Truck,
 } from "lucide-react";
 import { API_URL } from "@/lib/api-url";
 import { TestDataNotice } from "@/components/layout/test-data-notice";
+import { adminTool } from "@/components/admin/tools/admin-tools";
 
 export type AdminUser = {
   id: string;
@@ -40,43 +55,95 @@ export type AdminUser = {
   role: "SUPER_ADMIN" | "ADMIN" | "EMPLOYEE" | "ACCOUNTANT" | "CONTENT_MANAGER";
 };
 
-const navigation = [
-  { href: "/admin/operations", label: "مركز العمليات", icon: Gauge, roles: undefined },
-  { href: "/admin/notifications", label: "الإشعارات", icon: Bell, roles: undefined },
-  // Smart Case Operations — Release C. The per-case workspace, open to the
-  // roles that actually work cases; ACCOUNTANT/CONTENT_MANAGER never do.
-  { href: "/admin/cases", label: "مساحة عمل الحالات", icon: ClipboardList, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
-  { href: "/admin/users", label: "المستخدمون", icon: Users, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { href: "/admin/roles", label: "الأدوار والصلاحيات", icon: ShieldCheck, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { href: "/admin/services", label: "الخدمات", icon: BriefcaseBusiness, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
-  { href: "/admin/visas", label: "التأشيرات والمتطلبات", icon: Layers3, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
-  { href: "/admin/umrah/groups", label: "مجموعات العمرة", icon: Sparkles, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
-  { href: "/admin/approvals", label: "الموافقات", icon: ClipboardCheck, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
-  { href: "/admin/pricing", label: "الأسعار والباقات", icon: Settings2, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { href: "/admin/features", label: "الخصائص", icon: Flag, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { href: "/admin/assignments", label: "الإسناد", icon: UserRoundCog, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
-  { href: "/admin/documents", label: "المستندات", icon: FileCheck2, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"] },
-  { href: "/admin/appearance", label: "المظهر", icon: Palette, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
-  { href: "/admin/media", label: "الوسائط", icon: ImageIcon, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
-  { href: "/admin/settings", label: "إعدادات الموقع", icon: Settings2, roles: ["SUPER_ADMIN", "ADMIN"] },
-  { href: "/admin/activity", label: "سجل النشاط", icon: Activity, roles: ["SUPER_ADMIN", "ADMIN"] },
-  // Same roles as the backend Egypt endpoints (EGYPT_WORK in contact-requests.routes.js).
-  { href: "/admin/egypt", label: "الموافقة الأمنية لمصر", icon: Plane, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
-  // Umrah requests. ACCOUNTANT reads requests (GET /contact-requests) for the
-  // payment context, read-only; the other roles work them.
-  { href: "/admin/umrah", label: "طلبات العمرة", icon: Moon, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"] },
-] as const;
+type Role = AdminUser["role"];
+type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; roles?: readonly Role[] };
 
-const navigationGroups = [
-  { id: "daily", label: "العمل اليومي", items: [navigation[0], navigation[17], navigation[18], navigation[2], navigation[1], navigation[11], navigation[12]] },
-  { id: "finance", label: "المال والتقارير", items: [
-    { href: "/admin/reports", label: "التقارير", icon: BarChart3, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
-    { href: "/admin/payment-review", label: "مراجعة الدفعات", icon: CreditCard, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
-    navigation[8], navigation[9],
+const MANAGERS = ["SUPER_ADMIN", "ADMIN"] as const;
+const toolItem = (key: string, icon: NavItem["icon"]): NavItem => {
+  const tool = adminTool(key);
+  if (!tool) throw new Error(`unknown admin tool ${key}`);
+  return { href: `/admin/tools/${tool.key}`, label: tool.label, icon, roles: tool.roles };
+};
+
+// The one staff navigation (owner decision 2026-11-01). Each item's roles
+// mirror the backend routes it uses: hiding an item is only a convenience,
+// the API refuses the data to any other role. Items without roles are open to
+// every staff role.
+export const navigationGroups: readonly { id: string; label: string; items: readonly NavItem[] }[] = [
+  { id: "daily", label: "العمل اليومي", items: [
+    { href: "/admin", label: "مركز العمليات", icon: Gauge },
+    // Same roles as the backend Egypt endpoints (EGYPT_WORK in contact-requests.routes.js).
+    { href: "/admin/egypt", label: "الموافقة الأمنية لمصر", icon: Plane, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
+    // ACCOUNTANT reads requests (GET /contact-requests) for the payment
+    // context, read-only; the other roles work them.
+    { href: "/admin/umrah", label: "طلبات العمرة", icon: Moon, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"] },
+    // The per-case workspace, for the roles that actually work cases.
+    { href: "/admin/cases", label: "مساحة عمل الحالات", icon: ClipboardList, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
+    { href: "/admin/notifications", label: "الإشعارات", icon: Bell },
+    { href: "/admin/assignments", label: "الإسناد", icon: UserRoundCog, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
+    { href: "/admin/documents", label: "المستندات", icon: FileCheck2, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"] },
   ] },
-  { id: "services", label: "الخدمات والموقع", items: [navigation[5], navigation[6], navigation[7], navigation[13], navigation[14]] },
-  { id: "system", label: "الفريق والنظام", items: [navigation[3], navigation[4], navigation[10], navigation[15], navigation[16]] },
-] as const;
+  { id: "records", label: "العملاء والسجلات", items: [
+    toolItem("customers", Contact),
+    toolItem("orders", ShoppingBag),
+    toolItem("flights", PlaneTakeoff),
+    toolItem("new-order", FilePlus2),
+  ] },
+  { id: "finance", label: "المال والتقارير", items: [
+    { href: "/admin/payment-review", label: "مراجعة الدفعات", icon: CreditCard, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
+    toolItem("payments", Receipt),
+    toolItem("payment-accounts", Wallet),
+    { href: "/admin/reports", label: "التقارير", icon: BarChart3, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
+    { href: "/admin/approvals", label: "الموافقات", icon: ClipboardCheck, roles: ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] },
+    // Development test values (TestDataNotice): configurable here, never fixed in code.
+    { href: "/admin/pricing", label: "الأسعار والباقات", icon: Settings2, roles: MANAGERS },
+    toolItem("egypt-settings", Landmark),
+  ] },
+  { id: "services", label: "الخدمات والموقع", items: [
+    { href: "/admin/services", label: "الخدمات", icon: BriefcaseBusiness, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
+    { href: "/admin/visas", label: "التأشيرات والمتطلبات", icon: Layers3, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
+    { href: "/admin/umrah/groups", label: "مجموعات العمرة", icon: Sparkles, roles: ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"] },
+    toolItem("offers", BadgePercent),
+    toolItem("coupons", Ticket),
+    { href: "/admin/content", label: "محتوى الرئيسية", icon: LayoutTemplate, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
+    { href: "/admin/appearance", label: "المظهر", icon: Palette, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
+    { href: "/admin/media", label: "الوسائط", icon: ImageIcon, roles: ["SUPER_ADMIN", "ADMIN", "CONTENT_MANAGER"] },
+  ] },
+  { id: "transport", label: "الطيران والنقل", items: [
+    toolItem("flight-inventory", Plane),
+    toolItem("airlines", PlaneTakeoff),
+    toolItem("airports", MapPin),
+    toolItem("ferries", Ship),
+  ] },
+  { id: "system", label: "الفريق والنظام", items: [
+    { href: "/admin/users", label: "المستخدمون", icon: Users, roles: MANAGERS },
+    { href: "/admin/roles", label: "الأدوار والصلاحيات", icon: ShieldCheck, roles: MANAGERS },
+    toolItem("branches", Building2),
+    toolItem("suppliers", Truck),
+    { href: "/admin/features", label: "الخصائص", icon: Flag, roles: MANAGERS },
+    { href: "/admin/settings", label: "إعدادات الموقع", icon: Settings2, roles: MANAGERS },
+    { href: "/admin/activity", label: "سجل النشاط", icon: Activity, roles: MANAGERS },
+  ] },
+];
+
+// Same-site /admin paths only: a crafted ?next= can never leave the admin.
+export function safeAdminNext(next: string | null | undefined) {
+  const value = String(next || "");
+  if (!/^\/admin(?:[/?#]|$)/.test(value) || value.startsWith("/admin/login") || value.includes("\\") || value.includes("//")) return "/admin";
+  return value;
+}
+
+export function adminLoginHref(pathname: string, search = "") {
+  const here = `${pathname}${search}`;
+  return here === "/admin" || here.startsWith("/admin/login") ? "/admin/login" : `/admin/login?next=${encodeURIComponent(here)}`;
+}
+
+const AdminUserContext = React.createContext<AdminUser | null>(null);
+
+// The signed-in staff member, for pages inside the shell (null while loading).
+export function useAdminUser() {
+  return React.useContext(AdminUserContext);
+}
 
 const roleLabels: Record<AdminUser["role"], string> = {
   SUPER_ADMIN: "المدير الأعلى",
@@ -104,7 +171,7 @@ export function AdminShell({ children, title, description }: { children: React.R
         if (active) setUser(payload.data);
       })
       .catch(() => {
-        if (active) router.replace("/admin-dashboard.html");
+        if (active) router.replace(adminLoginHref(window.location.pathname, window.location.search));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -131,18 +198,18 @@ export function AdminShell({ children, title, description }: { children: React.R
 
   async function logout() {
     await fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => undefined);
-    router.replace("/admin-dashboard.html");
+    router.replace("/admin/login");
   }
 
   const visibleGroups = navigationGroups.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !item.roles || !user || (item.roles as readonly string[]).includes(user.role)),
+    items: group.items.filter((item) => !item.roles || !user || item.roles.includes(user.role)),
   })).filter((group) => group.items.length > 0);
 
   // The most specific matching item is the active one (/admin/umrah/groups
   // is «مجموعات العمرة», not also «طلبات العمرة»).
   const matches = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
-  const activeHref = visibleGroups.flatMap((group) => group.items.map((item) => item.href as string)).filter(matches).sort((a, b) => b.length - a.length)[0];
+  const activeHref = visibleGroups.flatMap((group) => group.items.map((item) => item.href)).filter((href) => href === "/admin" ? pathname === "/admin" : matches(href)).sort((a, b) => b.length - a.length)[0];
   const isActive = (href: string) => href === activeHref;
   // Breadcrumb: the group and item for the current page, when the page is in
   // the navigation (a few task pages such as /admin/delivery are not).
@@ -180,7 +247,7 @@ export function AdminShell({ children, title, description }: { children: React.R
   }
 
   const brand = (
-    <Link href="/admin/operations" className="block rounded-lg px-2 pb-4 pt-1">
+    <Link href="/admin" className="block rounded-lg px-2 pb-4 pt-1">
       {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset, fixed size */}
       <img src="/brand/admin-logo-on-navy.png" alt="نسائم الحرمين للسفر والسياحة" width={216} height={79} className="h-auto w-[216px] max-w-full" />
       <span className="mt-2 block text-[11.5px] font-bold text-[var(--nh-gold-300)]">مركز التحكم</span>
@@ -220,7 +287,7 @@ export function AdminShell({ children, title, description }: { children: React.R
               <button type="button" aria-label="فتح القائمة" className="inline-flex size-10 shrink-0 items-center justify-center rounded-[10px] border border-border bg-background lg:hidden" onClick={() => setOpen(true)}>
                 <Menu className="size-5" />
               </button>
-              <Link href="/admin/operations" className="flex shrink-0 items-center gap-2 lg:hidden" aria-label="نسائم الحرمين — مركز التحكم">
+              <Link href="/admin" className="flex shrink-0 items-center gap-2 lg:hidden" aria-label="نسائم الحرمين — مركز التحكم">
                 {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset, fixed size */}
                 <img src="/brand/admin-emblem.png" alt="" width={36} height={33} className="h-8 w-auto" />
               </Link>
@@ -272,7 +339,7 @@ export function AdminShell({ children, title, description }: { children: React.R
         <main className="min-w-0 flex-1">
           <TestDataNotice audience="staff" />
           {(title || description) ? <div className="border-b border-border bg-card px-4 py-7 sm:px-6 lg:px-10"><div className="mx-auto max-w-7xl"><h1 className="text-2xl font-extrabold leading-9 sm:text-[26px]">{title}</h1>{description ? <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{description}</p> : null}</div></div> : null}
-          {children}
+          <AdminUserContext.Provider value={user}>{children}</AdminUserContext.Provider>
         </main>
       </div>
     </div>

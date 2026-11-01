@@ -1,5 +1,77 @@
 const API_BASE = "/api";
 
+// One staff back-office (owner decision 2026-11-01): the unified admin at
+// /admin. Where it runs (the website, which serves a GENERATED copy of these
+// pages — scripts/sync-static-admin.mjs sets the path there), these pages are
+// no longer an admin of their own: opened directly they forward to the
+// matching /admin page, and the few screens not yet rebuilt open INSIDE the
+// unified admin (an iframe of this page with ?embed=1), without their own
+// header or tabs. null here: the API host keeps serving them as before, unless
+// the server redirects them (ADMIN_APP_URL, backend/src/app.js).
+const UNIFIED_ADMIN_PATH = null;
+const EMBEDDED_IN_ADMIN = (() => {
+  try {
+    // Only inside the admin itself: a frame on another site is never
+    // "embedded" (reading its location throws, or the origin differs).
+    return window.self !== window.top
+      && window.top.location.origin === window.location.origin
+      && new URLSearchParams(window.location.search).get("embed") === "1";
+  } catch {
+    return false;
+  }
+})();
+
+// Where an old back-office address lives in the unified admin. Links copied
+// from the old dashboard (?order=, #/requests/<id>, ...) keep working.
+function unifiedAdminTarget(location = window.location) {
+  const base = UNIFIED_ADMIN_PATH;
+  const params = new URLSearchParams(location.search);
+  const withId = (path, id) => (id ? `${path}?id=${encodeURIComponent(id)}` : path);
+  if (location.pathname === "/login.html") return `${base}/login`;
+  if (location.pathname === "/flight-bookings.html") return `${base}/tools/flights`;
+  if (location.pathname === "/flight-management.html") return `${base}/tools/flight-inventory`;
+  if (location.pathname === "/request.html") return `${base}/tools/new-order`;
+  if (location.pathname !== "/admin-dashboard.html") return null;
+  const query = [["customerRequest", "requests"], ["order", "orders"], ["customer", "customers"], ["flightBooking", "flights"]].find(([key]) => params.get(key));
+  const hash = String(location.hash || "").match(/^#\/([a-z]+)(?:\/([^/?#]+))?/);
+  const tab = query ? query[1] : hash?.[1] || "";
+  let id = null;
+  try {
+    id = query ? params.get(query[0]) : hash?.[2] ? decodeURIComponent(hash[2]) : null;
+  } catch {
+    id = null;
+  }
+  if (tab === "requests") return id ? `${base}/cases?requestId=${encodeURIComponent(id)}` : `${base}/cases`;
+  if (tab === "egypt") return `${base}/egypt`;
+  if (tab === "orders" || tab === "customers" || tab === "flights") return withId(`${base}/tools/${tab}`, id);
+  if (tab === "payments") return `${base}/tools/payments`;
+  if (tab === "management") return `${base}/tools`;
+  return base;
+}
+
+if (UNIFIED_ADMIN_PATH && !EMBEDDED_IN_ADMIN) {
+  const target = unifiedAdminTarget();
+  if (target) window.location.replace(target);
+}
+
+if (EMBEDDED_IN_ADMIN) {
+  document.documentElement.classList.add("nh-embedded");
+  // One section of the old page (e.g. only=egypt-settings), see style.css.
+  const only = new URLSearchParams(window.location.search).get("only") || "";
+  if (/^[a-z-]{1,40}$/.test(only)) document.documentElement.classList.add(`nh-only-${only}`);
+  // Cairo, like the unified admin around the frame.
+  const font = document.createElement("link");
+  font.rel = "stylesheet";
+  font.href = "https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap";
+  document.head.appendChild(font);
+  // Links to the unified admin's own pages leave the frame.
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest?.("a[href]");
+    const href = link?.getAttribute("href") || "";
+    if (href.startsWith("/admin") && !href.includes(".html")) link.setAttribute("target", "_top");
+  }, true);
+}
+
 // Timeouts (ms). Reads fail fast so the page can offer a retry; writes get
 // longer; uploads longest (a 10 MB scan over a slow connection).
 const READ_TIMEOUT_MS = 20000;
@@ -42,6 +114,12 @@ function loginUrl() {
 }
 
 function redirectToLogin() {
+  // Inside the unified admin the whole page goes to its sign-in, then back.
+  if (EMBEDDED_IN_ADMIN) {
+    const top = window.top.location;
+    window.top.location.href = `/admin/login?next=${encodeURIComponent(top.pathname + top.search)}`;
+    return;
+  }
   window.location.href = loginUrl();
 }
 

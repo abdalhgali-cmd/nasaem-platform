@@ -97,6 +97,15 @@ function initManagementTab() {
 
   applyMgmtTabVisibilityForRole();
 
+  // The unified admin opens one panel (?mgmt=payment-accounts, ...) and hides
+  // the sub-tab bar: its own navigation lists each panel.
+  const requested = EMBEDDED_IN_ADMIN ? new URLSearchParams(window.location.search).get("mgmt") : null;
+  const requestedButton = requested ? document.querySelector(`#mgmt-tabs button[data-mgmt="${CSS.escape(requested)}"]:not(.hidden)`) : null;
+  if (requestedButton) {
+    activateMgmtSubTab(requested);
+    return;
+  }
+
   loadActiveMgmtSubTab();
 }
 
