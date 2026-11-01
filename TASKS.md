@@ -31,9 +31,13 @@ Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build
 | Phase 6: security | VERIFIED (local) | `security-umrah-egypt.spec.ts` 6/6 (no session, CSRF origin, payment-link token, role boundaries, payment state rules incl. two simultaneous confirmations → one, audit, passport masking). No product change needed |
 | Phase 7: Egypt customer-app journey | FIXED (test) / VERIFIED (local) | `egypt-approval.spec.ts` was stale since `9f236eb` (app stays on the payment screen after the receipt); updated; 4/4 locally |
 | Phase 7: Umrah journey to closed | VERIFIED (local) | `admin-umrah-workspace.spec.ts` + `umrah-payment-journey.spec.ts` |
-| Old failures (base too) | OPEN — owner decision | `mobile-app.spec.ts:135`, `pricing-progress.spec.ts:153`, `service-journeys.spec.ts:320` click home tiles removed by the Umrah/Egypt-only home |
+| Old failures (base too) | FIXED in #151 (owner decision 2026-10-31) | `mobile-app.spec.ts:135`, `pricing-progress.spec.ts:153`, `service-journeys.spec.ts:320` — see the scope rows below |
 | Stack integrity | VERIFIED | #147 ⊂ #148 ⊂ #149 ⊂ #150 ⊂ #151; base `bd7e3b9` unchanged; no `backend/` or `mobile/` change in the stack; no migration |
 | Staging | NOT VERIFIED | not reachable from this environment; real backup + restore and owner approval required first |
+
+| Owner scope decision (2026-10-31): customers see only Umrah + Egypt | DONE (#151) | Website: `/services` catalog filtered to `/umrah` + `/visas/egypt-security-approval` (`web/src/lib/active-services.ts`); Egypt page without other-visa cross-sell or `/visas` breadcrumb; sitemap = home, umrah, egypt, about, contact, track. App was already scoped (`service-view.js`). Nothing deleted: other routes, components, APIs and data stay and open directly. Egypt optional flight-ticket assistance unchanged |
+| Real bug found: «طلب بانتظار الدفع» card stayed after the receipt | FIXED (#151 `0a49b05`) | `request-payment.js` re-saved the pending marker when it re-rendered after the upload (since `9f236eb`); now cleared on UNDER_REVIEW/CONFIRMED. Caught by `pricing-progress.spec` once it could run |
+| Legacy failing tests (3) + tests hidden behind them | FIXED (tests, #151) | Cause: home tiles removed in `34f75b5`. Kept-but-hidden flows open through the app's own dispatcher (`helpers.ts openKeptAppService`); exchange rate checked on the Umrah chooser; post-receipt assertions follow `9f236eb`; 4 platform3 catalog tests follow the scoped catalog. Locally: `mobile-app` project 33/33 (was 25 pass, 1 fail, 7 not run) incl. full Umrah + Egypt app journeys; `platform3` 118 pass + updated 9/9, remaining local failures = 2 known sandbox-network cases |
 
 Final Arabic report: `docs/admin-design-system/FINAL-REPORT-ar.md`.
 
