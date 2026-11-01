@@ -78,3 +78,12 @@ test("drafts keep typed values only, expire, and survive garbage", () => {
   assert.equal(parseDraft(null), null);
   assert.notEqual(draftKey({ id: "1", isVisaType: true }), draftKey({ id: "1", isVisaType: false }));
 });
+
+test("removing a traveler keeps every other passport on its owner", async () => {
+  const { removeTravelerFiles } = await import("../www/js/intake-core.js");
+  const files = new Map([["pass::0", "A"], ["pass::1", "B"], ["pass::2", "C"], ["photo::2", "C2"], ["iqama", "G"]]);
+  const next = removeTravelerFiles(files, 1);
+  assert.deepEqual([...next.entries()].sort(), [["iqama", "G"], ["pass::0", "A"], ["pass::1", "C"], ["photo::1", "C2"]].sort());
+  assert.equal(files.size, 5, "the original map is not changed");
+  assert.deepEqual([...removeTravelerFiles(files, 2).keys()].sort(), ["iqama", "pass::0", "pass::1"]);
+});

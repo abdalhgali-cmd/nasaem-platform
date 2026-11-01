@@ -1,4 +1,5 @@
 import prismaPackage from "@prisma/client";
+import { withMaskedCustomer } from "../../utils/passportMask.js";
 
 const { Prisma } = prismaPackage;
 import crypto from "node:crypto";
@@ -100,7 +101,8 @@ export async function listPayments({ page, limit, skip, status, reviewStatus, or
     prisma.payment.count({ where }),
   ]);
 
-  return { data, meta: buildPaginationMeta(page, limit, total) };
+  // A list never shows full passport numbers (the payment's page does).
+  return { data: data.map((payment) => ({ ...payment, order: withMaskedCustomer(payment.order) })), meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function getPaymentById(id, organizationId) {

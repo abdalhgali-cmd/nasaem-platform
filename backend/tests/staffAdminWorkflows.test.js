@@ -48,9 +48,9 @@ const visibleTabs = (document) => [...document.querySelectorAll("#tabs [data-tab
 describe("dashboard sections per role", () => {
   test("each role sees its sections; EMPLOYEE and ACCOUNTANT reach customer requests", async () => {
     const expected = {
-      SUPER_ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
-      ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
-      EMPLOYEE: ["requests", "orders", "flights", "customers"],
+      SUPER_ADMIN: ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"],
+      ADMIN: ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"],
+      EMPLOYEE: ["requests", "egypt", "orders", "flights", "customers"],
       ACCOUNTANT: ["requests", "orders", "flights", "customers", "payments"],
       CONTENT_MANAGER: ["management"],
     };
@@ -64,7 +64,72 @@ describe("dashboard sections per role", () => {
   });
 });
 
+describe("customers: review of old automatic links (Track A2)", () => {
+  test("managers see the read-only review button and its list; other roles do not", async () => {
+    const row = { customerId: "c9", customerNo: "CUS-000009", fullName: "<b>Review</b> Customer", bookingNumbers: ["FLT-1", "FLT-2"], bookingCount: 2, reasons: ["MULTIPLE_PUBLIC_BOOKINGS"] };
+    const admin = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("ADMIN", { "GET /api/customers/review/auto-links": { success: true, data: [row] } }),
+      url: "http://backoffice.test/admin-dashboard.html#/customers",
+    });
+    await settle(120);
+    const button = admin.document.getElementById("customer-link-review-btn");
+    assert.equal(button.classList.contains("hidden"), false);
+    button.click();
+    await settle(80);
+    const card = admin.document.getElementById("customer-link-review");
+    assert.match(card.textContent, /أكثر من حجز طيران عام/);
+    assert.match(card.textContent, /FLT-1/);
+    assert.equal(card.querySelector("b"), null, "names are escaped");
+    assert.ok(!admin.calls.some((c) => c.method !== "GET"), "read only: no write request");
+
+    const employee = loadBackOffice("admin-dashboard.html", { routes: baseRoutes("EMPLOYEE"), url: "http://backoffice.test/admin-dashboard.html#/customers" });
+    await settle(120);
+    assert.equal(employee.document.getElementById("customer-link-review-btn").classList.contains("hidden"), true);
+  });
+});
+
 describe("customer requests", () => {
+  test("G-10: managers accept a decided document with a correction reason; ordinary acceptance stays available", async () => {
+    for (const role of ["ADMIN", "SUPER_ADMIN", "EMPLOYEE"]) {
+      const r = request("cr1", { executionStartedAt: now, documents: [{ id: "doc1", label: "جواز", status: "REJECTED" }] });
+      const view = loadBackOffice("admin-dashboard.html", {
+        routes: baseRoutes(role, {
+          "GET /api/contact-requests/cr1": { success: true, data: { ...r, allowedActions: allowedActions(r, { audience: "staff", role }) } },
+          "PATCH /api/contact-requests/cr1/documents/doc1/status": { success: true, data: {} },
+        }),
+        url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+      });
+      await settle(120);
+      const accept = view.document.querySelector('[data-doc-accept="doc1"]');
+      if (role === "EMPLOYEE") {
+        assert.equal(accept, null, "employees cannot correct a decided document after execution");
+        continue;
+      }
+      assert.ok(accept, "a manager can reach correction even with no pending documents");
+      const input = view.document.getElementById("reject-note-doc1");
+      assert.match(input.getAttribute("aria-label"), /تصحيح/);
+      const writes = () => view.calls.filter((c) => c.method === "PATCH" && c.path.endsWith("/documents/doc1/status"));
+      for (const note of ["", "   ", "  نعم  "]) {
+        input.value = note;
+        accept.click();
+        await settle(30);
+        assert.equal(writes().length, 0, "short trimmed reasons never reach the API");
+      }
+      input.value = "  تم التحقق من صلاحية الجواز  ";
+      accept.click();
+      await settle(120);
+      assert.deepEqual(writes()[0].body, { status: "ACCEPTED", reviewNote: "تم التحقق من صلاحية الجواز" });
+    }
+    const view = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("EMPLOYEE", { "PATCH /api/contact-requests/cr1/documents/d-cr1/status": { success: true, data: {} } }),
+      url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+    });
+    await settle(120);
+    view.document.querySelector('[data-doc-accept="d-cr1"]').click();
+    await settle(120);
+    assert.deepEqual(view.calls.find((c) => c.method === "PATCH" && c.path.endsWith("/documents/d-cr1/status")).body, { status: "ACCEPTED" });
+  });
+
   test("a deep link opens the request detail directly", async () => {
     const { document } = loadBackOffice("admin-dashboard.html", {
       routes: baseRoutes("EMPLOYEE"),
@@ -100,6 +165,54 @@ describe("customer requests", () => {
     assert.ok(ad.querySelector("[data-cr-confirm-payment]"), "accountant confirms payment");
     assert.equal(ad.querySelector('[data-cr-form="close"]'), null);
     assert.equal(ad.querySelector("[data-doc-accept]"), null);
+  });
+
+  test("confirming a declared transfer without a receipt asks for a reason (AUDIT-00 G-05)", async () => {
+    const receipt = { id: "rcpt", label: "إيصال", status: "PENDING", classification: "FINANCIAL_DOCUMENT" };
+    let withReceipt = false;
+    const detail = () => {
+      const r = request("cr1", withReceipt ? { documents: [request("cr1").documents[0], receipt] } : {});
+      return { success: true, data: { ...r, allowedActions: allowedActions(r, { audience: "staff", role: "ACCOUNTANT" }) } };
+    };
+    let confirmReply = { status: 200, body: { success: true, data: {} } };
+    const view = loadBackOffice("admin-dashboard.html", {
+      routes: baseRoutes("ACCOUNTANT", { "GET /api/contact-requests/cr1": () => ({ body: detail() }), "POST /api/contact-requests/cr1/confirm-payment": () => confirmReply }),
+      url: "http://backoffice.test/admin-dashboard.html#/requests/cr1",
+    });
+    await settle(120);
+    const d = view.document.getElementById("cr-detail");
+    const posts = () => view.calls.filter((c) => c.method === "POST" && c.path.endsWith("/confirm-payment"));
+    const alertText = () => view.document.getElementById("cr-action-alert").textContent;
+
+    // No receipt: the reason field is shown; blank or short reasons never reach the server.
+    for (const value of ["", "   ", "تم "]) {
+      d.querySelector("[data-cr-confirm-reason]").value = value;
+      d.querySelector("[data-cr-confirm-payment]").click();
+      await settle(40);
+      assert.equal(posts().length, 0, JSON.stringify(value));
+      assert.match(alertText(), /بدون إيصال/);
+    }
+    d.querySelector("[data-cr-confirm-reason]").value = "  تمت المطابقة مع كشف البنك  ";
+    d.querySelector("[data-cr-confirm-payment]").click();
+    await settle(120);
+    assert.deepEqual(posts()[0].body, { reason: "تمت المطابقة مع كشف البنك" });
+
+    // With a current receipt: no field, nothing extra sent. If the receipt was
+    // rejected meanwhile, the server's refusal redraws the view with the field.
+    withReceipt = true;
+    view.window.location.hash = "#/requests/cr2";
+    await settle(80);
+    view.window.location.hash = "#/requests/cr1";
+    await settle(120);
+    const fresh = view.document.getElementById("cr-detail");
+    assert.equal(fresh.querySelector("[data-cr-confirm-reason]"), null);
+    withReceipt = false;
+    confirmReply = { status: 409, body: { success: false, code: "RECEIPT_OR_REASON_REQUIRED", message: "لا يوجد إيصال تحويل لهذا الطلب. اكتب سبب تأكيد الدفع بدون إيصال." } };
+    fresh.querySelector("[data-cr-confirm-payment]").click();
+    await settle(160);
+    assert.deepEqual(posts().at(-1).body, {});
+    assert.ok(view.document.getElementById("cr-detail").querySelector("[data-cr-confirm-reason]"), "the reason field appears after the refusal");
+    assert.match(alertText(), /بدون إيصال/);
   });
 
   test("a closed request is read-only: no review, payment, execution, file or close controls; only an admin reopen", async () => {
@@ -195,9 +308,9 @@ describe("keyboard and small screens", () => {
     first.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
     await settle(30);
     const selected = document.querySelector("#tabs [aria-selected=true]");
-    assert.equal(selected.dataset.tab, "orders");
+    assert.equal(selected.dataset.tab, "egypt");
     assert.equal(document.activeElement, selected);
-    assert.equal(document.getElementById("tab-orders").classList.contains("hidden"), false);
+    assert.equal(document.getElementById("tab-egypt").classList.contains("hidden"), false);
     selected.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true }));
     await settle(30);
     assert.equal(document.querySelector("#tabs [aria-selected=true]").dataset.tab, "customers", "End skips hidden tabs");

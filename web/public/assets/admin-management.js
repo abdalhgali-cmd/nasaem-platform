@@ -97,6 +97,15 @@ function initManagementTab() {
 
   applyMgmtTabVisibilityForRole();
 
+  // The unified admin opens one panel (?mgmt=payment-accounts, ...) and hides
+  // the sub-tab bar: its own navigation lists each panel.
+  const requested = EMBEDDED_IN_ADMIN ? new URLSearchParams(window.location.search).get("mgmt") : null;
+  const requestedButton = requested ? document.querySelector(`#mgmt-tabs button[data-mgmt="${CSS.escape(requested)}"]:not(.hidden)`) : null;
+  if (requestedButton) {
+    activateMgmtSubTab(requested);
+    return;
+  }
+
   loadActiveMgmtSubTab();
 }
 
@@ -130,6 +139,7 @@ function wireManagementTabs() {
   el("payment-account-save-btn").addEventListener("click", savePaymentAccount);
   el("payment-account-cancel-btn").addEventListener("click", resetPaymentAccountForm);
   el("payment-accounts-body").addEventListener("click", handlePaymentAccountRowClick);
+  el("pa-currency").addEventListener("change", syncPaymentAccountForeignField);
   el("supplier-create-btn").addEventListener("click", createSupplier);
   el("service-create-btn").addEventListener("click", createService);
   el("offer-create-btn").addEventListener("click", createOffer);
@@ -255,6 +265,7 @@ async function loadPaymentAccounts() {
           <td>${escapeHtml(a.accountName)}</td>
           <td dir="ltr">${escapeHtml(a.accountNumber || a.iban || "-")}</td>
           <td dir="ltr"><strong>${escapeHtml(a.currency)}</strong></td>
+          <td>${a.currency === "SDG" ? (a.acceptsForeignInvoices ? '<span class="badge status-ACTIVE">مقبول</span>' : '<span class="muted">لا</span>') : '<span class="muted">—</span>'}</td>
           <td>${a.active ? '<span class="badge status-ACTIVE">ظاهر للعملاء</span>' : '<span class="badge status-INACTIVE">مخفي</span>'}</td>
           <td>${
             mgmtCanWrite("payment-accounts")
@@ -264,10 +275,18 @@ async function loadPaymentAccounts() {
         </tr>`
           )
           .join("")
-      : '<tr><td colspan="7" class="muted">لا توجد حسابات دفع. لن يرى العميل بيانات تحويل حتى تضيف حسابًا لعملة السعر.</td></tr>';
+      : '<tr><td colspan="8" class="muted">لا توجد حسابات دفع. لن يرى العميل بيانات تحويل حتى تضيف حسابًا لعملة السعر.</td></tr>';
   } catch (error) {
     showAlert(mgmtAlert(), error.message);
   }
+}
+
+// The SDG-equivalent option exists only on SDG accounts.
+function syncPaymentAccountForeignField() {
+  const sdg = el("pa-currency").value === "SDG";
+  el("pa-foreign").disabled = !sdg;
+  if (!sdg) el("pa-foreign").checked = false;
+  el("pa-foreign-field").classList.toggle("muted", !sdg);
 }
 
 function resetPaymentAccountForm() {
@@ -275,6 +294,8 @@ function resetPaymentAccountForm() {
   for (const id of ["pa-name", "pa-bank", "pa-holder", "pa-number", "pa-iban"]) el(id).value = "";
   el("pa-currency").value = "SDG";
   el("pa-order").value = "0";
+  el("pa-foreign").checked = false;
+  syncPaymentAccountForeignField();
   el("pa-form-title").textContent = "حساب دفع جديد";
   el("payment-account-cancel-btn").classList.add("hidden");
 }
@@ -289,6 +310,7 @@ async function savePaymentAccount() {
     iban: el("pa-iban").value.trim(),
     currency: el("pa-currency").value,
     sortOrder: Number(el("pa-order").value) || 0,
+    acceptsForeignInvoices: el("pa-currency").value === "SDG" && el("pa-foreign").checked,
   };
   if (body.name.length < 2 || body.bankName.length < 2 || body.accountName.length < 2) return showAlert(mgmtAlert(), "الاسم والبنك وصاحب الحساب مطلوبة.");
   if (!body.accountNumber && !body.iban) return showAlert(mgmtAlert(), "اكتب رقم الحساب أو IBAN.");
@@ -315,6 +337,8 @@ function handlePaymentAccountRowClick(e) {
     el("pa-iban").value = account.iban || "";
     el("pa-currency").value = account.currency;
     el("pa-order").value = account.sortOrder ?? 0;
+    el("pa-foreign").checked = Boolean(account.acceptsForeignInvoices);
+    syncPaymentAccountForeignField();
     el("pa-form-title").textContent = "تعديل حساب الدفع";
     el("payment-account-cancel-btn").classList.remove("hidden");
     el("payment-account-create-card").scrollIntoView({ behavior: "smooth" });

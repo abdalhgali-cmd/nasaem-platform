@@ -11,7 +11,7 @@ import {
 } from "./secure-store.js";
 import { removeItem as removePreference } from "./storage.js";
 import { SessionState, verifyToken, shouldRenew, isSessionEndError } from "./session-core.js";
-import { forgetTrackingSession } from "./tracking.js";
+import { forgetTrackingSession, clearTrackingSession } from "./tracking.js";
 
 export { SessionState };
 
@@ -21,6 +21,9 @@ const SESSION_CHECK_TIMEOUT_MS = 15000;
 
 let currentCustomer = null;
 let state = SessionState.NO_SESSION;
+// Bumped by every inactivity lock: a session check that started before the
+// lock can never make the account readable again.
+let lockGeneration = 0;
 let onSessionEnded = () => {};
 const listeners = new Set();
 
@@ -118,6 +121,37 @@ const PROMPT_TEXT = {
   cancel: "استخدام كلمة المرور",
 };
 
+/**
+ * Inactivity lock: with biometric login on, the account goes back to LOCKED —
+ * the token leaves memory (only its fingerprint-protected copy stays) and the
+ * customer's data is no longer readable until the fingerprint releases it and
+ * the server re-verifies it. Without biometric login there is nothing to
+ * unlock with, so nothing changes. Returns whether it locked.
+ */
+export async function lockAfterInactivity() {
+  if (state !== SessionState.VALID && state !== SessionState.PENDING) return false;
+  const { enabled } = await nativeBiometricStatus(TOKEN_KEY);
+  if (!enabled) return false;
+  lockGeneration += 1;
+  setSessionToken(null);
+  currentCustomer = null;
+  // The phone-verified tracking session shows requests too: it goes with the
+  // lock, from memory and from the device (a restart must not bring it back).
+  setState(SessionState.LOCKED);
+  await clearTrackingSession().catch(() => forgetTrackingSession());
+  return true;
+}
+
+// Whether this device's account is protected by biometric login (the only
+// accounts the inactivity lock applies to).
+export async function biometricLockEnabled() {
+  try {
+    return Boolean((await nativeBiometricStatus(TOKEN_KEY)).enabled);
+  } catch {
+    return false;
+  }
+}
+
 /** Step 1b when biometric login is on: the fingerprint releases the token. */
 export async function unlockWithBiometric() {
   const token = await nativeUnlockBiometric(TOKEN_KEY, PROMPT_TEXT);
@@ -132,10 +166,13 @@ export async function unlockWithBiometric() {
  */
 export async function verifySession() {
   const token = getToken();
+  const generation = lockGeneration;
   setState(token ? SessionState.PENDING : SessionState.NO_SESSION);
   const result = await verifyToken(token, () =>
     api("/customer-auth/me", { timeoutMs: SESSION_CHECK_TIMEOUT_MS, skipSessionCheck: true })
   );
+  // Locked while the check was running: the answer no longer applies.
+  if (generation !== lockGeneration) return { state: SessionState.LOCKED };
   if (result.state === SessionState.VALID) {
     currentCustomer = result.customer;
     setState(SessionState.VALID);

@@ -106,7 +106,7 @@ describe("contact request multi-carrier offers", () => {
 
     const confirmRes = await superAdminAgent.post(
       `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    ).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(confirmRes.status, 200);
     assert.equal(confirmRes.body.data.paymentStatus, "CONFIRMED");
 

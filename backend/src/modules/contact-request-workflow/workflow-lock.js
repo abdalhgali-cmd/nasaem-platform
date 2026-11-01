@@ -25,6 +25,14 @@ export const WORKFLOW_INCLUDE = {
   visaType: { select: { id: true, code: true, name: true, country: true, category: true } },
   // Open system tasks: the Egypt travel-plan tasks gate completion.
   tasks: { where: { status: "OPEN", source: "SYSTEM" }, select: { id: true, title: true, status: true, source: true, systemKey: true } },
+  // Requests opened from this one (the Egypt approval's flight booking
+  // inquiry): their published files count as the approval's tickets.
+  linkedRequests: {
+    select: {
+      id: true, linkKind: true, status: true, paymentStatus: true, createdAt: true,
+      deliverables: { where: { publishedAt: { not: null }, supersededAt: null }, select: { id: true, label: true, fileName: true, mimeType: true, kind: true, publishedAt: true, supersededAt: true } },
+    },
+  },
 };
 
 export class WorkflowRefusal extends Error {

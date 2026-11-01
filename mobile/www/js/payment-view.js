@@ -67,7 +67,7 @@ export function paymentState(request) {
     };
   }
   if (request?.paymentStatus === "UNDER_REVIEW") {
-    return { key: "UNDER_REVIEW", tone: "wait", label: "إيصال الدفع قيد المراجعة", detail: "رفعت الإيصال، ولم يُعتمد الدفع بعد. ستصلك نتيجة المراجعة." };
+    return { key: "UNDER_REVIEW", tone: "wait", label: "بانتظار مراجعة الدفع", detail: "رفعت الإيصال، ولم يُعتمد الدفع بعد. ستصلك نتيجة المراجعة." };
   }
   if (request?.paymentStatus === "AWAITING_TRANSFER") {
     // Fixed price paid after the document review (server: progress.paymentLocked).

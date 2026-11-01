@@ -109,7 +109,7 @@ describe("contact request activity log + notification coverage", () => {
     );
 
     // Staff confirms the payment.
-    await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`);
+    await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`).send({ reason: "تمت المطابقة مع كشف البنك" });
     await assertLogged(superAdminAgent, "CONTACT_REQUEST_PAYMENT_CONFIRMED", contactRequestId);
 
     // Staff record the start of execution, then deliver (publish) the file;

@@ -72,7 +72,8 @@ export async function renderAboutScreen({ bodyEl }) {
       </section>
 
       <section class="about-card" aria-labelledby="aboutContactTitle">
-        <h3 id="aboutContactTitle">${icon("phone", { size: 18 })} تواصل معنا</h3>
+        <h3 id="aboutContactTitle">${icon("phone", { size: 18 })} بيانات التواصل الرسمية</h3>
+        <p>استخدم هذه القنوات للتحقق من أي تعليمات تخص طلبك أو الدفع.</p>
         <div class="about-contacts" id="aboutContacts">${contactRows(AGENCY)}</div>
       </section>
       <nav class="legal-links" aria-label="معلومات قانونية">

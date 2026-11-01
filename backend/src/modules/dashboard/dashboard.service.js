@@ -1,5 +1,7 @@
 import prisma from "../../config/database.js";
 import { safeCustomerSelect } from "../../utils/safeSelects.js";
+import { hasCurrentReceipt } from "../contact-request-workflow/workflow-policy.js";
+import { withMaskedCustomer } from "../../utils/passportMask.js";
 
 // `organizationId` scopes every query tied (directly or via a relation) to
 // Customer/Order/User/ContactRequest — mirrors the pattern already used in
@@ -30,7 +32,7 @@ export async function getDashboardStats(organizationId) {
   const serviceIds = serviceSales.map((row) => row.serviceId);
   const services = serviceIds.length ? await prisma.service.findMany({ where: { id: { in: serviceIds } }, select: { id: true, code: true, name: true, category: true } }) : [];
   const serviceMap = new Map(services.map((service) => [service.id, service]));
-  return { customers, orders, payments, offers, documents, users, financial: { salesByCurrency, paidByCurrency, serviceSales: serviceSales.map((row) => ({ ...row, service: serviceMap.get(row.serviceId) || null })) }, latestOrders };
+  return { customers, orders, payments, offers, documents, users, financial: { salesByCurrency, paidByCurrency, serviceSales: serviceSales.map((row) => ({ ...row, service: serviceMap.get(row.serviceId) || null })) }, latestOrders: latestOrders.map(withMaskedCustomer) };
 }
 
 function contactNextAction(request) {
@@ -60,15 +62,32 @@ function orderNextAction(order) {
 const CONTACT_OPERATIONS_INCLUDE = {
   invoice: { select: { status: true, amount: true, currency: true } },
   offers: { select: { id: true, carrier: true, amount: true, currency: true } },
-  documents: { select: { id: true, label: true, status: true, classification: true, createdAt: true } },
+  documents: { select: { id: true, label: true, status: true, classification: true, createdAt: true, supersededAt: true, paymentSettlement: true } },
   deliverables: { where: { publishedAt: { not: null } }, select: { id: true }, take: 1 },
 };
 
 // The transfer receipt staff are reviewing: the latest financial document.
-function latestReceiptId(request) {
+function latestReceipt(request) {
   const receipts = (request.documents || []).filter((document) => document.classification === "FINANCIAL_DOCUMENT");
   receipts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  return receipts[0]?.id ?? null;
+  return receipts[0] ?? null;
+}
+
+// What the customer says they transferred, and to which account, as checked
+// by the server at upload (payment-settlement.service.js). Shown so staff
+// look for the right amount in the right account.
+function transferClaim(receipt) {
+  const s = receipt?.paymentSettlement;
+  if (!s) return null;
+  return {
+    kind: s.kind,
+    payAmount: s.payAmount,
+    payCurrency: s.payCurrency,
+    rate: s.rate ?? null,
+    accountChosen: Boolean(s.accountId),
+    bankName: s.account?.bankName ?? null,
+    accountNumber: s.account?.accountNumber || s.account?.iban || null,
+  };
 }
 
 export async function getOperationsCenter(organizationId) {
@@ -76,7 +95,7 @@ export async function getOperationsCenter(organizationId) {
   const orderOrgFilter = organizationId ? { order: { organizationId } } : {};
   const [contactRequests, orders, pendingContactPayments, pendingOrderPayments, unassignedOrders, waitingDocs] = await Promise.all([
     prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: CONTACT_OPERATIONS_INCLUDE }),
-    prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: { customer: { select: { fullName: true, phone: true, passportNo: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
+    prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 50, include: { customer: { select: { fullName: true, phone: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
     prisma.contactRequest.count({ where: { paymentStatus: "UNDER_REVIEW", ...orgFilter } }),
     prisma.payment.count({ where: { reviewStatus: "PENDING", ...orderOrgFilter } }),
     prisma.order.count({ where: { assignedUserId: null, status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, ...orgFilter } }),
@@ -87,15 +106,15 @@ export async function getOperationsCenter(organizationId) {
   // the payment-review screen on a busy day.
   const [reviewRequests, reviewOrders] = await Promise.all([
     prisma.contactRequest.findMany({ where: { status: { not: "CLOSED" }, paymentStatus: "UNDER_REVIEW", ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 200, include: CONTACT_OPERATIONS_INCLUDE }),
-    prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, payments: { some: { reviewStatus: "PENDING" } }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 200, include: { customer: { select: { fullName: true, phone: true, passportNo: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
+    prisma.order.findMany({ where: { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, payments: { some: { reviewStatus: "PENDING" } }, ...orgFilter }, orderBy: { updatedAt: "asc" }, take: 200, include: { customer: { select: { fullName: true, phone: true } }, assignedUser: { select: { id: true, fullName: true } }, items: { include: { service: { select: { id: true, name: true } } }, take: 1 }, payments: { where: { reviewStatus: "PENDING" }, select: { id: true, amount: true, currency: true } } } }),
   ]);
   for (const request of reviewRequests) if (!contactRequests.some((r) => r.id === request.id)) contactRequests.push(request);
   for (const order of reviewOrders) if (!orders.some((o) => o.id === order.id)) orders.push(order);
 
   const now = Date.now();
   const stalledHours = 24;
-  const contactItems = contactRequests.map((request) => ({ source: "contact_request", id: request.id, reference: request.id, customerName: request.name, phone: request.phone, service: request.service || "استفسار", status: request.status, paymentStatus: request.paymentStatus, amount: request.invoice?.amount ?? null, currency: request.invoice?.currency ?? null, updatedAt: request.updatedAt, ageHours: Math.floor((now - new Date(request.updatedAt).getTime()) / 3600000), nextAction: contactNextAction(request), hasPaymentUnderReview: request.paymentStatus === "UNDER_REVIEW", receiptDocumentId: request.paymentStatus === "UNDER_REVIEW" ? latestReceiptId(request) : null }));
-  const orderItems = orders.map((order) => ({ source: "order", id: order.id, reference: order.orderNumber, customerName: order.customer?.fullName || "بدون اسم", phone: order.customer?.phone || "", passportNo: order.customer?.passportNo || "", service: order.items?.[0]?.service?.name || "طلب", serviceId: order.items?.[0]?.service?.id || null, status: order.status, paymentStatus: order.paymentStatus, amount: order.totalAmount, currency: order.currency, updatedAt: order.updatedAt, assignedUser: order.assignedUser?.fullName || null, assignedUserId: order.assignedUserId || null, ageHours: Math.floor((now - new Date(order.updatedAt).getTime()) / 3600000), nextAction: orderNextAction(order), hasPaymentUnderReview: order.payments.length > 0, pendingPayment: order.payments[0] ? { id: order.payments[0].id, amount: order.payments[0].amount, currency: order.payments[0].currency } : null }));
+  const contactItems = contactRequests.map((request) => ({ source: "contact_request", id: request.id, reference: request.id, customerName: request.name, phone: request.phone, service: request.service || "استفسار", status: request.status, paymentStatus: request.paymentStatus, amount: request.invoice?.amount ?? null, currency: request.invoice?.currency ?? null, updatedAt: request.updatedAt, ageHours: Math.floor((now - new Date(request.updatedAt).getTime()) / 3600000), nextAction: contactNextAction(request), hasPaymentUnderReview: request.paymentStatus === "UNDER_REVIEW", receiptDocumentId: request.paymentStatus === "UNDER_REVIEW" ? latestReceipt(request)?.id ?? null : null, transferClaim: request.paymentStatus === "UNDER_REVIEW" ? transferClaim(latestReceipt(request)) : null, needsConfirmReason: request.paymentStatus === "UNDER_REVIEW" && !hasCurrentReceipt(request) }));
+  const orderItems = orders.map((order) => ({ source: "order", id: order.id, reference: order.orderNumber, customerName: order.customer?.fullName || "بدون اسم", phone: order.customer?.phone || "", service: order.items?.[0]?.service?.name || "طلب", serviceId: order.items?.[0]?.service?.id || null, status: order.status, paymentStatus: order.paymentStatus, amount: order.totalAmount, currency: order.currency, updatedAt: order.updatedAt, assignedUser: order.assignedUser?.fullName || null, assignedUserId: order.assignedUserId || null, ageHours: Math.floor((now - new Date(order.updatedAt).getTime()) / 3600000), nextAction: orderNextAction(order), hasPaymentUnderReview: order.payments.length > 0, pendingPayment: order.payments[0] ? { id: order.payments[0].id, amount: order.payments[0].amount, currency: order.payments[0].currency } : null }));
   const items = [...contactItems, ...orderItems].sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
   const stalled = items.filter((item) => item.ageHours >= stalledHours).length;
   const reviewItems = items.filter((item) => item.hasPaymentUnderReview);

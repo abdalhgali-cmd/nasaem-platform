@@ -96,3 +96,13 @@ test("biometric failures: cancel stays quietly, lockout explains, invalidated/un
   }
   assert.equal(biometricFailure("SOMETHING_NEW").action, "stay");
 });
+
+test("inactivity lock: 5 minutes idle or in the background; a clock that went back locks too", async () => {
+  const { inactivityExpired, INACTIVITY_LOCK_MS } = await import("../www/js/session-core.js");
+  const t = 1_800_000_000_000;
+  assert.equal(INACTIVITY_LOCK_MS, 5 * 60 * 1000);
+  assert.equal(inactivityExpired(t, t + INACTIVITY_LOCK_MS - 1), false);
+  assert.equal(inactivityExpired(t, t + INACTIVITY_LOCK_MS), true);
+  assert.equal(inactivityExpired(t, t - 1000), true, "clock moved backwards");
+  assert.equal(inactivityExpired(undefined, t), false);
+});

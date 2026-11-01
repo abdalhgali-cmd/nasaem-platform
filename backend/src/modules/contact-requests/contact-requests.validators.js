@@ -58,11 +58,21 @@ export const createContactRequestSchema = z.object({
   guarantorPhone: z.string().trim().max(30).optional().or(z.literal("")),
   extraContactName: z.string().trim().max(120).optional().or(z.literal("")),
   extraContactPhone: z.string().trim().max(30).optional().or(z.literal("")),
+  // Umrah only: the preferred travel date (YYYY-MM-DD, provisional; required
+  // for flight/sea packages, see umrah-packages.js resolveUmrahTravel).
+  preferredTravelDate: z.string().trim().max(20).optional().or(z.literal("")),
   // Egypt clearance variants (egypt-clearance-variants.js resolveEgyptRoute):
   // by air the departure city and arrival airport, over land the entry point.
   departureCity: z.string().trim().max(120).optional().or(z.literal("")),
   arrivalAirport: z.string().trim().max(120).optional().or(z.literal("")),
   entryPort: z.string().trim().max(120).optional().or(z.literal("")),
+  // Egypt clearance: whether the customer wants Nasaem to book the flight
+  // (a linked booking inquiry is opened; never a fare or a booking), already
+  // booked it, or decides later.
+  egyptFlightChoice: z.enum(["REQUEST", "BOOKED", "LATER"]).optional().or(z.literal("")),
+  // Parallel to `documents`: image-quality hints measured on the device
+  // (egypt-clearance/document-quality.js sanitizes them). Hints only.
+  documentQuality: z.preprocess(parseIfJsonString, z.array(z.any()).max(40).optional()),
   // Free-form structured answers from the wizard's "service data" step
   // (traveler list, package/visa-specific notes, ...) — intentionally
   // unstructured server-side (see schema.prisma's ContactRequest.intakeData

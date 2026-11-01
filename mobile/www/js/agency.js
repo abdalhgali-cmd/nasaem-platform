@@ -10,9 +10,9 @@ export const AGENCY = Object.freeze({
   shortName: "نسائم الحرمين",
   tagline: "رحلتك تبدأ معنا بثقة",
   description:
-    "وكالة سفر وسياحة متكاملة لخدمات العمرة والتأشيرات وحجوزات الطيران والفنادق — نُنجز رحلتك بثقة واحترافية من البداية حتى العودة.",
+    "ابدأ طلب العمرة أو الموافقة الأمنية لمصر، وتابع حالة طلبك مباشرة مع نسائم الحرمين دون إنشاء حساب.",
   mission:
-    "نساعدك على تقديم طلبات السفر والتأشيرات والعمرة ومتابعتها من خلال مسار واضح وتواصل مباشر.",
+    "نساعدك على تقديم طلب العمرة أو الموافقة الأمنية لمصر ومتابعته من خلال مسار واضح وتواصل مباشر.",
   phone: "+249 91 103 4372",
   whatsapp: "249911034372",
   email: "Nasaem.alHaramain2024@gmail.com",
@@ -25,11 +25,7 @@ export const AGENCY = Object.freeze({
 // requested in the app).
 export const AGENCY_SERVICES = Object.freeze([
   { icon: "umrah", label: "العمرة" },
-  { icon: "flight", label: "تذاكر الطيران" },
-  { icon: "visa", label: "التأشيرات" },
-  { icon: "shield-check", label: "الموافقات الأمنية" },
-  { icon: "ferry", label: "الرحلات البحرية" },
-  { icon: "hotel", label: "الفنادق" },
+  { icon: "shield-check", label: "الموافقة الأمنية لمصر" },
 ]);
 
 // How the agency works with a customer (the web "من نحن" page's own steps).

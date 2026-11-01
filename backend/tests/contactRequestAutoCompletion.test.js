@@ -57,7 +57,7 @@ async function submitContactRequest(phone, extra = {}) {
 
 async function waitForConfirmation(contactRequestId) {
   for (let i = 0; i < 50; i += 1) {
-    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId } });
+    const row = await prisma.customerMessageDelivery.findFirst({ where: { contactRequestId, channel: "WHATSAPP" } });
     if (row && row.status !== "PENDING" && row.status !== "SENDING") return row;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
@@ -160,7 +160,7 @@ describe("auto-completion + customer WhatsApp notifications", () => {
 
     // Payment confirmed: still open (execution not recorded, file not published).
     beforeCalls = whatsapp.calls.length;
-    const confirmRes = await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`);
+    const confirmRes = await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(confirmRes.status, 200, JSON.stringify(confirmRes.body));
     assert.notEqual(confirmRes.body.data.status, "CLOSED", "payment + draft is not completion");
     let newCalls = whatsapp.calls.slice(beforeCalls);
@@ -239,7 +239,7 @@ describe("auto-completion + customer WhatsApp notifications", () => {
 
     await advanceToAwaitingConfirmation(superAdminAgent, customerAgent, contactRequestId);
 
-    const confirmRes = await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`);
+    const confirmRes = await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(confirmRes.status, 200);
     assert.notEqual(confirmRes.body.data.status, "CLOSED", "no deliverable yet — must not close here");
 

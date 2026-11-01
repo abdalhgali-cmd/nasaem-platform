@@ -199,7 +199,11 @@ describe("structured travelers on contact requests", () => {
     const ahmed = found.travelers.find((t) => t.fullName === "Ahmed Mohamed");
     const sara = found.travelers.find((t) => t.fullName === "Sara Ahmed");
     assert.ok(ahmed && sara);
-    assert.equal(ahmed.passportNo, "P1111111");
+    // The list masks passport numbers (owner rule); the request's own page
+    // shows them in full.
+    assert.equal(ahmed.passportNo, "•••111");
+    const detail = await agent.get(`/api/contact-requests/${res.body.data.id}`);
+    assert.equal(detail.body.data.travelers.find((t) => t.fullName === "Ahmed Mohamed").passportNo, "P1111111");
 
     const ahmedDoc = found.documents.find((d) => d.label === "جواز أحمد");
     const saraDoc = found.documents.find((d) => d.label === "جواز سارة");

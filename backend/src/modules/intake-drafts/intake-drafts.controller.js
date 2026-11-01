@@ -14,6 +14,7 @@ import {
 } from "./intake-drafts.service.js";
 import { validateEgyptClearanceDraft } from "./egypt-clearance-draft.js";
 import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
+import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-scope/intake-scope.js";
 
 // Smart Case Operations — Release B. Every draft error maps to a clean
 // status here rather than leaking through as a 500, mirroring how the
@@ -34,6 +35,9 @@ const DRAFT_ERROR_RESPONSES = {
   ENTRY_MODE_INVALID: { status: 400, message: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر." },
   GUARANTOR_PHONE_INVALID: { status: 400, message: "رقم هاتف الضامن غير صحيح." },
   EXTRA_CONTACT_PHONE_INVALID: { status: 400, message: "رقم هاتف جهة الاتصال الإضافية غير صحيح." },
+  TRAVEL_DATE_REQUIRED: { status: 400, message: "حدّد تاريخ السفر المفضل لهذه الباقة (تاريخ مبدئي وليس حجزًا مؤكدًا)." },
+  TRAVEL_DATE_INVALID: { status: 400, message: "تاريخ السفر المفضل غير صحيح." },
+  TRAVEL_DATE_PASSED: { status: 400, message: "تاريخ السفر المفضل في الماضي. اختر تاريخًا قادمًا." },
   ROUTE_INVALID: { status: 400, message: "بيانات خط السير طويلة جدًا. اختصرها ثم أعد الإرسال." },
   DOCUMENT_NOT_FOUND: { status: 404, message: "المستند غير موجود في هذا الطلب" },
   REQUIREMENT_NOT_FOUND: { status: 400, message: "هذا المتطلب لا ينتمي إلى الخدمة المحددة" },
@@ -66,6 +70,10 @@ export async function storeDraft(req, res, next) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
+    // Only the approved services accept new applications (service-scope/intake-scope.js).
+    if (await newApplicationRefusal(parsed.data)) {
+      return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
+    }
     const { draft, token } = await createDraft(parsed.data);
     return res.status(201).json({ success: true, data: { ...draft, token } });
   } catch (error) {
@@ -158,6 +166,16 @@ export async function submitDraftController(req, res, next) {
     // UI-required attributes alone are not a security/business-rule boundary.
     const draft = await getDraftByToken(req.params.token);
     if (!draft) return res.status(404).json({ success: false, message: "Draft not found" });
+    // A repeat of a submission that already succeeded (a retry after a lost
+    // response, a double click, a second tab) says so. Checked before the
+    // Egypt rules: the submitted draft's passport now belongs to the request,
+    // so they would wrongly ask the customer to upload it again.
+    if (draft.submittedContactRequestId) return respondToDraftError(res, { error: "ALREADY_SUBMITTED" });
+    // The service is checked again at submission: a draft started before the
+    // scope changed (or patched to another service) cannot become a request.
+    if (await newApplicationRefusal(draft)) {
+      return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
+    }
     const egyptValidation = await validateEgyptClearanceDraft(draft);
     if (egyptValidation) {
       const errorResponse = respondToDraftError(res, egyptValidation);

@@ -1,5 +1,5 @@
 import { devices, expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
+import { loginAsSeededAdmin, openKeptAppService, readTrackingLoginCode } from "./helpers";
 
 // Every service, end to end, in a browser: the customer app (mobile/www)
 // and the staff back-office (backend/public) against the real backend.
@@ -38,8 +38,11 @@ type Journey = {
 
 const visaName = `تأشيرة سياحية تركيا ${unique()}`;
 
-async function shortcut(app: Page, key: string) {
-  await app.locator(`.shortcut[data-key="${key}"]`).click();
+// Flights, ferries and family visit are hidden from customers (approved
+// scope: Umrah + Egypt only) but kept; their journeys open the service through
+// the app's own dispatcher, then «ابدأ الطلب الآن» (helpers.ts openKeptAppService).
+async function shortcut(app: Page, code: string) {
+  await openKeptAppService(app, { code });
   await app.locator("#startRequestBtn").click();
 }
 
@@ -50,7 +53,7 @@ const JOURNEYS: Journey[] = [
     testRequirementService: "SVC-FLIGHT",
     rejectFirstReceipt: true,
     start: async (app) => {
-      await shortcut(app, "flights");
+      await shortcut(app, "SVC-FLIGHT");
       await app.fill('#flightSearchForm [name="from"]', "KRT");
       await app.fill('#flightSearchForm [name="to"]', "JED");
       await app.fill('#flightSearchForm [name="date"]', "2030-02-10");
@@ -63,7 +66,7 @@ const JOURNEYS: Journey[] = [
     execution: "جارٍ إصدار تذكرة العبّارة",
     testRequirementService: "SVC-FERRY",
     start: async (app) => {
-      await shortcut(app, "ferries");
+      await shortcut(app, "SVC-FERRY");
       const route = app.locator('#ferryForm [name="route"]');
       if (await route.count()) {
         const options = await route.locator("option").evaluateAll((els) => els.map((el) => (el as HTMLOptionElement).value).filter(Boolean));
@@ -76,32 +79,24 @@ const JOURNEYS: Journey[] = [
       await app.locator("#ferrySubmitBtn").click();
     },
   },
-  {
-    name: "hotels",
-    execution: "جارٍ تأكيد حجز الفندق",
-    testRequirementService: "SVC-HOTEL",
-    start: async (app) => {
-      await app.locator('#bottomNav [data-tab="services"]').click();
-      await app.locator(".svc-card", { hasText: "حجز الفنادق" }).first().click();
-      await app.locator("#startRequestBtn").click();
-      await app.fill('#hotelForm [name="checkin"]', "2030-02-10");
-      await app.fill('#hotelForm [name="checkout"]', "2030-02-14");
-      await app.fill('#hotelForm [name="rooms"]', "2");
-      await app.locator("#hotelSubmitBtn").click();
-    },
-  },
+  // Hotels: discovery is postponed by agency decision — the app offers no
+  // hotel journey (mobile-app.spec.ts asserts it is not listed anywhere).
   {
     name: "Umrah",
     execution: "جارٍ إصدار التأشيرة",
+    // Umrah is booked only at a fixed price: the visa-only package is priced
+    // for this run in beforeAll (test fixture price); 2 pilgrims × 450 SAR.
+    fixedPrice: { total: "900", currency: "SAR" },
     start: async (app) => {
-      await shortcut(app, "umrah");
-      await app.locator(".package-card").first().click();
+      // The Umrah card opens the package chooser directly (no details page).
+      await app.locator("#homeUmrahBtn").click();
+      await app.locator(".package-card:not([disabled])").first().click();
     },
   },
   {
     name: "family visit",
     execution: "جارٍ استخراج تأشيرة الزيارة العائلية",
-    start: async (app) => shortcut(app, "family"),
+    start: async (app) => shortcut(app, "VISA-FAMILY-VISIT"),
   },
   {
     name: "Egypt clearance",
@@ -110,8 +105,9 @@ const JOURNEYS: Journey[] = [
     // The air variant, priced for this run in beforeAll (test fixture price).
     fixedPrice: { total: "240", currency: "USD" },
     start: async (app) => {
-      await shortcut(app, "egypt");
-      await app.locator('.variant-card[data-code="VISA-EGYPT-CLEARANCE-AIR"]').click();
+      // The home card's air price opens the screen with that entry method chosen.
+      await app.locator('[data-egypt-variant="VISA-EGYPT-CLEARANCE-AIR"]').click();
+      await expect(app.locator('.variant-card[data-code="VISA-EGYPT-CLEARANCE-AIR"]')).toHaveAttribute("aria-checked", "true");
     },
   },
   {
@@ -119,8 +115,7 @@ const JOURNEYS: Journey[] = [
     execution: "جارٍ استخراج التأشيرة",
     rejectFirstDocument: true,
     start: async (app) => {
-      await app.locator('.shortcut[data-key="visas"]').click();
-      await app.locator(".package-card", { hasText: visaName }).click();
+      await openKeptAppService(app, { name: visaName });
       await app.locator("#startRequestBtn").click();
     },
   },
@@ -133,6 +128,8 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   let office: Page;
   const testRequirementIds: string[] = [];
   let egyptAirId = "";
+  let umrahVisa: { id: string; restore: Record<string, unknown> } | null = null;
+  const paymentAccountIds: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
     // One customer device for all journeys: the phone is verified once (the
@@ -151,6 +148,25 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     expect(egyptAirId, "seeded Egypt air variant").toBeTruthy();
     const priced = await office.request.patch(`${BACKEND}/api/visa-types/${egyptAirId}`, { data: { pricingMode: "FIXED", basePrice: 120, currency: "USD", priceUnit: "PER_TRAVELER", active: true } });
     expect(priced.ok(), await priced.text()).toBeTruthy();
+
+    // Umrah packages are booked only at a fixed price; the seed prices them as
+    // quotes. Test fixture price for the visa-only package, restored afterwards.
+    const services = (await (await office.request.get(`${BACKEND}/api/services?limit=200`)).json()).data as Array<{ id: string; code: string; pricingMode?: string; basePrice?: string | number | null; currency?: string; priceUnit?: string; active?: boolean }>;
+    const visaOnly = services.find((s) => s.code === "SVC-UMRAH-VISA");
+    expect(visaOnly, "seeded visa-only Umrah package").toBeTruthy();
+    umrahVisa = { id: visaOnly!.id, restore: { pricingMode: visaOnly!.pricingMode ?? "QUOTE", basePrice: visaOnly!.basePrice ?? 0, currency: visaOnly!.currency ?? "SAR", priceUnit: visaOnly!.priceUnit ?? "PER_REQUEST", active: visaOnly!.active ?? true } };
+    const umrahPriced = await office.request.patch(`${BACKEND}/api/services/${visaOnly!.id}`, { data: { pricingMode: "FIXED", basePrice: 450, currency: "SAR", priceUnit: "PER_TRAVELER", active: true } });
+    expect(umrahPriced.ok(), await umrahPriced.text()).toBeTruthy();
+
+    // The agency's accounts for the currencies these journeys pay in: the app
+    // asks for a transfer receipt only when there is an account to pay into.
+    for (const currency of ["USD", "SAR"]) {
+      const account = await office.request.post(`${BACKEND}/api/payment-accounts`, {
+        data: { name: `E2E journeys ${currency}`, bankName: "بنك اختبار", accountName: "نسائم الحرمين", accountNumber: `SJ${currency}${unique()}`, currency },
+      });
+      expect(account.ok(), await account.text()).toBeTruthy();
+      paymentAccountIds.push((await account.json()).data.id);
+    }
 
     // A visa type the back-office configures now, with a per-traveler document.
     const created = await office.request.post(`${BACKEND}/api/visa-types`, {
@@ -177,17 +193,20 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
 
   test.afterAll(async () => {
     if (egyptAirId) await office?.request.patch(`${BACKEND}/api/visa-types/${egyptAirId}`, { data: { pricingMode: "QUOTE", active: false } }).catch(() => undefined);
+    if (umrahVisa) await office?.request.patch(`${BACKEND}/api/services/${umrahVisa.id}`, { data: umrahVisa.restore }).catch(() => undefined);
+    for (const id of paymentAccountIds) await office?.request.patch(`${BACKEND}/api/payment-accounts/${id}`, { data: { active: false } }).catch(() => undefined);
     for (const id of testRequirementIds) await office?.request.delete(`${BACKEND}/api/services/requirements/${id}`).catch(() => undefined);
     await appContext?.close();
     await office?.context().close();
   });
 
+  // First launch: the welcome's guest choice (remembered afterwards).
   async function home() {
     await app.goto("/index.html");
-    const skip = app.getByText("تخطي").first();
-    await skip.waitFor({ timeout: 10_000 }).catch(() => undefined);
-    if (await skip.isVisible().catch(() => false)) await skip.click();
-    await expect(app.locator(".home-hero")).toBeVisible();
+    const guest = app.locator("#continueAsGuest");
+    await guest.or(app.locator(".hc-top")).first().waitFor({ timeout: 15_000 });
+    if (await guest.isVisible().catch(() => false)) await guest.click();
+    await expect(app.locator(".hc-top")).toBeVisible();
   }
 
   async function answerAgencyQuestions() {
@@ -206,39 +225,37 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     }
   }
 
-  // The wizard scrolls smoothly to each step; the button is pressed once the
-  // step is ready, without waiting for the scroll to settle.
-  async function nextStep() {
+  // The send button may scroll smoothly into view; it is pressed once ready,
+  // without waiting for the scroll to settle.
+  async function send() {
     const button = app.locator("#nextStepBtn:not([disabled])");
     await button.waitFor();
     await button.dispatchEvent("click");
   }
 
+  // The one requirements screen: travellers (cards, each with its own
+  // documents), contact, guarantor, the agency's questions, then send.
   async function submitIntake(travelers: string[]) {
+    await app.locator('[name="t_name_0"]').waitFor({ timeout: 15_000 });
+    for (let index = 1; index < travelers.length; index += 1) await app.locator("#addTravelerBtn").click();
+    for (const [index, traveler] of travelers.entries()) await app.fill(`[name="t_name_${index}"]`, traveler);
     await app.fill('[name="name"]', travelers[0]);
     await app.fill('[name="phone"]', phone);
     // Umrah asks for the guarantor's phone (required).
     if (await app.locator('[name="guarantorPhone"]').count()) await app.fill('[name="guarantorPhone"]', "+966501234567");
-    await app.fill("#travelerCount", String(travelers.length));
-    await app.dispatchEvent("#travelerCount", "change");
-    for (const [index, traveler] of travelers.entries()) {
-      await app.fill(`[name="t_name_${index}"]`, traveler);
-      await app.fill(`[name="t_pass_${index}"]`, `P${unique()}${index}`);
+    // Umrah with flight/sea services also needs the preferred (provisional) travel date.
+    if (await app.locator('[name="preferredTravelDate"][required]').count()) {
+      await app.fill('[name="preferredTravelDate"]', new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10));
     }
     await answerAgencyQuestions();
-    await nextStep();
-    // A service with no configured documents goes straight to the review.
-    const review = app.getByText("راجع طلبك قبل الإرسال");
-    await app.locator("[data-slot-input]").first().or(review).waitFor();
-    const keys = await app.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || ""));
-    if (keys.length) {
-      for (const key of keys) await app.locator(`[data-slot-input="${key}"]`).setInputFiles(png(`doc-${key.slice(-6)}.png`));
-      await nextStep();
-    }
-    await expect(review).toBeVisible();
-    // A fixed price is confirmed once, here, before sending.
+    // An Egypt passport slot has two inputs (camera, gallery): one file each.
+    const keys = [...new Set(await app.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || "")))];
+    for (const key of keys) await app.locator(`[data-slot-input="${key}"]`).last().setInputFiles(png(`doc-${key.slice(-6)}.png`));
+    // Passport photos are checked on the device first; wait until all are in.
+    await expect(app.locator(".slot.slot-ok")).toHaveCount(await app.locator(".slot").count(), { timeout: 15_000 });
+    // A fixed price is confirmed once, here, beside the send button.
     if (await app.locator("#confirmTotal").count()) await app.locator("#confirmTotal").check();
-    await nextStep();
+    await send();
     const reference = app.locator("#requestReference");
     // A fixed price with payment open goes straight to the payment screen;
     // this journey pays through tracking, so it continues with «سأحوّل لاحقًا».
@@ -268,7 +285,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await app.locator("#verifyCodeBtn").click();
     }
     await app.locator(`.request-row[data-id="${id}"]`).click({ timeout: 15_000 });
-    await expect(app.locator("#requestProgress")).toBeVisible({ timeout: 15_000 });
+    // The customer's view first; every server stage under «تفاصيل كل المراحل».
+    await expect(app.locator("#requestJourney")).toBeVisible({ timeout: 15_000 });
+    await app.locator("#requestJourney .journey-details summary").click();
+    await expect(app.locator("#requestProgress")).toBeVisible();
   }
 
   // Staff find the request the way they would: search by the traveler's name.
@@ -288,14 +308,20 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     await expect(office.locator("#cr-action-alert")).toContainText(success, { timeout: 15_000 });
   }
 
-  async function bothSay(label: string) {
+  // Staff and customer read the same server line (the customer's headline).
+  // `headline`: what the customer's journey says when it differs from the
+  // server's stage line (Egypt: «تم إصدار الموافقة الأمنية» once issued).
+  async function bothSay(label: string, headline = label) {
     await expect(office.locator("[data-cr-progress-label]")).toHaveText(label);
     await expect(app.locator("#requestProgress .progress-label")).toHaveText(label);
+    await expect(app.locator("#requestJourney .journey-headline")).toHaveText(headline);
   }
 
   for (const journey of JOURNEYS) {
     test(`${journey.name}: request, documents, price, payment, execution, delivery`, async () => {
       test.setTimeout(240_000);
+      // Egypt shows its typed files (approval, circular, receipt, tickets).
+      const finalFiles = journey.travelPlan ? '[data-egypt-file="APPROVAL"]' : ".deliverable-btn";
       const travelers = [`مسافر ${journey.name} ${unique()}`, `مرافق ${unique()}`];
 
       // ---- customer: service, its selection, travelers, documents
@@ -347,9 +373,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       // ---- customer: payment details and receipt (one panel)
       await expect(app.locator("#uploadReceiptBtn")).toBeVisible({ timeout: 15_000 });
       await app.locator("#uploadReceiptBtn").click();
-      await app.locator('#receiptForm input[name="file"]').setInputFiles({ name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });
-      await app.locator("#receiptForm button").click();
-      await expect(app.locator(".pay-state")).toContainText("قيد المراجعة", { timeout: 15_000 });
+      await app.locator('[name="settlementAccountId"]').first().check();
+      await app.locator('#receiptForm [data-receipt-input="PDF"]').setInputFiles({ name: "receipt.pdf", mimeType: "application/pdf", buffer: PDF });
+      await app.locator("#receiptSubmitBtn").click();
+      await expect(app.locator(".pay-state")).toContainText("بانتظار مراجعة الدفع", { timeout: 15_000 });
 
       // ---- staff: reject with a reason (once), then accept
       if (journey.rejectFirstReceipt) {
@@ -374,9 +401,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         await openCustomerRequest(id);
         await expect(app.locator(".pay-state-bad")).toContainText("المبلغ غير مطابق");
         await app.locator("#uploadReceiptBtn").click();
-        await app.locator('#receiptForm input[name="file"]').setInputFiles({ name: "receipt2.pdf", mimeType: "application/pdf", buffer: PDF });
-        await app.locator("#receiptForm button").click();
-        await expect(app.locator(".pay-state")).toContainText("قيد المراجعة", { timeout: 15_000 });
+        await app.locator('[name="settlementAccountId"]').first().check();
+        await app.locator('#receiptForm [data-receipt-input="PDF"]').setInputFiles({ name: "receipt2.pdf", mimeType: "application/pdf", buffer: PDF });
+        await app.locator("#receiptSubmitBtn").click();
+        await expect(app.locator(".pay-state")).toContainText("بانتظار مراجعة الدفع", { timeout: 15_000 });
         await openStaffRequest(id, travelers[0]);
       }
       await expect(detail.locator('[data-cr-form="start-execution"]')).toHaveCount(0);
@@ -409,7 +437,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await expect(detail.locator("[data-cr-delivery-missing]")).toContainText(travelers[1]);
       await openCustomerRequest(id);
       await bothSay(journey.execution);
-      await expect(app.locator(".deliverable-btn")).toHaveCount(1);
+      await expect(app.locator(finalFiles)).toHaveCount(1);
 
       // the second traveler's file: prepared as a draft (invisible), then published
       await openStaffRequest(id, travelers[0]);
@@ -419,7 +447,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await office.locator('[data-cr-form="deliverable"] input[name="publish"]').uncheck();
       await staffAct(detail.locator('[data-cr-form="deliverable"] button[type="submit"]'), "مسودة");
       await openCustomerRequest(id);
-      await expect(app.locator(".deliverable-btn")).toHaveCount(1);
+      await expect(app.locator(finalFiles)).toHaveCount(1);
       await openStaffRequest(id, travelers[0]);
       await staffAct(detail.locator("[data-cr-publish]").first(), "تم نشر الملف");
 
@@ -431,8 +459,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         expect(premature.status()).toBe(409);
         expect(((await premature.json()).reasons as { code: string }[]).map((r) => r.code)).toContain("TRAVEL_PLAN_MISSING");
         await openCustomerRequest(id);
-        await bothSay("ملفاتك النهائية جاهزة للتحميل");
+        await bothSay("ملفاتك النهائية جاهزة للتحميل", "تم إصدار الموافقة الأمنية");
         await expect(app.locator('#requestProgress [aria-current="step"]')).toHaveAttribute("aria-label", /بيانات السفر والتعميم — المرحلة الحالية/);
+        await expect(app.locator("#egyptApprovalIssued")).toContainText("تم إصدار الموافقة الأمنية");
+        await expect(app.locator("#egyptPrep")).toContainText("مطلوب منك");
         await app.locator("#egyptTravelBtn").click();
         const entry = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
         // The AIR variant already fixed the entry method: shown, not asked again.
@@ -441,8 +471,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         await app.locator('#egyptPlanForm [name="bookingStatus"]').selectOption("EXISTING");
         await app.fill('#egyptPlanForm [name="entryDate"]', entry);
         await app.locator('#egyptPlanForm [name="file"]').setInputFiles(png("ticket.png"));
+        await app.locator('#egyptPlanForm [name="confirmDate"]').check();
         await app.locator("#egyptPlanForm button[type=submit]").click();
-        await expect(app.locator("#egyptTravelSummary")).toContainText("جاهز لتجهيز التعميم", { timeout: 15_000 });
+        await expect(app.locator("#egyptPrep")).toContainText(entry, { timeout: 15_000 });
+        await expect(app.locator("#egyptPrep")).toContainText("بيانات السفر مكتملة");
         // staff review the ticket, then complete the request by hand
         await openStaffRequest(id, travelers[0]);
         while ((await detail.locator("[data-doc-accept]").count()) > 0) {
@@ -454,6 +486,13 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
         await expect(office.locator("#cr-outcome option[value=COMPLETED]")).toBeDisabled();
         await expect(detail.locator("[data-cr-completion-blockers]")).toContainText("تجهيز تعميم الموافقة الأمنية لمصر");
         await staffAct(detail.locator("[data-cr-task-done]").first(), "تم إنجاز المهمة");
+        // a completed task is not the circular itself (AUDIT-00 G-04)
+        await expect(detail.locator("[data-cr-completion-blockers]")).toContainText("لم يُرفع ملف التعميم بعد");
+        const circular = await office.request.post(`${BACKEND}/api/contact-requests/${id}/egypt/circular`, {
+          multipart: { file: { name: "circular.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF") } },
+        });
+        expect(circular.status(), await circular.text()).toBe(201);
+        await openStaffRequest(id, travelers[0]);
         await expect(detail.locator("[data-cr-completion-blockers]")).toHaveCount(0);
         await office.locator("#cr-outcome").selectOption("COMPLETED");
         await staffAct(detail.locator('[data-cr-form="close"] button[type="submit"]'), "تم إغلاق الطلب");
@@ -461,7 +500,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
 
       await openCustomerRequest(id);
       await bothSay("تم إنجاز طلبك بنجاح");
-      await expect(app.locator(".deliverable-btn")).toHaveCount(2);
+      await expect(app.locator(finalFiles)).toHaveCount(2);
       await expect(app.locator("#requestProgress .progress-node-current")).toHaveCount(0);
       // closed: read-only for the customer and for staff
       await expect(app.locator("#approveBtn, #uploadReceiptBtn, #egyptTravelBtn, [data-upload-item]")).toHaveCount(0);

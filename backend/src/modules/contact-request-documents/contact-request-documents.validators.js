@@ -1,7 +1,22 @@
 import { z } from "zod";
 
+// Device-measured image-quality hints (JSON in a multipart field); sanitized
+// by egypt-clearance/document-quality.js, never trusted as-is.
+const qualityField = z
+  .union([z.string().max(4000), z.record(z.string(), z.any())])
+  .optional()
+  .transform((value) => {
+    if (!value || typeof value !== "string") return value || undefined;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  });
+
 export const uploadContactRequestDocumentSchema = z.object({
   label: z.string().trim().min(2, "يرجى تحديد نوع المستند").max(120),
+  quality: qualityField,
   // Platform 3.0 Phase 6 — optional link to the VisaRequirement checklist
   // item this upload satisfies. Omitted entirely for uploads that aren't
   // tied to a formal checklist (kept working exactly as before).

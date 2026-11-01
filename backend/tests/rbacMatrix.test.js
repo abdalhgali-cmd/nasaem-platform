@@ -88,6 +88,10 @@ describe("staff RBAC against the expected-permissions baseline", () => {
     for (const [route, guard] of Object.entries(BASELINE)) {
       const [method, path] = route.split(" ");
       const url = path.replace(/:\w+/g, "x");
+      // Staging-only routes answer 404 before any role check unless the
+      // request proves the staging key; their role guard is exercised with a
+      // valid proof in umrahActivationScript.test.js.
+      if (route.startsWith("POST /api/admin/staging/")) continue;
       if (Array.isArray(guard)) {
         for (const role of ROLES) {
           const allowed = guard.includes(role);

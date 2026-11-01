@@ -3,7 +3,7 @@ export const siteConfig = {
   nameEn: "Nasaem Al-Haramain Travel & Tourism",
   shortName: "نسائم الحرمين",
   description:
-    "وكالة سفر وسياحة متكاملة لخدمات العمرة والتأشيرات وحجوزات الطيران والفنادق — نُنجز رحلتك بثقة واحترافية من البداية حتى العودة.",
+    "ابدأ طلب العمرة أو الموافقة الأمنية لمصر، وتابع حالة طلبك مباشرة مع نسائم الحرمين دون إنشاء حساب.",
   url: "https://nasaem-alharamain.com",
   phone: "+249 91 103 4372",
   whatsapp: "249911034372",
@@ -25,7 +25,7 @@ export type NavItem = {
 export const mainNav: NavItem[] = [
   { label: "الرئيسية", href: "/" },
   { label: "العمرة", href: "/umrah" },
-  { label: "التأشيرات", href: "/visas" },
+  { label: "الموافقة الأمنية لمصر", href: "/visas/egypt-security-approval" },
   { label: "تتبع الطلب", href: "/track" },
   { label: "تواصل معنا", href: "/contact" },
 ];

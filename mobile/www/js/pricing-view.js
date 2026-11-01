@@ -50,7 +50,10 @@ export function fixedTotalSummary(pricing, travelerCount) {
       : pricing.fxRateToSdg
         ? `ما يعادل ${moneyText(Math.round(total * pricing.fxRateToSdg), "SDG")} بسعر الصرف المعتمد من الوكالة`
         : "المقابل بالجنيه السوداني غير متاح حاليًا؛ الدفع بالعملة الظاهرة.";
-  return { units, total, totalText: moneyText(total, pricing.currency), breakdown, payment, currency: pricing.currency, sdgText };
+  // The same facts as separate pieces, for screens that isolate each amount
+  // (<bdi>) so the Latin currency code never scrambles the Arabic line.
+  const sdgAmountText = pricing.currency !== "SDG" && pricing.fxRateToSdg ? moneyText(Math.round(total * pricing.fxRateToSdg), "SDG") : "";
+  return { units, total, totalText: moneyText(total, pricing.currency), unitPriceText: moneyText(pricing.unitPrice, pricing.currency), breakdown, payment, currency: pricing.currency, sdgText, sdgAmountText };
 }
 
 // After a PRICE_CHANGED refusal: the item with the agency's current unit

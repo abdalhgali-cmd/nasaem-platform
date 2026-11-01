@@ -5,6 +5,7 @@ import { environmentBadge } from "../www/js/environment.js";
 
 test("test builds show which environment they use; the production build never shows a badge", () => {
   assert.match(environmentBadge({ environment: "staging" }), /staging/);
+  assert.match(environmentBadge({ environment: "staging" }), /الأسعار تجريبية/, "prices outside production are test data");
   assert.match(environmentBadge({ environment: "e2e" }), /e2e/);
   assert.ok(environmentBadge({}), "an unspecified environment is flagged, not hidden");
   assert.equal(environmentBadge({ environment: "production" }), null);

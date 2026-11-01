@@ -363,6 +363,8 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
     return null;
   }
 
+  const pendingStep = validationError();
+
   async function submit() {
     const invalid = validationError();
     if (invalid) return setError(invalid);
@@ -628,7 +630,11 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
       {error ? <div className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm font-semibold text-destructive">{error}</div> : null}
 
       <div className="mt-7 flex flex-col-reverse items-stretch justify-between gap-3 sm:flex-row sm:items-center">
-        <span className="text-xs text-muted-foreground">{saving ? "جارٍ حفظ تقدمك تلقائيًا…" : hasProgress ? "يتم حفظ تقدمك تلقائيًا." : ""}</span>
+        <span className="flex flex-col gap-1 text-xs text-muted-foreground">
+          {/* What still stands between the customer and «إرسال» (same check the submit runs). */}
+          {pendingStep && !submitting ? <span className="font-semibold text-foreground" data-testid="egypt-submit-hint" aria-live="polite">قبل الإرسال: {pendingStep}</span> : null}
+          <span>{saving ? "جارٍ حفظ تقدمك تلقائيًا…" : hasProgress ? "يتم حفظ تقدمك تلقائيًا." : ""}</span>
+        </span>
         <Button type="button" variant="gold" size="lg" onClick={() => void submit()} disabled={submitting || uploading || !totalConfirmed}>
           {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
           إرسال طلب الموافقة

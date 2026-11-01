@@ -36,12 +36,18 @@ const PRODUCTION_WEB_HOSTS = new Set([
   "nasaem-platform.vercel.app",
   "nasaem-platform-abdalhgali-cmds-projects.vercel.app",
 ]);
+// The Railway staging website talks to the staging API only (never
+// Production): the unified admin's embedded screens run there too.
+const STAGING_API_BASE = "https://adaptable-quietude-staging.up.railway.app/api";
+const STAGING_WEB_HOSTS = new Set(["nasaem-website-staging-staging.up.railway.app"]);
 const LOCAL_WEB_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const API_BASE = PRODUCTION_WEB_HOSTS.has(window.location.hostname)
   ? PRODUCTION_API_BASE
-  : LOCAL_WEB_HOSTS.has(window.location.hostname)
-    ? "http://localhost:5000/api"
-    : "/api";`;
+  : STAGING_WEB_HOSTS.has(window.location.hostname)
+    ? STAGING_API_BASE
+    : LOCAL_WEB_HOSTS.has(window.location.hostname)
+      ? "http://localhost:5000/api"
+      : "/api";`;
 
 function listFiles(dir, base = dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -58,6 +64,9 @@ function transform(relativePath, content) {
   if (relativePath === path.join("assets", "api.js")) {
     if (!body.includes('const API_BASE = "/api";')) throw new Error("backend/public/assets/api.js no longer defines API_BASE as expected");
     body = body.replace('const API_BASE = "/api";', VERCEL_API_BASE);
+    // The website hosts the unified admin (/admin): this copy forwards to it.
+    if (!body.includes("const UNIFIED_ADMIN_PATH = null;")) throw new Error("backend/public/assets/api.js no longer defines UNIFIED_ADMIN_PATH as expected");
+    body = body.replace("const UNIFIED_ADMIN_PATH = null;", 'const UNIFIED_ADMIN_PATH = "/admin";');
   }
   return `/* ${BANNER_TEXT} */\n${body}`;
 }

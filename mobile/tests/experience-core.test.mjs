@@ -6,7 +6,7 @@ import { launchRoute, firstName, greeting, buildBannerSlides, nextSlide, ONBOARD
 import { AGENCY, mergeAgencySettings, whatsappLink, telLink } from "../www/js/agency.js";
 
 test("launch: intro only on a first launch with nothing stored; otherwise the public home", () => {
-  assert.equal(launchRoute({ storedKind: "none", onboardingDone: false }), "onboarding");
+  assert.equal(launchRoute({ storedKind: "none", onboardingDone: false }), "welcome", "first launch: sign in or continue as guest");
   assert.equal(launchRoute({ storedKind: "none", onboardingDone: true }), "home");
 });
 
@@ -175,5 +175,16 @@ test("an unfinished payment is kept on the device until finished or expired", as
   clearPendingPayment(storage);
   assert.equal(readPendingPayment(storage), null);
   storage.setItem("nasaem.pendingPayment.v1", "{broken");
+  assert.equal(readPendingPayment(storage), null);
+});
+
+test("a late upload clears only its own payment-resume record", async () => {
+  const { savePendingPayment, clearPendingPaymentFor, readPendingPayment } = await import("../www/js/experience-core.js");
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  savePendingPayment(storage, { id: "B", paymentAccess: { token: "t" } });
+  clearPendingPaymentFor(storage, "A");
+  assert.equal(readPendingPayment(storage)?.id, "B", "request B's record survives A's upload");
+  clearPendingPaymentFor(storage, "B");
   assert.equal(readPendingPayment(storage), null);
 });

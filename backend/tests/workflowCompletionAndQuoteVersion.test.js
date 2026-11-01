@@ -197,6 +197,12 @@ describe("Egypt clearance completion needs its travel plan", () => {
       const done = await employee.patch(`/api/contact-requests/${id}/tasks/${task.id}/complete`).send({});
       assert.equal(done.status, 200, JSON.stringify(done.body));
     }
+    // A completed task is not the circular itself (AUDIT-00 G-04).
+    res = await complete(employee, id);
+    assertConflict(res, "circular not issued");
+    assert.deepEqual(res.body.reasons.map((r) => r.code), ["CIRCULAR_NOT_ISSUED"]);
+    const circular = await employee.post(`/api/contact-requests/${id}/egypt/circular`).attach("file", PDF(), { filename: "circular.pdf", contentType: "application/pdf" });
+    assert.equal(circular.status, 201, JSON.stringify(circular.body));
     const detail = await staffDetail(employee, id);
     assert.deepEqual(detail.progress.completionBlockers, []);
     assert.ok(detail.allowedActions.includes("COMPLETE"));

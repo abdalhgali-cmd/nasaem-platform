@@ -6,7 +6,7 @@
 - Active integration branch / PR: `claude/release-integration` / **#91**. It **already integrates** #87, #88 and #89 and fixes the airline audit-log race. Do not cherry-pick or merge those PRs again.
 - Read `TASKS.md` for release tasks and acceptance gates. Treat completed CI, actual code and GitHub as more current than any stale status in that file.
 - Keep `web/CLAUDE.md` and `web/AGENTS.md` intact; their Next.js-specific rules still apply.
-- Railway **staging already exists**: project `spirited-luck`, service `adaptable-quietude`, PostgreSQL 18 and persisted `/data/uploads`. It is **not** a disposable test database; lack of Claude access does not mean it is absent.
+- Railway **staging already exists**: project `spirited-luck`, service `adaptable-quietude`, PostgreSQL 18 and persisted `/data/uploads`. Lack of Claude access does not mean it is absent. **Owner decision 2026-11-01:** all current staging records are disposable test data, so a staging backup/restore is **not** a blocker for development or a staging release. This exception is for staging only: never delete or overwrite production data, and production backup requirements stay in force.
 
 ## Execution and token efficiency
 1. Start with `git status`, the current branch SHA, `TASKS.md` and outstanding CI checks. Inspect only files needed for the next task; don't repeat whole-repository audits.
@@ -18,9 +18,9 @@
 ## Safety — approval required
 - **Do not merge into `main`, deploy staging/production, migrate live databases, change live financial records or distribute Android builds without explicit owner approval for that action.**
 - Do not delete production/customer data, weaken auth/CSRF/tenant isolation, hide failures, remove assertions to make CI green, or expose credentials.
-- Before any separately approved staging migration: verify a **real staging PostgreSQL + uploads backup and a successful restore**. CI's synthetic backup drill is not sufficient.
+- Before any approved **production** migration: verify a **real production PostgreSQL + uploads backup and a successful restore**. CI's synthetic backup drill is not sufficient. (Staging: not required — its data is disposable, owner decision 2026-11-01.)
 - Follow `docs/admin-remediation-release.md`: new refund/session migrations can make rollback to old app code unsafe; prepare roll-forward recovery.
 - Validate installed Android app compatibility and real-device tests before enabling FIXED pricing. Never present unconnected flight/hotel results as real-time bookable inventory.
 
 ## Definition of done
-A reviewed, cohesive #91 candidate; green CI on its final SHA; finance/security and end-to-end acceptance; verified staging backup/restore and explicit approvals before any release. Clearly identify unverified device/provider/infrastructure checks.
+A reviewed, cohesive #91 candidate; green CI on its final SHA; finance/security and end-to-end acceptance; verified production backup/restore before a production release, and explicit approvals before any release (staging backup/restore is not required, owner decision 2026-11-01). Clearly identify unverified device/provider/infrastructure checks.

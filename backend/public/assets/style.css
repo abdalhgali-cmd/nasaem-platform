@@ -327,6 +327,12 @@ tbody tr:hover {
   color: #166534;
 }
 
+.alert.warning {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
 .muted {
   color: var(--color-muted);
   font-size: 0.85rem;
@@ -767,3 +773,31 @@ summary:focus-visible {
 .cr-steps .cr-step-upcoming { color: var(--muted, #6b7280); }
 label.inline { display: inline-flex; align-items: center; gap: 6px; margin-inline-end: 12px; font-weight: normal; }
 [data-cr-execution-blockers] { border-color: #f0c36d; }
+
+/* Inside the unified admin (/admin, ?embed=1 — see api.js): no header or tab
+   bars of its own, the admin's Cairo font and navy/gold brand. */
+.nh-embedded {
+  --color-bg: transparent;
+  --color-primary: #2e3792;
+  --color-primary-dark: #252c78;
+  --color-accent: #fab60d;
+}
+.nh-embedded body {
+  font-family: "Cairo", "Segoe UI", Tahoma, Arial, sans-serif;
+  background: transparent;
+  min-height: 0;
+}
+.nh-embedded #app-header,
+.nh-embedded #tabs,
+.nh-embedded #mgmt-tabs,
+.nh-embedded #flight-tools-card {
+  display: none !important;
+}
+.nh-embedded main {
+  margin: 0;
+  max-width: none;
+  padding: 0;
+}
+.nh-only-egypt-settings #tab-egypt > :not([data-egypt-pricing-admin]):not([data-egypt-alerts-admin]) {
+  display: none !important;
+}

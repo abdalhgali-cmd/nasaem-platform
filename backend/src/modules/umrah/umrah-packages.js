@@ -54,3 +54,35 @@ export function resolveUmrahContacts(serviceCategory, { guarantorPhone, extraCon
     },
   };
 }
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86_400_000;
+// Furthest preferred date accepted (about two seasons ahead).
+const MAX_DAYS_AHEAD = 730;
+
+// The customer's preferred travel date on an Umrah request: a provisional
+// wish, not a booking (staff confirm the actual date). Required for the
+// packages with flight or sea services, optional for visa only.
+//
+// The current website and app always send the field (empty when not filled),
+// so an empty value on a package that needs it is refused. An app installed
+// before this cannot send it at all: that request is still accepted and
+// flagged (preferredDateMissing) for staff to ask, like the guarantor phone.
+// Returns { travel } to store in intakeData.umrahTravel, or { error }.
+export function resolveUmrahTravel(serviceCategory, features, preferredTravelDate, now = new Date()) {
+  if (!isUmrahServiceCategory(serviceCategory)) return { travel: null };
+  const required = umrahIncludesTickets(features);
+  if (preferredTravelDate === undefined || preferredTravelDate === null) {
+    return { travel: required ? { preferredDateMissing: true } : null };
+  }
+  const raw = String(preferredTravelDate).trim();
+  if (!raw) return required ? { error: "TRAVEL_DATE_REQUIRED" } : { travel: null };
+  if (!DATE_PATTERN.test(raw)) return { error: "TRAVEL_DATE_INVALID" };
+  const day = new Date(`${raw}T00:00:00.000Z`);
+  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== raw) return { error: "TRAVEL_DATE_INVALID" };
+  const today = Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`);
+  // One day of slack: a customer west of UTC may still be on "yesterday".
+  if (day.getTime() < today - DAY_MS) return { error: "TRAVEL_DATE_PASSED" };
+  if (day.getTime() > today + MAX_DAYS_AHEAD * DAY_MS) return { error: "TRAVEL_DATE_INVALID" };
+  return { travel: { preferredDate: raw, provisional: true } };
+}

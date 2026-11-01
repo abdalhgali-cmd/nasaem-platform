@@ -33,8 +33,8 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
       originName: "Port Sudan",
       destinationCode: "JED",
       destinationName: "Jeddah",
-      departureAt: "2026-10-01T08:30:00+02:00",
-      arrivalAt: "2026-10-01T11:30:00+02:00",
+      departureAt: "2030-10-01T08:30:00+02:00",
+      arrivalAt: "2030-10-01T11:30:00+02:00",
       stops: 0,
       baggage: "30 KG",
       cabin: "Economy",
@@ -68,7 +68,7 @@ describe("flight booking file storage (persistent UPLOAD_ROOT)", () => {
       amount: 1500000,
       currency: "SDG",
       contact: { fullName: "Storage Test", phone },
-      passengers: [{ firstName: "STORAGE", lastName: "TEST", nationality: "Sudan", passportNo: `P${uniqueSuffix()}` }],
+      passengers: [{ firstName: "STORAGE", lastName: "TEST", nationality: "Sudan", birthDate: "1990-01-01", passportNo: `P${uniqueSuffix()}` }],
     });
     assert.equal(res.status, 201);
     return res.body.booking;

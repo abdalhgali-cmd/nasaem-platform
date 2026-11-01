@@ -1,7 +1,11 @@
-import { createPaymentAccountSchema, updatePaymentAccountSchema } from "./payment-accounts.validators.js";
+import { createPaymentAccountSchema, foreignSettlementFlag, updatePaymentAccountSchema } from "./payment-accounts.validators.js";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createPaymentAccount, listActivePaymentAccounts, listPaymentAccounts, updatePaymentAccount } from "./payment-accounts.service.js";
+
+function refuseForeignFlag(res) {
+  return res.status(400).json({ success: false, code: "FOREIGN_SETTLEMENT_SDG_ONLY", message: "قبول المقابل بالجنيه متاح لحسابات الجنيه السوداني (SDG) فقط." });
+}
 
 export async function getActivePaymentAccounts(req, res, next) {
   try {
@@ -27,8 +31,10 @@ export async function postPaymentAccount(req, res, next) {
     if (!parsed.success) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
-    const data = await createPaymentAccount({ ...parsed.data, accountNumber: parsed.data.accountNumber || null, iban: parsed.data.iban || null });
-    logActivity({ userId: req.user?.id, action: "PAYMENT_ACCOUNT_CREATED", entity: "PaymentAccount", entityId: data.id, req, newValue: { name: data.name, bankName: data.bankName, currency: data.currency, active: data.active } });
+    const acceptsForeignInvoices = foreignSettlementFlag(parsed.data.currency, parsed.data.acceptsForeignInvoices);
+    if (acceptsForeignInvoices === null) return refuseForeignFlag(res);
+    const data = await createPaymentAccount({ ...parsed.data, acceptsForeignInvoices, accountNumber: parsed.data.accountNumber || null, iban: parsed.data.iban || null });
+    logActivity({ userId: req.user?.id, action: "PAYMENT_ACCOUNT_CREATED", entity: "PaymentAccount", entityId: data.id, req, newValue: { name: data.name, bankName: data.bankName, currency: data.currency, active: data.active, acceptsForeignInvoices: data.acceptsForeignInvoices } });
     return res.status(201).json({ success: true, data });
   } catch (error) {
     next(error);
@@ -42,8 +48,12 @@ export async function patchPaymentAccount(req, res, next) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
     const before = await prisma.paymentAccount.findUnique({ where: { id: req.params.id } });
+    if (!before) return res.status(404).json({ success: false, message: "Payment account not found" });
+    const acceptsForeignInvoices = foreignSettlementFlag(parsed.data.currency ?? before.currency, parsed.data.acceptsForeignInvoices, before.acceptsForeignInvoices);
+    if (acceptsForeignInvoices === null) return refuseForeignFlag(res);
     const data = await updatePaymentAccount(req.params.id, {
       ...parsed.data,
+      acceptsForeignInvoices,
       ...(parsed.data.accountNumber !== undefined ? { accountNumber: parsed.data.accountNumber || null } : {}),
       ...(parsed.data.iban !== undefined ? { iban: parsed.data.iban || null } : {}),
     });
@@ -57,8 +67,8 @@ export async function patchPaymentAccount(req, res, next) {
       entity: "PaymentAccount",
       entityId: data.id,
       req,
-      oldValue: before ? { name: before.name, currency: before.currency, active: before.active } : undefined,
-      newValue: { name: data.name, currency: data.currency, active: data.active, bankDetailsChanged: detailsChanged },
+      oldValue: { name: before.name, currency: before.currency, active: before.active, acceptsForeignInvoices: before.acceptsForeignInvoices },
+      newValue: { name: data.name, currency: data.currency, active: data.active, acceptsForeignInvoices: data.acceptsForeignInvoices, bankDetailsChanged: detailsChanged },
     });
     return res.status(200).json({ success: true, data });
   } catch (error) {

@@ -97,7 +97,10 @@ export async function renderFlightsScreen({ bodyEl, params }) {
     const legs = (res.legs || []).map((leg, index) => ({
       index,
       title: index === 0 ? `رحلات الذهاب: ${search.from} ← ${search.to}` : `رحلات العودة: ${search.to} ← ${search.from}`,
-      flights: [...(leg.manual || []), ...(leg.trip || [])],
+      // Only flights the agency published itself. External provider results
+      // («trip») stay hidden while the airline integration is postponed: the
+      // app never shows availability or fares the agency has not verified.
+      flights: [...(leg.manual || [])],
     }));
     const chosen = new Map();
 
@@ -185,5 +188,6 @@ function openIntake(bodyEl, item, selection) {
   mount.id = "flightIntakeMount";
   bodyEl.appendChild(mount);
   mount.scrollIntoView({ behavior: "smooth" });
-  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection });
+  // The traveller count was given in the search: the form starts with it.
+  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection, initialTravelers: selection.details?.travelers || 1 });
 }

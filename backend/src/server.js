@@ -4,6 +4,7 @@
 
 import app from "./app.js";
 import { startConfirmationReconciler } from "./modules/customer-messages/customer-messages.service.js";
+import { startTravelReminderWorker } from "./modules/egypt-clearance/travel-reminders.service.js";
 import prisma from "./config/database.js";
 import { startServer } from "./startup.js";
 
@@ -23,7 +24,11 @@ try {
     // Sends customer confirmations that were stored but not sent (crash,
     // provider outage); see customer-messages.service.js.
     startWorkers: () => {
-      if (process.env.NODE_ENV !== "test") startConfirmationReconciler();
+      if (process.env.NODE_ENV !== "test") {
+        startConfirmationReconciler();
+        // Staff reminders 3 days before an Egypt approval's travel date.
+        startTravelReminderWorker();
+      }
     },
   });
   console.log(`Nasaem Platform API running on port ${port}`);

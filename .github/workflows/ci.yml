@@ -51,7 +51,14 @@ jobs:
       - name: Seed database
         run: npm run prisma:seed
       - name: Run tests
-        run: npm test
+        shell: bash
+        run: npm test 2>&1 | tee test-output.log
+      # The full log is too long to read the failure from its tail: repeat
+      # the failing tests' result blocks at the end.
+      - name: Show failing tests
+        if: failure()
+        shell: bash
+        run: grep -n -A45 -E "^\s*not ok " test-output.log | grep -v "\[0m" | head -400 || true
 
   backup_restore:
     name: PostgreSQL backup + restore drill
@@ -220,11 +227,18 @@ jobs:
       DATABASE_URL: postgresql://postgres:password@localhost:5432/nasaem_platform_dev?schema=public
       JWT_SECRET: ci_test_secret_do_not_use_in_production
       JWT_EXPIRES_IN: 7d
-      CORS_ORIGIN: http://localhost:3000,http://localhost:8081
+      # Written the way staging had it (trailing "/"): the website must still
+      # be granted CORS (backend/src/utils/allowedOrigins.js, staging 2026-10-24).
+      CORS_ORIGIN: http://localhost:3000/,http://localhost:8081
       SEED_ADMIN_PASSWORD: CiTest@12345
       API_RATE_LIMIT: 2000
       PUBLIC_CONTACT_RATE_LIMIT: 80
       TRACKING_CODE_RATE_LIMIT: 30
+      # Production accepts new applications only for Umrah + Egypt (backend
+      # service-scope/intake-scope.js). The e2e suite still drives every kept
+      # service, so it opens the scope; the gate is covered by the backend test
+      # publicIntakeScope.test.js with the production default.
+      PUBLIC_INTAKE_SCOPE: ALL
 
     steps:
       - uses: actions/checkout@v4

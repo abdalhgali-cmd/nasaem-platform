@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // travelerIds arrives as a JSON array in a multipart field (or a JSON body
 // for publish): the travelers this final file is the output for.
-const travelerIdsField = z
+export const travelerIdsField = z
   .union([z.array(z.string()), z.string()])
   .optional()
   .transform((value, ctx) => {

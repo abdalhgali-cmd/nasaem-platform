@@ -269,6 +269,12 @@ describe("service journeys: request -> documents -> quote -> payment -> executio
         for (const task of await prisma.caseTask.findMany({ where: { contactRequestId: id, status: "OPEN", source: "SYSTEM" } })) {
           assert.equal((await employee.patch(`/api/contact-requests/${id}/tasks/${task.id}/complete`).send({})).status, 200);
         }
+        // the journey ends with the circular file itself (AUDIT-00 G-04)
+        const noCircular = await employee.patch(`/api/contact-requests/${id}/status`).send({ status: "CLOSED", outcome: "COMPLETED" });
+        assert.equal(noCircular.status, 409, JSON.stringify(noCircular.body));
+        assert.deepEqual(noCircular.body.reasons.map((r) => r.code), ["CIRCULAR_NOT_ISSUED"]);
+        const circular = await employee.post(`/api/contact-requests/${id}/egypt/circular`).attach("file", PDF(), { filename: "circular.pdf", contentType: "application/pdf" });
+        assert.equal(circular.status, 201, JSON.stringify(circular.body));
         const closed = await employee.patch(`/api/contact-requests/${id}/status`).send({ status: "CLOSED", outcome: "COMPLETED" });
         assert.equal(closed.status, 200, JSON.stringify(closed.body));
         customerView = await tracked(id);
@@ -277,7 +283,7 @@ describe("service journeys: request -> documents -> quote -> payment -> executio
       assert.equal(customerView.status, "CLOSED");
       assert.equal(customerView.outcome, "COMPLETED");
       assert.equal(customerView.statusLabel, "تم إنجاز طلبك بنجاح");
-      assert.equal(customerView.deliverables.length, 2);
+      assert.equal(customerView.deliverables.length, journey.travelPlan ? 3 : 2, "the two delivered files, plus the circular for Egypt");
       assert.ok(customerView.progress.steps.every((step) => step.state === "done"));
       const download = await tracker.get(`/api/tracking/requests/${id}/deliverables/${customerView.deliverables[0].id}/file`);
       assert.equal(download.status, 200);

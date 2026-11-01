@@ -150,14 +150,18 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
           // reject with a reason); accepting it here as a "document" would
           // not confirm the payment, so no document buttons are shown.
           const isReceipt = d.classification === "FINANCIAL_DOCUMENT";
+          const correction = Boolean(r.executionStartedAt) && d.status !== "PENDING";
+          // Pending documents are reviewed as before; after execution a
+          // manager may correct a decided one (only the opposite decision).
+          const canReview = crAllowed(r, "REVIEW_DOCUMENT") && (d.status === "PENDING" || (correction && ["ADMIN", "SUPER_ADMIN"].includes(user.role)));
           const controls = isReceipt
             ? '<span class="muted small">إيصال دفع — يُراجع من قسم «الدفع»</span>'
-            : crAllowed(r, "REVIEW_DOCUMENT") && d.status === "PENDING"
+            : canReview
               ? `<div class="stack wrap">
-                  <button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}">قبول</button>
+                  ${d.status === "ACCEPTED" ? "" : `<button type="button" class="btn secondary" data-doc-accept="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>قبول</button>`}
                   <label class="sr-only" for="reject-note-${escapeHtml(d.id)}">سبب الرفض</label>
-                  <input id="reject-note-${escapeHtml(d.id)}" placeholder="سبب الرفض" maxlength="500" style="max-width: 180px" />
-                  <button type="button" class="btn secondary" data-doc-reject="${escapeHtml(d.id)}">رفض</button>
+                  <input id="reject-note-${escapeHtml(d.id)}" aria-label="${correction ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض"}" placeholder="${correction ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض"}" maxlength="500" style="max-width: 240px" />
+                  ${d.status === "REJECTED" ? "" : `<button type="button" class="btn secondary" data-doc-reject="${escapeHtml(d.id)}" ${correction ? 'data-doc-correction="1"' : ""}>رفض</button>`}
                 </div>`
               : d.reviewNote
                 ? `<span class="muted small">${escapeHtml(d.reviewNote)}</span>`
@@ -217,13 +221,44 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     return parts.join("");
   }
 
+  // The transfer receipts the customer uploaded (newest first), each with the
+  // account and amount the customer says they paid, as validated by the
+  // server when it was uploaded. The staff check it against the bank.
+  function transferReceiptsHtml(r) {
+    const receipts = (r.documents || []).filter((d) => d.classification === "FINANCIAL_DOCUMENT" && !d.supersededAt);
+    if (!receipts.length) return r.paymentStatus === "AWAITING_TRANSFER" ? '<p class="muted small">لم يرفع العميل إيصال تحويل بعد.</p>' : "";
+    return `<div class="table-scroll" data-cr-transfer-receipts><table>
+      <thead><tr><th>إيصال التحويل</th><th>المبلغ حسب العميل</th><th>إلى حساب</th><th>الحالة</th></tr></thead>
+      <tbody>${receipts
+        .map((d) => {
+          const s = d.paymentSettlement || null;
+          const href = `/api/contact-requests/${encodeURIComponent(r.id)}/documents/${encodeURIComponent(d.id)}/file`;
+          const amount = s ? `${s.accountId ? "" : '<span class="muted small">المتوقع: </span>'}${formatMoney(s.payAmount, s.payCurrency)}${s.kind === "SDG_EQUIVALENT" ? `<br><span class="muted small">مقابل فاتورة ${formatMoney(s.invoiceAmount, s.invoiceCurrency)} بسعر ${escapeHtml(s.rate)} المثبّت على الفاتورة</span>` : ""}` : '<span class="muted small">غير محدد</span>';
+          const account = s?.account ? `${escapeHtml(s.account.bankName)} · ${escapeHtml(s.account.accountName)}<br><span dir="ltr" class="small">${escapeHtml(s.account.accountNumber || s.account.iban || "")} ${escapeHtml(s.account.currency)}</span>` : '<span class="muted small">لم يحدد العميل الحساب الذي حوّل إليه — طابق المبلغ مع حسابات عملة الفاتورة</span>';
+          return `<tr data-cr-transfer-receipt="${escapeHtml(d.id)}">
+            <td><a href="${href}" target="_blank" rel="noopener">عرض</a> · <a href="${href}" download>تحميل</a><br><span class="muted small">${escapeHtml(d.label || "")} · ${formatDateTime(d.createdAt)}</span></td>
+            <td>${amount}</td>
+            <td>${account}</td>
+            <td><span class="badge">${escapeHtml(CR_DOC_STATUS_AR[d.status] || d.status)}</span>${d.reviewNote ? `<br><span class="muted small">${escapeHtml(d.reviewNote)}</span>` : ""}</td>
+          </tr>`;
+        })
+        .join("")}</tbody></table></div>`;
+  }
+
   function paymentHtml(r) {
     const lines = [`<p>حالة الدفع: ${crPaymentBadge(r.paymentStatus)}${r.paymentConfirmedAt ? ` · ${formatDateTime(r.paymentConfirmedAt)}` : ""}</p>`];
     if (r.paymentStatus === "AWAITING_TRANSFER" && r.paymentRejectionReason) {
       lines.push(`<p class="alert error">رُفض آخر إيصال${r.paymentRejectedAt ? ` (${formatDateTime(r.paymentRejectedAt)})` : ""}: ${escapeHtml(r.paymentRejectionReason)}</p>`);
     }
+    lines.push(transferReceiptsHtml(r));
     if (crAllowed(r, "CONFIRM_PAYMENT")) {
-      lines.push(`<p class="muted small">راجع إيصال الدفع من قائمة المستندات، ثم اقبل الدفع أو ارفضه مع بيان السبب. رفع الإيصال لا يعني أن الدفع تم.</p>`);
+      lines.push(`<p class="muted small">راجع إيصال التحويل أعلاه وطابقه مع كشف البنك، ثم اقبل الدفع أو ارفضه مع بيان السبب. رفع الإيصال لا يعني أن الدفع تم.</p>`);
+      // No current receipt: the customer only declared the transfer. The
+      // confirmation then needs a written reason (audited).
+      const hasReceipt = (r.documents || []).some((d) => d.classification === "FINANCIAL_DOCUMENT" && !d.supersededAt && d.status !== "REJECTED");
+      if (!hasReceipt) {
+        lines.push(`<div class="field"><label for="cr-confirm-reason">لا يوجد إيصال تحويل. سبب التأكيد بدون إيصال (يُسجَّل في السجل)</label><input id="cr-confirm-reason" data-cr-confirm-reason="1" minlength="5" maxlength="500" placeholder="مثال: تمت المطابقة مع كشف البنك" /></div>`);
+      }
       lines.push(`<button type="button" class="btn" data-cr-confirm-payment="1">تأكيد استلام الدفع</button>`);
       lines.push(`<form class="card inset" data-cr-form="reject-payment">
         <h4>رفض الإيصال</h4>
@@ -233,6 +268,14 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     } else if (r.paymentStatus === "UNDER_REVIEW" && r.status !== "CLOSED") {
       lines.push('<p class="muted small">تأكيد الدفع من صلاحيات المحاسبة أو الإدارة.</p>');
     }
+    // The paid receipt issued with the payment confirmation (not a tax invoice).
+    if (r.paymentReceipt) {
+      const mail = r.customerMessages?.[0];
+      lines.push(`<p data-cr-receipt="${escapeHtml(r.paymentReceipt.pdfStatus)}">إيصال السداد <span dir="ltr">${escapeHtml(r.paymentReceipt.receiptNo)}</span> · ${r.paymentReceipt.pdfStatus === "READY"
+        ? `<a href="/api/contact-requests/${encodeURIComponent(r.id)}/payment-receipt/file" target="_blank" rel="noopener">تحميل PDF</a>`
+        : escapeHtml(r.paymentReceipt.pdfStatus === "FAILED" ? "تعذر إنشاء الملف" : "جارٍ إنشاء الملف")}${mail ? ` · البريد: ${escapeHtml(RECEIPT_EMAIL_AR[mail.status] || mail.status)}` : ""}</p>`);
+    }
+    if (r.parentRequest) lines.push(`<p class="muted small">طلب حجز مرتبط بطلب الموافقة الأمنية <a href="#/requests/${encodeURIComponent(r.parentRequest.id)}" data-cr-open-linked="${escapeHtml(r.parentRequest.id)}" dir="ltr">${escapeHtml(crReference(r.parentRequest.id))}</a>.</p>`);
     return lines.join("");
   }
 
@@ -407,7 +450,15 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const travelers = (r.travelers || [])
       .map((t, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(t.fullName || t.name || "-")}</td><td dir="ltr">${escapeHtml(t.passportNo || "-")}</td><td>${escapeHtml(t.nationality || "-")}</td></tr>`)
       .join("");
-    const [assignment, extra] = await Promise.all([assignmentHtml(r), notesAndTimelineHtml(r)]);
+    const [assignment, extra, egypt] = await Promise.all([
+      assignmentHtml(r),
+      notesAndTimelineHtml(r),
+      // Egypt security approval: its own workspace (approval, travel date,
+      // tickets, circular, receipt, reminders).
+      isEgyptRequest(r) && can("work")
+        ? api.get(`/contact-requests/${encodeURIComponent(r.id)}/egypt`).then((p) => egyptPanelHtml(p.data, r)).catch((error) => `<div class="alert error" role="alert">${escapeHtml(error.message)}</div>`)
+        : null,
+    ]);
     if (seq !== detailSeq) return;
     const link = `${window.location.origin}/admin-dashboard.html#/requests/${encodeURIComponent(r.id)}`;
     detailCard.innerHTML = `
@@ -441,6 +492,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
       ${pricingHtml(r)}
       <h3>الدفع</h3>
       ${paymentHtml(r)}
+      ${egypt ? `<h3>الموافقة الأمنية لمصر</h3>${egypt}` : ""}
       <h3>التنفيذ</h3>
       ${executionHtml(r)}
       <h3>الملفات النهائية</h3>
@@ -505,12 +557,23 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const retry = t.closest("[data-cr-reopen-detail]");
     if (retry) return openDetail(retry.dataset.crReopenDetail);
     const base = `/contact-requests/${encodeURIComponent(openId)}`;
+    const linked = t.closest("[data-cr-open-linked]");
+    if (linked) {
+      event.preventDefault();
+      return openDetail(linked.dataset.crOpenLinked);
+    }
+    if (handleEgyptClick(t, { base, act })) return undefined;
     const accept = t.closest("[data-doc-accept]");
-    if (accept) return act(accept, () => api.patch(`${base}/documents/${encodeURIComponent(accept.dataset.docAccept)}/status`, { status: "ACCEPTED" }), "تم قبول المستند.");
+    if (accept) {
+      const note = document.getElementById(`reject-note-${accept.dataset.docAccept}`)?.value.trim();
+      if (accept.dataset.docCorrection && (!note || note.length < 5)) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تصحيح القرار (5 أحرف على الأقل).");
+      return act(accept, () => api.patch(`${base}/documents/${encodeURIComponent(accept.dataset.docAccept)}/status`, { status: "ACCEPTED", ...(note ? { reviewNote: note } : {}) }), "تم قبول المستند.");
+    }
     const reject = t.closest("[data-doc-reject]");
     if (reject) {
       const note = document.getElementById(`reject-note-${reject.dataset.docReject}`)?.value.trim();
       if (!note) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب رفض المستند.");
+      if (reject.dataset.docCorrection && note.length < 5) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تصحيح القرار (5 أحرف على الأقل).");
       return act(reject, () => api.patch(`${base}/documents/${encodeURIComponent(reject.dataset.docReject)}/status`, { status: "REJECTED", reviewNote: note }), "تم رفض المستند وإبلاغ العميل بالسبب.");
     }
     const taskDone = t.closest("[data-cr-task-done]");
@@ -518,7 +581,21 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const publish = t.closest("[data-cr-publish]");
     if (publish) return act(publish, () => api.post(`${base}/deliverables/${encodeURIComponent(publish.dataset.crPublish)}/publish`, {}), "تم نشر الملف للعميل.");
     const confirm = t.closest("[data-cr-confirm-payment]");
-    if (confirm) return act(confirm, () => api.post(`${base}/confirm-payment`, {}), "تم تأكيد استلام الدفع.");
+    if (confirm) {
+      const reasonField = detailCard.querySelector("[data-cr-confirm-reason]");
+      const reason = reasonField ? reasonField.value.trim() : "";
+      if (reasonField && reason.length < 5) return showAlert(document.getElementById("cr-action-alert"), "اكتب سبب تأكيد الدفع بدون إيصال (5 أحرف على الأقل).");
+      return act(confirm, async () => {
+        try {
+          await api.post(`${base}/confirm-payment`, reason ? { reason } : {});
+        } catch (error) {
+          // The receipt changed since this view was drawn (e.g. rejected):
+          // redraw so the reason field shows; act() then shows the message.
+          if (error?.code === "RECEIPT_OR_REASON_REQUIRED") await openDetail(openId, { focus: false });
+          throw error;
+        }
+      }, "تم تأكيد استلام الدفع.");
+    }
     const contacted = t.closest("[data-cr-contacted]");
     if (contacted) return act(contacted, () => api.patch(`${base}/status`, { status: "CONTACTED" }), "تم تحديث الحالة.");
   });
@@ -530,6 +607,7 @@ function createContactRequestsView({ user, listBody, pagination, filters, detail
     const button = form.querySelector('button[type="submit"]');
     const base = `/contact-requests/${encodeURIComponent(openId)}`;
     const f = form.elements;
+    if (handleEgyptForm(form, { base, act, alert: (message) => showAlert(document.getElementById("cr-action-alert"), message) })) return undefined;
     switch (form.dataset.crForm) {
       case "invoice":
       case "offer": {

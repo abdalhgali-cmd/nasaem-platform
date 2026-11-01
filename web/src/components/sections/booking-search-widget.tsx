@@ -5,13 +5,8 @@ import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowLeft,
-  BadgePercent,
   CheckCircle2,
-  FileCheck2,
-  Hotel,
   LoaderCircle,
-  Plane,
-  Ship,
   Sparkles,
   Stamp,
   type LucideIcon,
@@ -23,18 +18,13 @@ import { resolveServiceHref } from "@/lib/service-routes";
 import type { PublicCatalog, PublicService, PublicVisaType } from "@/lib/services";
 import { cn } from "@/lib/utils";
 
-type PathKey = "umrah" | "security" | "visas" | "flights" | "ferries" | "hotels" | "offers";
+type PathKey = "umrah" | "security";
 type CatalogItem = (PublicService | PublicVisaType) & { kind: "service" | "visaType" };
 type PublicRequirement = { id: string; name: string; required: boolean; type?: string };
 
 const paths: { key: PathKey; label: string; icon: LucideIcon }[] = [
   { key: "umrah", label: "العمرة", icon: Sparkles },
   { key: "security", label: "الموافقة الأمنية", icon: Stamp },
-  { key: "visas", label: "التأشيرات", icon: FileCheck2 },
-  { key: "flights", label: "الطيران", icon: Plane },
-  { key: "ferries", label: "البواخر", icon: Ship },
-  { key: "hotels", label: "الفنادق", icon: Hotel },
-  { key: "offers", label: "العروض", icon: BadgePercent },
 ];
 
 function withKinds(catalog: PublicCatalog) {
@@ -55,18 +45,10 @@ function itemsForPath(path: PathKey, catalog: PublicCatalog): CatalogItem[] {
     const variants = visaTypes.filter((item) => item.code.startsWith("VISA-EGYPT-CLEARANCE-"));
     return variants.length ? variants : visaTypes.filter((item) => item.code === "VISA-EGYPT-CLEARANCE");
   }
-  if (path === "visas") {
-    return visaTypes.filter((item) => !item.code.includes("EGYPT-CLEARANCE") && item.code !== "VISA-UMRAH");
-  }
-  if (path === "offers") {
-    return packages.filter((item) => item.category !== "UMRAH_PACKAGE" && !item.code.startsWith("SVC-UMRAH-"));
-  }
-  const category = path === "flights" ? "flight" : path === "ferries" ? "ferry" : "hotel";
-  return services.filter((item) => item.category.toLowerCase().includes(category));
+  return [];
 }
 
-function itemHref(item: CatalogItem, path: PathKey) {
-  if (path === "offers") return `/packages?package=${encodeURIComponent(item.code)}#book`;
+function itemHref(item: CatalogItem) {
   return resolveServiceHref(item);
 }
 
@@ -118,7 +100,7 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
   }, [selectedId, selectedKind]);
 
   const fixedPriceUnavailable = selected?.pricingMode === "FIXED" && !hasPublishedPrice(selected.basePrice);
-  const href = selected ? itemHref(selected, path) : "#";
+  const href = selected ? itemHref(selected) : "#";
   const requirementKey = selected ? `${selected.kind}:${selected.id}` : "";
   const loadingRequirements = Boolean(selected && requirementResult.key !== requirementKey);
   const requirements = requirementResult.key === requirementKey ? requirementResult.items : [];
@@ -126,11 +108,11 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
   return (
     <div id="start-request" className="bg-glass w-full max-w-5xl scroll-mt-24 rounded-[2rem] border border-white/20 p-3 text-right shadow-2xl shadow-primary/20 sm:p-5">
       <div className="px-2 pb-4 sm:px-3">
-        <p className="text-lg font-extrabold text-foreground">اختر خدمتك</p>
-        <p className="mt-1 text-sm text-muted-foreground">السعر والمستندات من كتالوج نسائم الحرمين مباشرة.</p>
+        <p className="text-lg font-extrabold text-foreground">ابدأ بإحدى خدمتي الإصدار الأول</p>
+        <p className="mt-1 text-sm text-muted-foreground">الأسعار والمستندات تأتي من كتالوج نسائم الحرمين مباشرة.</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7" role="tablist" aria-label="اختيار مسار الخدمة">
+      <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="اختيار مسار الخدمة">
         {paths.map(({ key, label, icon: Icon }) => (
           <button
             key={key}

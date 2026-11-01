@@ -1,4 +1,5 @@
 import { icon } from "./icons.js";
+import { esc } from "./ui.js";
 
 const screens = new Map();
 const stack = [];
@@ -36,7 +37,7 @@ async function render(entry, { isRoot = false, direction = "fade" } = {}) {
     ? `
     <header class="screen-head ${isRoot ? "screen-head-root" : ""}">
       ${isRoot ? "" : `<button class="icon-btn back-btn" aria-label="رجوع">${icon("chevron-start", { size: 24 })}</button>`}
-      <h1>${entry.title || ""}</h1>
+      <h1>${esc(entry.title || "")}</h1>
       <span class="screen-head-spacer"></span>
     </header>
     <div class="screen-body screen-enter screen-enter-${direction}" id="screenBody"></div>
@@ -58,6 +59,12 @@ async function render(entry, { isRoot = false, direction = "fade" } = {}) {
   });
   entry.cleanup = result?.cleanup || null;
   updateNavActive(entry.tab);
+  // Screen readers land on the new screen's title, not on a stale control.
+  const heading = screenEl.querySelector(".screen-head h1, h1, h2");
+  if (heading && heading.textContent.trim()) {
+    if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+    heading.focus({ preventScroll: true });
+  }
 }
 
 export async function go(name, params = {}, { title = "", tab = null, root = false } = {}) {

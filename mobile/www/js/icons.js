@@ -47,6 +47,7 @@ const PATHS = {
   hotel: '<path d="M4 20V6.5h9V20" /><path d="M13 11h7v9" /><path d="M7 10h.01M7 13.5h.01M4 20h16" /><path d="M16 14.5h.01"/>',
   package: '<path d="M12 3.5 20 7.5v9L12 20.5 4 16.5v-9L12 3.5Z"/><path d="M4 7.5 12 11.5l8-4M12 11.5V20.5"/>',
   "shield-check": '<path d="M12 3.5 19 6v5.5c0 5-3 8-7 9-4-1-7-4-7-9V6l7-2.5Z"/><path d="m9 12 2 2 4-4.3"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.3 3.5 5.3 3.5 8.5s-1.2 6.2-3.5 8.5c-2.3-2.3-3.5-5.3-3.5-8.5s1.2-6.2 3.5-8.5Z"/>',
   family: '<circle cx="8.5" cy="7.5" r="2.3"/><circle cx="16" cy="8.5" r="2"/><path d="M4 19c0-2.8 2-5 4.5-5s4.5 2.2 4.5 5M13 19c0-2.3 1.6-4.2 3.5-4.2s3.5 1.9 3.5 4.2"/>',
   // Extra keys so every admin-configurable HOMEPAGE_ICONS value (see

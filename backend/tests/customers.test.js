@@ -41,6 +41,10 @@ describe("customers", () => {
     const res = await agent.get(`/api/customers?search=${passportNo}`);
     assert.equal(res.status, 200);
     assert.equal(res.body.data.length, 1);
-    assert.equal(res.body.data[0].passportNo, passportNo);
+    // The list masks the number (owner rule: no passport numbers in lists);
+    // the customer's own page shows it in full.
+    assert.equal(res.body.data[0].passportNo, `•••${passportNo.slice(-3)}`);
+    const detail = await agent.get(`/api/customers/${res.body.data[0].id}`);
+    assert.equal(detail.body.data.passportNo, passportNo);
   });
 });

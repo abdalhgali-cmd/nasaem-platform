@@ -17,6 +17,7 @@ import {
 } from "./customer-portal.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { logActivity } from "../../utils/activityLog.js";
+import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-scope/intake-scope.js";
 
 export async function getOverview(req, res, next) {
   try {
@@ -75,7 +76,7 @@ export async function uploadRequestDocument(req, res, next) {
     const parsed = uploadContactRequestDocumentSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "بيانات المستند غير صحيحة", errors: parsed.error.flatten() });
     if (!req.file) return res.status(400).json({ success: false, message: "الملف مطلوب" });
-    const result = await uploadMyRequestDocument(req.customer.id, req.params.id, { label: parsed.data.label, file: req.file, requirementId: parsed.data.requirementId, travelerId: parsed.data.travelerId });
+    const result = await uploadMyRequestDocument(req.customer.id, req.params.id, { label: parsed.data.label, file: req.file, requirementId: parsed.data.requirementId, travelerId: parsed.data.travelerId, quality: parsed.data.quality });
     if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "الطلب غير موجود" });
     if (result.error) return res.status(400).json({ success: false, code: result.error, message: UPLOAD_ERROR_MESSAGES_AR[result.error] || "تعذر رفع المستند", details: result.details });
@@ -129,6 +130,10 @@ export async function storeSelfOrder(req, res, next) {
     const parsed = createSelfOrderSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: "بيانات غير صحيحة", errors: parsed.error.flatten() });
 
+    // Only the approved services accept new applications (service-scope/intake-scope.js).
+    if (await newApplicationRefusal(parsed.data)) {
+      return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
+    }
     const result = await createSelfOrder(req.customer.id, parsed.data);
     if (result.error === "SERVICE_NOT_FOUND") return res.status(404).json({ success: false, message: "الخدمة غير متاحة" });
     if (result.error === "VISA_TYPE_NOT_FOUND") return res.status(404).json({ success: false, message: "نوع التأشيرة غير متاح لهذه الخدمة" });

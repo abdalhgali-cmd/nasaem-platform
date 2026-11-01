@@ -22,6 +22,7 @@ import {
   uploadPaymentReceipt,
   verifyCode,
 } from "./contact-request-tracking.controller.js";
+import { downloadMyReceipt, postMyFlightChoice } from "../egypt-clearance/egypt-customer.controller.js";
 
 const router = Router();
 
@@ -57,6 +58,10 @@ router.post("/requests/:id/documents", requireTrackingAuth, requireFeatureEnable
 router.post("/requests/:id/egypt-travel-plan", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_UPLOAD"), handleUpload, saveEgyptTravelPlan);
 router.get("/requests/:id/documents/:documentId/file", requireTrackingAuth, downloadMyDocumentFile);
 router.get("/requests/:id/deliverables/:deliverableId/file", requireTrackingAuth, downloadMyDeliverableFile);
+// Egypt approval: "book my flight through Nasaem" (opens one linked booking
+// inquiry), and the paid receipt PDF.
+router.post("/requests/:id/egypt/flight", requireTrackingAuth, postMyFlightChoice);
+router.get("/requests/:id/payment-receipt/file", requireTrackingAuth, downloadMyReceipt);
 router.post("/logout", requireTrackingAuth, logout);
 
 export default router;

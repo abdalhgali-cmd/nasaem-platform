@@ -1,12 +1,14 @@
 import path from "path";
 import prisma from "../../config/database.js";
-import { ACTIONS, checkAction, paymentLockReasons } from "../contact-request-workflow/workflow-policy.js";
+import { ACTIONS, checkAction, documentCorrectionRefusal, paymentLockReasons } from "../contact-request-workflow/workflow-policy.js";
 import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { notifyRequestCustomer } from "../../utils/notifications.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
+import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { sanitizeQualitySignal } from "../egypt-clearance/document-quality.js";
 import { describeRequest, notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
 
 import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
@@ -61,9 +63,10 @@ async function validateRequirementUpload(contactRequest, requirementId, file, tr
   return { requirement };
 }
 
-export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, classification, silent = false }) {
+export async function createContactRequestDocument(contactRequestId, { label, file, requirementId, travelerId, classification, silent = false, quality }) {
   const contactRequest = await prisma.contactRequest.findUnique({
     where: { id: contactRequestId },
+    include: { visaType: { select: { code: true } } },
   });
 
   if (!contactRequest) {
@@ -93,7 +96,9 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
     requirement = validation.requirement;
   }
 
-  const ocrResult = await maybeRunPassportOcr(requirement, file);
+  // Egypt security approval: minimal retention, only an MRZ-found signal.
+  const ocrResult = await maybeRunPassportOcr(requirement, file, { signalOnly: isEgyptClearanceCode(contactRequest.visaType?.code) });
+  const qualitySignal = sanitizeQualitySignal(quality);
 
   // Smart Case Operations — Release A (document versioning / replacement
   // flow). A new upload for the same requirement+traveler that currently
@@ -127,6 +132,7 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
           // that know better (e.g. a payment receipt) pass something else.
           ...(classification ? { classification } : {}),
           ocrResult: ocrResult ?? undefined,
+          qualitySignal: qualitySignal ?? undefined,
           fileName: file.originalname,
           // Relative to the uploads root, not the absolute server path — same
           // convention as documents.controller.js, so API responses never leak
@@ -193,15 +199,19 @@ export async function updateContactRequestDocumentStatus(
   contactRequestId,
   documentId,
   { status, reviewNote },
-  reviewerUserId
+  reviewerUserId,
+  { reviewerRole } = {}
 ) {
   // Decided under the request's row lock: a closed request's documents are
   // no longer reviewed, and a receipt is decided in the payment step.
   const result = await withLockedRequest(contactRequestId, null, async (tx, request) => {
     const document = request.documents.find((candidate) => candidate.id === documentId);
     if (!document) return { error: "NOT_FOUND" };
-    const refusal = checkAction(ACTIONS.REVIEW_DOCUMENT, request, { document: { ...document, status: "PENDING" } });
+    const refusal =
+      checkAction(ACTIONS.REVIEW_DOCUMENT, request, { document: { ...document, status: "PENDING" } }) ||
+      documentCorrectionRefusal(request, document, { role: reviewerRole, reviewNote });
     if (refusal) refuseWith(refusal);
+    const correction = document.status !== "PENDING" && Boolean(request.executionStartedAt);
     const updated = await tx.contactRequestDocument.update({
       where: { id: documentId },
       data: {
@@ -217,7 +227,7 @@ export async function updateContactRequestDocumentStatus(
       action: "CONTACT_REQUEST_DOCUMENT_REVIEWED",
       entityId: contactRequestId,
       organizationId: request.organizationId,
-      newValue: { documentId, status },
+      newValue: { documentId, status, ...(correction ? { correction: true, previousStatus: document.status, reason: String(reviewNote).trim().slice(0, 500) } : {}) },
     });
     // Fixed price paid after the document review: did this decision open
     // the payment (same accepted price)?

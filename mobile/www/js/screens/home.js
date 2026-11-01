@@ -2,13 +2,15 @@ import { api } from "../api.js";
 import { esc, skeletonGrid } from "../ui.js";
 import { icon, iconForService } from "../icons.js";
 import { getCustomer, isAccountUnlocked } from "../auth.js";
-import { loadCatalog, loadHomepage } from "../catalog.js";
+import { loadCatalog, loadPackages } from "../catalog.js";
 import { go, goToTab } from "../router.js";
 import { openServiceById, openServiceItem, VISAS_HUB_CODE } from "./services.js";
-import { resolveShortcuts, homeFeaturedServices, startingPrice, priceText, sdgText, durationOf } from "../service-view.js";
-import { firstName, greeting, buildBannerSlides, nextSlide, readPendingPayment } from "../experience-core.js";
-import { prefersReducedMotion, stagger, watchSnapIndex, scrollToSlide, tapFeedback } from "../motion.js";
+import { homeBentoTiles } from "../service-view.js";
+import { firstName, greeting, readPendingPayment } from "../experience-core.js";
+import { stagger, tapFeedback } from "../motion.js";
 import { loadAgency, whatsappLink } from "../agency.js";
+import { umrahKindOffers, UMRAH_UNAVAILABLE } from "../umrah-view.js";
+import { egyptVariantOptions } from "../egypt-view.js";
 
 // Order.status (richer enum) vs ContactRequest.status (NEW/CONTACTED/CLOSED
 // only — see requests.js's REQUEST_STATUS_AR/REQUEST_OUTCOME_AR for why).
@@ -49,8 +51,6 @@ function serviceCard(item) {
     </button>`;
 }
 
-const AUTOPLAY_MS = 5500;
-
 // Public home for everyone. Personal parts (name, bell, coupons, account
 // activity) appear only for a verified, unlocked account; a guest gets the
 // public content and a clear "track your request" action instead.
@@ -59,43 +59,30 @@ export async function renderHomeScreen({ bodyEl }) {
   const customer = signedIn ? getCustomer() : null;
   const name = firstName(customer?.fullName);
   bodyEl.innerHTML = `
-    <section class="home-hero">
-      <svg class="home-hero-path" viewBox="0 0 360 160" fill="none" aria-hidden="true">
-        <path d="M-10 140 C 90 40, 220 20, 370 70" stroke="rgba(214,170,75,.35)" stroke-width="1.5" stroke-dasharray="5 7"/>
-      </svg>
-      <div class="home-hero-top">
-        <img class="home-brand-mark" src="assets/brand/logo-mark.png" alt="شعار نسائم الحرمين" width="44" height="44">
-        <div class="home-hero-greeting">
-          <span class="eyebrow">${signedIn ? `${esc(greeting())}${name ? `، ${esc(name)}` : ""}` : "أهلاً بك في نسائم الحرمين"}</span>
-          <h1>نسائم الحرمين</h1>
-          <p>رحلتك تبدأ معنا بثقة</p>
-        </div>
-        ${signedIn ? `<button class="home-bell" id="homeBell" aria-label="الإشعارات">
-          ${icon("bell", { size: 22 })}<span class="home-bell-dot" id="homeBellDot" hidden></span>
-        </button>` : ""}
+    <header class="hc-top">
+      <img class="hc-mark" src="assets/brand/logo-mark.png" alt="شعار نسائم الحرمين" width="44" height="44">
+      <div class="hc-greeting">
+        <small>${signedIn ? `${esc(greeting())}${name ? `، ${esc(name)}` : ""}` : "نسائم الحرمين"}</small>
+        <h1>${signedIn ? "نسائم الحرمين" : "أهلاً بك"}</h1>
       </div>
-      <button class="hero-cta" id="startNowBtn">${icon("search", { size: 20 })}<span>ابحث عن خدمة أو ابدأ طلبك</span></button>
-    </section>
-
+      ${signedIn ? `<button class="hc-icon-btn home-bell" id="homeBell" aria-label="الإشعارات">
+        ${icon("bell", { size: 22 })}<span class="home-bell-dot" id="homeBellDot" hidden></span>
+      </button>` : ""}
+    </header>
     <div id="pendingPaymentMount"></div>
-    <div id="homeUmrahSpotlight" class="home-umrah-mount"></div>
 
-    <section class="shortcuts home-categories" aria-label="خدمات الوكالة">
-      <div class="home-section-head">
-        <h2>الخدمات</h2>
-        <button type="button" class="home-see-all" id="allServicesFromHome">عرض كل الخدمات ${icon("chevron-start", { size: 16 })}</button>
-      </div>
-      <div class="shortcut-rail" id="shortcutRail">${skeletonGrid(4)}</div>
+    <section class="section home-current-request" id="activitySection" hidden>
+      <div class="section-head"><h2 id="activityTitle">طلبك الحالي</h2></div>
+      <div class="activity-list" id="activityList"></div>
     </section>
 
-    <section class="section home-journey" aria-label="كيف يعمل طلبك">
-      <div class="section-head"><h2>كيف يعمل طلبك</h2></div>
-      <ol class="home-journey-grid">
-        <li><span>١</span><strong>اختر الخدمة</strong></li>
-        <li><span>٢</span><strong>بياناتك ومستنداتك</strong></li>
-        <li><span>٣</span><strong>الدفع وإشعار التحويل</strong></li>
-        <li><span>٤</span><strong>تابع الطلب</strong></li>
-      </ol>
+    <section class="hc-bento-wrap" aria-label="خدمات الوكالة">
+      <div class="hc-section-intro">
+        <h2>اختر خدمتك</h2>
+        <p>ابدأ طلب العمرة أو الموافقة الأمنية لمصر، دون إنشاء حساب.</p>
+      </div>
+      <p class="field-hint stale-note" id="catalogStale" hidden>${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>
+      <div class="hc-bento" id="homeBento">${skeletonGrid(4)}</div>
     </section>
 
     <section class="section">
@@ -106,25 +93,14 @@ export async function renderHomeScreen({ bodyEl }) {
       </button>
     </section>
 
-
-
-    <section class="home-banner" aria-roledescription="شرائح العروض" aria-label="إعلانات نسائم الحرمين">
-      <div class="banner-track" id="bannerTrack"><div class="banner-slide skeleton-banner"></div></div>
-      <div class="banner-dots" id="bannerDots"></div>
-    </section>
-
-    <section class="section" id="featuredSection" hidden>
-      <div class="section-head">
-        <h2>خدمات مختارة</h2>
-        <button class="link-btn" id="seeAllServices">عرض الكل</button>
-      </div>
-      <p class="field-hint stale-note" id="catalogStale" hidden>${icon("wifi-off", { size: 14 })} تعذر تحديث الخدمات الآن؛ المعروض آخر نسخة محفوظة وقد لا تكون محدثة.</p>
-      <div id="featuredList" class="featured-list"></div>
-    </section>
-
-    <section class="section" id="activitySection" hidden>
-      <div class="section-head"><h2>نشاطك</h2></div>
-      <div class="activity-list" id="activityList"></div>
+    <section class="section home-journey" aria-label="كيف يعمل طلبك">
+      <div class="section-head"><h2>خطوات واضحة من البداية</h2></div>
+      <ol class="home-journey-grid">
+        <li><span>١</span><strong>اختر الخدمة</strong></li>
+        <li><span>٢</span><strong>أرسل المتطلبات</strong></li>
+        <li><span>٣</span><strong>ادفع للحساب المعتمد</strong></li>
+        <li><span>٤</span><strong>تابع حتى التسليم</strong></li>
+      </ol>
     </section>
 
     <section class="section">
@@ -137,20 +113,12 @@ export async function renderHomeScreen({ bodyEl }) {
   `;
   showPendingPayment(bodyEl.querySelector("#pendingPaymentMount"));
 
-  const allServices = () => goToTab("services", "services", { title: "الخدمات" });
-  bodyEl.querySelector("#seeAllServices").addEventListener("click", allServices);
-  bodyEl.querySelector("#allServicesFromHome").addEventListener("click", allServices);
-  bodyEl.querySelector("#startNowBtn").addEventListener("click", () => {
-    tapFeedback();
-    goToTab("services", "services", { title: "الخدمات" });
-  });
   bodyEl.querySelector("#homeBell")?.addEventListener("click", () => {
     tapFeedback();
     go("notifications", {}, { title: "الإشعارات", tab: "home" });
   });
   bodyEl.querySelector("#homeTrackBtn")?.addEventListener("click", () => goToTab("requests", "requests", { title: "طلباتي" }));
 
-  const stopBanner = mountBanner(bodyEl, { signedIn });
   loadCatalogSection(bodyEl);
   if (signedIn) loadActivitySection(bodyEl);
   loadAgency().then((agency) => {
@@ -158,132 +126,130 @@ export async function renderHomeScreen({ bodyEl }) {
     if (strip) strip.href = whatsappLink(agency.whatsapp, "السلام عليكم، أحتاج مساعدة في طلبي");
   });
 
-  return { cleanup: () => stopBanner() };
+  return { cleanup: () => {} };
 }
 
-// Banner carousel: only content the agency published (homepage hero and
-// sections) and coupons available to this customer; a brand slide otherwise.
-// Swipe works natively (scroll-snap, RTL-aware); auto-advance pauses while
-// the customer touches it, when the app is in the background, and is off
-// entirely under reduced motion.
-function mountBanner(bodyEl, { signedIn }) {
-  const track = bodyEl.querySelector("#bannerTrack");
-  const dotsEl = bodyEl.querySelector("#bannerDots");
-  let timer = 0;
-  let resumeTimer = 0;
-  let stopWatch = () => {};
-  let index = 0;
-  let count = 0;
-  let disposed = false;
-
-  const stop = () => {
-    clearInterval(timer);
-    timer = 0;
-  };
-  const start = () => {
-    stop();
-    if (disposed || count < 2 || prefersReducedMotion() || document.hidden) return;
-    timer = setInterval(() => scrollToSlide(track, nextSlide(index, count)), AUTOPLAY_MS);
-  };
-  const pause = () => {
-    stop();
-    clearTimeout(resumeTimer);
-    resumeTimer = setTimeout(start, AUTOPLAY_MS);
-  };
-  const onVisibility = () => (document.hidden ? stop() : start());
-
-  (async () => {
-    const [homepage, couponsRes] = await Promise.all([
-      loadHomepage().catch(() => ({ hero: null, sections: [] })),
-      // Coupons are personal: only for a verified account, never for guests.
-      signedIn ? api("/customer/coupons").catch(() => ({ data: { available: [] } })) : Promise.resolve({ data: { available: [] } }),
-    ]);
-    if (disposed) return;
-    const slides = buildBannerSlides({ hero: homepage.hero, sections: homepage.sections || [], coupons: couponsRes.data?.available || [] });
-    count = slides.length;
-    track.innerHTML = slides.map((slide, i) => `
-      <article class="banner-slide banner-${slide.kind}" role="group" aria-roledescription="شريحة" aria-label="${i + 1} من ${slides.length}">
-        <div class="banner-copy">
-          <span class="banner-eyebrow">${esc(slide.eyebrow)}</span>
-          <strong>${esc(slide.title)}</strong>
-          ${slide.text ? `<p>${esc(slide.text)}</p>` : ""}
-          ${slide.action ? `<span class="banner-action">${esc(slide.action)}</span>` : ""}
-        </div>
-        <span class="banner-icon" aria-hidden="true">${icon(slide.icon && slide.kind !== "hero" ? slide.icon : "plane", { size: 30 })}</span>
-      </article>`).join("");
-    dotsEl.innerHTML = count > 1 ? slides.map((_, i) => `<span class="banner-dot" data-i="${i}"></span>`).join("") : "";
-    const dots = [...dotsEl.children];
-    stopWatch = watchSnapIndex(track, (i) => {
-      index = i;
-      dots.forEach((dot, d) => dot.classList.toggle("active", d === i));
-    });
-    track.addEventListener("pointerdown", pause, { passive: true });
-    track.addEventListener("touchstart", pause, { passive: true });
-    document.addEventListener("visibilitychange", onVisibility);
-    start();
-  })();
-
-  return () => {
-    disposed = true;
-    stop();
-    clearTimeout(resumeTimer);
-    stopWatch();
-    document.removeEventListener("visibilitychange", onVisibility);
-  };
-}
-
-function shortcutButton(shortcut) {
+// One bento tile per published service; the label is the catalog's own name.
+function bentoTile(shortcut) {
+  const label = shortcut.item?.name || shortcut.label;
   return `
-    <button class="shortcut" data-key="${esc(shortcut.key)}" aria-label="${esc(shortcut.label)}">
-      <span class="shortcut-icon">${icon(shortcut.icon, { size: 24 })}</span>
-      <span class="shortcut-label">${esc(shortcut.label)}</span>
+    <button type="button" class="hc-tile" data-key="${esc(shortcut.key)}">
+      <span class="hc-tile-icon">${icon(shortcut.icon, { size: 22 })}</span>
+      <span class="hc-tile-label">${esc(label)}</span>
     </button>`;
 }
 
-function featuredRow(item) {
-  const price = startingPrice(item);
-  const duration = durationOf(item);
-  return `
-    <button class="featured-row" data-id="${esc(item.id)}">
-      <span class="featured-icon">${icon(iconForService(item), { size: 22 })}</span>
-      <span class="featured-body">
-        <b>${esc(item.name)}</b>
-        <small>${[price ? `من <bdi>${esc(priceText(price))}</bdi>` : "", sdgText(price) ? `<bdi>${esc(sdgText(price))}</bdi>` : "", duration ? esc(duration) : ""].filter(Boolean).join(" · ")}</small>
-      </span>
-      ${icon("chevron-start", { size: 16 })}
-    </button>`;
-}
-
-// The spotlight is derived from the published catalog, never a simulated
-// package or price. The normal service dispatcher keeps each package's
-// actual price, document requirements and payment flow intact.
-function renderPublishedUmrah(bodyEl, catalog) {
-  const mount = bodyEl.querySelector("#homeUmrahSpotlight");
-  if (!mount) return;
+// The Umrah feature tile is derived from the published catalog, never a
+// simulated package or price. The normal service dispatcher keeps each
+// package's actual price, document requirements and payment flow intact.
+function publishedUmrah(catalog) {
   const services = [...(catalog.services || []), ...(catalog.visaTypes || [])];
-  const umrah = services.find((item) => item.code === "SVC-UMRAH") || services.find((item) => item.code === "VISA-UMRAH");
-  if (!umrah) { mount.replaceChildren(); return; }
-  mount.innerHTML = '<button type="button" class="home-umrah-card" id="homeUmrahBtn">' +
-    '<span class="home-umrah-emblem">' + icon("umrah", { size: 28 }) + '</span>' +
-    '<span class="home-umrah-copy"><strong>خدمات العمرة</strong><small>تأشيرة فقط أو عمرة مع خدمات بالطيران أو البحر</small></span>' +
-    '<span class="home-umrah-action">عرض الباقات ' + icon("chevron-start", { size: 18 }) + '</span>' +
-    '</button>';
-  mount.querySelector("#homeUmrahBtn").addEventListener("click", () => { tapFeedback(); openServiceItem(umrah); });
+  return services.find((item) => item.code === "SVC-UMRAH") || services.find((item) => item.code === "VISA-UMRAH") || null;
+}
+
+function umrahTile() {
+  return `
+    <article class="hc-tile hc-tile-feature home-umrah-hero">
+      <span class="home-umrah-orbit" aria-hidden="true"></span>
+      <div class="home-umrah-heading">
+        <span class="hc-tile-icon">${icon("umrah", { size: 24 })}</span>
+        <span class="home-umrah-kicker">رحلتك إلى بيت الله</span>
+      </div>
+      <span class="hc-feature-copy"><strong>عمرة بخطوات واضحة</strong><small>اختر تأشيرة فقط أو باقة مع خدمات الطيران أو البحر، واعرف السعر قبل إرسال الطلب.</small></span>
+      <div class="home-umrah-assurances" aria-label="مزايا الطلب">
+        <span>${icon("check-circle", { size: 14 })} سعر منشور</span>
+        <span>${icon("requests", { size: 14 })} متابعة مباشرة</span>
+      </div>
+      <ul class="hc-umrah-kinds" id="homeUmrahKinds" aria-label="أنواع العمرة وأسعارها" hidden></ul>
+      <button type="button" class="hc-feature-cta" id="homeUmrahBtn">اختر باقة العمرة ${icon("chevron-start", { size: 18 })}</button>
+    </article>`;
+}
+
+// The published Umrah kinds with their real prices (/services/public/packages).
+// A bookable kind opens its package directly; one without a fixed price says
+// it is unavailable. Without packages, or if they fail to load, the card
+// keeps its description and the main button.
+async function fillUmrahKinds(bento, umrah) {
+  const list = bento.querySelector("#homeUmrahKinds");
+  if (!list) return;
+  try {
+    const offers = umrahKindOffers(await loadPackages());
+    if (!offers.length) return;
+    list.innerHTML = offers.map((offer) => `
+      <li>
+        ${offer.packageId
+          ? `<button type="button" class="hc-umrah-kind" data-package-id="${esc(offer.packageId)}">
+              <span class="hc-umrah-kind-label">${esc(offer.label)}</span>
+              <span class="hc-umrah-kind-price"><bdi>${esc(offer.priceText)}</bdi>${offer.sdgText ? `<small><bdi>${esc(offer.sdgText)}</bdi></small>` : ""}</span>
+            </button>`
+          : `<div class="hc-umrah-kind is-unavailable">
+              <span class="hc-umrah-kind-label">${esc(offer.label)}</span>
+              <span class="hc-umrah-kind-price is-pending">${esc(UMRAH_UNAVAILABLE)}</span>
+            </div>`}
+      </li>`).join("");
+    list.querySelectorAll("[data-package-id]").forEach((button) => {
+      button.addEventListener("click", () => { tapFeedback(); openServiceItem(umrah, { packageId: button.dataset.packageId }); });
+    });
+    list.hidden = false;
+  } catch {
+    list.hidden = true;
+  }
+}
+
+function egyptTile(options) {
+  return `
+    <div class="hc-tile hc-tile-egypt">
+      <span class="hc-egypt-head"><span class="hc-tile-icon">${icon("shield-check", { size: 22 })}</span><strong>الموافقة الأمنية لمصر</strong></span>
+      <div class="hc-egypt-options">
+        ${options.map((option) => option.bookable
+          ? `<button type="button" class="hc-egypt-option" data-egypt-variant="${esc(option.code)}">
+              <span>${esc(option.name)}</span>
+              <b><bdi>${esc(option.priceText)}</bdi></b>
+              ${option.sdgText ? `<small><bdi>${esc(option.sdgText)}</bdi></small>` : ""}
+            </button>`
+          : `<div class="hc-egypt-option is-unavailable"><span>${esc(option.name)}</span><small>${esc(option.priceText)}</small></div>`).join("")}
+      </div>
+    </div>`;
 }
 
 async function loadCatalogSection(bodyEl) {
-  const rail = bodyEl.querySelector("#shortcutRail");
+  const bento = bodyEl.querySelector("#homeBento");
   try {
     const catalog = await loadCatalog();
     bodyEl.querySelector("#catalogStale").hidden = !catalog.stale;
-    renderPublishedUmrah(bodyEl, catalog);
 
-    // Umrah has its own published spotlight card above the category grid.
-    // Never show an unapproved hotel or a duplicate Umrah shortcut.
-    const shortcuts = resolveShortcuts(catalog).filter((shortcut) => shortcut.key !== "umrah");
-    rail.innerHTML = shortcuts.length ? shortcuts.map(shortcutButton).join("") : "";
-    stagger(rail);
-    rail.querySelectorAll(".shortcut").forEach((button) => {
+    // Bento in priority order: Umrah feature, flights, ferries, the visas hub
+    // (with its live count), Egypt clearance, family visit, then every
+    // service. Each tile opens the real published service; counts come from
+    // the catalog. Hotels are postponed and never shown.
+    const umrah = publishedUmrah(catalog);
+    const shortcuts = homeBentoTiles(catalog);
+    // Egypt approval: its own card with both entry methods' fixed prices
+    // (USD + the server's SDG) when the agency published them.
+    const egyptOptions = egyptVariantOptions(catalog);
+    const egyptCard = egyptOptions.some((option) => option.bookable) ? egyptTile(egyptOptions) : "";
+    bento.innerHTML = [
+      umrah ? umrahTile() : "",
+      egyptCard,
+      ...shortcuts.filter((shortcut) => !(egyptCard && shortcut.key === "egypt")).map((shortcut) => shortcut.hub
+        ? `<button type="button" class="hc-tile hc-tile-wide" data-key="visas">
+            <span class="hc-tile-icon">${icon("visa", { size: 22 })}</span>
+            <span class="hc-tile-label">التأشيرات والموافقات<small>${esc(serviceCountText(visaCount))}</small></span>
+            ${icon("chevron-start", { size: 18 })}
+          </button>`
+        : bentoTile(shortcut)),
+    ].join("");
+    stagger(bento);
+    if (umrah) fillUmrahKinds(bento, umrah);
+    bento.querySelectorAll("[data-egypt-variant]").forEach((button) => {
+      button.addEventListener("click", () => {
+        tapFeedback();
+        const option = egyptOptions.find((candidate) => candidate.code === button.dataset.egyptVariant);
+        if (option?.item) openServiceItem(option.item, { variantCode: option.code });
+      });
+    });
+    bento.querySelector("#homeUmrahBtn")?.addEventListener("click", () => { tapFeedback(); openServiceItem(umrah); });
+    bento.querySelectorAll(".hc-tile[data-key]").forEach((button) => {
       button.addEventListener("click", () => {
         tapFeedback();
         const shortcut = shortcuts.find((candidate) => candidate.key === button.dataset.key);
@@ -292,24 +258,8 @@ async function loadCatalogSection(bodyEl) {
       });
     });
 
-    // Services with a price the agency announced, straight from the catalog
-    // (the back-office price and rate); none are listed when none are priced.
-    const featured = homeFeaturedServices(catalog, shortcuts);
-    const section = bodyEl.querySelector("#featuredSection");
-    if (featured.length) {
-      bodyEl.querySelector("#featuredList").innerHTML = featured.map(featuredRow).join("");
-      bodyEl.querySelectorAll(".featured-row").forEach((row) => {
-        row.addEventListener("click", () => {
-          const item = [...catalog.services, ...catalog.visaTypes].find((candidate) => candidate.id === row.dataset.id);
-          if (item) openServiceItem(item);
-        });
-      });
-      section.hidden = false;
-    } else {
-      section.hidden = !catalog.stale;
-    }
   } catch (error) {
-    rail.innerHTML = `<p class="field-hint">تعذر تحميل الخدمات: ${esc(error.message)}</p>`;
+    bento.innerHTML = `<p class="field-hint">تعذر تحميل الخدمات: ${esc(error.message)}</p>`;
   }
 }
 
@@ -331,6 +281,7 @@ async function loadActivitySection(bodyEl) {
     ]);
     if (!list.isConnected) return;
     const cards = [];
+    let hasCurrentRequest = false;
 
     const latestOrder = overviewRes.data?.recentOrders?.[0] || null;
     const latestRequest = requestsRes.data?.[0] || null;
@@ -339,6 +290,7 @@ async function loadActivitySection(bodyEl) {
     let openLatest = null;
 
     if (orderTime >= 0 || requestTime >= 0) {
+      hasCurrentRequest = true;
       const useRequest = requestTime >= orderTime;
       const title = useRequest
         ? (latestRequest.service?.name || latestRequest.visaType?.name || "طلب خدمة")
@@ -346,6 +298,15 @@ async function loadActivitySection(bodyEl) {
       const statusText = useRequest
         ? (latestRequest.status === "CLOSED" && latestRequest.outcome ? REQUEST_OUTCOME_AR[latestRequest.outcome] : REQUEST_STATUS_AR[latestRequest.status]) || latestRequest.status
         : ORDER_STATUS_AR[latestOrder.status] || latestOrder.status;
+      const updatedAt = useRequest
+        ? (latestRequest.updatedAt || latestRequest.createdAt)
+        : (latestOrder.updatedAt || latestOrder.createdAt);
+      let updatedText = "";
+      try {
+        if (updatedAt) updatedText = new Intl.DateTimeFormat("ar", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(updatedAt));
+      } catch {
+        // A malformed legacy timestamp should not hide the current request.
+      }
       openLatest = () => {
         if (useRequest) go("requestDetail", { requestId: latestRequest.id }, { title: "تفاصيل الطلب", tab: "requests" });
         else go("orderDetail", { orderId: latestOrder.id }, { title: "تفاصيل الطلب", tab: "requests" });
@@ -356,7 +317,7 @@ async function loadActivitySection(bodyEl) {
           <div class="last-order-body">
             <small>آخر طلب</small>
             <strong>${esc(title)}</strong>
-            <span class="status-pill">${esc(statusText)}</span>
+            <span class="last-order-meta"><span class="status-pill">${esc(statusText)}</span>${updatedText ? `<time datetime="${esc(updatedAt)}">آخر تحديث ${esc(updatedText)}</time>` : ""}</span>
           </div>
           <span class="chevron">${icon("chevron-start", { size: 18 })}</span>
         </button>`);
@@ -378,6 +339,8 @@ async function loadActivitySection(bodyEl) {
     }
 
     if (!cards.length) return;
+    const title = bodyEl.querySelector("#activityTitle");
+    if (title) title.textContent = hasCurrentRequest ? "طلبك الحالي" : "تنبيهاتك";
     list.innerHTML = cards.join("");
     stagger(list);
     section.hidden = false;

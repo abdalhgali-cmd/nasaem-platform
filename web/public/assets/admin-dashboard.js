@@ -27,15 +27,16 @@ const ORDER_STATUSES = [
 // Which top-level tabs each role sees (docs/staff-role-matrix.md). It only
 // hides what the backend would refuse anyway; the API stays authoritative.
 const ROLE_TABS = {
-  SUPER_ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
-  ADMIN: ["overview", "requests", "orders", "flights", "customers", "payments", "management"],
-  EMPLOYEE: ["requests", "orders", "flights", "customers"],
+  SUPER_ADMIN: ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"],
+  ADMIN: ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"],
+  EMPLOYEE: ["requests", "egypt", "orders", "flights", "customers"],
   ACCOUNTANT: ["requests", "orders", "flights", "customers", "payments"],
   CONTENT_MANAGER: ["management"],
 };
-const TAB_KEYS = ["overview", "requests", "orders", "flights", "customers", "payments", "management"];
+const TAB_KEYS = ["overview", "requests", "egypt", "orders", "flights", "customers", "payments", "management"];
 
 let crView = null;
+let egyptView = null;
 let flightView = null;
 let routeSyncing = false;
 
@@ -104,6 +105,16 @@ function mountViews() {
       onOpen: (id) => setRoute("requests", id),
     });
     loadServiceCategories();
+  }
+  if (allowedTabs().includes("egypt")) {
+    // The Egypt queue opens a request in the requests tab (one workspace).
+    egyptView = createEgyptQueueView({
+      root: el("tab-egypt"),
+      onOpen: (id) => {
+        activateTab("requests");
+        crView?.openDetail(id);
+      },
+    });
   }
   if (allowedTabs().includes("flights")) {
     flightView = createFlightBookingsView({
@@ -243,6 +254,17 @@ function setupTabSwitching() {
     if (target) openCustomerDetail(target.dataset.customerId);
   });
 
+  // Read-only review of customers the old public flight booking may have
+  // linked by passport (managers only; nothing is changed from here).
+  if (["SUPER_ADMIN", "ADMIN"].includes(currentUser.role)) {
+    el("customer-link-review-btn").classList.remove("hidden");
+    el("customer-link-review-btn").addEventListener("click", loadCustomerLinkReview);
+    el("customer-link-review").addEventListener("click", (event) => {
+      const target = event.target.closest("[data-customer-id]");
+      if (target) openCustomerDetail(target.dataset.customerId);
+    });
+  }
+
   let searchTimer = null;
   el("customer-search").addEventListener("input", (e) => {
     clearTimeout(searchTimer);
@@ -295,6 +317,7 @@ function loadActiveTabData() {
   const tab = activeTabKey();
   if (tab === "overview" && canSeeOverview()) loadOverview();
   if (tab === "requests" && crView) crView.load();
+  if (tab === "egypt" && egyptView) egyptView.load();
   if (tab === "orders") loadOrders();
   if (tab === "flights" && flightView) flightView.load();
   if (tab === "customers") loadCustomers();
@@ -727,6 +750,32 @@ async function runPaymentAction(button, request, order, successMessage) {
 }
 
 // --- Customers ---
+
+const LINK_REVIEW_REASONS = {
+  MULTIPLE_PUBLIC_BOOKINGS: "أكثر من حجز طيران عام على نفس السجل",
+  GENERATED_PASSPORT: "رقم جواز مُولَّد تلقائياً",
+};
+
+async function loadCustomerLinkReview() {
+  const card = el("customer-link-review");
+  card.classList.remove("hidden");
+  card.innerHTML = '<p class="muted">جارٍ التحميل...</p>';
+  try {
+    const { data } = await api.get("/customers/review/auto-links");
+    card.innerHTML = `<h3 style="margin-top: 0">مراجعة الربط القديم للحجوزات</h3>
+      <p class="muted small">قائمة للمراجعة فقط: سجلات ربما رُبطت بها حجوزات طيران عامة تلقائياً برقم الجواز في النظام السابق. لا يتغير شيء من هنا؛ افتح السجل وراجعه.</p>
+      ${data.length ? `<table class="stack-table"><thead><tr><th>رقم العميل</th><th>الاسم</th><th>الحجوزات</th><th>السبب</th></tr></thead><tbody>${data
+        .map((item) => `<tr>
+          <td><button type="button" class="link-button" data-customer-id="${escapeHtml(item.customerId)}" dir="ltr">${escapeHtml(item.customerNo)}</button></td>
+          <td>${escapeHtml(item.fullName)}</td>
+          <td dir="ltr">${escapeHtml(item.bookingNumbers.join("، ") || "-")} (${item.bookingCount})</td>
+          <td>${item.reasons.map((reason) => escapeHtml(LINK_REVIEW_REASONS[reason] || reason)).join("<br>")}</td>
+        </tr>`)
+        .join("")}</tbody></table>` : '<p>لا توجد سجلات تحتاج مراجعة.</p>'}`;
+  } catch (error) {
+    card.innerHTML = `<div class="alert error" role="alert">${escapeHtml(error.message)}</div>`;
+  }
+}
 
 async function loadCustomers() {
   try {

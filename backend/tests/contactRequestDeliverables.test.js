@@ -158,7 +158,7 @@ describe("contact request deliverables (staff delivery + customer download)", ()
     assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/invoice`).send({ amount: 100, currency: "SAR" })).status, 200);
     assert.equal((await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) })).status, 200);
     assert.equal((await customerAgent.post(`/api/tracking/requests/${contactRequestId}/mark-transfer-sent`)).status, 200);
-    assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`)).status, 200);
+    assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`).send({ reason: "تمت المطابقة مع كشف البنك" })).status, 200);
     assert.equal((await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/start-execution`).send({})).status, 200);
     const published = await superAdminAgent.post(`/api/contact-requests/${contactRequestId}/deliverables/${deliverableId}/publish`).send({});
     assert.equal(published.status, 200, JSON.stringify(published.body));

@@ -9,7 +9,7 @@ import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 //     customer sees an Arabic message (not «Failed to fetch»), retries, and
 //     lands on the same request's payment step — one request only.
 //  2. A receipt already reached the server and the reply was lost: the step
-//     checks the server and finishes («بانتظار مراجعة التحويل»), no second
+//     checks the server and finishes («بانتظار مراجعة الدفع»), no second
 //     receipt.
 //  3. Staff reject the receipt: /track shows the reason, a new receipt goes
 //     back under review, and the payment is never confirmed by the customer.
@@ -92,9 +92,10 @@ test("payment recovery: lost reply on submit and on receipt, then rejection and 
     });
     expect(earlier.status(), await earlier.text()).toBe(201);
     await page.route(`${BACKEND}/api/contact-requests/${id}/payment-access/receipt`, (route) => route.abort("connectionreset"));
+    await step.getByTestId("payment-account").filter({ hasText: accountNumber }).getByRole("radio").check();
     await step.getByTestId("payment-receipt-input").setInputFiles(FIXTURE);
     await step.getByRole("button", { name: "إرسال الطلب للمراجعة" }).click();
-    await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة التحويل", { timeout: 15_000 });
+    await expect(page.getByTestId("payment-status")).toHaveText("بانتظار مراجعة الدفع", { timeout: 15_000 });
     let detail = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
     expect(detail.paymentStatus).toBe("UNDER_REVIEW");
     expect((detail.documents as Array<{ classification: string | null }>).filter((d) => d.classification === "FINANCIAL_DOCUMENT")).toHaveLength(1);
@@ -110,7 +111,8 @@ test("payment recovery: lost reply on submit and on receipt, then rejection and 
     const trackStep = page.getByTestId("payment-step");
     await expect(trackStep).toContainText("المبلغ في الإيصال غير مطابق", { timeout: 15_000 });
     await expect(trackStep.getByTestId("payment-account").filter({ hasText: accountNumber })).toBeVisible();
-    await trackStep.locator('input[type="file"]').setInputFiles(FIXTURE);
+    await trackStep.getByTestId("payment-account").filter({ hasText: accountNumber }).getByRole("radio").check();
+    await trackStep.getByTestId("payment-receipt-input").setInputFiles(FIXTURE);
     await trackStep.getByRole("button", { name: "رفع الإيصال للمراجعة" }).click();
     await expect(page.getByTestId("payment-under-review")).toContainText("قيد المراجعة", { timeout: 15_000 });
     detail = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;

@@ -1,5 +1,6 @@
 import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
 import { getPaymentAccessSummary, uploadReceiptWithPaymentAccess } from "./payment-access.service.js";
+import { settlementChoiceOf } from "../payment-settlement/payment-settlement.service.js";
 
 export const PAYMENT_ACCESS_HEADER = "x-payment-access";
 
@@ -27,7 +28,7 @@ export async function postPaymentAccessReceipt(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: "ارفع صورة أو ملف PDF لإشعار التحويل" });
     const token = tokenOf(req);
-    const result = await uploadReceiptWithPaymentAccess(req.params.id, token, req.file);
+    const result = await uploadReceiptWithPaymentAccess(req.params.id, token, req.file, settlementChoiceOf(req.body));
     if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error) return res.status(404).json(NOT_FOUND);
     const summary = await getPaymentAccessSummary(req.params.id, token);

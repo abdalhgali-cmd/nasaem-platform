@@ -1,4 +1,4 @@
-import { confirmationOutlook, listCustomerMessages, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
+import { CONFIRMATION_CHANNELS, confirmationOutlook, listCustomerMessages, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
 import prisma from "../../config/database.js";
 import {
   assignContactRequestSchema,
@@ -45,6 +45,7 @@ import {
 } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
+import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-scope/intake-scope.js";
 
 // Platform 3.0 Phase 6: mirrors contact-request-tracking.controller.js's
 // UPLOAD_ERROR_MESSAGES for the same error codes, raised here by
@@ -57,6 +58,9 @@ const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
   ENTRY_MODE_INVALID: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر.",
   GUARANTOR_PHONE_INVALID: "رقم هاتف الضامن غير صحيح.",
   EXTRA_CONTACT_PHONE_INVALID: "رقم هاتف جهة الاتصال الإضافية غير صحيح.",
+  TRAVEL_DATE_REQUIRED: "حدّد تاريخ السفر المفضل لهذه الباقة (تاريخ مبدئي وليس حجزًا مؤكدًا).",
+  TRAVEL_DATE_INVALID: "تاريخ السفر المفضل غير صحيح.",
+  TRAVEL_DATE_PASSED: "تاريخ السفر المفضل في الماضي. اختر تاريخًا قادمًا.",
   ROUTE_INVALID: "بيانات خط السير طويلة جدًا. اختصرها ثم أعد الإرسال.",
   REQUIREMENT_NOT_FOUND: "One of the selected requirements does not belong to the selected visa type",
   INVALID_MIME: "One of the uploaded files has a type that isn't allowed for its requirement",
@@ -85,6 +89,11 @@ export async function storeContactRequest(req, res, next) {
         success: true,
         message: "Request received",
       });
+    }
+
+    // Only the approved services accept new applications (service-scope/intake-scope.js).
+    if (await newApplicationRefusal(parsed.data)) {
+      return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
     }
 
     const contactRequest = await createContactRequest(parsed.data, req, req.files);
@@ -444,7 +453,7 @@ export async function storeOfferFromPricing(req, res, next) {
 export async function confirmPayment(req, res, next) {
   try {
     const { id } = req.params;
-    const result = await confirmContactRequestPayment(id, req.user.id);
+    const result = await confirmContactRequestPayment(id, req.user.id, { reason: typeof req.body?.reason === "string" ? req.body.reason : undefined });
     if (result.refusal) return sendRefusal(res, result.refusal);
 
     if (result.error === "NOT_FOUND") {
@@ -551,7 +560,7 @@ export async function reviewDocument(req, res, next) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
-    const result = await updateContactRequestDocumentStatus(id, documentId, parsed.data, req.user.id);
+    const result = await updateContactRequestDocumentStatus(id, documentId, parsed.data, req.user.id, { reviewerRole: req.user.role });
     if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Document not found" });
 
@@ -617,7 +626,9 @@ export async function getCustomerMessages(req, res, next) {
 export async function retryCustomerConfirmation(req, res, next) {
   try {
     if (!(await findStaffCase(req))) return res.status(404).json({ success: false, message: "Contact request not found" });
-    const delivery = await sendRequestConfirmation(req.params.id, { manual: true });
+    const channel = req.body?.channel ?? req.query?.channel ?? "WHATSAPP";
+    if (!CONFIRMATION_CHANNELS.includes(channel)) return res.status(400).json({ success: false, message: "Unknown channel" });
+    const delivery = await sendRequestConfirmation(req.params.id, { manual: true, channel });
     return res.status(200).json({ success: true, data: delivery });
   } catch (error) {
     next(error);

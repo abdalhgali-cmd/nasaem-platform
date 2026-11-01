@@ -43,6 +43,8 @@ describe("staff service queues", () => {
       const res = await admin.get(`/api/contact-requests?limit=100&serviceKind=${kind}`);
       assert.equal(res.status, 200, JSON.stringify(res.body));
       assert.ok(res.body.data.every((row) => row.progress.serviceKind === kind), `${kind}: every row is that kind`);
+      // Only Umrah rows carry the staff next step (umrah-staff-queue.js).
+      assert.ok(res.body.data.every((row) => (kind === "UMRAH" ? typeof row.umrahQueue?.nextAction === "string" && Number.isInteger(row.umrahQueue.rank) : row.umrahQueue === undefined)), `${kind}: umrahQueue`);
       return new Set(res.body.data.map((row) => row.id));
     };
 

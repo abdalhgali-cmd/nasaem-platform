@@ -5,7 +5,8 @@
 export function environmentBadge(config) {
   const environment = String(config?.environment || "").trim().toLowerCase();
   if (environment === "production") return null;
-  return `بيئة اختبار: ${environment || "غير محددة"}`;
+  // Prices outside production are test data (owner decision 2026-11-01).
+  return `بيئة اختبار: ${environment || "غير محددة"} — الأسعار تجريبية`;
 }
 
 export function showEnvironmentBadge(config, doc = globalThis.document) {

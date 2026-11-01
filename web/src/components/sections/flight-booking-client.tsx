@@ -96,7 +96,10 @@ export function FlightBookingClient({ flights, passengerCounts, travelDate, onCl
   const [booking, setBooking] = React.useState<Booking | null>(null);
   const [receipt, setReceipt] = React.useState<File | null>(null);
   const [receiptLoading, setReceiptLoading] = React.useState(false);
-  const totalPrice = React.useMemo(() => flights.reduce((sum, f) => sum + Number(f.priceSdg || 0), 0), [flights]);
+  // Same rule as the server: each seated passenger (adult or child) pays the
+  // seat price of every selected segment. Infants never reach this form.
+  const perPassengerPrice = React.useMemo(() => flights.reduce((sum, f) => sum + Number(f.priceSdg || 0), 0), [flights]);
+  const totalPrice = perPassengerPrice * passengers.length;
   function updatePassenger(index: number, patch: Partial<Passenger>) {
     setPassengers((all) => all.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   }
@@ -127,6 +130,8 @@ export function FlightBookingClient({ flights, passengerCounts, travelDate, onCl
     try {
       const response = await fetch(`${API_URL}/flight-bookings`, {
         method: "POST",
+        // A logged-in customer's session books under their own account.
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           flightIds: flights.map((f) => f.id),
@@ -194,7 +199,7 @@ export function FlightBookingClient({ flights, passengerCounts, travelDate, onCl
           {["PAYMENT_PENDING", "PAYMENT_UNDER_REVIEW"].includes(booking.status) ? (
             <div className="mt-4 rounded-2xl border p-4">
               <p className="font-black">الدفع</p>
-              <p className="mt-1 text-sm text-muted-foreground">إجمالي القطاعات المختارة: {Number(booking.amount).toLocaleString()} ج.س</p>
+              <p className="mt-1 text-sm text-muted-foreground">إجمالي الحجز لجميع المسافرين: {Number(booking.amount).toLocaleString()} ج.س</p>
               {(booking.bankAccounts || []).map((a: BankAccount) => (
                 <div key={a.id} className="mt-3 rounded-xl bg-muted p-3 text-sm">
                   <b>{a.label}</b>
@@ -269,9 +274,11 @@ export function FlightBookingClient({ flights, passengerCounts, travelDate, onCl
             </div>
           ))}
           <div className="rounded-2xl bg-muted p-4">
-            <p className="text-sm font-bold">إجمالي السعر للفرد</p>
-            <p className="mt-1 text-2xl font-black">{Math.round(totalPrice).toLocaleString()} ج.س</p>
-            <p className="mt-2 text-xs text-muted-foreground">المبلغ المعروض للفرد قبل تأكيد الحجز المبدئي.</p>
+            <p className="text-sm font-bold">السعر للمسافر الواحد</p>
+            <p className="mt-1 font-black">{perPassengerPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.س</p>
+            <p className="mt-3 text-sm font-bold">الإجمالي لـ {passengers.length} {passengers.length === 1 ? "مسافر" : "مسافرين"}</p>
+            <p className="mt-1 text-2xl font-black" data-testid="flight-booking-total">{totalPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.س</p>
+            <p className="mt-2 text-xs text-muted-foreground">هذا هو المبلغ المطلوب دفعه بعد تأكيد الحجز المبدئي.</p>
           </div>
         </div>
         <div className="mt-6">

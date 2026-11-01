@@ -28,3 +28,9 @@ if (!Test.prototype.__nasaemDefaultHeaders) {
   };
   Test.prototype.__nasaemDefaultHeaders = true;
 }
+
+// Owner decision (PR #151): production accepts new applications only for
+// Umrah and Egypt (service-scope/intake-scope.js, default when unset). The
+// suite keeps exercising every kept service, so it opens the scope; the gate
+// itself is tested with the production default in publicIntakeScope.test.js.
+if (process.env.PUBLIC_INTAKE_SCOPE === undefined) process.env.PUBLIC_INTAKE_SCOPE = "ALL";

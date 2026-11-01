@@ -86,6 +86,7 @@ describe("payment straight after submission", () => {
     assert.equal(summary.status, 200, JSON.stringify(summary.body));
     assert.equal(summary.body.data.amount, "200");
     assert.equal(summary.body.data.currency, "USD");
+    assert.equal(summary.body.data.visaTypeCode, visaType.code, "payment summary identifies the original service without revealing documents");
     assert.equal(summary.body.data.paymentOpen, true);
     assert.equal(summary.body.data.paymentStatus, "AWAITING_TRANSFER");
     assert.ok(summary.body.data.accounts.some((row) => row.id === account.id && row.accountNumber === account.accountNumber));
@@ -94,7 +95,7 @@ describe("payment straight after submission", () => {
     const uploaded = await uploadWith(id, paymentAccess.token);
     assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
     assert.equal(uploaded.body.data.request.paymentStatus, "UNDER_REVIEW");
-    assert.equal(uploaded.body.data.request.paymentStatusLabel, "بانتظار مراجعة التحويل");
+    assert.equal(uploaded.body.data.request.paymentStatusLabel, "بانتظار مراجعة الدفع");
     assert.equal(uploaded.body.data.request.paymentOpen, false, "no second receipt while one is under review");
     assert.deepEqual(uploaded.body.data.request.accounts, []);
 
@@ -250,8 +251,8 @@ describe("payment access token: scope and limits", () => {
     const res = await access(id, paymentAccess.token);
     assert.equal(res.status, 200);
     assert.deepEqual(Object.keys(res.body.data).sort(), [
-      "accounts", "amount", "amountSdg", "currency", "expiresAt", "id", "lockReasons", "paymentOpen",
-      "paymentStatus", "paymentStatusLabel", "rejectionReason", "service", "statusLabel",
+      "accounts", "amount", "amountSdg", "currency", "exchangeRateToSdg", "expiresAt", "id", "invoiceVersion", "lockReasons", "paymentOpen",
+      "paymentStatus", "paymentStatusLabel", "rejectionReason", "service", "settlementOptions", "statusLabel", "visaTypeCode",
     ]);
     const text = JSON.stringify(res.body);
     assert.ok(!/phone|passport|documents|travelers|storagePath|fileName/i.test(text.replace(/"accounts"/, "")), text);

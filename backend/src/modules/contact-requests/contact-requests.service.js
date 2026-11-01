@@ -1,7 +1,8 @@
 import path from "path";
 import prismaPackage from "@prisma/client";
+import { withMaskedTravelers } from "../../utils/passportMask.js";
 import { publicOrganizationId } from "../../utils/publicOrganization.js";
-import { pendingConfirmationCreate, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
+import { pendingConfirmationCreate, sendRequestConfirmations } from "../customer-messages/customer-messages.service.js";
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
@@ -9,8 +10,9 @@ import { logActivity } from "../../utils/activityLog.js";
 import { createNotification, notifyRequestCustomer } from "../../utils/notifications.js";
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
-import { resolveUmrahContacts } from "../umrah/umrah-packages.js";
-import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, publishedDeliverables, allowedActions } from "../contact-request-workflow/workflow-policy.js";
+import { resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
+import { umrahStaffQueue } from "../umrah/umrah-staff-queue.js";
+import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions, hasCurrentReceipt, confirmWithoutReceiptRefusal } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -23,7 +25,13 @@ import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { deriveSlaState, syncCaseTasks } from "../case-tasks/case-tasks.service.js";
 import { isFeatureEnabled } from "../feature-flags/feature-flags.service.js";
-import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
+import { syncTravelReminders } from "../egypt-clearance/travel-reminders.service.js";
+import { createReceiptInTransaction } from "../payment-receipts/payment-receipts.service.js";
+import { settlementBeingConfirmed } from "../payment-settlement/payment-settlement.service.js";
+import { sanitizeQualitySignal } from "../egypt-clearance/document-quality.js";
+import { openLinkedFlightInquiry } from "../egypt-clearance/linked-flight.service.js";
+import { deliverPaymentReceipt } from "../customer-messages/customer-messages.service.js";
+import { applyEgyptEntryMode, egyptVariantBookingError, isEgyptClearanceCode, resolveEgyptRoute, EGYPT_CLEARANCE_CODE, EGYPT_CLEARANCE_VARIANTS } from "../egypt-clearance/egypt-clearance-variants.js";
 import { SERVICE_CATEGORY_FEATURE_FLAGS } from "../feature-flags/feature-flags.constants.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 
@@ -126,8 +134,9 @@ async function createContactRequestOnce(data, req, files) {
   // SERVICE_CATEGORY_FEATURE_FLAGS's own comment for this disclosed
   // boundary.
   let umrahContacts = null;
+  let umrahTravel = null;
   if (data.serviceId) {
-    const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true } });
+    const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true, features: true } });
     const flagKey = service ? SERVICE_CATEGORY_FEATURE_FLAGS[service.category] : null;
     if (flagKey && !(await isFeatureEnabled(flagKey))) {
       return { error: "FEATURE_DISABLED" };
@@ -137,6 +146,9 @@ async function createContactRequestOnce(data, req, files) {
     const umrah = resolveUmrahContacts(data.visaTypeId ? null : service?.category, data);
     if (umrah.error) return umrah;
     umrahContacts = umrah.contacts;
+    const travel = resolveUmrahTravel(data.visaTypeId ? null : service?.category, service?.features, data.preferredTravelDate);
+    if (travel.error) return travel;
+    umrahTravel = travel.travel;
   }
 
   // Platform 3.0 Phase 5: capture the selected visa type's (or, since
@@ -160,6 +172,10 @@ async function createContactRequestOnce(data, req, files) {
   // files tagged with a requirementId whose ocrEnabled is set (see the
   // validation loop below, which also builds requirementsById).
   const ocrResults = new Array(files.length).fill(null);
+  // Egypt security approval: minimal retention — only an MRZ-found signal.
+  const ocrSignalOnly = data.visaTypeId
+    ? isEgyptClearanceCode((await prisma.visaType.findUnique({ where: { id: data.visaTypeId }, select: { code: true } }))?.code)
+    : false;
 
   if (documentRequirementIds.some(Boolean)) {
     const requirementsById = new Map((requirementsSnapshot || []).map((r) => [r.id, r]));
@@ -194,7 +210,7 @@ async function createContactRequestOnce(data, req, files) {
         return { error: "MAX_FILES_REACHED", details: { requirementId, maxFiles: requirement.maxFiles } };
       }
 
-      ocrResults[i] = await maybeRunPassportOcr(requirement, file);
+      ocrResults[i] = await maybeRunPassportOcr(requirement, file, { signalOnly: ocrSignalOnly });
     }
   }
 
@@ -231,6 +247,8 @@ async function createContactRequestOnce(data, req, files) {
     if (route.error) return route;
     egyptRoute = route.route;
   }
+  const egyptFlight = egyptRoute && data.egyptFlightChoice ? { choice: data.egyptFlightChoice, updatedAt: new Date().toISOString() } : null;
+  const qualitySignals = files.map((_, index) => sanitizeQualitySignal(data.documentQuality?.[index]));
 
   // Fixed catalog price: recomputed here from the catalog and compared with
   // the total the customer confirmed; a mismatch creates nothing (409).
@@ -261,13 +279,15 @@ async function createContactRequestOnce(data, req, files) {
     // comment); a submission with neither keeps intakeData exactly as it
     // was before this release.
     intakeData:
-      data.intakeData || data.answers || egyptEntryMode || umrahContacts || egyptRoute
+      data.intakeData || data.answers || egyptEntryMode || umrahContacts || umrahTravel || egyptRoute
         ? {
             ...(data.intakeData || {}),
             ...(data.answers ? { answers: data.answers } : {}),
             ...(egyptEntryMode ? { egyptEntryMode } : {}),
             ...(umrahContacts ? { umrahContacts } : {}),
+            ...(umrahTravel ? { umrahTravel } : {}),
             ...(egyptRoute ? { egyptRoute } : {}),
+            ...(egyptFlight ? { egyptFlight } : {}),
           }
         : undefined,
     requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
@@ -279,7 +299,7 @@ async function createContactRequestOnce(data, req, files) {
     message: data.message,
     customerId: req.customer?.id || null,
     submissionKey: data.submissionKey || null,
-    customerMessages: pendingConfirmationCreate(normalizePhone(data.phone)),
+    customerMessages: pendingConfirmationCreate(normalizePhone(data.phone), data.email),
   };
 
   // Two code paths on purpose: when the submission doesn't use the new
@@ -299,6 +319,7 @@ async function createContactRequestOnce(data, req, files) {
                     label: documentLabels[index] || file.originalname,
                     requirementId: documentRequirementIds[index] || null,
                     ocrResult: ocrResults[index] ?? undefined,
+                    qualitySignal: qualitySignals[index] ?? undefined,
                     fileName: file.originalname,
                     storagePath: prepareFileForStorage(file),
                     mimeType: file.mimetype,
@@ -338,6 +359,7 @@ async function createContactRequestOnce(data, req, files) {
                   requirementId: documentRequirementIds[index] || null,
                   travelerId,
                   ocrResult: ocrResults[index] ?? undefined,
+                  qualitySignal: qualitySignals[index] ?? undefined,
                   fileName: file.originalname,
                   storagePath: prepareFileForStorage(file),
                   mimeType: file.mimetype,
@@ -351,6 +373,10 @@ async function createContactRequestOnce(data, req, files) {
         });
 
   await announceNewContactRequest(contactRequest, { documentCount: files.length, req, customerId: req.customer?.id });
+  // Egypt: "book my flight through Nasaem" opens the linked booking inquiry.
+  if (egyptFlight?.choice === "REQUEST") {
+    await openLinkedFlightInquiry(contactRequest.id).catch((error) => console.error("[egypt-flight] inquiry not opened", error?.message));
+  }
 
   return contactRequest;
 }
@@ -394,7 +420,7 @@ export async function announceNewContactRequest(contactRequest, { documentCount 
   // Confirmation to the customer who submitted (recorded per attempt in
   // CustomerMessageDelivery). Not awaited: the request is already stored and
   // a slow provider must not delay or fail the submission.
-  sendRequestConfirmation(contactRequest.id).catch((error) => console.error("[customer-messages] confirmation failed", error?.message));
+  sendRequestConfirmations(contactRequest.id).catch((error) => console.error("[customer-messages] confirmation failed", error?.message));
 
   sendWhatsAppMessage(
     process.env.WHATSAPP_ADMIN_NUMBER,
@@ -429,7 +455,7 @@ export function computeReadiness(contactRequest) {
   // Release F: a case already sent to a provider is waiting on them, not
   // on us — that outranks "ready to process", which it no longer is.
   const awaitingProvider = (contactRequest.providerSubmissions || []).some((s) => s.status !== "FAILED");
-  const delivered = evaluateDelivery(contactRequest).complete && publishedDeliverables(contactRequest).length > 0;
+  const delivered = evaluateDelivery(contactRequest).complete && deliveryDeliverables(contactRequest).length > 0;
 
   let queue = "READY_FOR_PROCESSING";
   if (contactRequest.status === "CLOSED") queue = "COMPLETED";
@@ -574,7 +600,13 @@ export async function listContactRequests({ page, limit, skip, status, organizat
   ]);
 
   return {
-    data: data.map((contactRequest) => ({ ...contactRequest, readiness: computeReadiness(contactRequest), progress: deriveRequestProgress(contactRequest) })),
+    // Readiness is computed on the full rows; the list itself never carries
+    // full passport numbers (the request's own page does).
+    data: data.map((contactRequest) => {
+      const progress = deriveRequestProgress(contactRequest);
+      const umrahQueue = umrahStaffQueue(contactRequest, progress);
+      return withMaskedTravelers({ ...contactRequest, readiness: computeReadiness(contactRequest), progress, ...(umrahQueue ? { umrahQueue } : {}) });
+    }),
     meta: buildPaginationMeta(page, limit, total),
   };
 }
@@ -588,6 +620,11 @@ export async function getContactRequestById(id, organizationId, { role } = {}) {
       ...CONTACT_REQUEST_CASE_INCLUDE,
       customer: { select: { id: true, customerNo: true, fullName: true, phone: true, email: true, nationality: true } },
       selectedOffer: true,
+      // The paid receipt and its e-mail delivery (shown in the payment section).
+      paymentReceipt: { select: { receiptNo: true, pdfStatus: true, amount: true, currency: true, paidAt: true, customerEmail: true, lastError: true } },
+      customerMessages: { where: { kind: "PAYMENT_RECEIPT" }, select: { status: true, recipient: true, attempts: true, lastError: true, lastAttemptAt: true } },
+      linkedRequests: { select: { id: true, linkKind: true, status: true, paymentStatus: true } },
+      parentRequest: { select: { id: true, name: true } },
     },
   });
   if (!contactRequest) return null;
@@ -703,6 +740,28 @@ export async function getOperationsQueueSummary(organizationId) {
 // when set, must be real, active staff in this same organization — never
 // trusted as an opaque id, same posture as every other cross-entity
 // reference in this module.
+export const CASE_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"];
+
+// Staff priority and due date of a case (work queues and SLA; never shown to
+// the customer). `dueAt` null clears it. Audited with the old and new values.
+export async function setContactRequestPriority(id, { priority, dueAt }, actingUserId, organizationId) {
+  const before = await prisma.contactRequest.findFirst({ where: { id, organizationId }, select: { id: true, priority: true, dueAt: true } });
+  if (!before) return { error: "NOT_FOUND" };
+  const data = {};
+  if (priority !== undefined) data.priority = priority;
+  if (dueAt !== undefined) data.dueAt = dueAt;
+  const updated = await prisma.contactRequest.update({ where: { id }, data, select: { id: true, priority: true, dueAt: true } });
+  logActivity({
+    userId: actingUserId,
+    action: "CONTACT_REQUEST_PRIORITY_UPDATED",
+    entity: "ContactRequest",
+    entityId: id,
+    oldValue: { priority: before.priority, dueAt: before.dueAt },
+    newValue: { priority: updated.priority, dueAt: updated.dueAt },
+  });
+  return { contactRequest: updated };
+}
+
 export async function assignContactRequest(id, assignedUserId, actingUserId, organizationId) {
   const contactRequest = await prisma.contactRequest.findFirst({ where: { id, organizationId } });
   if (!contactRequest) return { error: "NOT_FOUND" };
@@ -832,6 +891,9 @@ export async function updateContactRequestStatus(id, { status, outcome, outcomeN
           : { status, outcome: null, outcomeNote: null, closedAt: null },
     });
     const reopened = existing.status === "CLOSED" && updated.status !== "CLOSED";
+    // Egypt travel reminders: a closed request gets none; a reopened one is
+    // scheduled again from its travel date.
+    if (existing.status !== updated.status) await syncTravelReminders(tx, { ...existing, ...updated });
     await auditInTransaction(tx, {
       userId,
       action: reopened ? "CONTACT_REQUEST_REOPENED" : "CONTACT_REQUEST_STATUS_CHANGED",
@@ -973,9 +1035,9 @@ export async function createOffer(contactRequestId, data, userId) {
 // the other is refused (PAYMENT_NOT_UNDER_REVIEW), and only the winner is
 // audited and announced. Accepting the payment also accepts its pending
 // receipts; it means "awaiting execution", nothing more.
-export async function confirmContactRequestPayment(contactRequestId, userId) {
+export async function confirmContactRequestPayment(contactRequestId, userId, { reason } = {}) {
   const result = await withLockedRequest(contactRequestId, null, async (tx, contactRequest) => {
-    const refusal = checkAction(ACTIONS.CONFIRM_PAYMENT, contactRequest);
+    const refusal = checkAction(ACTIONS.CONFIRM_PAYMENT, contactRequest) || confirmWithoutReceiptRefusal(contactRequest, reason);
     if (refusal) refuseWith(refusal);
     const now = new Date();
     const updated = await tx.contactRequest.update({
@@ -986,11 +1048,22 @@ export async function confirmContactRequestPayment(contactRequestId, userId) {
       where: { contactRequestId, classification: "FINANCIAL_DOCUMENT", status: "PENDING", supersededAt: null },
       data: { status: "ACCEPTED", reviewedByUserId: userId, reviewedAt: now },
     });
-    await auditInTransaction(tx, { userId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED", entityId: contactRequestId, organizationId: contactRequest.organizationId });
-    return { updated };
+    // The paid receipt and its e-mail outbox row commit with the payment
+    // itself (payment-receipts.service.js); PDF and e-mail follow after.
+    const receipt = await createReceiptInTransaction(tx, contactRequest, { userId, paidAt: now, settlement: settlementBeingConfirmed(contactRequest) });
+    const withoutReceipt = !hasCurrentReceipt(contactRequest);
+    const newValue = {
+      ...(receipt?.receiptNo ? { receiptNo: receipt.receiptNo } : {}),
+      ...(withoutReceipt ? { withoutReceipt: true, reason: String(reason).trim().slice(0, 500) } : {}),
+    };
+    await auditInTransaction(tx, { userId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED", entityId: contactRequestId, organizationId: contactRequest.organizationId, ...(Object.keys(newValue).length ? { newValue } : {}) });
+    return { updated, receipt };
   });
   if (result.error || result.refusal) return result;
   const { updated } = result;
+  // Not awaited: a slow PDF or mail API never delays the staff response; the
+  // reconciler retries whatever this does not finish.
+  if (result.receipt) deliverPaymentReceipt(contactRequestId).catch((error) => console.error("[payment-receipts] delivery failed", error?.message));
 
   // Release E: payment confirmation closes "check payment" and can open
   // "process application".

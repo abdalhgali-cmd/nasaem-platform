@@ -11,6 +11,7 @@ import {
   saveBufferToDirectory,
 } from "../../middleware/upload.middleware.js";
 import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
+import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
 
 function storedPath(file) {
   if (file.buffer) {
@@ -80,6 +81,9 @@ export async function createContactRequestDeliverable(contactRequestId, { label,
     const draft = await tx.contactRequestDeliverable.create({
       data: {
         contactRequestId,
+        // The final file of an Egypt clearance is its security approval
+        // (circulars and tickets have their own actions, egypt-approval.service.js).
+        kind: isEgyptClearanceCode(request.visaType?.code) ? "APPROVAL" : "GENERAL",
         label,
         fileName: file.originalname,
         // Relative to the uploads root, never the absolute server path.
@@ -121,10 +125,11 @@ export async function publishContactRequestDeliverable(contactRequestId, deliver
 // routes — each caller does its own auth/ownership check before calling
 // this, so it only needs to confirm the deliverable actually belongs to the
 // contact request in the URL (never trust deliverableId alone).
-// publishedOnly: the customer surfaces never serve a prepared (draft) file.
+// publishedOnly: the customer surfaces never serve a prepared (draft) file,
+// nor a version replaced by a newer one.
 export async function getContactRequestDeliverableFile(contactRequestId, deliverableId, { publishedOnly = false } = {}) {
   const deliverable = await prisma.contactRequestDeliverable.findFirst({
-    where: { id: deliverableId, contactRequestId, ...(publishedOnly ? { publishedAt: { not: null } } : {}) },
+    where: { id: deliverableId, contactRequestId, ...(publishedOnly ? { publishedAt: { not: null }, supersededAt: null } : {}) },
   });
 
   if (!deliverable) {
