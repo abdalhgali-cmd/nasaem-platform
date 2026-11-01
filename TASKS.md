@@ -44,6 +44,9 @@ Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build
 | Staging | NOT VERIFIED | Network policy blocks staging / production domain / vercel.com from this environment. Backup + restore per `docs/RELEASE-91-RAILWAY-RUNBOOK.md` §2–3 still required |
 | Vercel | BLOCKED (account) | Recommendation: host `web/` on Railway next to the backend; or Vercel Pro / support |
 
+| Real-testing readiness (2026-11-01, phase 2) | DONE (docs + read-only tool, #152) | `docs/release/REAL-TESTING-READINESS-ar.md`: merge plan #146–#152 (no migrations in #147–#152), APK link + install steps, local restore-drill rehearsal PASS (exit 0, 65 migrations, 0 missing files), Railway config/cost estimate, price inventory (SAR→SDG rate missing — not invented), WhatsApp/email audit, 360px app screenshots (`docs/release/screens/`, overflow 0). New read-only `npm run release:readiness` (`backend/src/scripts/release-readiness.js`, `releaseReadiness.test.js` 2/2: no secret ever printed) |
+| Staging backup + real restore | NOT DONE — owner | Network policy blocks staging from this environment; commands in the report §3 |
+
 Final Arabic report: `docs/admin-design-system/FINAL-REPORT-ar.md`. Pre-release readiness report: `docs/release/READINESS-REPORT-2026-11-01-ar.md`; manual test checklist: `docs/release/MANUAL-TEST-CHECKLIST-ar.md`.
 
 **NEXT:** owner decisions in the report §8; CI on #151's final SHA.
