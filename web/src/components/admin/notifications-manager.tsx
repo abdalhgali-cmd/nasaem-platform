@@ -11,8 +11,8 @@ type NotificationRow = { id: string; title: string; message: string; type: strin
 // A notification about a request or an order opens that record directly in the
 // back-office dashboard (which reads these deep-link parameters).
 function notificationHref(row: NotificationRow): string | null {
-  if (row.contactRequestId) return `/admin-dashboard.html?customerRequest=${encodeURIComponent(row.contactRequestId)}`;
-  if (row.orderId) return `/admin-dashboard.html?order=${encodeURIComponent(row.orderId)}`;
+  if (row.contactRequestId) return `/admin/cases?requestId=${encodeURIComponent(row.contactRequestId)}`;
+  if (row.orderId) return `/admin/tools/orders?id=${encodeURIComponent(row.orderId)}`;
   return null;
 }
 

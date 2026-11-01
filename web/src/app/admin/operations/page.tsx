@@ -1,13 +1,6 @@
-import type { Metadata } from "next";
-import { AdminShell } from "@/components/admin/admin-shell";
-import { CustomerQuickLookup } from "@/components/sections/customer-quick-lookup";
-import { OperationsCenter } from "@/components/sections/operations-center";
+import { permanentRedirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "مركز العمليات — نسائم الحرمين",
-  description: "لوحة تشغيل موحدة لمتابعة طلبات وكالة نسائم الحرمين والإجراء التالي لكل طلب.",
-};
-
+// Kept for bookmarks and old links: the Operations Center is /admin now.
 export default function OperationsPage() {
-  return <AdminShell><OperationsCenter /><div className="mx-auto max-w-7xl px-4 pb-10 sm:px-6 lg:px-8"><CustomerQuickLookup /></div></AdminShell>;
+  permanentRedirect("/admin");
 }

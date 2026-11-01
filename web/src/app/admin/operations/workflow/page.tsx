@@ -75,7 +75,7 @@ export default function OperationsWorkflowPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} />تحديث</Button>
-              <Button asChild variant="gold"><Link href="/admin/operations"><ArrowRight className="size-4" />مركز العمليات</Link></Button>
+              <Button asChild variant="gold"><Link href="/admin"><ArrowRight className="size-4" />مركز العمليات</Link></Button>
             </div>
           </div>
 
@@ -99,7 +99,7 @@ export default function OperationsWorkflowPage() {
                       <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-black">{item.status}</span>
                       <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold">الدفع: {item.paymentStatus}</span>
                       {action && ActionIcon ? <Button asChild size="sm" variant={action.variant}><Link href={action.href}><ActionIcon className="size-4" />{action.label}</Link></Button> : null}
-                      <Button asChild size="sm" variant="outline"><Link href={`/admin-dashboard.html?customerRequest=${encodeURIComponent(item.id)}`}>فتح الطلب</Link></Button>
+                      <Button asChild size="sm" variant="outline"><Link href={`/admin/cases?requestId=${encodeURIComponent(item.id)}`}>فتح الطلب</Link></Button>
                     </div>
                   </div>
                 </article>
