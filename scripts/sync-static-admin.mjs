@@ -58,6 +58,9 @@ function transform(relativePath, content) {
   if (relativePath === path.join("assets", "api.js")) {
     if (!body.includes('const API_BASE = "/api";')) throw new Error("backend/public/assets/api.js no longer defines API_BASE as expected");
     body = body.replace('const API_BASE = "/api";', VERCEL_API_BASE);
+    // The website hosts the unified admin (/admin): this copy forwards to it.
+    if (!body.includes("const UNIFIED_ADMIN_PATH = null;")) throw new Error("backend/public/assets/api.js no longer defines UNIFIED_ADMIN_PATH as expected");
+    body = body.replace("const UNIFIED_ADMIN_PATH = null;", 'const UNIFIED_ADMIN_PATH = "/admin";');
   }
   return `/* ${BANNER_TEXT} */\n${body}`;
 }
