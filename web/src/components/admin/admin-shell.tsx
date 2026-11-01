@@ -31,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import { API_URL } from "@/lib/api-url";
+import { TestDataNotice } from "@/components/layout/test-data-notice";
 
 export type AdminUser = {
   id: string;
@@ -269,6 +270,7 @@ export function AdminShell({ children, title, description }: { children: React.R
         ) : null}
 
         <main className="min-w-0 flex-1">
+          <TestDataNotice audience="staff" />
           {(title || description) ? <div className="border-b border-border bg-card px-4 py-7 sm:px-6 lg:px-10"><div className="mx-auto max-w-7xl"><h1 className="text-2xl font-extrabold leading-9 sm:text-[26px]">{title}</h1>{description ? <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{description}</p> : null}</div></div> : null}
           {children}
         </main>

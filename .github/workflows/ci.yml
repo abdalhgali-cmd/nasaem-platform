@@ -234,6 +234,11 @@ jobs:
       API_RATE_LIMIT: 2000
       PUBLIC_CONTACT_RATE_LIMIT: 80
       TRACKING_CODE_RATE_LIMIT: 30
+      # Production accepts new applications only for Umrah + Egypt (backend
+      # service-scope/intake-scope.js). The e2e suite still drives every kept
+      # service, so it opens the scope; the gate is covered by the backend test
+      # publicIntakeScope.test.js with the production default.
+      PUBLIC_INTAKE_SCOPE: ALL
 
     steps:
       - uses: actions/checkout@v4

@@ -37,13 +37,14 @@ import airlineRoutes from "../modules/airlines/airlines.routes.js";
 import airportRoutes from "../modules/airports/airports.routes.js";
 import featureFlagRoutes from "../modules/feature-flags/feature-flags.routes.js";
 import stagingOpsRoutes from "../modules/staging-ops/staging-ops.routes.js";
+import { deploymentName, pricesAreTestData } from "../config/deployment.js";
 
 const router = Router();
 
 router.get("/health", async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.status(200).json({ success: true, system: "Nasaem Platform API", version: "1.0.0", database: "connected", status: "running" });
+    res.status(200).json({ success: true, system: "Nasaem Platform API", version: "1.0.0", database: "connected", status: "running", environment: deploymentName(), pricesAreTestData: pricesAreTestData() });
   } catch (error) {
     res.status(500).json({ success: false, system: "Nasaem Platform API", version: "1.0.0", database: "disconnected", status: "error" });
   }
