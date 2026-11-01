@@ -39,7 +39,12 @@ Approved design: `claude/sleepy-gates-ta16m1` @ `ee120037` (`design-system-build
 | Real bug found: «طلب بانتظار الدفع» card stayed after the receipt | FIXED (#151 `0a49b05`) | `request-payment.js` re-saved the pending marker when it re-rendered after the upload (since `9f236eb`); now cleared on UNDER_REVIEW/CONFIRMED. Caught by `pricing-progress.spec` once it could run |
 | Legacy failing tests (3) + tests hidden behind them | FIXED (tests, #151) | Cause: home tiles removed in `34f75b5`. Kept-but-hidden flows open through the app's own dispatcher (`helpers.ts openKeptAppService`); exchange rate checked on the Umrah chooser; post-receipt assertions follow `9f236eb`; 4 platform3 catalog tests follow the scoped catalog. Locally: `mobile-app` project 33/33 (was 25 pass, 1 fail, 7 not run) incl. full Umrah + Egypt app journeys; `platform3` 118 pass + updated 9/9, remaining local failures = 2 known sandbox-network cases |
 
-Final Arabic report: `docs/admin-design-system/FINAL-REPORT-ar.md`.
+| Pre-release review (2026-11-01): only Umrah + Egypt accept NEW applications | DONE (new PR on #151) | Found: the API still accepted flight / work-visa requests from direct links or old apps. `backend/src/modules/service-scope/intake-scope.js` refuses them (403 `SERVICE_NOT_OFFERED`) on POST /contact-requests, intake drafts (create + submit), POST /customer/orders, POST /flight-bookings. Existing requests, staff requests, contact form, Egypt linked flight inquiry and all data unchanged. `PUBLIC_INTAKE_SCOPE` unset = UMRAH,EGYPT_CLEARANCE, `ALL` = everything (tests). Local: `publicIntakeScope.test.js` 6/6; backend 1066/1067 (+ contactRequests 8/8 with CI env); production default: Umrah/Egypt e2e 18/18, Egypt app journey 4/4 |
+| Android QA APK | BUILT (CI) | Run 41255293960 on `7697ceb`, artifact `Nasaem-AlHaramain-release-apk` (expires 2026-12-01), stable QA key, staging API. Not distributed. Real-device test NOT DONE |
+| Staging | NOT VERIFIED | Network policy blocks staging / production domain / vercel.com from this environment. Backup + restore per `docs/RELEASE-91-RAILWAY-RUNBOOK.md` §2–3 still required |
+| Vercel | BLOCKED (account) | Recommendation: host `web/` on Railway next to the backend; or Vercel Pro / support |
+
+Final Arabic report: `docs/admin-design-system/FINAL-REPORT-ar.md`. Pre-release readiness report: `docs/release/READINESS-REPORT-2026-11-01-ar.md`; manual test checklist: `docs/release/MANUAL-TEST-CHECKLIST-ar.md`.
 
 **NEXT:** owner decisions in the report §8; CI on #151's final SHA.
 
