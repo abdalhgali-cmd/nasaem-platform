@@ -2,13 +2,17 @@ import "./env.js";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
-import { app, request, registerCustomer, uniqueSuffix } from "./helpers/api.js";
+import { normalizePhone } from "../src/utils/phone.js";
+import { app, request, loginAsSuperAdmin, registerCustomer, uniqueSuffix } from "./helpers/api.js";
 import { intakeScope, kindOpenForIntake, APPROVED_INTAKE_SCOPE } from "../src/modules/service-scope/intake-scope.js";
 
 // Owner decision (PR #151): only Umrah and Egypt security approval accept NEW
 // customer applications. The suite runs with PUBLIC_INTAKE_SCOPE=ALL (env.js)
 // so the kept services stay covered; this file switches the production default
 // back on and checks every public entry point, and that nothing else changed.
+// The public submission limiter (5 per client per 15 min, counted before the
+// scope check) applies to this file too, so it makes exactly 5 calls to
+// POST /contact-requests; the other refused kinds go through drafts and orders.
 
 let saved;
 const phone = () => `0912${uniqueSuffix().slice(-6)}`;
@@ -33,7 +37,7 @@ describe("public intake scope (approved: Umrah + Egypt security approval)", () =
   });
 
   test("POST /contact-requests refuses other services (403 SERVICE_NOT_OFFERED) and creates nothing", async () => {
-    for (const [model, code, field] of [["service", "SVC-FLIGHT", "serviceId"], ["service", "SVC-FERRY", "serviceId"], ["visaType", "VISA-WORK", "visaTypeId"], ["visaType", "VISA-FAMILY-VISIT", "visaTypeId"]]) {
+    for (const [model, code, field] of [["service", "SVC-FLIGHT", "serviceId"], ["visaType", "VISA-WORK", "visaTypeId"]]) {
       const target = await byCode(model, code);
       assert.ok(target, `${code} is seeded`);
       const before = await prisma.contactRequest.count();
@@ -58,10 +62,13 @@ describe("public intake scope (approved: Umrah + Egypt security approval)", () =
   });
 
   test("intake drafts: refused at creation and again at submission for other services", async () => {
+    for (const [model, code, field, kind] of [["visaType", "VISA-WORK", "visaTypeId", "visa"], ["visaType", "VISA-FAMILY-VISIT", "visaTypeId", "visa"], ["service", "SVC-FERRY", "serviceId", "package"]]) {
+      const target = await byCode(model, code);
+      const created = await request(app).post("/api/intake-drafts").send({ serviceKind: kind, [field]: target.id });
+      assert.equal(created.status, 403, `${code}: ${JSON.stringify(created.body)}`);
+      assert.equal(created.body.code, "SERVICE_NOT_OFFERED");
+    }
     const work = await byCode("visaType", "VISA-WORK");
-    const created = await request(app).post("/api/intake-drafts").send({ serviceKind: "visa", visaTypeId: work.id });
-    assert.equal(created.status, 403);
-    assert.equal(created.body.code, "SERVICE_NOT_OFFERED");
 
     // A draft started for Egypt and then pointed at another service cannot be submitted.
     const egypt = await byCode("visaType", "VISA-EGYPT-CLEARANCE");
@@ -93,13 +100,16 @@ describe("public intake scope (approved: Umrah + Egypt security approval)", () =
     const codes = catalog.body.data.services.map((s) => s.code);
     for (const code of ["SVC-FLIGHT", "SVC-FERRY", "SVC-UMRAH", "SVC-EGYPT-CLEARANCE"]) assert.ok(codes.includes(code), `${code} still published (data untouched)`);
 
-    // An existing request for a now-closed service (created while scope=ALL) is untouched.
-    process.env.PUBLIC_INTAKE_SCOPE = "ALL";
+    // An existing request for a now-closed service (one made before the scope
+    // changed) stays as it is, and staff can still read it.
     const flight = await byCode("service", "SVC-FLIGHT");
-    const old = await request(app).post("/api/contact-requests").send({ name: "طلب قديم", phone: phone(), message: "طلب طيران قبل تغيير النطاق", serviceId: flight.id });
-    assert.equal(old.status, 201, JSON.stringify(old.body));
-    delete process.env.PUBLIC_INTAKE_SCOPE;
-    const stored = await prisma.contactRequest.findUnique({ where: { id: old.body.data.id }, select: { id: true, status: true } });
-    assert.equal(stored.status, "NEW");
+    const admin = await prisma.user.findFirst({ where: { email: "admin@nasaem-platform.local" }, select: { organizationId: true } });
+    const p = phone();
+    const old = await prisma.contactRequest.create({ data: { organizationId: admin.organizationId, name: "طلب قديم", phone: p, phoneNormalized: normalizePhone(p), message: "طلب طيران قبل تغيير النطاق", serviceId: flight.id } });
+    const agent = await loginAsSuperAdmin();
+    const read = await agent.get(`/api/contact-requests/${old.id}`);
+    assert.equal(read.status, 200, JSON.stringify(read.body));
+    assert.equal(read.body.data.status, "NEW");
+    await prisma.contactRequest.delete({ where: { id: old.id } });
   });
 });
