@@ -19,7 +19,7 @@ Owner decisions (2026-11-01): (1) all current staging records are disposable tes
 | Backend suite (fresh DB) | VERIFIED (local) | 1075/1075 |
 | Mobile unit tests | VERIFIED (local) | 142/142 |
 | Web lint, typecheck, build | VERIFIED (local) | clean; `/admin/login`, `/admin/tools`, `/admin/tools/[tool]` built |
-| Full Playwright suite, CI | PENDING | GitHub Actions on the pushed head |
+| Full CI on `52dafd6` (PR #153) | VERIFIED | GitHub Actions run 41280799970: Backend tests ✅, Frontend typecheck + build ✅, Playwright E2E (full suite, 4 projects) ✅, PostgreSQL backup + restore drill ✅; QA APK run 41280804837 ✅ (`Nasaem-AlHaramain-release-apk`); Vercel ❌ «Account is blocked» (account, not code — same on #147–#152) |
 | Codex review | SKIPPED | Codex usage limit until 2026-11-04; self-review fixed one issue (embed mode only under a same-origin parent) |
 | Not rebuilt natively yet | OPEN | the embedded `/admin/tools/*` screens (old styling restyled to Cairo/navy/gold) are the next candidates to rebuild |
 | Real device, staging | NOT VERIFIED | no device; staging deploy needs owner approval |
