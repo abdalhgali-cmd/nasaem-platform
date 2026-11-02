@@ -42,7 +42,8 @@ describe("release readiness check", () => {
   });
 
   test("missing WhatsApp, unwritable uploads in production and unpriced services are blockers", async () => {
-    const report = await collectReadiness({ db: unpricedEgyptDb, env: { NODE_ENV: "production", JWT_SECRET: "y".repeat(40), CORS_ORIGIN: "https://example.test" } });
+    // Production with prices approved by the owner (PRICES_APPROVED=true).
+    const report = await collectReadiness({ db: unpricedEgyptDb, env: { NODE_ENV: "production", PRICES_APPROVED: "true", JWT_SECRET: "y".repeat(40), CORS_ORIGIN: "https://example.test" } });
     assert.ok(report.blockers.some((b) => b.includes("واتساب")), JSON.stringify(report.blockers));
     assert.ok(report.blockers.some((b) => b.includes("UPLOAD_ROOT")));
     // An unpriced variant is reported, never invented; on production it blocks.
@@ -50,6 +51,16 @@ describe("release readiness check", () => {
     assert.equal(report.blockers.some((b) => b.includes("VISA-EGYPT-CLEARANCE-BORDER")), false);
     assert.ok(Array.isArray(report.prices.umrah) && report.prices.umrah.length > 0);
     assert.equal(report.prices.testData, false);
+  });
+
+  test("production before the owner approves the prices: test data, an unpriced service is a warning", async () => {
+    const report = await collectReadiness({ db: unpricedEgyptDb, env: { NODE_ENV: "production", JWT_SECRET: "y".repeat(40), CORS_ORIGIN: "https://example.test" } });
+    assert.equal(report.prices.testData, true);
+    assert.equal(report.environment.deployment, "production");
+    assert.equal(report.environment.PRICES_APPROVED, "not set");
+    assert.equal(report.blockers.some((b) => b.includes("VISA-EGYPT-CLEARANCE-AIR")), false, JSON.stringify(report.blockers));
+    assert.ok(report.warnings.some((w) => w.includes("VISA-EGYPT-CLEARANCE-AIR")), JSON.stringify(report.warnings));
+    assert.ok(report.blockers.some((b) => b.includes("واتساب")));
   });
 
   test("outside production the prices are test data: an unpriced service is a warning, not a blocker", async () => {
@@ -64,10 +75,14 @@ describe("release readiness check", () => {
 });
 
 describe("deployment labels", () => {
-  test("only the production deployment has real prices", async () => {
+  test("only the production deployment with owner-approved prices has real prices", async () => {
     const { deploymentName, pricesAreTestData } = await import("../src/config/deployment.js");
-    assert.equal(pricesAreTestData({ NODE_ENV: "production" }), false);
-    assert.equal(pricesAreTestData({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: "production" }), false);
+    // Production prices stay test data until the owner approves them.
+    assert.equal(pricesAreTestData({ NODE_ENV: "production" }), true);
+    assert.equal(pricesAreTestData({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: "production" }), true);
+    assert.equal(pricesAreTestData({ NODE_ENV: "production", PRICES_APPROVED: "yes" }), true);
+    assert.equal(pricesAreTestData({ NODE_ENV: "production", PRICES_APPROVED: "true" }), false);
+    assert.equal(pricesAreTestData({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: "staging", PRICES_APPROVED: "true" }), true);
     assert.equal(pricesAreTestData({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: "staging" }), true);
     assert.equal(pricesAreTestData({ NODE_ENV: "development", DEPLOYMENT_ENVIRONMENT: "production" }), true);
     assert.equal(pricesAreTestData({ NODE_ENV: "test" }), true);

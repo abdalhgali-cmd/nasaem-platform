@@ -17,6 +17,11 @@ export function isProductionDeployment(env = process.env) {
   return deploymentName(env) === "production";
 }
 
+// Even on production the prices are development/test data until the owner
+// approves them (owner decision 2026-11-02): only PRICES_APPROVED=true, set on
+// the production service when the final prices are entered, drops the
+// test-data label. Any other value, or none, keeps it.
 export function pricesAreTestData(env = process.env) {
-  return !isProductionDeployment(env);
+  if (!isProductionDeployment(env)) return true;
+  return String(env.PRICES_APPROVED || "").trim().toLowerCase() !== "true";
 }
