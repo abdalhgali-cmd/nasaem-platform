@@ -7,7 +7,8 @@ import * as tracking from "../tracking.js";
 import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
 import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "../payment-view.js";
-import { bindProgressTrack, journeyBlockHtml } from "../progress-view.js";
+import { bindProgressTrack, journeyBlockHtml, runProgressAction } from "../progress-view.js";
+import { bindUmrahJourney, umrahJourneyHtml } from "../umrah-journey-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
 import { bindCopyButtons, bindReceiptPicker, isAlreadySubmitted, needsRefresh, noSettlementAccountHtml, normalizeSettlementOptions, paymentSafetyHtml, receiptPickerHtml, selectedSettlementAccount, settlementOptionsHtml } from "../payment-receipt.js";
@@ -463,18 +464,21 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     // the travel preparation section replace the generic blocks.
     const egypt = isEgyptOverview(request);
     const approvalIssued = egypt && request.egypt.approval.issued;
+    // Umrah: «رحلتي إلى الحرمين» from the server's journey (progress.umrah)
+    // replaces the generic journey, next-action line and files list.
+    const umrah = request.progress?.umrah || null;
 
     bodyEl.innerHTML = `
       <div class="request-summary">
         <span class="status-pill">${esc(requestStatusLabel(request))}</span>
         <h2>${esc(request.service?.name || request.visaType?.name || "طلب خدمة")}</h2>
-        <div class="request-next-action" role="status">
+        ${umrah ? "" : `<div class="request-next-action" role="status">
           <small>المطلوب منك الآن</small>
           <strong>${esc(request.nextAction || (request.status === "CLOSED" ? "الطلب مغلق ولا يلزمك إجراء." : "لا يلزمك إجراء الآن — فريق الوكالة يتابع الطلب."))}</strong>
-        </div>
+        </div>`}
       </div>
 
-      ${journeyBlockHtml(request.progress, esc, request)}
+      ${umrah ? umrahJourneyHtml(umrah, esc, icon) : journeyBlockHtml(request.progress, esc, request)}
 
       ${pricing || payState.label ? `
         <div class="detail-block quote-block" id="quoteBlock">
@@ -513,7 +517,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
       ${egypt ? egyptFilesHtml(request, esc, icon) : ""}
       ${egypt ? egyptPrepHtml(request, esc, { canEditPlan: isEgyptClearance, canChooseFlight: mayDo("REQUEST_FLIGHT_BOOKING") }) : ""}
 
-      ${!egypt && request.deliverables?.length ? `
+      ${!egypt && !umrah && request.deliverables?.length ? `
         <div class="detail-block" id="deliverablesBlock">
           <h4>الملفات النهائية</h4>
           ${request.deliverables.map((file) => `<button class="secondary deliverable-btn" data-id="${esc(file.id)}">${icon("download", { size: 16 })} ${esc(file.label || file.fileName)}</button>`).join("")}
@@ -533,6 +537,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
 
     const panel = bodyEl.querySelector("#trackingActionPanel");
     bindProgressTrack(bodyEl, { request, progress: request.progress, esc });
+    if (umrah) bindUmrahJourney(bodyEl, runProgressAction);
 
     bodyEl.querySelector("#approveBtn")?.addEventListener("click", () => {
       ensureTrackingAndRun(panel, () => tracking.approveInvoice(request.id, request.invoice?.version), { onDone: () => { toast("تمت الموافقة على السعر"); load(); } });

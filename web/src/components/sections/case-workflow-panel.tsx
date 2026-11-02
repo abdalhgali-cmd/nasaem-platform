@@ -15,7 +15,10 @@ import { API_URL } from "@/lib/api-url";
 
 type Step = { key: string; label: string; state: "done" | "current" | "upcoming" };
 type Reason = { code: string; message: string };
-type Deliverable = { id: string; label: string; publishedAt: string | null; travelerIds: string[]; createdAt: string };
+type Deliverable = { id: string; label: string; kind?: string; publishedAt: string | null; travelerIds: string[]; createdAt: string };
+// Umrah file kinds (backend umrah-delivery.js): a pilgrim's visa, or a
+// service document of a flight/sea package.
+const UMRAH_KIND_LABEL: Record<string, string> = { VISA: "تأشيرة", GENERAL: "تأشيرة", SERVICE: "مستند خدمة", TICKET: "مستند خدمة" };
 type Detail = {
   id: string;
   status: string;
@@ -38,6 +41,7 @@ type Detail = {
     blockers: Reason[];
     completionBlockers?: Reason[];
     delivery: { complete: boolean; missingTravelerIds: string[] };
+    umrah?: { servicesIncluded: boolean; visasIssued: number; servicesDelivered: number | null } | null;
   };
 };
 
@@ -240,6 +244,7 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
             {detail.deliverables.map((d) => (
               <li key={d.id} data-deliverable={d.id} className="flex flex-wrap items-center gap-2">
                 <a className="text-primary underline" href={`${API_URL}${base}/deliverables/${encodeURIComponent(d.id)}/file`} target="_blank" rel="noreferrer">{d.label}</a>
+                {detail.progress.umrah && d.kind ? <span className="rounded-full bg-[#d6aa4b]/15 px-2 py-0.5 text-[11px] font-black text-[#8a6417]" data-kind={d.kind}>{UMRAH_KIND_LABEL[d.kind] || d.kind}</span> : null}
                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${d.publishedAt ? "bg-emerald-500/10 text-emerald-700" : "bg-muted text-muted-foreground"}`}>{d.publishedAt ? "منشور للعميل" : "مسودة"}</span>
                 <span className="text-xs text-muted-foreground">يخص: {d.travelerIds.length ? d.travelerIds.map(nameOf).join("، ") : detail.travelers.length > 1 ? "غير مُسند" : "الطلب كاملًا"}</span>
                 {!d.publishedAt && can("PUBLISH_DELIVERABLE") ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void run(() => postJson(`${base}/deliverables/${encodeURIComponent(d.id)}/publish`, {}), "تم نشر الملف للعميل.")}>نشر</Button> : null}
@@ -272,11 +277,21 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
               data.append("file", file);
               if (travelerIds.length) data.append("travelerIds", JSON.stringify(travelerIds));
               data.append("publish", publish ? "true" : "false");
+              const kind = String(form.get("kind") || "");
+              if (detail.progress.umrah && kind) data.append("kind", kind);
               void run(() => call(`${base}/deliverables`, { method: "POST", body: data }), publish ? "تم رفع الملف ونشره للعميل." : "تم حفظ الملف مسودة.").then(() => formEl.reset());
             }}
           >
             <div className="flex flex-wrap items-end gap-2">
               <label className="flex flex-col text-xs font-bold">اسم الملف<input name="label" maxLength={120} className="mt-1 h-9 w-56 rounded-lg border bg-background px-2 text-sm" /></label>
+              {detail.progress.umrah ? (
+                <label className="flex flex-col text-xs font-bold">نوع الملف
+                  <select name="kind" defaultValue="VISA" className="mt-1 h-9 rounded-lg border bg-background px-2 text-sm" data-testid="deliverable-kind">
+                    <option value="VISA">تأشيرة معتمر</option>
+                    {detail.progress.umrah.servicesIncluded ? <option value="SERVICE">مستند خدمة (تذاكر، سكن، تنقل)</option> : null}
+                  </select>
+                </label>
+              ) : null}
               <label className="flex flex-col text-xs font-bold">الملف<input name="file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="mt-1 text-xs" /></label>
             </div>
             {detail.travelers.length > 1 ? (
