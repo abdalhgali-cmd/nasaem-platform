@@ -16,7 +16,8 @@ import { DOCUMENT_STATUS_AR, GUARANTOR_RESIDENCE, packageKind, stageLabel, umrah
 // or rule is added here; payment decisions stay on «مراجعة الدفعات».
 
 type Doc = { id: string; label: string; status: string; travelerId: string | null; supersededAt: string | null; classification?: string; reviewNote?: string | null };
-export type UmrahCase = Omit<UmrahListRow, "travelers"> & { documents: Doc[]; travelers: { id: string; fullName: string | null; passportNo?: string | null }[] };
+type SnapshotRequirement = { id: string; name?: string; type?: string; scope?: string; required?: boolean };
+export type UmrahCase = Omit<UmrahListRow, "travelers"> & { documents: Doc[]; travelers: { id: string; fullName: string | null; passportNo?: string | null }[]; requirementsSnapshot?: SnapshotRequirement[] | null };
 export type CaseTabKey = "documents" | "workflow" | "travelers" | "activity" | "overview";
 
 function StatusChip({ status }: { status: string }) {
@@ -30,6 +31,71 @@ function Section({ title, icon, children, testId }: { title: string; icon: React
       <h3 className="mb-3 flex items-center gap-2 text-sm font-extrabold">{icon}{title}</h3>
       <div className="space-y-3 text-sm">{children}</div>
     </section>
+  );
+}
+
+// Ask the customer for one specific missing or rejected document (POST
+// /document-requests): the server refuses one that is accepted or under
+// review, records who asked, and notifies the customer.
+function DocumentRequestForm({ caseRow }: { caseRow: UmrahCase }) {
+  const requirements = (caseRow.requirementsSnapshot || []).filter((r) => (!r.type || r.type === "DOCUMENT") && r.name);
+  const [requirementId, setRequirementId] = React.useState("");
+  const [message, setMessage] = React.useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  if (!requirements.length || caseRow.status === "CLOSED") return null;
+  const perPilgrim = requirements.find((r) => r.id === requirementId)?.scope === "TRAVELER" && caseRow.travelers.length > 0;
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const travelerId = String(form.get("travelerId") || "");
+    const note = String(form.get("note") || "").trim();
+    if (!requirementId) return setMessage({ tone: "error", text: "اختر المستند المطلوب." });
+    if (perPilgrim && !travelerId) return setMessage({ tone: "error", text: "اختر المعتمر الذي يخصه المستند." });
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(caseRow.id)}/document-requests`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requirementId, ...(travelerId ? { travelerId } : {}), ...(note ? { note } : {}) }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.message || "تعذّر إرسال الطلب.");
+      setMessage({ tone: "ok", text: "أُرسل طلب المستند للعميل وسُجّل في السجل." });
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "تعذّر إرسال الطلب." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="space-y-2" onSubmit={submit} data-testid="umrah-document-request">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col text-xs font-bold">المستند
+          <select value={requirementId} onChange={(e) => setRequirementId(e.target.value)} className="mt-1 h-9 rounded-lg border bg-background px-2 text-sm">
+            <option value="">— اختر —</option>
+            {requirements.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        </label>
+        {perPilgrim ? (
+          <label className="flex flex-col text-xs font-bold">المعتمر
+            <select name="travelerId" defaultValue="" className="mt-1 h-9 rounded-lg border bg-background px-2 text-sm">
+              <option value="">— اختر —</option>
+              {caseRow.travelers.map((t) => <option key={t.id} value={t.id}>{t.fullName || "—"}</option>)}
+            </select>
+          </label>
+        ) : null}
+        <label className="flex min-w-48 flex-1 flex-col text-xs font-bold">ملاحظة للعميل (اختياري)
+          <input name="note" maxLength={500} className="mt-1 h-9 rounded-lg border bg-background px-2 text-sm" />
+        </label>
+        <button type="submit" disabled={busy} className={cx(btn.base, btn.secondary, btn.sm)}>طلب المستند</button>
+      </div>
+      {message ? <p role="status" className={cx("text-xs font-bold", message.tone === "ok" ? "text-[var(--nh-success-ink)]" : "text-[var(--nh-danger-ink)]")}>{message.text}</p> : null}
+      <p className="text-xs text-muted-foreground">للمستند الناقص أو المرفوض فقط. المستند قيد المراجعة يُقبل أو يُرفض بسبب من «مراجعة المستندات».</p>
+    </form>
   );
 }
 
@@ -60,6 +126,8 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
   const current = caseRow.documents.filter((d) => !d.supersededAt);
   const residence = current.filter((d) => d.label.includes(GUARANTOR_RESIDENCE));
   const covered = new Set(progress.delivery?.coveredTravelerIds || []);
+  // «رحلتي إلى الحرمين» per pilgrim (server: progress.umrah).
+  const umrahJourney = (progress as { umrah?: { pilgrims?: { id: string; visa: string; services?: string }[] } | null }).umrah;
   const amount = caseRow.invoice ? formatAmount(caseRow.invoice.amount, caseRow.invoice.currency) : progress.pricing ? formatAmount(progress.pricing.total, progress.pricing.currency) : null;
   const fileUrl = (id: string) => `${API_URL}/contact-requests/${encodeURIComponent(caseRow.id)}/documents/${encodeURIComponent(id)}/file`;
 
@@ -127,7 +195,18 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
               <li key={t.id} data-pilgrim={t.id} className="rounded-[10px] border border-border p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-bold">{t.fullName || "—"}{t.passportNo ? <span className="ms-2 text-xs font-normal text-muted-foreground">الجواز <span dir="ltr">{t.passportNo}</span></span> : null}</span>
-                  <span className={cx("rounded-md px-2 text-xs font-bold", covered.has(t.id) ? "bg-[var(--nh-success-soft)] text-[var(--nh-success-ink)]" : "bg-muted text-muted-foreground")}>{covered.has(t.id) ? "الملف النهائي منشور" : "لا ملف نهائي بعد"}</span>
+                  {(() => {
+                    const journeyPilgrim = umrahJourney?.pilgrims?.find((p) => p.id === t.id);
+                    if (!journeyPilgrim) return <span className={cx("rounded-md px-2 text-xs font-bold", covered.has(t.id) ? "bg-[var(--nh-success-soft)] text-[var(--nh-success-ink)]" : "bg-muted text-muted-foreground")}>{covered.has(t.id) ? "الملف النهائي منشور" : "لا ملف نهائي بعد"}</span>;
+                    const ok = "bg-[var(--nh-success-soft)] text-[var(--nh-success-ink)]";
+                    const idle = "bg-muted text-muted-foreground";
+                    return (
+                      <span className="flex flex-wrap gap-1">
+                        <span data-visa-state={journeyPilgrim.visa} className={cx("rounded-md px-2 text-xs font-bold", journeyPilgrim.visa === "ISSUED" ? ok : idle)}>{journeyPilgrim.visa === "ISSUED" ? "التأشيرة منشورة" : "لا تأشيرة بعد"}</span>
+                        {journeyPilgrim.services ? <span data-services-state={journeyPilgrim.services} className={cx("rounded-md px-2 text-xs font-bold", journeyPilgrim.services === "DELIVERED" ? ok : idle)}>{journeyPilgrim.services === "DELIVERED" ? "الخدمات مسلّمة" : "الخدمات لم تُسلّم"}</span> : null}
+                      </span>
+                    );
+                  })()}
                 </div>
                 {docs.length ? (
                   <ul className="mt-2 space-y-1">{docs.map((d) => <li key={d.id} className="flex flex-wrap items-center gap-2 text-xs"><FileText className="size-3.5 text-muted-foreground" aria-hidden="true" /><a href={fileUrl(d.id)} target="_blank" rel="noopener" className="hover:underline">{d.label}</a><StatusChip status={d.status} /></li>)}</ul>
@@ -137,6 +216,12 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
           })}
         </ul>
       </Section>
+
+      {caseRow.status !== "CLOSED" && (caseRow.requirementsSnapshot || []).length ? (
+        <Section title="طلب مستند محدد من العميل" icon={<FileText className="size-4 text-[var(--nh-gold-700)]" aria-hidden="true" />} testId="umrah-request-document">
+          <DocumentRequestForm caseRow={caseRow} />
+        </Section>
+      ) : null}
 
       {progress.completionBlockers?.length && caseRow.status !== "CLOSED" ? (
         <Section title="قبل إغلاق الطلب" icon={<AlertTriangle className="size-4 text-muted-foreground" aria-hidden="true" />} testId="umrah-completion">
