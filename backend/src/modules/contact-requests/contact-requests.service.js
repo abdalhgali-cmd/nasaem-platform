@@ -659,7 +659,7 @@ export async function refreshCaseTasks(contactRequestId) {
         executionStartedAt: true,
         documents: { where: { supersededAt: null }, select: { requirementId: true, travelerId: true, status: true, supersededAt: true, classification: true, label: true } },
         travelers: { select: { id: true, fullName: true } },
-        deliverables: { select: { id: true, publishedAt: true, travelerIds: true } },
+        deliverables: { select: { id: true, kind: true, publishedAt: true, supersededAt: true, travelerIds: true } },
         providerSubmissions: { select: { status: true } },
       },
     });
@@ -698,7 +698,7 @@ export async function getOperationsQueueSummary(organizationId) {
         assignedUserId: true,
         documents: { where: { supersededAt: null }, select: { requirementId: true, travelerId: true, status: true, supersededAt: true, classification: true, label: true } },
         travelers: { select: { id: true, fullName: true } },
-        deliverables: { select: { id: true, publishedAt: true, travelerIds: true } },
+        deliverables: { select: { id: true, kind: true, publishedAt: true, supersededAt: true, travelerIds: true } },
         providerSubmissions: { select: { status: true } },
       },
     }),

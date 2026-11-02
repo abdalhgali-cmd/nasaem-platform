@@ -29,6 +29,9 @@ export const uploadContactRequestDeliverableSchema = z.object({
   // false (the default): prepare the file as a draft, not visible to the
   // customer. true: publish it now (only after payment and execution).
   publish: publishField,
+  // Umrah only: VISA (default, one pilgrim's visa) or SERVICE (documents of
+  // the services included in a flight/sea package). Other services ignore it.
+  kind: z.enum(["VISA", "SERVICE"]).optional(),
 });
 
 export const publishContactRequestDeliverableSchema = z.object({
