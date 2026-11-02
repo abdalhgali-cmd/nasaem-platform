@@ -31,3 +31,11 @@ test("the Railway staging website uses the staging API, never Production; the co
   const source = fs.readFileSync(new URL("../public/assets/api.js", import.meta.url), "utf8");
   assert.match(source, /const UNIFIED_ADMIN_PATH = null;/, "the API host's own copy is unchanged");
 });
+
+test("embedded in the unified admin, the copy uses the admin's own API URL, from a same-origin parent only", () => {
+  const api = expectedOutputs().find((o) => o.relativePath.endsWith("api.js")).content;
+  assert.match(api, /window\.top\.location\.origin !== window\.location\.origin\) return null/);
+  assert.match(api, /window\.top\.__NASAEM_API_URL__/);
+  assert.match(api, /url\.protocol === "https:" \|\| url\.protocol === "http:"/);
+  assert.match(api, /const API_BASE = ADMIN_FRAME_API_BASE\s*\?/);
+});
