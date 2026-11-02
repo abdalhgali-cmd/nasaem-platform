@@ -1,4 +1,5 @@
 import { requirementApplies } from "../requirements/requirements.service.js";
+import { paymentLockReasons } from "../contact-request-workflow/workflow-policy.js";
 
 // Smart Case Operations — Release D (Customer Portal 2.0 / "طلباتي").
 //
@@ -134,7 +135,12 @@ export function buildCustomerNextActions(contactRequest, checklist) {
   }
 
   if (contactRequest.paymentStatus === "AWAITING_TRANSFER") {
-    actions.push({ code: "SEND_TRANSFER", label: "تحويل المبلغ ورفع إشعار الدفع", reason: null });
+    // A fixed price paid after the document review: payment is not open yet.
+    if (paymentLockReasons(contactRequest).length) {
+      actions.push({ code: "AWAIT_DOCUMENT_REVIEW", label: "يُفتح الدفع بعد اعتماد المستندات، بالسعر نفسه", reason: null });
+    } else {
+      actions.push({ code: "SEND_TRANSFER", label: "تحويل المبلغ ورفع إشعار الدفع", reason: null });
+    }
   }
 
   return actions;

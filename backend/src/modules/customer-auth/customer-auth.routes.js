@@ -6,6 +6,7 @@ import {
   login,
   logout,
   me,
+  refreshSession,
   updateProfile,
   changePassword,
   forgotPassword,
@@ -41,6 +42,7 @@ router.post("/forgot-password", resetLimiter, forgotPassword);
 router.post("/reset-password", resetLimiter, resetPassword);
 
 router.get("/me", requireCustomerAuth, me);
+router.post("/refresh", requireCustomerAuth, refreshSession);
 router.patch("/profile", requireCustomerAuth, updateProfile);
 router.post("/change-password", requireCustomerAuth, changePassword);
 

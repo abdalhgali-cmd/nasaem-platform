@@ -1,3 +1,4 @@
+import { SUPPORTED_CURRENCIES } from "../../utils/enums.js";
 import { z } from "zod";
 
 // Smart Case Operations — Release B. Mirrors createContactRequestSchema's
@@ -45,6 +46,25 @@ export const addDraftDocumentSchema = z.object({
   travelerIndex: z.coerce.number().int().min(0).max(19).optional(),
 });
 
+const emptyToUndefined = (value) => (value === "" || value === null ? undefined : value);
+
 export const submitDraftSchema = z.object({
   message: z.string().trim().max(2000).optional().or(z.literal("")),
+  // Fixed-price items: the total and currency the customer confirmed on the
+  // review step; recomputed and compared server-side
+  // (contact-request-pricing/fixed-price.js).
+  acceptedTotal: z.preprocess(emptyToUndefined, z.coerce.number().nonnegative().max(1_000_000_000).optional()),
+  acceptedCurrency: z.preprocess(emptyToUndefined, z.enum(SUPPORTED_CURRENCIES).optional()),
+  // Umrah only (umrah/umrah-packages.js).
+  guarantorPhone: z.string().trim().max(30).optional().or(z.literal("")),
+  extraContactName: z.string().trim().max(120).optional().or(z.literal("")),
+  extraContactPhone: z.string().trim().max(30).optional().or(z.literal("")),
+  // Umrah only: the preferred travel date (YYYY-MM-DD, provisional; required
+  // for flight/sea packages, see umrah-packages.js resolveUmrahTravel).
+  preferredTravelDate: z.string().trim().max(20).optional().or(z.literal("")),
+  // Egypt clearance variants (egypt-clearance-variants.js resolveEgyptRoute):
+  // by air the departure city and arrival airport, over land the entry point.
+  departureCity: z.string().trim().max(120).optional().or(z.literal("")),
+  arrivalAirport: z.string().trim().max(120).optional().or(z.literal("")),
+  entryPort: z.string().trim().max(120).optional().or(z.literal("")),
 });

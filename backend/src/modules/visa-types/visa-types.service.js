@@ -1,5 +1,6 @@
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { pricingConfigError } from "../contact-request-pricing/fixed-price.js";
 
 export async function listVisaTypes({ page, limit, skip }, { category } = {}) {
   const where = category ? { category } : {};
@@ -40,31 +41,47 @@ export async function createVisaType(data) {
       entryType: data.entryType || null,
       category: data.category || "OTHER",
       sortOrder: data.sortOrder ?? 0,
+      pricingMode: data.pricingMode || "QUOTE",
+      priceUnit: data.priceUnit || "PER_REQUEST",
+      paymentAfterDocumentReview: Boolean(data.paymentAfterDocumentReview),
     },
   });
 }
 
-export async function updateVisaType(id, data) {
-  const existing = await prisma.visaType.findUnique({ where: { id } });
-  if (!existing) return null;
-
-  return prisma.visaType.update({ where: { id }, data });
+// Same rules as services.service.js (AUDIT-00 G-07): a visa type used by a
+// request keeps its code and is deactivated, never deleted. The row lock
+// orders a delete or code change after a request insert that references it.
+async function lockVisaType(tx, id) {
+  const rows = await tx.$queryRaw`SELECT id FROM "VisaType" WHERE id = ${id} FOR UPDATE`;
+  return rows.length > 0;
 }
 
+export async function updateVisaType(id, data) {
+  return prisma.$transaction(async (tx) => {
+    if (!(await lockVisaType(tx, id))) return null;
+    const existing = await tx.visaType.findUnique({ where: { id } });
+    if (data.code !== undefined && data.code !== existing.code && (await tx.contactRequest.count({ where: { visaTypeId: id } })) > 0) {
+      return { error: "CODE_IN_USE" };
+    }
+    // On the locked row merged with the change (see updateService).
+    const pricingError = pricingConfigError({ ...existing, ...data });
+    if (pricingError) return { error: "INVALID_PRICING", message: pricingError };
+    return tx.visaType.update({ where: { id }, data });
+  });
+}
+
+// Returns { visaType, previous, deactivated } or null (previous = the row
+// before the change, for the audit).
 export async function deleteVisaType(id) {
-  const existing = await prisma.visaType.findUnique({ where: { id } });
-  if (!existing) return null;
-
-  // Same posture as services.service.js's deleteService: a visa type
-  // already referenced by a contact request must not disappear from
-  // historical records, so deactivate instead of a hard delete.
-  const usageCount = await prisma.contactRequest.count({ where: { visaTypeId: id } });
-  if (usageCount > 0) {
-    return prisma.visaType.update({ where: { id }, data: { active: false } });
-  }
-
-  await prisma.visaType.delete({ where: { id } });
-  return existing;
+  return prisma.$transaction(async (tx) => {
+    if (!(await lockVisaType(tx, id))) return null;
+    const existing = await tx.visaType.findUnique({ where: { id } });
+    if ((await tx.contactRequest.count({ where: { visaTypeId: id } })) > 0) {
+      return { visaType: await tx.visaType.update({ where: { id }, data: { active: false } }), previous: existing, deactivated: true };
+    }
+    await tx.visaType.delete({ where: { id } });
+    return { visaType: existing, previous: existing, deactivated: false };
+  });
 }
 
 export async function reorderVisaTypes(orderedIds) {

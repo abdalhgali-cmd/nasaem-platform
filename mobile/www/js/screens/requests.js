@@ -1,10 +1,19 @@
-import { api, ApiError, getToken } from "../api.js";
+import { api, apiUpload, ApiError, getToken } from "../api.js";
 import { CONFIG } from "../config.js";
 import { esc, money, toast, skeletonList, emptyState, errorState, setLoading } from "../ui.js";
 import { icon } from "../icons.js";
 import { go } from "../router.js";
 import * as tracking from "../tracking.js";
-import { getCustomer } from "../auth.js";
+import { showOtpSupport } from "../otp-support.js";
+import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
+import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "../payment-view.js";
+import { bindProgressTrack, journeyBlockHtml } from "../progress-view.js";
+import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
+import { validateFile } from "../intake-core.js";
+import { bindCopyButtons, bindReceiptPicker, isAlreadySubmitted, needsRefresh, noSettlementAccountHtml, normalizeSettlementOptions, paymentSafetyHtml, receiptPickerHtml, selectedSettlementAccount, settlementOptionsHtml } from "../payment-receipt.js";
+import { egyptVariantEntryMode, isEgyptClearanceItem } from "../egypt-view.js";
+import { egyptFilesHtml, egyptPrepHtml, isEgyptOverview } from "../egypt-journey.js";
+import { formatRequestUpdatedAt, requestListState } from "../request-list-view.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
 // these three values — everything a customer actually cares about day to
@@ -25,7 +34,7 @@ const ORDER_STATUS_AR = {
   REJECTED: "مرفوض",
   CANCELLED: "ملغي",
 };
-const DOCUMENT_STATUS_AR = { PENDING: "قيد المراجعة", APPROVED: "مقبول", REJECTED: "مرفوض" };
+const DOCUMENT_STATUS_AR = { PENDING: "قيد المراجعة", ACCEPTED: "مقبول", APPROVED: "مقبول", REJECTED: "مرفوض" };
 const PAYMENT_STATUS_AR = { UNPAID: "غير مدفوع", PARTIAL: "مدفوع جزئياً", PAID: "مدفوع", REFUNDED: "مسترد" };
 // Every logActivity({action: "..."}) the backend can write for a
 // ContactRequest (see contact-requests/contact-request-tracking modules) —
@@ -43,6 +52,8 @@ const TIMELINE_ACTION_AR = {
   CONTACT_REQUEST_OFFER_SELECTED: "تم اختيار عرض",
   CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED: "تم رفع إثبات الدفع",
   CONTACT_REQUEST_PAYMENT_CONFIRMED: "تم تأكيد الدفع",
+  CONTACT_REQUEST_PAYMENT_REJECTED: "تم رفض إيصال الدفع",
+  CONTACT_REQUEST_EXECUTION_STARTED: "بدأ تنفيذ طلبك",
   CONTACT_REQUEST_TRANSFER_MARKED_SENT: "تم إعلام الوكالة بالتحويل",
   CONTACT_REQUEST_DELIVERABLE_UPLOADED: "تم رفع ملف نهائي",
   CONTACT_REQUEST_AUTO_COMPLETED: "تم إكمال الطلب",
@@ -62,25 +73,43 @@ function statusLabel(status) {
   return ORDER_STATUS_AR[status] || status;
 }
 
+// The Requests tab: the account's requests when the account is unlocked
+// and verified; otherwise phone-verified guest tracking. The banner always
+// says which of the two is on screen.
+export async function renderRequestsTabScreen(ctx) {
+  if (isAccountUnlocked()) return renderMyRequestsScreen(ctx);
+  return renderGuestTrackingScreen(ctx);
+}
+
 export async function renderMyRequestsScreen({ bodyEl }) {
   bodyEl.innerHTML = `
+    <p class="mode-banner">${icon("user", { size: 16 })}<span>طلباتي — الحالة المباشرة من الوكالة</span></p>
+    <div class="requests-live-bar"><span><i aria-hidden="true"></i> متصل بلوحة الإدارة</span><button type="button" class="link-btn" id="refreshRequestsBtn">تحديث الآن</button></div>
     <div class="segmented" id="requestsFilter">
       <button class="segmented-btn active" data-filter="current">الحالية</button>
       <button class="segmented-btn" data-filter="past">السابقة</button>
     </div>
     <div id="requestsList" class="list">${skeletonList(4)}</div>
+    <button class="link-btn track-other-btn" id="trackOtherBtn">تتبع طلب أُرسل برقم هاتف آخر</button>
   `;
+  bodyEl.querySelector("#trackOtherBtn").addEventListener("click", () => go("guestTracking", {}, { title: "تتبع برقم الهاتف", tab: "requests" }));
 
   let all = [];
   const listEl = bodyEl.querySelector("#requestsList");
+  let loading = false;
 
-  async function load() {
+  async function load({ quiet = false } = {}) {
+    if (loading) return;
+    loading = true;
     try {
       const res = await api("/customer/requests?limit=100");
       all = res.data || [];
       renderFilter(bodyEl.querySelector(".segmented-btn.active").dataset.filter);
+      if (!quiet) toast("تم تحديث طلباتك");
     } catch (error) {
-      listEl.innerHTML = errorState(error.message, { onRetry: load });
+      if (!quiet) listEl.innerHTML = errorState(error.message, { onRetry: load, title: "تعذر تحديث طلباتك", hint: "طلباتك المحفوظة لم تتغير. تحقق من الاتصال ثم أعد المحاولة." });
+    } finally {
+      loading = false;
     }
   }
 
@@ -90,19 +119,27 @@ export async function renderMyRequestsScreen({ bodyEl }) {
       listEl.innerHTML = emptyState({
         icon: "requests",
         title: filter === "current" ? "لا توجد طلبات حالية" : "لا توجد طلبات سابقة",
-        hint: filter === "current" ? "ابدأ طلبًا جديدًا من الصفحة الرئيسية." : "",
+        hint: filter === "current" ? "اختر العمرة أو الموافقة الأمنية لمصر، وسيظهر كل تحديث هنا." : "ستظهر هنا الطلبات المكتملة أو المغلقة.",
+        action: filter === "current" ? '<button type="button" class="primary" id="emptyStartRequestBtn">ابدأ طلبًا جديدًا</button>' : "",
       });
+      listEl.querySelector("#emptyStartRequestBtn")?.addEventListener("click", () => goToTab("services", "services", { title: "ابدأ طلب" }));
       return;
     }
-    listEl.innerHTML = items.map((request) => `
+    listEl.innerHTML = items.map((request) => {
+      const live = requestListState(request);
+      const updated = formatRequestUpdatedAt(live.updatedAt);
+      return `
       <button class="list-item request-row" data-id="${esc(request.id)}">
         <div class="list-item-icon">${icon("requests", { size: 20 })}</div>
         <div class="list-item-body">
           <strong>${esc(request.service?.name || request.visaType?.name || "طلب خدمة")}</strong>
-          <p>${esc(request.nextAction || "")}</p>
+          <p class="request-live-status">${esc(live.status)}</p>
+          <small class="request-next-copy">التالي: ${esc(live.nextAction)}</small>
+          ${updated ? `<small class="request-updated-at">آخر تحديث: ${esc(updated)}</small>` : ""}
         </div>
         <span class="status-pill">${esc(requestStatusLabel(request))}</span>
-      </button>`).join("");
+      </button>`;
+    }).join("");
     listEl.querySelectorAll(".request-row").forEach((row) => {
       row.addEventListener("click", () => go("requestDetail", { requestId: row.dataset.id }, { title: "تفاصيل الطلب", tab: "requests" }));
     });
@@ -114,8 +151,165 @@ export async function renderMyRequestsScreen({ bodyEl }) {
     bodyEl.querySelectorAll(".segmented-btn").forEach((b) => b.classList.toggle("active", b === btn));
     renderFilter(btn.dataset.filter);
   });
+  bodyEl.querySelector("#refreshRequestsBtn").addEventListener("click", () => load());
 
-  await load();
+  await load({ quiet: true });
+  const refreshTimer = setInterval(() => {
+    if (!bodyEl.isConnected) {
+      clearInterval(refreshTimer);
+      return;
+    }
+    load({ quiet: true });
+  }, 20_000);
+}
+
+// ---- Guest tracking (no account) -------------------------------------------
+// Requests are shown only after the phone is proven with a WhatsApp code
+// (POST /tracking/request-code → /tracking/verify-code). A request id alone
+// never opens anything. The tracking token is separate from any account token.
+export async function renderGuestTrackingScreen({ bodyEl }) {
+  const locked = getSessionState() === SessionState.LOCKED;
+  bodyEl.innerHTML = `
+    <p class="mode-banner mode-banner-guest">${icon("phone", { size: 16 })}<span>متابعة برقم الهاتف — بدون حساب</span></p>
+    ${locked ? `<p class="field-hint">حسابك مقفل بالبصمة. افتحه من «المزيد» لعرض طلبات الحساب.</p>` : ""}
+    <div id="guestTrackingBody"></div>`;
+  const container = bodyEl.querySelector("#guestTrackingBody");
+  let trackingRefreshTimer = null;
+
+  const showList = async () => {
+    container.innerHTML = `<div class="list">${skeletonList(3)}</div>`;
+    try {
+      const requests = await tracking.listTrackedRequests();
+      const phone = await tracking.getTrackedPhone();
+      container.innerHTML = `
+        <div class="tracking-head">
+          <span>الرقم: <b dir="ltr">${esc(phone || "")}</b></span>
+          <span><button class="link-btn" id="refreshTrackedBtn">تحديث</button><button class="link-btn" id="changePhoneBtn">تغيير الرقم</button></span>
+        </div>
+        <div class="list" id="trackedList">
+          ${requests.length ? requests.map((request) => {
+            const live = requestListState(request);
+            const updated = formatRequestUpdatedAt(live.updatedAt);
+            return `
+            <button class="list-item request-row" data-id="${esc(request.id)}">
+              <div class="list-item-icon">${icon("requests", { size: 20 })}</div>
+              <div class="list-item-body">
+                <strong>${esc(request.serviceRef?.name || request.visaType?.name || request.service || "طلب خدمة")}</strong>
+                <p class="request-live-status">${esc(live.status)}</p>
+                <small class="request-next-copy">التالي: ${esc(live.nextAction)}</small>
+                ${updated ? `<small class="request-updated-at">آخر تحديث: ${esc(updated)}</small>` : ""}
+                <small dir="ltr">${esc(request.id)}</small>
+              </div>
+            </button>`;
+          }).join("") : emptyState({ icon: "requests", title: "لا توجد طلبات بهذا الرقم", hint: "تأكد أن الرقم هو نفسه المستخدم في الطلب." })}
+        </div>`;
+      container.querySelector("#changePhoneBtn").addEventListener("click", async () => {
+        clearTimeout(trackingRefreshTimer);
+        await tracking.clearTrackingSession();
+        showPhoneStep();
+      });
+      container.querySelector("#refreshTrackedBtn").addEventListener("click", showList);
+      container.querySelectorAll(".request-row").forEach((row) => {
+        row.addEventListener("click", () => go("trackedRequestDetail", { requestId: row.dataset.id }, { title: "تفاصيل الطلب", tab: "requests" }));
+      });
+      clearTimeout(trackingRefreshTimer);
+      trackingRefreshTimer = setTimeout(() => {
+        if (bodyEl.isConnected) showList();
+      }, 20_000);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        await tracking.clearTrackingSession();
+        showPhoneStep("انتهت صلاحية التحقق، أدخل رقمك لإرسال رمز جديد.");
+        return;
+      }
+      container.innerHTML = errorState(error.message, { onRetry: showList });
+    }
+  };
+
+  const showPhoneStep = (notice = "") => {
+    const prefill = tracking.takeTrackingPrefill();
+    container.innerHTML = `
+      <section class="form-section">
+        <h3>تتبع طلبك</h3>
+        <p class="field-hint">أدخل رقم الهاتف الذي استخدمته في الطلب، وسنرسل إليه رمز تحقق عبر واتساب. لا تحتاج إلى حساب.</p>
+        ${notice ? `<p class="session-notice">${esc(notice)}</p>` : ""}
+        <form id="trackPhoneForm" class="form" novalidate>
+          <label class="field"><span>رقم الهاتف *</span><input name="phone" inputmode="tel" autocomplete="tel" required value="${esc(prefill)}"></label>
+          <button type="submit" class="primary" id="sendCodeBtn">إرسال رمز التحقق</button>
+        </form>
+        <div id="otpSupportSlot"></div>
+      </section>`;
+    const form = container.querySelector("#trackPhoneForm");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const phone = String(new FormData(form).get("phone") || "").trim();
+      if (phone.length < 6) {
+        toast("أدخل رقم هاتف صحيح", { tone: "error" });
+        return;
+      }
+      const btn = container.querySelector("#sendCodeBtn");
+      setLoading(btn, true, "جارٍ الإرسال…");
+      const slot = container.querySelector("#otpSupportSlot");
+      try {
+        await tracking.requestTrackingCode(phone);
+        showCodeStep(phone);
+      } catch (error) {
+        setLoading(btn, false);
+        // No code was sent: say so on the screen and offer a person instead.
+        if (!(await showOtpSupport(slot, error, { context: "تتبع طلب" }))) toast(error.message, { tone: "error" });
+      }
+    });
+  };
+
+  const showCodeStep = (phone) => {
+    container.innerHTML = `
+      <section class="form-section">
+        <h3>أدخل رمز التحقق</h3>
+        <p class="field-hint">إذا كان الرقم <b dir="ltr">${esc(phone)}</b> مستخدمًا في طلب، طلبنا إرسال رمز من 6 أرقام إليه عبر واتساب. الرمز صالح 10 دقائق. إن لم يصلك خلال دقائق، أعد الإرسال أو تواصل معنا.</p>
+        <form id="trackCodeForm" class="form" novalidate>
+          <label class="field"><span>رمز التحقق *</span><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
+          <button type="submit" class="primary" id="verifyCodeBtn">تأكيد</button>
+          <button type="button" class="link-btn" id="backToPhoneBtn">تغيير الرقم أو إعادة الإرسال</button>
+        </form>
+      </section>`;
+    container.querySelector("#backToPhoneBtn").addEventListener("click", () => {
+      tracking.setTrackingPrefill(phone);
+      showPhoneStep();
+    });
+    const form = container.querySelector("#trackCodeForm");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const code = String(new FormData(form).get("code") || "").trim();
+      const btn = container.querySelector("#verifyCodeBtn");
+      setLoading(btn, true, "جارٍ التحقق…");
+      try {
+        await tracking.verifyTrackingCode(phone, code);
+        await showList();
+      } catch (error) {
+        setLoading(btn, false);
+        toast(error.message || "رمز التحقق غير صحيح", { tone: "error" });
+      }
+    });
+  };
+
+  if (await tracking.hasTrackingSession()) await showList();
+  else showPhoneStep();
+}
+
+// Detail of a phone-tracked request (same view as an account request, data
+// from GET /tracking/requests, actions through the tracking session).
+export async function renderTrackedRequestDetailScreen(ctx) {
+  return renderRequestDetailScreen({ ...ctx, params: { ...ctx.params, source: "tracking" } });
+}
+
+function fromTracking(request) {
+  return {
+    ...request,
+    service: request.serviceRef || (request.service ? { name: request.service } : null),
+    // The progress block shows the status label; repeat it only without one.
+    nextAction: request.progress ? "" : request.statusLabel || "",
+    timeline: [],
+  };
 }
 
 function trackingLoginPanel({ phone, onVerified }) {
@@ -195,44 +389,104 @@ function renderOtpStep(containerEl, phone, action, onDone) {
   });
 }
 
+// The request's status refreshes while its screen stays open: when the
+// customer returns to the app and every minute, but never while a form is
+// open in the action panel (that would discard what they typed or are
+// uploading). Stops once the screen is gone.
+const STATUS_REFRESH_MS = 60_000;
+function startStatusRefresh(bodyEl, refresh) {
+  const idle = () => {
+    if (bodyEl.querySelector("#trackingActionPanel")?.children.length) return false;
+    const active = document.activeElement;
+    if (active && active !== document.body && bodyEl.contains(active) && active.matches("input, select, textarea")) return false;
+    return !bodyEl.querySelector(".upload-progress-wrap:not([hidden]), [data-uploading]");
+  };
+  const run = () => {
+    if (!bodyEl.isConnected) return stop();
+    if (!document.hidden && idle()) {
+      const y = window.scrollY;
+      // The response is applied only if the customer has still not started
+      // something meanwhile (re-checked when it arrives).
+      Promise.resolve(refresh(idle)).then(() => window.scrollTo?.(0, y)).catch(() => undefined);
+    }
+  };
+  const onVisible = () => { if (!document.hidden) run(); };
+  const timer = setInterval(run, STATUS_REFRESH_MS);
+  document.addEventListener("visibilitychange", onVisible);
+  function stop() {
+    clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisible);
+  }
+  return stop;
+}
+
 export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   setTitle("تفاصيل الطلب");
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل الطلب…</p></div>`;
 
-  async function load() {
+  const viaTracking = params.source === "tracking";
+
+  // `reopenPayment`: after a refused receipt (the accounts or the invoice
+  // changed), reopen the payment step with fresh options and the receipt kept.
+  async function load(options) {
+    const reopenPayment = options?.reopenPayment || null;
     try {
+      if (viaTracking) {
+        const list = await tracking.listTrackedRequests();
+        const found = list.find((request) => request.id === params.requestId);
+        if (!found) throw new ApiError("الطلب غير متاح لهذا الرقم", { status: 404 });
+        if (options?.applyIf && !options.applyIf()) return;
+        renderDetail(fromTracking(found), { viaTracking: true, reopenPayment });
+        return;
+      }
       const res = await api(`/customer/requests/${params.requestId}`);
-      renderDetail(res.data);
+      if (options?.applyIf && !options.applyIf()) return;
+      renderDetail(res.data, { reopenPayment });
     } catch (error) {
-      bodyEl.innerHTML = errorState(error.message, { onRetry: load });
+      // A background refresh that fails (offline) keeps what is on screen.
+      if (options?.quiet) return;
+      bodyEl.innerHTML = errorState(error.message, { onRetry: load, title: "تعذر تحديث تفاصيل الطلب", hint: "لم نغيّر حالة الطلب. أعد المحاولة عند عودة الاتصال." });
     }
   }
 
-  function renderDetail(request) {
-    const price = request.invoice ? money(request.invoice.amount, request.invoice.currency) : "";
-    const canApprove = Boolean(request.invoice && request.invoice.status === "PENDING");
-    const canPay = Boolean(request.invoice && request.invoice.status === "APPROVED" && request.paymentStatus === "AWAITING_TRANSFER");
-    const underReview = request.paymentStatus === "UNDER_REVIEW";
-    const isEgyptClearance = request.visaType?.code === "VISA-EGYPT-CLEARANCE" && request.status !== "CLOSED";
+  function renderDetail(request, { viaTracking = false, reopenPayment = null } = {}) {
+    const pricing = pricingOf(request);
+    const price = pricing ? formatAmount(pricing.amount, pricing.currency) : "";
+    const sdgLine = sdgEquivalent(pricing);
+    const { canApprove, canPay, state: payState } = paymentActions(request);
+    // The server says what is possible now (allowedActions); a closed request
+    // offers nothing, even without that list.
+    const mayDo = (action) => request.status !== "CLOSED" && (!Array.isArray(request.allowedActions) || request.allowedActions.includes(action));
+    // The original item and its entry-method variants share the travel plan.
+    const isEgyptClearance = isEgyptClearanceItem(request.visaType) && mayDo("SAVE_TRAVEL_PLAN");
+    // Egypt security approval with the server's overview: typed files and
+    // the travel preparation section replace the generic blocks.
+    const egypt = isEgyptOverview(request);
+    const approvalIssued = egypt && request.egypt.approval.issued;
 
     bodyEl.innerHTML = `
       <div class="request-summary">
         <span class="status-pill">${esc(requestStatusLabel(request))}</span>
         <h2>${esc(request.service?.name || request.visaType?.name || "طلب خدمة")}</h2>
-        <p>${esc(request.nextAction || "")}</p>
+        <div class="request-next-action" role="status">
+          <small>المطلوب منك الآن</small>
+          <strong>${esc(request.nextAction || (request.status === "CLOSED" ? "الطلب مغلق ولا يلزمك إجراء." : "لا يلزمك إجراء الآن — فريق الوكالة يتابع الطلب."))}</strong>
+        </div>
       </div>
 
-      ${request.invoice ? `
-        <div class="detail-block quote-block">
-          <h4>السعر المرسل من الوكالة</h4>
-          <strong class="quote-amount">${price}</strong>
+      ${journeyBlockHtml(request.progress, esc, request)}
+
+      ${pricing || payState.label ? `
+        <div class="detail-block quote-block" id="quoteBlock">
+          <h4>${pricing ? "السعر والدفع" : "الدفع"}</h4>
+          ${pricing ? `<strong class="quote-amount">${esc(price)}</strong>${pricing.label ? `<small>${esc(pricing.label)}</small>` : ""}${sdgLine ? `<small class="quote-sdg">${esc(sdgLine)}</small>` : sdgUnavailable(pricing) ? `<small class="quote-sdg-unavailable">${esc(SDG_UNAVAILABLE_NOTICE)}</small>` : ""}${request.invoice?.description ? `<p>${esc(request.invoice.description)}</p>` : ""}` : ""}
+          ${payState.label ? `<div class="pay-state pay-state-${esc(payState.tone)}" role="status"><b>${esc(payState.label)}</b><span>${esc(payState.detail)}</span></div>` : ""}
           ${canApprove ? `<button class="primary" id="approveBtn">موافق على السعر</button><button class="secondary" id="rejectBtn">رفض العرض</button>` : ""}
           ${canPay ? `<button class="primary" id="paymentInfoBtn">عرض بيانات الدفع</button><button class="secondary" id="uploadReceiptBtn">رفع إثبات الدفع</button>` : ""}
-          ${underReview ? `<span class="review-state">${icon("clock", { size: 14 })} تم استلام إثبات الدفع، قيد مراجعة الوكالة</span>` : ""}
         </div>` : ""}
 
       ${request.offers?.length ? `
-        <div class="detail-block">
+        <div class="detail-block" id="offersBlock">
           <h4>عروض الوكالة</h4>
           ${request.offers.map((offer) => `
             <div class="offer-row">
@@ -245,10 +499,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
             </div>`).join("")}
         </div>` : ""}
 
-      ${request.documents?.length ? `
-        <div class="detail-block">
+      ${request.checklist?.length ? checklistBlock(request) : request.documents?.length ? `
+        <div class="detail-block" id="documentsBlock">
           <h4>المستندات</h4>
-          ${request.documents.map((doc) => `
+          ${request.documents.filter((doc) => !doc.supersededAt).map((doc) => `
             <div class="doc-row">
               <span>${esc(doc.label)}</span>
               <b class="doc-status doc-status-${esc((doc.status || "").toLowerCase())}">${esc(DOCUMENT_STATUS_AR[doc.status] || doc.status)}</b>
@@ -256,13 +510,17 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
             ${doc.status === "REJECTED" && doc.reviewNote ? `<p class="field-error">${esc(doc.reviewNote)}</p>` : ""}`).join("")}
         </div>` : ""}
 
-      ${request.deliverables?.length ? `
-        <div class="detail-block">
+      ${egypt ? egyptFilesHtml(request, esc, icon) : ""}
+      ${egypt ? egyptPrepHtml(request, esc, { canEditPlan: isEgyptClearance, canChooseFlight: mayDo("REQUEST_FLIGHT_BOOKING") }) : ""}
+
+      ${!egypt && request.deliverables?.length ? `
+        <div class="detail-block" id="deliverablesBlock">
           <h4>الملفات النهائية</h4>
           ${request.deliverables.map((file) => `<button class="secondary deliverable-btn" data-id="${esc(file.id)}">${icon("download", { size: 16 })} ${esc(file.label || file.fileName)}</button>`).join("")}
         </div>` : ""}
 
-      ${isEgyptClearance ? `<button class="primary" id="egyptTravelBtn">استكمال بيانات السفر والتعميم</button>` : ""}
+      ${!egypt && request.intakeData?.egyptTravel ? egyptTravelSummary(request.intakeData.egyptTravel) : ""}
+      ${isEgyptClearance && !approvalIssued ? `<button class="${egypt ? "secondary" : "primary"}" id="egyptTravelBtn">${egypt ? (request.egypt.travel.travelDate ? "تعديل تاريخ السفر" : "إضافة تاريخ السفر (اختياري)") : request.intakeData?.egyptTravel ? "تعديل بيانات السفر والتعميم" : "استكمال بيانات السفر والتعميم"}</button>` : ""}
 
       <div id="trackingActionPanel"></div>
 
@@ -274,16 +532,47 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     `;
 
     const panel = bodyEl.querySelector("#trackingActionPanel");
+    bindProgressTrack(bodyEl, { request, progress: request.progress, esc });
 
     bodyEl.querySelector("#approveBtn")?.addEventListener("click", () => {
-      ensureTrackingAndRun(panel, () => tracking.approveInvoice(request.id), { onDone: () => { toast("تمت الموافقة على السعر"); load(); } });
+      ensureTrackingAndRun(panel, () => tracking.approveInvoice(request.id, request.invoice?.version), { onDone: () => { toast("تمت الموافقة على السعر"); load(); } });
     });
     bodyEl.querySelector("#rejectBtn")?.addEventListener("click", () => {
-      ensureTrackingAndRun(panel, () => tracking.rejectInvoice(request.id), { onDone: () => { toast("تم رفض العرض"); load(); } });
+      ensureTrackingAndRun(panel, () => tracking.rejectInvoice(request.id, request.invoice?.version), { onDone: () => { toast("تم رفض العرض"); load(); } });
     });
-    bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", () => showPaymentAccounts(panel, request.invoice.currency));
-    bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", () => showReceiptUpload(panel, request.id, load));
-    bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load));
+    // Both open the same payment step: amount, accounts and receipt upload together.
+    const openPaymentStep = () => showPaymentStep(panel, { request, currency: pricing?.currency, price, onUploaded: load });
+    bodyEl.querySelector("#paymentInfoBtn")?.addEventListener("click", openPaymentStep);
+    bodyEl.querySelector("#uploadReceiptBtn")?.addEventListener("click", openPaymentStep);
+    if (reopenPayment && bodyEl.querySelector("#uploadReceiptBtn, #paymentInfoBtn")) {
+      showPaymentStep(panel, { request, currency: pricing?.currency, price, onUploaded: load, ...reopenPayment });
+    }
+    bodyEl.querySelector("#egyptTravelBtn")?.addEventListener("click", () => showEgyptTravelPlan(panel, request.id, load, egyptVariantEntryMode(request.visaType), request));
+    bodyEl.querySelectorAll("[data-flight-choice]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const choice = btn.dataset.flightChoice;
+        const done = () => { toast(choice === "REQUEST" ? "أُرسل طلب حجز التذكرة إلى الوكالة" : "تم حفظ اختيارك"); load(); };
+        if (viaTracking) return ensureTrackingAndRun(panel, () => tracking.recordFlightChoice(request.id, choice), { onDone: done });
+        return api(`/customer/requests/${request.id}/egypt/flight`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ choice }) })
+          .then(done)
+          .catch((error) => toast(error.message, { tone: "error" }));
+      });
+    });
+    bodyEl.querySelectorAll(".egypt-file-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const kind = btn.dataset.egyptFile;
+        if (kind === "RECEIPT") return viaTracking ? downloadTrackedPath(`/tracking/requests/${request.id}/payment-receipt/file`) : downloadAccountPath(`/customer/requests/${request.id}/payment-receipt/file`);
+        const owner = btn.dataset.request;
+        return viaTracking ? downloadTrackedDeliverable(owner, btn.dataset.deliverable) : downloadDeliverable(owner, btn.dataset.deliverable);
+      });
+    });
+    bodyEl.querySelectorAll("[data-upload-item]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const item = request.checklist.find((entry) => `${entry.requirementId}::${entry.travelerId || ""}` === input.dataset.uploadItem);
+        const file = input.files?.[0];
+        if (item && file) uploadChecklistDocument({ panel, request, item, file, viaTracking, reload: load, row: input.closest(".check-row") });
+      });
+    });
     bodyEl.querySelectorAll(".select-offer-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         ensureTrackingAndRun(panel, () => tracking.selectOffer(request.id, btn.dataset.offerId), {
@@ -292,101 +581,297 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
       });
     });
     bodyEl.querySelectorAll(".deliverable-btn").forEach((btn) => {
-      btn.addEventListener("click", () => downloadDeliverable(request.id, btn.dataset.id));
+      btn.addEventListener("click", () => (viaTracking ? downloadTrackedDeliverable(request.id, btn.dataset.id) : downloadDeliverable(request.id, btn.dataset.id)));
     });
   }
 
   await load();
+  startStatusRefresh(bodyEl, (stillIdle) => load({ quiet: true, applyIf: stillIdle }));
 }
 
-async function showPaymentAccounts(panel, currency) {
-  panel.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
+function checklistBlock(request) {
+  const groups = groupChecklist(request.checklist);
+  const todo = actionCount(request.checklist);
+  return `
+    <div class="detail-block checklist" id="documentsBlock">
+      <h4>المستندات والمعلومات المطلوبة</h4>
+      <p class="checklist-summary ${todo ? "needs-action" : "all-good"}">${todo ? `يلزم منك ${todo} ${todo === 1 ? "بند" : "بنود"} لإكمال الطلب` : "لا يوجد مطلوب منك الآن"}</p>
+      ${groups.map((group) => `
+        <div class="check-group">
+          <h5>${esc(group.title)}</h5>
+          ${group.items.map((item) => `
+            <div class="check-row check-${esc(String(item.state).toLowerCase())}" data-row="${esc(item.requirementId)}::${esc(item.travelerId || "")}">
+              <div class="check-main">
+                <span>${esc(item.label)}${item.required ? "" : " <small>(اختياري)</small>"}</span>
+                ${item.kind === "ANSWER" && item.answer ? `<small>${esc(item.answer)}</small>` : ""}
+                ${item.state === "REJECTED" && item.reviewNote ? `<p class="field-error">السبب: ${esc(item.reviewNote)}</p>` : ""}
+                <p class="field-error check-error" hidden></p>
+              </div>
+              <div class="check-side">
+                <b class="doc-status doc-status-${esc(String(item.state).toLowerCase())}">${esc(stateLabel(item.state))}</b>
+                ${canUpload(item, request) ? `<label class="chip-btn">${icon("upload", { size: 15 })}<span>${item.state === "REJECTED" ? "رفع بديل" : "رفع"}</span><input type="file" class="sr-only" accept="image/*,.pdf" data-upload-item="${esc(item.requirementId)}::${esc(item.travelerId || "")}"></label>` : ""}
+              </div>
+            </div>`).join("")}
+        </div>`).join("")}
+    </div>`;
+}
+
+// A document is always sent for the exact requirement and traveler of the
+// checklist row it was picked on.
+async function uploadChecklistDocument({ panel, request, item, file, viaTracking, reload, row }) {
+  const errorEl = row?.querySelector(".check-error");
+  const problem = validateFile(file, null);
+  if (problem) {
+    if (errorEl) {
+      errorEl.textContent = problem;
+      errorEl.hidden = false;
+    }
+    return;
+  }
+  if (errorEl) errorEl.hidden = true;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("label", uploadLabel(item));
+  form.append("requirementId", item.requirementId);
+  if (item.travelerId) form.append("travelerId", item.travelerId);
+  const done = () => {
+    toast("تم رفع المستند وهو الآن قيد المراجعة");
+    reload();
+  };
+  if (viaTracking) {
+    await ensureTrackingAndRun(panel, () => tracking.uploadDocument(request.id, form), { onDone: done });
+    return;
+  }
   try {
-    const res = await tracking.getPaymentAccounts(currency);
-    const accounts = res.data || [];
-    panel.innerHTML = accounts.length
-      ? `<div class="detail-block">${accounts.map((account) => `
-          <div class="payment-card">
-            <strong>${esc(account.name || account.bankName || "حساب الدفع")}</strong>
-            ${account.accountName ? `<span>${esc(account.accountName)}</span>` : ""}
-            ${account.accountNumber ? `<code>${esc(account.accountNumber)}</code>` : ""}
-            ${account.iban ? `<code>${esc(account.iban)}</code>` : ""}
-            <small>${esc(account.currency || currency)}</small>
-          </div>`).join("")}</div>`
-      : emptyState({ icon: "wallet", title: "بيانات الدفع غير متاحة حالياً", hint: "تواصل مع الوكالة بعد اعتماد السعر." });
+    await apiUpload(`/customer/requests/${request.id}/documents`, form);
+    done();
   } catch (error) {
-    panel.innerHTML = errorState(error.message);
+    if (errorEl) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    }
+    toast(error.message, { tone: "error" });
   }
 }
 
-function showReceiptUpload(panel, requestId, onUploaded) {
+// The payment step in one place: the amount, the agency accounts that may
+// take it (the invoice currency, or the frozen SDG equivalent where the agency
+// allows it; bank, holder, number with a copy button) and the receipt —
+// camera, gallery or PDF, previewed before it is sent. A receipt only puts the
+// payment under review; it is never "paid" until staff confirm it (backend
+// uploadPaymentReceipt).
+async function showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt = null, notice = "" }) {
+  const requestId = request.id;
+  panel.innerHTML = `<div class="loading-block">${icon("clock", { size: 22 })}<p>جارٍ تحميل بيانات الدفع…</p></div>`;
+  const payable = request.invoice || (request.offers || []).find((offer) => offer.id === request.selectedOfferId) || {};
+  let options = Array.isArray(request.paymentSettlementOptions) && request.paymentSettlementOptions.length ? request.paymentSettlementOptions : null;
+  let loadError = null;
+  if (!options) {
+    // Older server, or a view without the options: the invoice-currency accounts.
+    try {
+      const res = await tracking.getPaymentAccounts(currency);
+      options = normalizeSettlementOptions({ settlementOptions: request.paymentSettlementOptions, accounts: res.data || [], amount: payable.amount, currency });
+    } catch (error) {
+      loadError = error;
+      options = [];
+    }
+  }
   panel.innerHTML = `
-    <form id="receiptForm" class="form detail-block">
-      <h4>رفع إثبات الدفع</h4>
-      <label class="field">
-        <span>إشعار التحويل (صورة أو PDF) *</span>
-        <input name="file" type="file" accept="image/*,.pdf" required>
-      </label>
-      <div class="upload-progress-wrap" id="receiptProgressWrap" hidden>
-        <div class="upload-progress-bar"><div class="upload-progress-fill" id="receiptProgressFill"></div></div>
-      </div>
-      <button type="submit" class="primary">رفع الإثبات</button>
-    </form>`;
+    <div class="detail-block payment-step" data-testid="tracking-payment-step">
+      <h4>الدفع بالتحويل البنكي</h4>
+      ${paymentSafetyHtml()}
+      ${price ? `<p class="payment-amount">قيمة الفاتورة: <strong>${esc(price)}</strong></p>` : ""}
+      ${loadError
+        ? errorState(loadError.message, { onRetry: () => showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt, notice }) })
+        : options.length
+          ? `<p class="field-hint">اختر الحساب الذي ستحوّل إليه، وحوّل المبلغ الظاهر عليه بالضبط.</p>
+             ${settlementOptionsHtml(options, esc, { invoiceAmount: payable.amount, invoiceCurrency: payable.currency || currency })}
+             <form id="receiptForm" class="form" novalidate>
+               ${receiptPickerHtml(esc, icon)}
+               <button type="submit" class="primary" id="receiptSubmitBtn">إرسال إشعار التحويل</button>
+               <small>بعد الرفع تصبح حالة الدفع «بانتظار مراجعة الدفع» حتى تؤكد الوكالة استلام المبلغ.</small>
+             </form>`
+          : noSettlementAccountHtml(esc, payable.currency || currency)}
+    </div>`;
+  bindCopyButtons(panel, toast);
   const form = panel.querySelector("#receiptForm");
+  if (!form) return;
+  const picker = bindReceiptPicker(form, { esc, icon, validate: (file) => validateFile(file, null), initialFile: keptReceipt });
+  if (notice) picker.showError(notice);
+  let sending = false;
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const file = new FormData(form).get("file");
-    const submitBtn = form.querySelector("button");
+    if (sending) return;
+    const accountId = selectedSettlementAccount(panel);
+    if (!accountId) return picker.showError("اختر الحساب الذي حوّلت إليه.");
+    const file = picker.file;
+    if (!file) return picker.showError("صوّر إشعار التحويل أو اختر صورته أو ملف PDF.");
+    picker.showError("");
+    sending = true;
+    const submitBtn = form.querySelector("#receiptSubmitBtn");
     setLoading(submitBtn, true, "جارٍ الرفع…");
-    const progressWrap = panel.querySelector("#receiptProgressWrap");
-    const progressFill = panel.querySelector("#receiptProgressFill");
-    progressWrap.hidden = false;
-    await ensureTrackingAndRun(panel, () => tracking.uploadPaymentReceipt(requestId, file, (percent) => { progressFill.style.width = `${percent}%`; }), {
-      onDone: () => { toast("تم رفع إثبات الدفع للمراجعة"); onUploaded(); },
+    picker.setBusy(true);
+    const settlement = { accountId, invoiceVersion: request.invoice?.version };
+    const upload = async () => {
+      try {
+        await tracking.uploadPaymentReceipt(requestId, file, (percent) => picker.setProgress(percent), settlement);
+      } catch (error) {
+        // The receipt is already in (a lost response, a second tap elsewhere):
+        // the reload shows «بانتظار مراجعة الدفع».
+        if (isAlreadySubmitted(error)) return;
+        // The accounts or the invoice changed since this screen was loaded:
+        // reload the request (fresh options), keep the picked receipt, say why.
+        // (The preview is released only when the form is replaced.)
+        if (needsRefresh(error)) {
+          picker.dispose();
+          refreshAfter = error;
+          return;
+        }
+        if (!panel.contains(form)) {
+          // The phone check replaced the form: bring it back with the receipt
+          // still chosen, so the customer can retry.
+          picker.dispose();
+          retryAfter = error;
+          return;
+        }
+        if (panel.contains(form)) {
+          sending = false;
+          setLoading(submitBtn, false);
+          submitBtn.textContent = "إعادة المحاولة";
+          picker.setBusy(false);
+          picker.showError(error.offline ? "تعذّر الاتصال. تحقق من الإنترنت ثم اضغط «إعادة المحاولة»؛ الإشعار المختار ما زال جاهزًا." : error.message);
+        }
+        throw error;
+      }
+    };
+    let refreshAfter = null;
+    let retryAfter = null;
+    await ensureTrackingAndRun(panel, upload, {
+      onDone: () => {
+        if (refreshAfter || retryAfter) {
+          const failure = refreshAfter || retryAfter;
+          toast(failure.message, { tone: "error" });
+          if (refreshAfter) return onUploaded({ reopenPayment: { keptReceipt: file, notice: failure.message } });
+          return showPaymentStep(panel, { request, currency, price, onUploaded, keptReceipt: file, notice: failure.message });
+        }
+        picker.dispose();
+        toast("تم رفع الإشعار — بانتظار مراجعة الدفع");
+        onUploaded();
+      },
     });
+    sending = false;
   });
 }
 
-function showEgyptTravelPlan(panel, requestId, onSaved) {
+// What the server recorded about the Egypt travel plan (it computes the
+// circular status from the stored entry date; nothing is guessed here).
+const EGYPT_CIRCULAR_AR = {
+  WAITING_APPROVAL: "بانتظار صدور الموافقة الأمنية",
+  BOOKING_REQUIRED: "بانتظار حجز الرحلة من الوكالة",
+  READY_FOR_CIRCULAR: "جاهز لتجهيز التعميم قبل الدخول",
+  TIME_CONFIRMATION_REQUIRED: "يلزم تأكيد وقت الوصول مع الوكالة",
+  TOO_LATE_FOR_NORMAL_CIRCULAR: "الوقت قصير للتعميم المعتاد؛ تواصل مع الوكالة",
+  ENTRY_DATE_PASSED: "تاريخ الدخول مضى",
+};
+
+function egyptTravelSummary(plan) {
+  return `
+    <div class="detail-block" id="egyptTravelSummary">
+      <h4>بيانات السفر والتعميم</h4>
+      <p>${plan.entryMode === "AIR" ? "منفذ جوي" : "منفذ بري"} · تاريخ الدخول <span dir="ltr">${esc(plan.entryDate || "")}</span></p>
+      <p class="field-hint">${esc(EGYPT_CIRCULAR_AR[plan.circularStatus] || plan.circularStatus || "")}</p>
+    </div>`;
+}
+
+// A variant request already fixed the entry method when it was booked: it is
+// shown, not asked again (the server refuses a different one).
+// Flight details typed by the customer (only the filled ones are sent).
+function flightDetailsOf(raw) {
+  const details = {};
+  for (const key of ["flightNumber", "airline", "departureTime", "arrivalTime"]) {
+    const value = String(raw.get(key) || "").trim();
+    if (value) details[key] = value;
+  }
+  return details;
+}
+
+function showEgyptTravelPlan(panel, requestId, onSaved, fixedEntryMode = null, request = null) {
   const today = new Date().toISOString().slice(0, 10);
+  const current = request?.egypt?.travel?.travelDate || request?.intakeData?.egyptTravel?.entryDate || "";
+  const border = fixedEntryMode === "BORDER";
+  const port = request?.egypt?.route?.entryPort || request?.intakeData?.egyptRoute?.entryPort || "";
+  const flight = request?.egypt?.flight?.details || {};
   panel.innerHTML = `
     <form id="egyptPlanForm" class="form detail-block">
-      <h4>بيانات السفر والتعميم</h4>
+      <h4>${border ? "بيانات الوصول إلى المنفذ" : "بيانات السفر"}</h4>
+      ${fixedEntryMode ? `<p class="field-hint" id="egyptFixedEntryMode">طريقة الدخول: ${fixedEntryMode === "AIR" ? "جوي — مطار القاهرة" : "بري — المعبر"}</p>` : `
       <label class="field">
         <span>طريقة الدخول</span>
         <select name="entryMode">
           <option value="AIR">منفذ جوي</option>
           <option value="BORDER">منفذ بري</option>
         </select>
-      </label>
+      </label>`}
+      ${border ? `
       <label class="field">
-        <span>حالة الحجز</span>
+        <span>منفذ الدخول *</span>
+        <input name="entryPort" maxlength="80" value="${esc(port)}" required>
+      </label>` : `
+      <label class="field">
+        <span>التذكرة</span>
         <select name="bookingStatus">
-          <option value="EXISTING">لدي حجز بالفعل</option>
+          <option value="EXISTING">لدي تذكرة — سأرفعها</option>
           <option value="NEEDS_NASAEM">أريد الحجز من نسائم الحرمين</option>
         </select>
-      </label>
+      </label>`}
       <label class="field">
-        <span>تاريخ الدخول المتوقع *</span>
-        <input name="entryDate" type="date" min="${today}" required>
+        <span>${border ? "تاريخ الوصول المتوقع إلى المنفذ *" : "تاريخ السفر *"}</span>
+        <input name="entryDate" type="date" min="${today}" value="${esc(current)}" required>
       </label>
+      ${border ? "" : `
       <label class="field" data-doc-field>
-        <span>التذكرة أو الحجز إن وجد</span>
+        <span>صورة التذكرة أو ملفها</span>
         <input name="file" type="file" accept="image/*,.pdf">
       </label>
-      <p class="field-hint">مرحلة التعميم تحتاج وقتًا كافيًا قبل الدخول، وستظهر حالة الطلب الفعلية دون أي تأكيد غير دقيق.</p>
-      <button type="submit" class="primary">حفظ بيانات السفر</button>
+      <fieldset class="field flight-details" id="egyptFlightDetails">
+        <legend>بيانات الرحلة (اختياري — تتحقق منها الوكالة من التذكرة)</legend>
+        <label class="field"><span>رقم الرحلة</span><input name="flightNumber" dir="ltr" maxlength="12" placeholder="SD 345" value="${esc(flight.flightNumber || "")}"></label>
+        <label class="field"><span>شركة الطيران</span><input name="airline" maxlength="80" value="${esc(flight.airline || "")}"></label>
+        <label class="field"><span>وقت الإقلاع</span><input name="departureTime" type="time" value="${esc(flight.departureTime || "")}"></label>
+        <label class="field"><span>وقت الوصول</span><input name="arrivalTime" type="time" value="${esc(flight.arrivalTime || "")}"></label>
+        ${flight.verified ? '<p class="field-hint">تحققت الوكالة من هذه البيانات؛ تعديلها يعيدها للمراجعة.</p>' : ""}
+      </fieldset>`}
+      <label class="confirm-check"><input type="checkbox" name="confirmDate" required> <span>أؤكد أن هذا التاريخ صحيح.</span></label>
+      <p class="field-hint">يُجهَّز التعميم قبل السفر بوقت كافٍ؛ ستظهر حالته الفعلية هنا.</p>
+      <button type="submit" class="primary">حفظ</button>
     </form>`;
   const form = panel.querySelector("#egyptPlanForm");
+  panel.scrollIntoView?.({ block: "start" });
+  const bookingSelect = form.querySelector('[name="bookingStatus"]');
+  const flightBox = form.querySelector("#egyptFlightDetails");
+  const syncFlightBox = () => { if (flightBox && bookingSelect) flightBox.hidden = bookingSelect.value !== "EXISTING" || form.querySelector('[name="entryMode"]')?.value === "BORDER"; };
+  bookingSelect?.addEventListener("change", syncFlightBox);
+  form.querySelector('[name="entryMode"]')?.addEventListener("change", syncFlightBox);
+  syncFlightBox();
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = new FormData(form);
+    if (!raw.get("confirmDate")) {
+      toast("أكّد التاريخ أولًا.", { tone: "error" });
+      return;
+    }
     const file = raw.get("file");
     const submitBtn = form.querySelector("button");
     setLoading(submitBtn, true, "جارٍ الحفظ…");
     await ensureTrackingAndRun(
       panel,
-      () => tracking.saveEgyptTravelPlan(requestId, { entryMode: raw.get("entryMode"), bookingStatus: raw.get("bookingStatus"), entryDate: raw.get("entryDate") }, file?.size ? file : null),
+      () => tracking.saveEgyptTravelPlan(requestId, {
+        ...(fixedEntryMode ? {} : { entryMode: raw.get("entryMode") }),
+        bookingStatus: border ? "EXISTING" : raw.get("bookingStatus"),
+        entryDate: raw.get("entryDate"),
+        ...(border ? { entryPort: String(raw.get("entryPort") || "").trim() } : {}),
+        ...(!border && raw.get("bookingStatus") === "EXISTING" ? flightDetailsOf(raw) : {}),
+      }, file?.size ? file : null),
       { onDone: () => { toast("تم حفظ بيانات السفر"); onSaved(); } }
     );
   });
@@ -431,9 +916,15 @@ export async function renderOrderDetailScreen({ bodyEl, setTitle, params }) {
 }
 
 async function downloadDeliverable(requestId, deliverableId) {
+  return downloadAccountPath(`/customer/requests/${requestId}/deliverables/${deliverableId}/file`);
+}
+
+// Files are fetched with the customer's own session and opened locally;
+// their server address is never shared or public.
+async function downloadAccountPath(path) {
   try {
     const token = await getToken();
-    const response = await fetch(`${CONFIG.apiBaseUrl}/customer/requests/${requestId}/deliverables/${deliverableId}/file`, {
+    const response = await fetch(`${CONFIG.apiBaseUrl}${path}`, {
       credentials: "include",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -441,6 +932,19 @@ async function downloadDeliverable(requestId, deliverableId) {
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
+  } catch (error) {
+    toast(error.message, { tone: "error" });
+  }
+}
+
+async function downloadTrackedDeliverable(requestId, deliverableId) {
+  return downloadTrackedPath(`/tracking/requests/${requestId}/deliverables/${deliverableId}/file`);
+}
+
+async function downloadTrackedPath(path) {
+  try {
+    const blob = await tracking.fetchTrackedFile(path);
+    window.open(URL.createObjectURL(blob), "_blank");
   } catch (error) {
     toast(error.message, { tone: "error" });
   }

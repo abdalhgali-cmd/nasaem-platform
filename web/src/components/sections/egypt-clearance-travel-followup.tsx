@@ -20,20 +20,46 @@ type EgyptTravelPlan = {
   bookingStatus: "EXISTING" | "NEEDS_NASAEM";
   entryDate: string;
   ticketDocumentId?: string | null;
+  entryPort?: string | null;
+  flightDetails?: FlightDetails | null;
   circularStatus: CircularStatus;
   daysUntilEntry: number | null;
 };
+
+type FlightDetails = {
+  flightNumber?: string | null;
+  airline?: string | null;
+  departureTime?: string | null;
+  arrivalTime?: string | null;
+  verified?: boolean;
+};
+
+const FLIGHT_FIELDS = ["flightNumber", "airline", "departureTime", "arrivalTime"] as const;
+type FlightField = (typeof FLIGHT_FIELDS)[number];
 
 type TrackingRequest = {
   id: string;
   status: "NEW" | "CONTACTED" | "CLOSED";
   visaType: { code?: string; name: string } | null;
   deliverables: { id: string; label: string }[];
-  intakeData?: { egyptTravel?: EgyptTravelPlan | null } | null;
+  intakeData?: { egyptTravel?: EgyptTravelPlan | null; egyptRoute?: { entryMode?: string; entryPort?: string | null } | null } | null;
 };
 
-const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
+const FLIGHT_LABELS: Record<FlightField, string> = {
+  flightNumber: "رقم الرحلة",
+  airline: "شركة الطيران",
+  departureTime: "وقت الإقلاع",
+  arrivalTime: "وقت الوصول",
+};
+
+// The original item and its entry-method variants (backend egypt-clearance-variants.js).
+const EGYPT_CLEARANCE_CODES = new Set(["VISA-EGYPT-CLEARANCE", "VISA-EGYPT-CLEARANCE-AIR", "VISA-EGYPT-CLEARANCE-BORDER"]);
 const FILE_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
+// A variant already fixed the entry method when it was booked: not asked again.
+const VARIANT_ENTRY_MODES: Record<string, "AIR" | "BORDER"> = {
+  "VISA-EGYPT-CLEARANCE-AIR": "AIR",
+  "VISA-EGYPT-CLEARANCE-BORDER": "BORDER",
+};
 
 function statusCopy(plan: EgyptTravelPlan | null | undefined) {
   if (!plan) {
@@ -86,11 +112,27 @@ function statusCopy(plan: EgyptTravelPlan | null | undefined) {
 
 function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved: () => Promise<void> }) {
   const current = request.intakeData?.egyptTravel ?? null;
-  const [entryMode, setEntryMode] = React.useState<"AIR" | "BORDER">(current?.entryMode ?? "AIR");
+  const fixedEntryMode = VARIANT_ENTRY_MODES[String(request.visaType?.code || "").toUpperCase()] ?? null;
+  const [chosenEntryMode, setEntryMode] = React.useState<"AIR" | "BORDER">(current?.entryMode ?? "AIR");
+  const entryMode = fixedEntryMode ?? chosenEntryMode;
   const [bookingStatus, setBookingStatus] = React.useState<"EXISTING" | "NEEDS_NASAEM">(
     current?.bookingStatus ?? "EXISTING"
   );
   const [entryDate, setEntryDate] = React.useState(current?.entryDate ?? "");
+  // Overland: the crossing is what the circular needs, not a ticket (the
+  // server requires a ticket only for air; same rule as the app).
+  const border = entryMode === "BORDER";
+  const [entryPort, setEntryPort] = React.useState(
+    request.intakeData?.egyptRoute?.entryPort ?? current?.entryPort ?? ""
+  );
+  const savedFlight = current?.flightDetails ?? null;
+  const [flight, setFlight] = React.useState<Record<FlightField, string>>(() => ({
+    flightNumber: savedFlight?.flightNumber ?? "",
+    airline: savedFlight?.airline ?? "",
+    departureTime: savedFlight?.departureTime ?? "",
+    arrivalTime: savedFlight?.arrivalTime ?? "",
+  }));
+  const effectiveBooking = border ? "EXISTING" : bookingStatus;
   const [file, setFile] = React.useState<File | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -103,10 +145,14 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
     setSuccess("");
 
     if (!entryDate) {
-      setError("حدد تاريخ الدخول المتوقع إلى مصر");
+      setError(border ? "حدد تاريخ الوصول المتوقع إلى المنفذ" : "حدد تاريخ الدخول المتوقع إلى مصر");
       return;
     }
-    if (bookingStatus === "EXISTING" && !file && !current?.ticketDocumentId) {
+    if (border && !entryPort.trim()) {
+      setError("أدخل منفذ الدخول");
+      return;
+    }
+    if (!border && bookingStatus === "EXISTING" && !file && !current?.ticketDocumentId) {
       setError("ارفع صورة أو PDF للتذكرة/الحجز");
       return;
     }
@@ -114,9 +160,14 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
     setSaving(true);
     try {
       const body = new FormData();
-      body.append("entryMode", entryMode);
-      body.append("bookingStatus", bookingStatus);
+      if (!fixedEntryMode) body.append("entryMode", entryMode);
+      body.append("bookingStatus", effectiveBooking);
       body.append("entryDate", entryDate);
+      if (border) body.append("entryPort", entryPort.trim());
+      if (!border && effectiveBooking === "EXISTING") {
+        // Only the filled flight details are sent (staff verify them).
+        for (const key of FLIGHT_FIELDS) if (flight[key].trim()) body.append(key, flight[key].trim());
+      }
       if (file) body.append("file", file);
 
       const response = await fetch(`${API_URL}/tracking/requests/${request.id}/egypt-travel-plan`, {
@@ -173,6 +224,11 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
       </div>
 
       <form onSubmit={submit} className="mt-5 grid gap-4">
+        {fixedEntryMode ? (
+          <p className="rounded-xl border border-border bg-muted/30 p-3 text-sm font-semibold text-foreground" data-testid="egypt-fixed-entry-mode">
+            طريقة الدخول: {fixedEntryMode === "AIR" ? "جوي — مطار القاهرة" : "بري — المعبر"}
+          </p>
+        ) : (
         <div>
           <p className="text-sm font-semibold text-foreground">طريقة الدخول</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
@@ -198,10 +254,11 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
             </button>
           </div>
         </div>
+        )}
 
         <div>
           <label className="text-sm font-semibold text-foreground" htmlFor={`egypt-entry-${request.id}`}>
-            تاريخ الدخول المتوقع إلى مصر
+            {border ? "تاريخ الوصول المتوقع إلى المنفذ" : "تاريخ الدخول المتوقع إلى مصر"}
           </label>
           <input
             id={`egypt-entry-${request.id}`}
@@ -216,6 +273,23 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
           </p>
         </div>
 
+        {border ? (
+          <div>
+            <label className="text-sm font-semibold text-foreground" htmlFor={`egypt-port-${request.id}`}>
+              منفذ الدخول
+            </label>
+            <input
+              id={`egypt-port-${request.id}`}
+              required
+              maxLength={80}
+              value={entryPort}
+              onChange={(e) => setEntryPort(e.target.value)}
+              placeholder="اسم المنفذ البري"
+              data-testid="egypt-followup-entry-port"
+              className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none transition focus:border-primary"
+            />
+          </div>
+        ) : (
         <div>
           <p className="text-sm font-semibold text-foreground">هل لديك حجز بالفعل؟</p>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -241,8 +315,9 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
             </button>
           </div>
         </div>
+        )}
 
-        {bookingStatus === "EXISTING" ? (
+        {!border && bookingStatus === "EXISTING" ? (
           <div className="rounded-xl border border-dashed border-border p-4">
             <label className="flex cursor-pointer items-center gap-3 text-sm font-semibold text-foreground">
               <FileUp className="size-5 text-primary" />
@@ -259,6 +334,26 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
             {!file && current?.ticketDocumentId ? (
               <p className="mt-2 text-xs text-emerald-600">يوجد حجز مرفوع بالفعل على هذا الطلب.</p>
             ) : null}
+            <fieldset className="mt-4 grid gap-2 min-[360px]:grid-cols-2" data-testid="egypt-followup-flight-details">
+              <legend className="mb-1 text-xs font-semibold text-foreground">بيانات الرحلة (اختياري — تتحقق منها الوكالة من التذكرة)</legend>
+              {FLIGHT_FIELDS.map((key) => (
+                <label key={key} className="grid gap-1 text-xs text-muted-foreground">
+                  <span>{FLIGHT_LABELS[key]}</span>
+                  <input
+                    name={key}
+                    type={key.endsWith("Time") ? "time" : "text"}
+                    dir={key === "flightNumber" ? "ltr" : undefined}
+                    maxLength={key === "flightNumber" ? 12 : 80}
+                    value={flight[key]}
+                    onChange={(e) => setFlight((prev) => ({ ...prev, [key]: e.target.value }))}
+                    className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-primary"
+                  />
+                </label>
+              ))}
+              {savedFlight?.verified ? (
+                <p className="text-xs text-muted-foreground min-[360px]:col-span-2">تحققت الوكالة من هذه البيانات؛ تعديلها يعيدها للمراجعة.</p>
+              ) : null}
+            </fieldset>
           </div>
         ) : null}
 
@@ -267,7 +362,7 @@ function EgyptCaseCard({ request, onSaved }: { request: TrackingRequest; onSaved
 
         <Button type="submit" variant="gold" disabled={saving}>
           {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-          {bookingStatus === "NEEDS_NASAEM" ? "إرسال طلب الحجز" : "حفظ بيانات السفر والتعميم"}
+          {effectiveBooking === "NEEDS_NASAEM" ? "إرسال طلب الحجز" : "حفظ بيانات السفر والتعميم"}
         </Button>
       </form>
     </article>
@@ -308,7 +403,7 @@ export function EgyptClearanceTravelFollowup() {
   }, [authenticated, load]);
 
   const egyptRequests = requests.filter(
-    (request) => request.visaType?.code === EGYPT_CLEARANCE_CODE && request.status !== "CLOSED"
+    (request) => EGYPT_CLEARANCE_CODES.has(request.visaType?.code ?? "") && request.status !== "CLOSED"
   );
 
   if (!authenticated || egyptRequests.length === 0) return null;

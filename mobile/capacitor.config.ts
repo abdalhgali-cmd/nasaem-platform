@@ -19,10 +19,20 @@ const config: CapacitorConfig = {
     Keyboard: {
       resize: "native",
     },
+    // Status bar: always light icons on navy. Capacitor 8's SystemBars
+    // (edge-to-edge) otherwise picks dark icons from the light app theme.
+    // On Android 15+ the bar is transparent and the page paints the navy
+    // strip itself (.status-scrim, sized by --safe-area-inset-top); on older
+    // versions StatusBar's backgroundColor below paints it natively.
+    SystemBars: {
+      insetsHandling: "css",
+      style: "DARK",
+      initialViewportFitValueHint: "cover",
+    },
     StatusBar: {
       overlaysWebView: false,
       style: "DARK",
-      backgroundColor: "#082b58",
+      backgroundColor: "#061f42",
     },
     SplashScreen: {
       launchShowDuration: 700,

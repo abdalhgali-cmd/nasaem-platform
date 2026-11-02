@@ -22,6 +22,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { VISA_TYPE_CATEGORIES } from "../../utils/enums.js";
 import prisma from "../../config/database.js";
+import { pricingConfigError } from "../contact-request-pricing/fixed-price.js";
 
 export async function getPublicPackages(req, res, next) {
   try {
@@ -97,6 +98,8 @@ export async function storeService(req, res, next) {
       });
     }
 
+    const pricingError = pricingConfigError(parsed.data);
+    if (pricingError) return res.status(400).json({ success: false, code: "INVALID_PRICING", message: pricingError });
     const service = await createService(parsed.data);
     logActivity({ userId: req.user?.id, action: "SERVICE_CREATED", entity: "Service", entityId: service.id, req, newValue: service });
 
@@ -132,6 +135,8 @@ export async function patchService(req, res, next) {
         message: "Service not found",
       });
     }
+    if (service.error === "INVALID_PRICING") return res.status(400).json({ success: false, code: "INVALID_PRICING", message: service.message });
+    if (service.error === "CODE_IN_USE") return res.status(409).json({ success: false, code: "CODE_IN_USE", message: "هذا الرمز مستخدم في طلبات أو طلبات مالية قائمة ولا يمكن تغييره. أنشئ عنصرًا جديدًا بالرمز الجديد بدلًا من ذلك." });
 
     logActivity({ userId: req.user?.id, action: "SERVICE_UPDATED", entity: "Service", entityId: service.id, req, oldValue: before, newValue: service });
 
@@ -148,20 +153,22 @@ export async function patchService(req, res, next) {
 export async function removeService(req, res, next) {
   try {
     const { id } = req.params;
-    const service = await deleteService(id);
+    const result = await deleteService(id);
 
-    if (!service) {
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: "Service not found",
       });
     }
 
-    logActivity({ userId: req.user?.id, action: "SERVICE_DELETED", entity: "Service", entityId: service.id, req, oldValue: service });
+    const { service, previous, deactivated } = result;
+    logActivity({ userId: req.user?.id, action: deactivated ? "SERVICE_DEACTIVATED" : "SERVICE_DELETED", entity: "Service", entityId: service.id, req, oldValue: previous, ...(deactivated ? { newValue: service } : {}) });
 
     return res.status(200).json({
       success: true,
-      message: "Service removed successfully",
+      deactivated,
+      message: deactivated ? "الخدمة مستخدمة في طلبات قائمة، لذلك تم تعطيلها بدل حذفها." : "تم حذف الخدمة.",
     });
   } catch (error) {
     next(error);

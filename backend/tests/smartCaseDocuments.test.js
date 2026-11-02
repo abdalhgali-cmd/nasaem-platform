@@ -130,7 +130,8 @@ describe("document versioning and traveler-scoped document ownership", () => {
         .field("travelerId", travelerBId)
     );
     assert.equal(crossRes.status, 400);
-    assert.match(crossRes.body.message, /traveler/i);
+    assert.equal(crossRes.body.code, "TRAVELER_NOT_FOUND");
+    assert.match(crossRes.body.message, /المسافر/);
   });
 
   test("a customer can upload a document scoped to their own traveler via tracking", async () => {

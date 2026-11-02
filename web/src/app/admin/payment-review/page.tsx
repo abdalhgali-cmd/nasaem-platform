@@ -3,7 +3,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CheckCircle2, CreditCard, ExternalLink, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, CreditCard, ExternalLink, FileText, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { API_URL } from "@/lib/api-url";
@@ -21,6 +21,11 @@ type Item = {
   currency: string | null;
   updatedAt: string;
   pendingPayment?: { id: string; amount: string | number; currency: string | null } | null;
+  receiptDocumentId?: string | null;
+  // No current receipt (transfer only declared): confirming needs a reason.
+  needsConfirmReason?: boolean;
+  // What the customer says they transferred and where (validated at upload).
+  transferClaim?: { kind: string; payAmount: string | number; payCurrency: string; rate?: string | number | null; accountChosen: boolean; bankName?: string | null; accountNumber?: string | null } | null;
 };
 
 type Payload = { items: Item[] };
@@ -35,6 +40,7 @@ export default function PaymentReviewPage() {
   const [loading, setLoading] = React.useState(true);
   const [workingId, setWorkingId] = React.useState<string | null>(null);
   const [rejectingId, setRejectingId] = React.useState<string | null>(null);
+  const [confirmReasons, setConfirmReasons] = React.useState<Record<string, string>>({});
   const [rejectReason, setRejectReason] = React.useState("");
   const [message, setMessage] = React.useState("");
   const [error, setError] = React.useState("");
@@ -60,6 +66,11 @@ export default function PaymentReviewPage() {
   }
 
   async function confirmPayment(item: Item) {
+    const reason = (confirmReasons[item.id] || "").trim();
+    if (item.source === "contact_request" && item.needsConfirmReason && reason.length < 5) {
+      setError("لا يوجد إيصال تحويل لهذا الطلب. اكتب سبب تأكيد الدفع بدون إيصال (5 أحرف على الأقل).");
+      return;
+    }
     setWorkingId(item.id);
     setMessage("");
     setError("");
@@ -68,9 +79,14 @@ export default function PaymentReviewPage() {
         item.source === "order" && item.pendingPayment
           ? `${API_URL}/payments/${encodeURIComponent(item.pendingPayment.id)}/confirm`
           : `${API_URL}/contact-requests/${encodeURIComponent(item.id)}/confirm-payment`;
-      const response = await fetch(endpoint, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" } });
+      const response = await fetch(endpoint, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item.source === "contact_request" && reason ? { reason } : {}) });
       const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) throw new Error(payload?.message || "تعذر تأكيد الدفع");
+      if (!response.ok || !payload?.success) {
+        // The receipt changed since this list loaded (e.g. rejected): reload
+        // so the reason field shows, keeping the server's message.
+        if (payload?.code === "RECEIPT_OR_REASON_REQUIRED") await load();
+        throw new Error(payload?.message || "تعذر تأكيد الدفع");
+      }
       setMessage(`تم تأكيد الدفع للطلب ${item.reference}`);
       await load();
     } catch (err) {
@@ -81,7 +97,8 @@ export default function PaymentReviewPage() {
   }
 
   async function rejectPayment(item: Item) {
-    if (!item.pendingPayment) return;
+    const isContactRequest = item.source === "contact_request";
+    if (!isContactRequest && !item.pendingPayment) return;
     if (!rejectReason.trim()) {
       setError("يرجى كتابة سبب الرفض");
       return;
@@ -90,7 +107,12 @@ export default function PaymentReviewPage() {
     setMessage("");
     setError("");
     try {
-      const response = await fetch(`${API_URL}/payments/${encodeURIComponent(item.pendingPayment.id)}/reject`, {
+      // A customer request's receipt is rejected on the request itself (it
+      // returns to "awaiting transfer" and the customer sees the reason).
+      const endpoint = isContactRequest
+        ? `${API_URL}/contact-requests/${encodeURIComponent(item.id)}/reject-payment`
+        : `${API_URL}/payments/${encodeURIComponent(item.pendingPayment!.id)}/reject`;
+      const response = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -122,7 +144,7 @@ export default function PaymentReviewPage() {
           </div>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} />تحديث</Button>
-            <Button asChild variant="gold"><Link href="/admin/operations">مركز العمليات</Link></Button>
+            <Button asChild variant="gold"><Link href="/admin">مركز العمليات</Link></Button>
           </div>
         </div>
 
@@ -142,6 +164,15 @@ export default function PaymentReviewPage() {
                       <div className="font-black">{item.customerName}</div>
                       <div className="mt-1 text-xs text-muted-foreground">{item.service} · {item.reference}</div>
                       <div className="mt-2 text-sm font-bold">{item.pendingPayment ? formatAmount(item.pendingPayment.amount, item.pendingPayment.currency) : formatAmount(item.amount, item.currency)}</div>
+                      {item.transferClaim ? (
+                        <div className="mt-1 text-xs font-bold text-amber-800" data-testid="payment-transfer-claim">
+                          {item.transferClaim.kind === "SDG_EQUIVALENT"
+                            ? `المحوَّل حسب العميل: ${formatAmount(item.transferClaim.payAmount, item.transferClaim.payCurrency)} (المقابل المثبّت على الفاتورة بسعر ${item.transferClaim.rate ?? "—"})`
+                            : `المتوقع: ${formatAmount(item.transferClaim.payAmount, item.transferClaim.payCurrency)}`}
+                          {item.transferClaim.accountChosen && item.transferClaim.bankName ? ` · إلى ${item.transferClaim.bankName}` : " · لم يحدد العميل الحساب"}
+                          {item.transferClaim.accountNumber ? <span dir="ltr"> {item.transferClaim.accountNumber}</span> : null}
+                        </div>
+                      ) : null}
                       <div className="mt-1 text-xs text-muted-foreground" dir="ltr">{item.phone}</div>
                     </div>
                   </div>
@@ -149,16 +180,43 @@ export default function PaymentReviewPage() {
                     <Button type="button" variant="gold" onClick={() => void confirmPayment(item)} disabled={workingId === item.id}>
                       <CheckCircle2 className="size-4" />{workingId === item.id ? "جارٍ التأكيد..." : "تأكيد الدفع"}
                     </Button>
-                    {item.pendingPayment ? (
+                    {item.pendingPayment || item.source === "contact_request" ? (
                       <Button type="button" variant="outline" className="text-destructive" onClick={() => { setRejectingId(rejectingId === item.id ? null : item.id); setRejectReason(""); }}>
                         <XCircle className="size-4" />رفض
                       </Button>
                     ) : null}
+                    {item.source === "contact_request" && item.receiptDocumentId ? (
+                      <Button asChild type="button" variant="outline">
+                        <a
+                          href={`${API_URL}/contact-requests/${encodeURIComponent(item.id)}/documents/${encodeURIComponent(item.receiptDocumentId)}/file`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-testid="payment-receipt-link"
+                        >
+                          <FileText className="size-4" />إشعار التحويل
+                        </a>
+                      </Button>
+                    ) : null}
                     <Button asChild type="button" variant="outline">
-                      <Link href={item.source === "order" ? `/admin-dashboard.html?order=${encodeURIComponent(item.id)}` : `/admin/cases?requestId=${encodeURIComponent(item.id)}`}><ExternalLink className="size-4" />فتح الطلب</Link>
+                      <Link href={item.source === "order" ? `/admin/tools/orders?id=${encodeURIComponent(item.id)}` : `/admin/cases?requestId=${encodeURIComponent(item.id)}`}><ExternalLink className="size-4" />فتح الطلب</Link>
                     </Button>
                   </div>
                 </div>
+                {item.source === "contact_request" && item.needsConfirmReason ? (
+                  <div className="mt-4 border-t border-border pt-4">
+                    <label className="flex flex-col gap-1 text-xs font-bold text-amber-800">
+                      لا يوجد إيصال تحويل. سبب التأكيد بدون إيصال (يُسجَّل في السجل)
+                      <input
+                        value={confirmReasons[item.id] || ""}
+                        onChange={(e) => setConfirmReasons((current) => ({ ...current, [item.id]: e.target.value }))}
+                        placeholder="مثال: تمت المطابقة مع كشف البنك"
+                        maxLength={500}
+                        data-testid="payment-confirm-reason"
+                        className="h-11 rounded-xl border border-border bg-background px-3 text-sm font-normal text-foreground outline-none focus:border-primary"
+                      />
+                    </label>
+                  </div>
+                ) : null}
                 {rejectingId === item.id ? (
                   <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row">
                     <input

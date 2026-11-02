@@ -4,7 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 // Mobile-viewport regression coverage for the staff-facing surfaces most
 // likely to be used from a phone in the field: the Operations Center and
 // Payment Review pages (web/, Next.js) and the customer-facing document
-// upload flow (frontend/request.html, served by the Express backend).
+// upload flow (backend/public/request.html, served by the Express backend).
 // Also the Platform 3.0 "platform3" project (see below) covering the
 // plan's required E2E scenarios.
 //
@@ -31,6 +31,13 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     trace: "retain-on-failure",
+    // The backend refuses cookie-authenticated writes that carry no proof of
+    // coming from a trusted page (CSRF protection, backend/src/middleware/
+    // csrf.middleware.js). Real browsers send Origin on those writes; the
+    // Playwright API request context these specs use for setup
+    // (page.request.post/patch/...) sends no Origin, so it sends the same
+    // X-Requested-With header the back-office's own api.js sends.
+    extraHTTPHeaders: { "X-Requested-With": "XMLHttpRequest" },
     // Matches this development sandbox's pre-installed Chromium regardless
     // of which @playwright/test version resolves — see AGENTS.md/session
     // notes on PLAYWRIGHT_BROWSERS_PATH. Only applied when that sandbox
@@ -49,7 +56,7 @@ export default defineConfig({
   projects: [
     {
       name: "mobile-web",
-      testMatch: /web\.spec\.ts/,
+      testMatch: [/web\.spec\.ts/, /flight-search-issue-104\.spec\.ts/],
       use: { ...devices["Pixel 5"], baseURL: "http://localhost:3000" },
     },
     {
@@ -64,8 +71,17 @@ export default defineConfig({
       // (no real backend state needed), so it's safe alongside this
       // project's real-backend specs — it never touches the shared dev
       // database or its rate limiters.
-      testMatch: [/platform3\.spec\.ts/, /egypt-passport-upload\.spec\.ts/, /home-service-entry\.spec\.ts/, /header-entry\.spec\.ts/, /p0-request-ux\.spec\.ts/],
+      testMatch: [/platform3\.spec\.ts/, /account-registration\.spec\.ts/, /egypt-passport-upload\.spec\.ts/, /home-service-entry\.spec\.ts/, /header-entry\.spec\.ts/, /p0-request-ux\.spec\.ts/, /website-fixed-price\.spec\.ts/, /website-fixed-price-real\.spec\.ts/, /website-payment-step\.spec\.ts/, /website-payment-settlement\.spec\.ts/, /admin-workflow\.spec\.ts/, /umrah-payment-journey\.spec\.ts/, /payment-recovery\.spec\.ts/, /admin-cases-filters\.spec\.ts/, /admin-shell\.spec\.ts/, /admin-unified\.spec\.ts/, /admin-operations-center\.spec\.ts/, /admin-egypt-workspace\.spec\.ts/, /admin-umrah-workspace\.spec\.ts/, /customer-ux-umrah-egypt\.spec\.ts/, /security-umrah-egypt\.spec\.ts/, /ops-model\.spec\.ts/, /passport-scan-review\.spec\.ts/, /hotel-ferry-forms\.spec\.ts/],
       use: { ...devices["Desktop Chrome"], baseURL: "http://localhost:3000" },
+    },
+    {
+      // The Android app's web bundle (mobile/www) against the real backend and
+      // back-office: requests with several travelers, per-traveler documents,
+      // staff review, price, payment accounts and receipt review.
+      name: "mobile-app",
+      testMatch: [/mobile-app\.spec\.ts/, /service-journeys\.spec\.ts/, /pricing-progress\.spec\.ts/, /egypt-approval\.spec\.ts/, /egypt-pricing\.spec\.ts/],
+      timeout: 90_000,
+      use: { ...devices["Pixel 5"], baseURL: "http://localhost:8081" },
     },
     {
       name: "mobile-frontend",
@@ -106,6 +122,7 @@ export default defineConfig({
       // Turbopack in every environment this was actually tested in).
       command: "npx next dev --webpack",
       cwd: __dirname,
+      env: { PORT: "3000" },
       url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -113,8 +130,18 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
+      command: "node e2e/support/mobile-www-server.mjs",
+      cwd: __dirname,
+      url: "http://localhost:8081/index.html",
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
       command: "npm run start",
       cwd: "../backend",
+      env: { PORT: "5000" },
       url: "http://localhost:5000/api/health",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

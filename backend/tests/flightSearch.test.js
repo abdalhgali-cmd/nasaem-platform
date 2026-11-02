@@ -50,6 +50,19 @@ describe("flight search (Platform 3.0 Phase 12)", () => {
     assert.deepEqual(res.body.legs[0].trip, []);
   });
 
+  test("validates passenger groups and chronological multi-city legs", async () => {
+    const date = futureDateString(10);
+    const invalidInfants = await request(app).get(`/api/flights/search?from=PZU&to=JED&date=${date}&adults=1&infants=2`);
+    assert.equal(invalidInfants.status, 400);
+
+    const legs = encodeURIComponent(JSON.stringify([
+      { from: "PZU", to: "JED", departureDate: futureDateString(12) },
+      { from: "JED", to: "KRT", departureDate: futureDateString(11) },
+    ]));
+    const reversedDates = await request(app).get(`/api/flights/search?tripType=MULTI_CITY&legs=${legs}&adults=1&children=1`);
+    assert.equal(reversedDates.status, 400);
+  });
+
   test("only a Sudanese-airline manual flight matches (pre-existing flights.service.js filter, unmodified here)", async () => {
     const suffix = uniqueSuffix();
     const date = futureDateString(20);
@@ -163,7 +176,10 @@ describe("Trip.com search result caching (Platform 3.0 Phase 12)", () => {
       req.on("data", (chunk) => { body += chunk; });
       req.on("end", () => {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ legs: [[{ id: "T1", airline: "Test Provider Air", flightNumber: "TP1", price: 100, currency: "USD" }]] }));
+        res.end(JSON.stringify({ legs: [[
+          { id: "T1", airline: "Test Provider Air", flightNumber: "TP1", departureAt: "2027-01-15T08:00:00Z", arrivalAt: "2027-01-15T10:00:00Z", price: 100, currency: "USD", fareRules: "REFUNDABLE", passengerPrices: { ADULT: { amount: 100, currency: "USD" }, CHILD: { amount: 75, currency: "USD" } } },
+          { id: "NO-REAL-FARE", airline: "Test Provider Air", flightNumber: "TP2", departureAt: "2027-01-15T11:00:00Z", arrivalAt: "2027-01-15T13:00:00Z" },
+        ]] }));
       });
     });
     await new Promise((resolve) => server.listen(0, resolve));
@@ -185,6 +201,9 @@ describe("Trip.com search result caching (Platform 3.0 Phase 12)", () => {
     assert.equal(first.status, 200, JSON.stringify(first.body));
     assert.equal(first.body.tripConfigured, true);
     assert.equal(callCount, 1);
+    assert.equal(first.body.legs[0].trip.length, 1, "a provider row without a real fare/currency must be discarded");
+    assert.equal(first.body.legs[0].trip[0].fareRules, "REFUNDABLE");
+    assert.deepEqual(first.body.legs[0].trip[0].passengerPrices.CHILD, { amount: 75, currency: "USD" });
 
     const second = await request(app).get(url);
     assert.equal(second.status, 200);

@@ -156,8 +156,6 @@ export function EgyptClearanceHero({
             >
               <Link href="/" className="transition hover:text-white">الرئيسية</Link>
               <ChevronLeft className="size-3.5" />
-              <Link href="/visas" className="transition hover:text-white">التأشيرات</Link>
-              <ChevronLeft className="size-3.5" />
               <span className="text-white/90">الموافقة الأمنية لمصر</span>
             </nav>
 

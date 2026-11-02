@@ -1,4 +1,4 @@
-import { comparePassportDataToCustomer, extractPassportData } from "./passport-ocr.service.js";
+import { OcrRejectedError, comparePassportDataToCustomer, extractPassportData } from "./passport-ocr.service.js";
 import prisma from "../../config/database.js";
 
 export async function scanPassport(req, res, next) {
@@ -34,6 +34,9 @@ export async function scanPassport(req, res, next) {
 
     return res.status(200).json({ success: true, data, comparison });
   } catch (error) {
+    if (error instanceof OcrRejectedError) {
+      return res.status(error.status).json({ success: false, code: error.code, message: error.message });
+    }
     next(error);
   }
 }

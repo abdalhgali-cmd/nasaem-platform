@@ -1,19 +1,28 @@
+import { CONFIRMATION_CHANNELS, confirmationOutlook, listCustomerMessages, sendRequestConfirmation } from "../customer-messages/customer-messages.service.js";
+import prisma from "../../config/database.js";
 import {
   assignContactRequestSchema,
   createContactRequestSchema,
   createInvoiceSchema,
   createOfferSchema,
   updateContactRequestStatusSchema,
+  rejectPaymentSchema,
+  startExecutionSchema,
+  revertExecutionSchema,
 } from "./contact-requests.validators.js";
 import {
   assignContactRequest,
   confirmContactRequestPayment,
+  rejectContactRequestPayment,
+  startContactRequestExecution,
+  revertContactRequestExecution,
   createContactRequest,
   createOffer,
   createOrUpdateInvoice,
   getOperationsQueueSummary,
   listContactRequests,
   updateContactRequestStatus,
+  getContactRequestById,
 } from "./contact-requests.service.js";
 import {
   buildPricingDescription,
@@ -27,18 +36,32 @@ import {
   getContactRequestDocumentFile,
   updateContactRequestDocumentStatus,
 } from "../contact-request-documents/contact-request-documents.service.js";
-import { uploadContactRequestDeliverableSchema } from "../contact-request-deliverables/contact-request-deliverables.validators.js";
+import { publishContactRequestDeliverableSchema, uploadContactRequestDeliverableSchema } from "../contact-request-deliverables/contact-request-deliverables.validators.js";
+import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
 import {
   createContactRequestDeliverable,
+  publishContactRequestDeliverable,
   getContactRequestDeliverableFile,
 } from "../contact-request-deliverables/contact-request-deliverables.service.js";
 import { parsePagination } from "../../utils/pagination.js";
+import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
+import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-scope/intake-scope.js";
 
 // Platform 3.0 Phase 6: mirrors contact-request-tracking.controller.js's
 // UPLOAD_ERROR_MESSAGES for the same error codes, raised here by
 // createContactRequest instead when a Service Intake submission's
 // documentRequirementIds fail their requirement's own rules.
 const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
+  EGYPT_VARIANT_UNAVAILABLE: "هذا النوع من الموافقة غير متاح للحجز حاليًا.",
+  FIXED_TOTAL_REQUIRED: "أكّد الإجمالي النهائي قبل إرسال الطلب.",
+  ENTRY_MODE_MISMATCH: "طريقة الدخول المرسلة لا تطابق نوع الموافقة المختار. اختر النوع الصحيح ثم أعد الإرسال.",
+  ENTRY_MODE_INVALID: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر.",
+  GUARANTOR_PHONE_INVALID: "رقم هاتف الضامن غير صحيح.",
+  EXTRA_CONTACT_PHONE_INVALID: "رقم هاتف جهة الاتصال الإضافية غير صحيح.",
+  TRAVEL_DATE_REQUIRED: "حدّد تاريخ السفر المفضل لهذه الباقة (تاريخ مبدئي وليس حجزًا مؤكدًا).",
+  TRAVEL_DATE_INVALID: "تاريخ السفر المفضل غير صحيح.",
+  TRAVEL_DATE_PASSED: "تاريخ السفر المفضل في الماضي. اختر تاريخًا قادمًا.",
+  ROUTE_INVALID: "بيانات خط السير طويلة جدًا. اختصرها ثم أعد الإرسال.",
   REQUIREMENT_NOT_FOUND: "One of the selected requirements does not belong to the selected visa type",
   INVALID_MIME: "One of the uploaded files has a type that isn't allowed for its requirement",
   FILE_TOO_LARGE: "One of the uploaded files exceeds the maximum size allowed for its requirement",
@@ -46,6 +69,7 @@ const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
   FEATURE_DISABLED: "This service is currently unavailable",
   // Smart Case Operations — Release A.
   TRAVELER_NOT_FOUND: "One of the uploaded documents references a traveler that wasn't submitted",
+  SUBMISSION_KEY_CONFLICT: "تعذر إكمال الإرسال، يرجى المحاولة مرة أخرى",
 };
 
 export async function storeContactRequest(req, res, next) {
@@ -67,26 +91,71 @@ export async function storeContactRequest(req, res, next) {
       });
     }
 
+    // Only the approved services accept new applications (service-scope/intake-scope.js).
+    if (await newApplicationRefusal(parsed.data)) {
+      return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
+    }
+
     const contactRequest = await createContactRequest(parsed.data, req, req.files);
 
     // Platform 3.0 Phase 6: a file tagged with documentRequirementIds that
     // fails that requirement's own MIME/size/max-files rules — the whole
     // submission is rejected (nothing was created), same posture as any
     // other validation failure on this route.
+    if (contactRequest?.error === "PRICE_CHANGED" || contactRequest?.error === "PRICING_MODE_CHANGED") {
+      return res.status(409).json({
+        success: false,
+        code: contactRequest.error,
+        message:
+          contactRequest.error === "PRICE_CHANGED"
+            ? "تغيّر سعر الخدمة منذ أن راجعته. راجع الإجمالي الجديد ثم أكّد الطلب."
+            : "أصبح سعر هذه الخدمة يُحدَّد بعرض سعر من الوكالة. حدّث الصفحة ثم أرسل الطلب.",
+        details: contactRequest.details,
+      });
+    }
     if (contactRequest?.error) {
-      const status = contactRequest.error === "FEATURE_DISABLED" ? 403 : 400;
+      const status = contactRequest.error === "FEATURE_DISABLED" ? 403 : contactRequest.error === "SUBMISSION_KEY_CONFLICT" || contactRequest.error === "EGYPT_VARIANT_UNAVAILABLE" ? 409 : 400;
       return res.status(status).json({
         success: false,
         message: UPLOAD_REQUIREMENT_ERROR_MESSAGES[contactRequest.error] || "Validation failed",
+        code: contactRequest.error,
         details: contactRequest.details,
+      });
+    }
+
+    // A request created at an accepted fixed price goes straight to its
+    // payment step: a request-scoped token (payment-access.service.js). A
+    // retried submission (same submissionKey, same phone) gets a fresh one,
+    // since the first response may never have reached the client.
+    const paymentAccess = await issuePaymentAccess(contactRequest.id);
+
+    if (contactRequest?.duplicate) {
+      return res.status(200).json({
+        success: true,
+        message: "Request already received",
+        data: { id: contactRequest.id, duplicate: true, customerConfirmation: confirmationOutlook(), ...(paymentAccess ? { paymentAccess } : {}) },
       });
     }
 
     return res.status(201).json({
       success: true,
       message: "Request received",
-      data: { id: contactRequest.id },
+      // customerConfirmation: QUEUED (a WhatsApp confirmation is being sent;
+      // not yet delivered) or NOT_AVAILABLE (no channel configured).
+      data: { id: contactRequest.id, customerConfirmation: confirmationOutlook(), ...(paymentAccess ? { paymentAccess } : {}) },
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getContactRequest(req, res, next) {
+  try {
+    const contactRequest = await getContactRequestById(req.params.id, req.user.organizationId, { role: req.user.role });
+    if (!contactRequest) {
+      return res.status(404).json({ success: false, message: "Contact request not found" });
+    }
+    return res.status(200).json({ success: true, data: contactRequest });
   } catch (error) {
     next(error);
   }
@@ -108,6 +177,13 @@ export async function getContactRequests(req, res, next) {
       status: req.query.status,
       organizationId: req.user.organizationId,
       assignedUserId,
+      search: typeof req.query.search === "string" ? req.query.search.slice(0, 100) : undefined,
+      paymentStatus: req.query.paymentStatus,
+      serviceId: req.query.serviceId,
+      category: req.query.category,
+      serviceKind: req.query.serviceKind,
+      createdFrom: req.query.createdFrom,
+      createdTo: req.query.createdTo,
     });
 
     return res.status(200).json({
@@ -144,7 +220,8 @@ export async function patchContactRequestStatus(req, res, next) {
       });
     }
 
-    const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user.id, req.user.organizationId);
+    const contactRequest = await updateContactRequestStatus(id, parsed.data, req.user, req.user.organizationId);
+    if (contactRequest?.refusal) return sendRefusal(res, contactRequest.refusal);
 
     if (!contactRequest) {
       return res.status(404).json({
@@ -224,6 +301,7 @@ export async function storeInvoice(req, res, next) {
     }
 
     const result = await createOrUpdateInvoice(id, parsed.data, req.user.id);
+    if (result.refusal) return sendRefusal(res, result.refusal);
 
     if (result.error === "NOT_FOUND") {
       return res.status(404).json({
@@ -279,6 +357,7 @@ export async function storeInvoiceFromPricing(req, res, next) {
       req.user.id
     );
 
+    if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
     if (result.error === "ALREADY_APPROVED") return res.status(409).json({ success: false, message: "Customer has already approved this invoice" });
     if (result.error === "OFFERS_EXIST") return res.status(409).json({ success: false, message: "This request already uses multi-carrier offers, not a single invoice" });
@@ -303,6 +382,7 @@ export async function storeOffer(req, res, next) {
     }
 
     const result = await createOffer(id, parsed.data, req.user.id);
+    if (result.refusal) return sendRefusal(res, result.refusal);
 
     if (result.error === "NOT_FOUND") {
       return res.status(404).json({
@@ -359,6 +439,7 @@ export async function storeOfferFromPricing(req, res, next) {
       req.user.id
     );
 
+    if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
     if (result.error === "INVOICE_EXISTS") return res.status(409).json({ success: false, message: "This request already has a single invoice, not multi-carrier offers" });
     if (result.error === "ALREADY_SELECTED") return res.status(409).json({ success: false, message: "The customer has already selected an offer" });
@@ -372,7 +453,8 @@ export async function storeOfferFromPricing(req, res, next) {
 export async function confirmPayment(req, res, next) {
   try {
     const { id } = req.params;
-    const result = await confirmContactRequestPayment(id, req.user.id);
+    const result = await confirmContactRequestPayment(id, req.user.id, { reason: typeof req.body?.reason === "string" ? req.body.reason : undefined });
+    if (result.refusal) return sendRefusal(res, result.refusal);
 
     if (result.error === "NOT_FOUND") {
       return res.status(404).json({ success: false, message: "Contact request not found" });
@@ -383,6 +465,74 @@ export async function confirmPayment(req, res, next) {
     }
 
     return res.status(200).json({ success: true, data: result.contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function rejectPayment(req, res, next) {
+  try {
+    const parsed = rejectPaymentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "سبب الرفض مطلوب", errors: parsed.error.flatten() });
+    }
+
+    const result = await rejectContactRequestPayment(req.params.id, req.user.id, parsed.data.reason);
+    if (result.refusal) return sendRefusal(res, result.refusal);
+
+    if (result.error === "NOT_FOUND") {
+      return res.status(404).json({ success: false, message: "Contact request not found" });
+    }
+
+    if (result.error === "INVALID_STATE") {
+      return res.status(409).json({ success: false, message: "لا يوجد إيصال دفع قيد المراجعة لهذا الطلب" });
+    }
+
+    return res.status(200).json({ success: true, data: result.contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function startExecution(req, res, next) {
+  try {
+    const parsed = startExecutionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "Invalid input", errors: parsed.error.flatten() });
+    }
+
+    const result = await startContactRequestExecution(req.params.id, req.user.organizationId, req.user.id, parsed.data.note);
+    if (result.refusal) return sendRefusal(res, result.refusal);
+    if (result.error) return res.status(404).json({ success: false, message: "الطلب غير موجود" });
+    return res.status(200).json({ success: true, data: result.contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function revertExecution(req, res, next) {
+  try {
+    const parsed = revertExecutionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "اكتب سبب التصحيح", errors: parsed.error.flatten() });
+    }
+    const result = await revertContactRequestExecution(req.params.id, req.user.organizationId, req.user.id, parsed.data.reason);
+    if (result.refusal) return sendRefusal(res, result.refusal);
+    if (result.error) return res.status(404).json({ success: false, message: "الطلب غير موجود" });
+    return res.status(200).json({ success: true, data: result.contactRequest });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function publishDeliverable(req, res, next) {
+  try {
+    const parsed = publishContactRequestDeliverableSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    const result = await publishContactRequestDeliverable(req.params.id, req.params.deliverableId, parsed.data, req.user.id);
+    if (result.refusal) return sendRefusal(res, result.refusal);
+    if (result.error) return res.status(404).json({ success: false, message: "الملف غير موجود" });
+    return res.status(200).json({ success: true, data: result.deliverable, completed: result.completed });
   } catch (error) {
     next(error);
   }
@@ -410,7 +560,8 @@ export async function reviewDocument(req, res, next) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
-    const result = await updateContactRequestDocumentStatus(id, documentId, parsed.data, req.user.id);
+    const result = await updateContactRequestDocumentStatus(id, documentId, parsed.data, req.user.id, { reviewerRole: req.user.role });
+    if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Document not found" });
 
     return res.status(200).json({ success: true, data: result.document });
@@ -430,7 +581,12 @@ export async function storeDeliverable(req, res, next) {
 
     if (!req.file) return res.status(400).json({ success: false, message: "A file is required" });
 
-    const result = await createContactRequestDeliverable(id, { label: parsed.data.label, file: req.file }, req.user.id);
+    const result = await createContactRequestDeliverable(
+      id,
+      { label: parsed.data.label, file: req.file, travelerIds: parsed.data.travelerIds, publish: parsed.data.publish },
+      req.user.id
+    );
+    if (result.refusal) return sendRefusal(res, result.refusal);
     if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
 
     return res.status(201).json({ success: true, data: result.deliverable });
@@ -447,6 +603,33 @@ export async function downloadDeliverableFile(req, res, next) {
     if (!file) return res.status(404).json({ success: false, message: "Deliverable not found" });
 
     return res.sendFile(file.absolutePath, { headers: { "Content-Type": file.mimeType } });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Staff: delivery records of customer messages for one case, and a manual
+// retry of the request confirmation (no-op once the provider accepted it).
+async function findStaffCase(req) {
+  return prisma.contactRequest.findFirst({ where: { id: req.params.id, organizationId: req.user.organizationId }, select: { id: true } });
+}
+
+export async function getCustomerMessages(req, res, next) {
+  try {
+    if (!(await findStaffCase(req))) return res.status(404).json({ success: false, message: "Contact request not found" });
+    return res.status(200).json({ success: true, data: await listCustomerMessages(req.params.id) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function retryCustomerConfirmation(req, res, next) {
+  try {
+    if (!(await findStaffCase(req))) return res.status(404).json({ success: false, message: "Contact request not found" });
+    const channel = req.body?.channel ?? req.query?.channel ?? "WHATSAPP";
+    if (!CONFIRMATION_CHANNELS.includes(channel)) return res.status(400).json({ success: false, message: "Unknown channel" });
+    const delivery = await sendRequestConfirmation(req.params.id, { manual: true, channel });
+    return res.status(200).json({ success: true, data: delivery });
   } catch (error) {
     next(error);
   }

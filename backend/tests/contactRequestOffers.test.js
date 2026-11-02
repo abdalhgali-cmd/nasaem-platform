@@ -106,12 +106,12 @@ describe("contact request multi-carrier offers", () => {
 
     const confirmRes = await superAdminAgent.post(
       `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    ).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(confirmRes.status, 200);
     assert.equal(confirmRes.body.data.paymentStatus, "CONFIRMED");
 
     tracked = await fetchTracked(customerAgent, contactRequestId);
-    assert.equal(tracked.statusLabel, "تم قبول الدفع، بانتظار صدور التأشيرة");
+    assert.equal(tracked.statusLabel, "تم قبول الدفع، بانتظار بدء التنفيذ");
   });
 
   test("mutual exclusivity, ownership, and not-found guards", async () => {

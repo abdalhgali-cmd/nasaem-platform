@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  HTTPS only, system-trusted CAs only. Android 9+ already refuses cleartext by
+  default; this makes the same true on Android 7-8 (minSdk 24), where the
+  default would otherwise allow plain HTTP to the API.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,3 +1,4 @@
+import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
 import {
   completeProviderSubmissionSchema,
   createProviderSubmissionSchema,
@@ -71,6 +72,7 @@ export async function storeProviderSubmission(req, res, next) {
     }
 
     const result = await createProviderSubmission(req.params.id, parsed.data, req.user.id, req.user.organizationId);
+    if (result.refusal) return sendRefusal(res, result.refusal);
     const errorResponse = respondToError(res, result);
     if (errorResponse) return errorResponse;
 

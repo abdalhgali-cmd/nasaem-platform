@@ -13,6 +13,8 @@ import {
   updateDraft,
 } from "./intake-drafts.service.js";
 import { validateEgyptClearanceDraft } from "./egypt-clearance-draft.js";
+import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
+import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-scope/intake-scope.js";
 
 // Smart Case Operations — Release B. Every draft error maps to a clean
 // status here rather than leaking through as a 500, mirroring how the
@@ -27,6 +29,16 @@ const DRAFT_ERROR_RESPONSES = {
     status: 400,
     message: "يرجى إكمال بيانات الموافقة الأساسية ورفع صورة الجواز قبل إرسال الطلب",
   },
+  EGYPT_VARIANT_UNAVAILABLE: { status: 409, message: "هذا النوع من الموافقة غير متاح للحجز حاليًا." },
+  FIXED_TOTAL_REQUIRED: { status: 400, message: "أكّد الإجمالي النهائي قبل إرسال الطلب." },
+  ENTRY_MODE_MISMATCH: { status: 400, message: "طريقة الدخول المرسلة لا تطابق نوع الموافقة المختار. اختر النوع الصحيح ثم أعد الإرسال." },
+  ENTRY_MODE_INVALID: { status: 400, message: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر." },
+  GUARANTOR_PHONE_INVALID: { status: 400, message: "رقم هاتف الضامن غير صحيح." },
+  EXTRA_CONTACT_PHONE_INVALID: { status: 400, message: "رقم هاتف جهة الاتصال الإضافية غير صحيح." },
+  TRAVEL_DATE_REQUIRED: { status: 400, message: "حدّد تاريخ السفر المفضل لهذه الباقة (تاريخ مبدئي وليس حجزًا مؤكدًا)." },
+  TRAVEL_DATE_INVALID: { status: 400, message: "تاريخ السفر المفضل غير صحيح." },
+  TRAVEL_DATE_PASSED: { status: 400, message: "تاريخ السفر المفضل في الماضي. اختر تاريخًا قادمًا." },
+  ROUTE_INVALID: { status: 400, message: "بيانات خط السير طويلة جدًا. اختصرها ثم أعد الإرسال." },
   DOCUMENT_NOT_FOUND: { status: 404, message: "المستند غير موجود في هذا الطلب" },
   REQUIREMENT_NOT_FOUND: { status: 400, message: "هذا المتطلب لا ينتمي إلى الخدمة المحددة" },
   INVALID_MIME: { status: 400, message: "نوع هذا الملف غير مسموح به لهذا المتطلب" },
@@ -35,9 +47,20 @@ const DRAFT_ERROR_RESPONSES = {
 };
 
 function respondToDraftError(res, result) {
+  if (result.error === "PRICE_CHANGED" || result.error === "PRICING_MODE_CHANGED") {
+    return res.status(409).json({
+      success: false,
+      code: result.error,
+      message:
+        result.error === "PRICE_CHANGED"
+          ? "تغيّر سعر الخدمة منذ أن راجعته. راجع الإجمالي الجديد ثم أكّد الطلب."
+          : "أصبح سعر هذه الخدمة يُحدَّد بعرض سعر من الوكالة. حدّث الصفحة ثم أرسل الطلب.",
+      details: result.details,
+    });
+  }
   const mapped = DRAFT_ERROR_RESPONSES[result.error];
   if (!mapped) return null;
-  return res.status(mapped.status).json({ success: false, message: mapped.message, details: result.details });
+  return res.status(mapped.status).json({ success: false, code: result.error, message: mapped.message, details: result.details });
 }
 
 export async function storeDraft(req, res, next) {
@@ -47,6 +70,10 @@ export async function storeDraft(req, res, next) {
       return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
     }
 
+    // Only the approved services accept new applications (service-scope/intake-scope.js).
+    if (await newApplicationRefusal(parsed.data)) {
+      return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
+    }
     const { draft, token } = await createDraft(parsed.data);
     return res.status(201).json({ success: true, data: { ...draft, token } });
   } catch (error) {
@@ -139,17 +166,30 @@ export async function submitDraftController(req, res, next) {
     // UI-required attributes alone are not a security/business-rule boundary.
     const draft = await getDraftByToken(req.params.token);
     if (!draft) return res.status(404).json({ success: false, message: "Draft not found" });
+    // A repeat of a submission that already succeeded (a retry after a lost
+    // response, a double click, a second tab) says so. Checked before the
+    // Egypt rules: the submitted draft's passport now belongs to the request,
+    // so they would wrongly ask the customer to upload it again.
+    if (draft.submittedContactRequestId) return respondToDraftError(res, { error: "ALREADY_SUBMITTED" });
+    // The service is checked again at submission: a draft started before the
+    // scope changed (or patched to another service) cannot become a request.
+    if (await newApplicationRefusal(draft)) {
+      return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
+    }
     const egyptValidation = await validateEgyptClearanceDraft(draft);
     if (egyptValidation) {
       const errorResponse = respondToDraftError(res, egyptValidation);
       if (errorResponse) return errorResponse;
     }
 
-    const result = await submitDraft(req.params.token, { message: parsed.data.message });
+    const result = await submitDraft(req.params.token, parsed.data);
     const errorResponse = respondToDraftError(res, result);
     if (errorResponse) return errorResponse;
 
-    return res.status(201).json({ success: true, data: { id: result.contactRequest.id } });
+    // Same as POST /contact-requests: an accepted fixed price goes straight
+    // to its payment step (contact-request-payment-access).
+    const paymentAccess = await issuePaymentAccess(result.contactRequest.id);
+    return res.status(201).json({ success: true, data: { id: result.contactRequest.id, ...(paymentAccess ? { paymentAccess } : {}) } });
   } catch (error) {
     next(error);
   }

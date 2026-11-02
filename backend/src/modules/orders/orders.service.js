@@ -2,9 +2,11 @@ import prismaPackage from "@prisma/client";
 
 const { Prisma } = prismaPackage;
 import prisma from "../../config/database.js";
+import { computeSettlement } from "../payments/settlement.js";
 import { nextSequence } from "../../utils/sequence.js";
 import { safeUserSelect, safeCustomerSelect } from "../../utils/safeSelects.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { withMaskedCustomer } from "../../utils/passportMask.js";
 import { createNotification } from "../../utils/notifications.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { applyCouponToOrder, COUPON_ERROR_MESSAGES } from "../coupons/coupons.service.js";
@@ -72,7 +74,8 @@ export async function listOrders({ page, limit, skip, status, paymentStatus, ass
     prisma.order.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } } } }),
     prisma.order.count({ where }),
   ]);
-  return { data, meta: buildPaginationMeta(page, limit, total) };
+  // A list never shows full passport numbers (the order's page does).
+  return { data: data.map(withMaskedCustomer), meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function assignOrder(orderId, assignedUserId, changedByUserId, organizationId) {
@@ -125,7 +128,25 @@ export async function setItemSupplierCost(orderId, itemId, data, organizationId)
 }
 
 export async function getOrderById(id, organizationId) {
-  return prisma.order.findFirst({ where: { id, organizationId }, include: { customer: { select: safeCustomerSelect }, assignedUser: { select: safeUserSelect }, items: { include: { service: true } }, documents: true, payments: true, notes: true, history: true, notifications: true, branch: true } });
+  const order = await prisma.order.findFirst({
+    where: { id, organizationId },
+    include: {
+      customer: { select: safeCustomerSelect },
+      assignedUser: { select: safeUserSelect },
+      items: { include: { service: true } },
+      documents: true,
+      payments: { orderBy: { createdAt: "asc" }, include: { createdBy: { select: { id: true, fullName: true } }, reviewedBy: { select: { id: true, fullName: true } } } },
+      notes: true,
+      history: { orderBy: { changedAt: "asc" }, include: { changedByUser: { select: { id: true, fullName: true } } } },
+      notifications: true,
+      branch: true,
+    },
+  });
+  if (!order) return null;
+  // The same settlement the payment write path enforces (paid / refunded /
+  // outstanding / pending in the order's currency), so the UI never adds
+  // amounts up itself.
+  return { ...order, settlement: computeSettlement(order, order.payments) };
 }
 
 // Coupon application (Phase 6 of the customer-accounts/coupons plan). A

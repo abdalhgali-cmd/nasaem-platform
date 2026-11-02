@@ -1,5 +1,5 @@
 import { icon } from "./icons.js";
-import { offlineBanner, confirmDialog } from "./ui.js";
+import { offlineBanner, confirmDialog, toast } from "./ui.js";
 import { registerScreen, initRouter, go, goToTab, back, stackDepth, currentTab } from "./router.js";
 import * as auth from "./auth.js";
 
@@ -13,23 +13,46 @@ import { renderHotelsScreen } from "./screens/hotels.js";
 import { renderEgyptClearanceScreen } from "./screens/egypt-clearance.js";
 import { renderSaudiFamilyVisitScreen } from "./screens/saudi-family-visit.js";
 import { renderRequestSubmittedScreen } from "./screens/intake.js";
-import { renderMyRequestsScreen, renderRequestDetailScreen, renderOrderDetailScreen } from "./screens/requests.js";
+import { renderRequestPaymentScreen } from "./screens/request-payment.js";
+import { renderRequestsTabScreen, renderRequestDetailScreen, renderOrderDetailScreen, renderTrackedRequestDetailScreen, renderGuestTrackingScreen } from "./screens/requests.js";
 import { renderNotificationsScreen } from "./screens/notifications.js";
-import { renderAccountScreen, renderEditProfileScreen, renderChangePasswordScreen, renderMyDocumentsScreen, setOnLoggedOut } from "./screens/account.js";
+import { renderAccountScreen, renderEditProfileScreen, renderChangePasswordScreen, renderMyDocumentsScreen, setOnLoggedOut, setOnReplayOnboarding } from "./screens/account.js";
+import { renderSecurityScreen } from "./screens/security.js";
+import { renderOnboardingScreen, isOnboardingDone, markOnboardingDone } from "./screens/onboarding.js";
+import { renderAboutScreen } from "./screens/about.js";
+import { renderLegalScreen } from "./screens/legal.js";
+import { renderServiceInfoScreen } from "./screens/service-info.js";
+import { launchRoute } from "./experience-core.js";
+import { inactivityExpired } from "./session-core.js";
+import { tapFeedback } from "./motion.js";
+import { CONFIG } from "./config.js";
+import { showEnvironmentBadge } from "./environment.js";
 
 const screenEl = document.getElementById("screen");
 const navEl = document.getElementById("bottomNav");
 
 function registerAllScreens() {
-  registerScreen("welcome", renderWelcomeScreen);
+  registerScreen("onboarding", renderOnboardingScreen, { chrome: false });
+  registerScreen("welcome", (ctx) => renderWelcomeScreen({
+    ...ctx,
+    params: {
+      ...ctx.params,
+      // The choice is remembered: the welcome is not shown again.
+      onContinueAsGuest: () => { markOnboardingDone(); enterShell("home"); },
+      onTrackRequest: () => { markOnboardingDone(); enterShell("requests"); },
+    },
+  }), { chrome: false });
+  registerScreen("about", renderAboutScreen);
+  registerScreen("legal", renderLegalScreen);
   registerScreen("login", renderLoginScreen);
   registerScreen("register", renderRegisterScreen);
   registerScreen("forgotPassword", renderForgotPasswordScreen);
   registerScreen("resetPassword", renderResetPasswordScreen);
 
-  registerScreen("home", renderHomeScreen);
+  registerScreen("home", renderHomeScreen, { chrome: false });
   registerScreen("services", renderServicesScreen);
   registerScreen("visasHub", renderVisasHubScreen);
+  registerScreen("serviceInfo", renderServiceInfoScreen);
   registerScreen("serviceDetail", renderServiceDetailScreen);
   registerScreen("umrah", renderUmrahScreen);
   registerScreen("flights", renderFlightsScreen);
@@ -38,8 +61,9 @@ function registerAllScreens() {
   registerScreen("egyptClearance", renderEgyptClearanceScreen);
   registerScreen("saudiFamilyVisit", renderSaudiFamilyVisitScreen);
   registerScreen("requestSubmitted", renderRequestSubmittedScreen);
+  registerScreen("requestPayment", renderRequestPaymentScreen);
 
-  registerScreen("requests", renderMyRequestsScreen);
+  registerScreen("requests", renderRequestsTabScreen);
   registerScreen("requestDetail", renderRequestDetailScreen);
   registerScreen("orderDetail", renderOrderDetailScreen);
 
@@ -49,26 +73,78 @@ function registerAllScreens() {
   registerScreen("editProfile", renderEditProfileScreen);
   registerScreen("changePassword", renderChangePasswordScreen);
   registerScreen("myDocuments", renderMyDocumentsScreen);
+  registerScreen("security", renderSecurityScreen);
+
+  registerScreen("trackedRequestDetail", renderTrackedRequestDetailScreen);
+  registerScreen("guestTracking", renderGuestTrackingScreen);
 }
 
-async function enterAuthenticatedShell() {
+// The app is usable without an account: every launch ends on the public
+// shell (Home, Services, Requests, Account). An account session, if one is
+// stored, is checked in the background and only unlocks account content.
+const TAB_TITLES = { home: "", services: "ابدأ طلب", requests: "متابعة الطلبات", account: "المزيد" };
+const ACCOUNT_DEPENDENT_TABS = new Set(["home", "requests", "account"]);
+const SESSION_ENDED_NOTICE = "انتهت جلسة حسابك. يمكنك متابعة التصفح، وسجّل الدخول متى شئت لعرض حسابك.";
+
+async function enterShell(tab = "home") {
   navEl.hidden = false;
-  await goToTab("home", "home", { title: "" });
+  await goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
 }
 
-async function enterAuthFlow() {
+async function showOnboarding({ replay = false } = {}) {
+  navEl.hidden = true;
+  await go("onboarding", { onFinish: () => enterShell(replay ? "account" : "home") }, { root: true });
+}
+
+async function showWelcome() {
   navEl.hidden = true;
   await go("welcome", {}, { root: true });
+}
+
+async function startFromStoredSession() {
+  const stored = await auth.loadStoredSession();
+  const onboardingDone = await isOnboardingDone();
+  // Customers who already had a session before this version never need the intro.
+  if (stored.kind !== "none" && !onboardingDone) markOnboardingDone();
+  if (launchRoute({ storedKind: stored.kind, onboardingDone }) === "welcome") await showWelcome();
+  else await enterShell("home");
+
+  // Saved account (no biometric lock): confirm it with the server without
+  // holding up the public screens. A biometric-locked account stays locked
+  // until the customer opens account content (screens/account.js).
+  if (stored.kind === "token") {
+    auth.verifySession().then((result) => {
+      if (result.state === auth.SessionState.EXPIRED) toast(SESSION_ENDED_NOTICE);
+    });
+  }
+}
+
+// Account state changed (verified, locked, expired, signed out): re-draw the
+// account-dependent tab the customer is looking at, if they are on its root.
+function wireAccountStateRefresh() {
+  auth.onAccountStateChange(() => {
+    const tab = currentTab();
+    if (navEl.hidden || stackDepth() !== 1 || !ACCOUNT_DEPENDENT_TABS.has(tab)) return;
+    goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
+  });
+}
+
+// Light status-bar icons over the navy strip, on every Android version (see
+// capacitor.config.ts). Both plugins write the same window flag; setting it
+// from here wins over any default applied while the bridge started.
+function applySystemBarStyle() {
+  const plugins = window.Capacitor?.Plugins || {};
+  plugins.SystemBars?.setStyle?.({ style: "DARK" })?.catch?.(() => {});
+  plugins.StatusBar?.setStyle?.({ style: "DARK" })?.catch?.(() => {});
 }
 
 function wireBottomNav() {
   navEl.querySelectorAll("button[data-tab]").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      tapFeedback();
       const tab = btn.dataset.tab;
       if (currentTab() === tab && stackDepth() === 1) return; // already at tab root
-      const titleByTab = { home: "", requests: "طلباتي", notifications: "الإشعارات", account: "حسابي" };
-      const screenByTab = { home: "home", requests: "requests", notifications: "notifications", account: "account" };
-      await goToTab(tab, screenByTab[tab], { title: titleByTab[tab] });
+      await goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
     });
   });
 }
@@ -90,6 +166,55 @@ function wireBackButton() {
   });
 }
 
+// Biometric accounts lock again after INACTIVITY_LOCK_MS in the background
+// or without a touch; an account or requests screen then goes back to its
+// root, which shows the locked state instead of the customer's data.
+function wireInactivityLock() {
+  let lastActive = Date.now();
+  let swallowClick = false;
+  // Only a biometric-protected account is locked; kept current so the
+  // touch handler can decide synchronously.
+  let lockable = false;
+  const refreshLockable = async () => { lockable = await auth.biometricLockEnabled(); };
+  refreshLockable();
+  auth.onAccountStateChange(refreshLockable);
+  const lock = async () => {
+    if (!(await auth.lockAfterInactivity())) return;
+    const tab = currentTab();
+    if (!navEl.hidden && (tab === "account" || tab === "requests")) goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
+  };
+  // The touch that wakes an idle signed-in app only locks it: it must not
+  // also run what it landed on before the lock is in place.
+  document.addEventListener("pointerdown", (event) => {
+    const idle = inactivityExpired(lastActive);
+    lastActive = Date.now();
+    if (!idle || !lockable || !auth.isAccountUnlocked()) return;
+    swallowClick = true;
+    event.preventDefault();
+    event.stopPropagation();
+    lock();
+  }, { capture: true });
+  document.addEventListener("click", (event) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true });
+  document.addEventListener("keydown", () => { lastActive = Date.now(); }, { capture: true, passive: true });
+  // An idle screen locks by itself too, without waiting for a touch.
+  setInterval(() => {
+    refreshLockable();
+    if (lockable && inactivityExpired(lastActive) && auth.isAccountUnlocked()) lock();
+  }, 30 * 1000);
+  const AppPlugin = window.Capacitor?.Plugins?.App;
+  AppPlugin?.addListener?.("pause", () => { lastActive = Date.now(); });
+  AppPlugin?.addListener?.("resume", () => {
+    const idle = inactivityExpired(lastActive);
+    lastActive = Date.now();
+    if (idle) lock();
+  });
+}
+
 function wireConnectivity() {
   const update = () => offlineBanner(!navigator.onLine);
   window.addEventListener("online", update);
@@ -99,21 +224,24 @@ function wireConnectivity() {
 
 async function boot() {
   registerAllScreens();
+  showEnvironmentBadge(CONFIG);
   initRouter({ screenElement: screenEl, navElement: navEl, emptyStackHandler: () => {} });
   wireBottomNav();
   wireBackButton();
   wireConnectivity();
+  wireInactivityLock();
+  applySystemBarStyle();
+  window.Capacitor?.Plugins?.App?.addListener?.("resume", applySystemBarStyle);
 
-  setOnAuthenticated(enterAuthenticatedShell);
-  setOnLoggedOut(enterAuthFlow);
+  // Signing in / creating an account lands on the account tab; signing out
+  // returns to the public home. Neither is ever required to use the app.
+  setOnAuthenticated(() => { markOnboardingDone(); enterShell("account"); });
+  setOnLoggedOut(() => enterShell("home"));
+  setOnReplayOnboarding(() => showOnboarding({ replay: true }));
+  auth.setOnSessionEnded(() => toast(SESSION_ENDED_NOTICE));
+  wireAccountStateRefresh();
 
-  await auth.resolveSession();
-
-  if (auth.isAuthenticated()) {
-    await enterAuthenticatedShell();
-  } else {
-    await enterAuthFlow();
-  }
+  await startFromStoredSession();
 
   window.Capacitor?.Plugins?.SplashScreen?.hide();
 }

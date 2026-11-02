@@ -1,5 +1,5 @@
-import { createPaymentSchema, rejectPaymentSchema } from "./payments.validators.js";
-import { confirmPayment, createPayment, getPaymentById, listPayments, rejectPayment } from "./payments.service.js";
+import { createPaymentSchema, refundPaymentSchema, rejectPaymentSchema } from "./payments.validators.js";
+import { confirmPayment, createPayment, getPaymentById, listPayments, refundPayment, rejectPayment } from "./payments.service.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { createNotification } from "../../utils/notifications.js";
@@ -48,7 +48,7 @@ export async function getPayment(req, res, next) {
 
 export async function storePayment(req, res, next) {
   try {
-    const parsed = createPaymentSchema.safeParse(req.body);
+    const parsed = createPaymentSchema.safeParse({ ...req.body, idempotencyKey: req.get("Idempotency-Key") || req.body?.idempotencyKey });
 
     if (!parsed.success) {
       return res.status(400).json({
@@ -58,13 +58,20 @@ export async function storePayment(req, res, next) {
       });
     }
 
-    const payment = await createPayment(parsed.data, req.user.organizationId);
+    const result = await createPayment(parsed.data, req.user.organizationId, req.user.id);
 
-    if (!payment) {
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: "Order not found",
       });
+    }
+
+    const { payment } = result;
+    if (result.replayed) {
+      // Same submission received again (double click, retry after a
+      // timeout): nothing new was recorded.
+      return res.status(200).json({ success: true, message: "Payment already recorded", replayed: true, data: payment });
     }
 
     logActivity({
@@ -72,6 +79,7 @@ export async function storePayment(req, res, next) {
       action: "PAYMENT_RECORDED",
       entity: "Payment",
       entityId: payment.id,
+      newValue: { orderId: payment.orderId, amount: payment.amount, currency: payment.currency, status: payment.status, reviewStatus: payment.reviewStatus },
       req,
     });
 
@@ -148,6 +156,36 @@ export async function rejectPaymentAction(req, res, next) {
     }
 
     return res.status(200).json({ success: true, message: "Payment rejected", data: payment });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function refundPaymentAction(req, res, next) {
+  try {
+    const parsed = refundPaymentSchema.safeParse({ ...req.body, idempotencyKey: req.get("Idempotency-Key") || req.body?.idempotencyKey });
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+
+    const result = await refundPayment(req.params.id, parsed.data, req.user.organizationId, req.user.id);
+    if (!result) {
+      return res.status(404).json({ success: false, message: "Payment not found" });
+    }
+    if (result.replayed) {
+      return res.status(200).json({ success: true, message: "Refund already recorded", replayed: true, data: result.payment });
+    }
+
+    logActivity({
+      userId: req.user.id,
+      action: "PAYMENT_REFUNDED",
+      entity: "Payment",
+      entityId: result.payment.id,
+      newValue: { refundOf: req.params.id, amount: result.payment.amount, currency: result.payment.currency, reason: result.payment.refundReason },
+      req,
+    });
+
+    return res.status(201).json({ success: true, message: "Refund recorded", data: result.payment });
   } catch (error) {
     next(error);
   }

@@ -66,7 +66,7 @@ describe("deriveTrackingStatusLabel", () => {
           status: "CLOSED",
           outcome: "COMPLETED",
           paymentStatus: "CONFIRMED",
-          deliverables: [{ id: "d1", label: "x" }],
+          deliverables: [{ id: "d1", label: "x", publishedAt: new Date() }],
         })
       ),
       "تم إنجاز طلبك بنجاح"
@@ -76,9 +76,18 @@ describe("deriveTrackingStatusLabel", () => {
   test("delivered files outrank a merely-confirmed payment", () => {
     assert.equal(
       deriveTrackingStatusLabel(
-        baseRequest({ paymentStatus: "CONFIRMED", deliverables: [{ id: "d1", label: "x" }] })
+        baseRequest({ paymentStatus: "CONFIRMED", deliverables: [{ id: "d1", label: "x", publishedAt: new Date() }] })
       ),
       "ملفاتك النهائية جاهزة للتحميل"
+    );
+  });
+
+  test("a prepared (unpublished) file is not delivery", () => {
+    assert.equal(
+      deriveTrackingStatusLabel(
+        baseRequest({ paymentStatus: "CONFIRMED", executionStartedAt: new Date(), deliverables: [{ id: "d1", label: "x", publishedAt: null }] })
+      ),
+      "جارٍ تنفيذ طلبك"
     );
   });
 
