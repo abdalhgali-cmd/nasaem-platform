@@ -7,10 +7,18 @@
 // Everywhere else the service prices and exchange rates are development/test
 // data (owner decision 2026-11-01): they stay editable from the admin
 // dashboard and are labelled as test data to staff and customers.
+// Only these names are ever reported (/api/health is public). Any other
+// DEPLOYMENT_ENVIRONMENT value is reported as "unrecognized", never echoed: a
+// secret pasted into the wrong variable must not become public (seen on
+// staging 2026-11-02, where a 64-hex value was echoed by /api/health).
+const KNOWN_DEPLOYMENTS = new Set(["production", "staging", "development", "test"]);
+
 export function deploymentName(env = process.env) {
   const declared = String(env.DEPLOYMENT_ENVIRONMENT || "").trim().toLowerCase();
-  if (env.NODE_ENV !== "production") return declared && declared !== "production" ? declared : String(env.NODE_ENV || "development");
-  return declared || "production";
+  const name = env.NODE_ENV !== "production"
+    ? (declared && declared !== "production" ? declared : String(env.NODE_ENV || "development").toLowerCase())
+    : declared || "production";
+  return KNOWN_DEPLOYMENTS.has(name) ? name : "unrecognized";
 }
 
 export function isProductionDeployment(env = process.env) {
