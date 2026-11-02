@@ -12,6 +12,7 @@ import {
 } from "../../middleware/upload.middleware.js";
 import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
 import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { evaluateUmrahDelivery, isUmrahRequest, umrahDeliverableKind } from "../umrah/umrah-delivery.js";
 
 function storedPath(file) {
   if (file.buffer) {
@@ -52,7 +53,41 @@ async function publishInTransaction(tx, request, deliverable, userId, travelerId
   return { deliverable: current, completed };
 }
 
+// Umrah: say which pilgrim's visa (or the services) is ready, and when the
+// last visa / the last service document of the request is out.
+async function announceUmrahPublished(request, deliverable) {
+  const after = { ...request, deliverables: (request.deliverables || []).filter((d) => d.id !== deliverable.id).concat([deliverable]) };
+  const before = evaluateUmrahDelivery(request);
+  const now = evaluateUmrahDelivery(after);
+  const travelers = request.travelers || [];
+  const nameOf = (id) => travelers.find((t) => t.id === id)?.fullName || "أحد المعتمرين";
+  if (deliverable.kind === "SERVICE") {
+    if (now.services?.complete && !before.services?.complete) {
+      await notifyRequestCustomer(request, { title: "سُلّمت الخدمات المشمولة", message: `أصبحت مستندات الخدمات المشمولة في باقتك جاهزة للتحميل (${describeRequest(request)}).`, type: "UMRAH_SERVICES_DELIVERED" });
+    } else {
+      await notifyRequestCustomer(request, { title: "مستند خدمة جاهز", message: `أصبح المستند "${deliverable.label}" جاهزًا لطلبك (${describeRequest(request)}).`, type: "UMRAH_SERVICE_DOCUMENT_READY" });
+    }
+    return;
+  }
+  const newly = now.visas.coveredTravelerIds.filter((id) => !before.visas.coveredTravelerIds.includes(id));
+  if (now.visas.complete && !before.visas.complete) {
+    await notifyRequestCustomer(request, { title: "صدرت التأشيرات", message: `صدرت تأشيرات جميع المعتمرين في طلبك (${describeRequest(request)}). يمكنك تحميلها من «رحلتي إلى الحرمين».`, type: "UMRAH_ALL_VISAS_ISSUED" });
+  } else {
+    const who = newly.length ? newly.map(nameOf).join("، ") : "أحد المعتمرين";
+    await notifyRequestCustomer(request, { title: "صدرت تأشيرة", message: `صدرت تأشيرة ${who} (${describeRequest(request)}). يمكنك تحميلها من «رحلتي إلى الحرمين».`, type: "UMRAH_VISA_ISSUED" });
+  }
+}
+
 async function announcePublished(request, deliverable, completed) {
+  if (isUmrahRequest(request)) {
+    await announceUmrahPublished(request, deliverable);
+    sendWhatsAppMessage(
+      request.phoneNormalized,
+      `أصبح الملف "${deliverable.label}" جاهزًا لطلبك (${describeRequest(request)}).\nيمكنك تحميله من «رحلتي إلى الحرمين».`
+    );
+    if (completed) await announceCompletion(completed);
+    return;
+  }
   await notifyRequestCustomer(request, {
     title: "ملف جاهز للتحميل",
     message: `أصبح الملف "${deliverable.label}" جاهزًا لطلبك (${describeRequest(request)}).`,
@@ -70,10 +105,17 @@ async function announcePublished(request, deliverable, completed) {
 // is never listed, announced or downloadable for the customer. publish=true
 // publishes it in the same step, with the same conditions as publishing a
 // draft. A closed request takes no new final file.
-export async function createContactRequestDeliverable(contactRequestId, { label, file, travelerIds, publish = false }, uploadedByUserId) {
+export async function createContactRequestDeliverable(contactRequestId, { label, file, travelerIds, publish = false, kind: requestedKind }, uploadedByUserId) {
   const result = await withLockedRequest(contactRequestId, null, async (tx, request) => {
     const refusal = checkAction(publish ? ACTIONS.PUBLISH_DELIVERABLE : ACTIONS.PREPARE_DELIVERABLE, request);
     if (refusal) refuseWith(refusal);
+    // Umrah: a pilgrim's visa (default) or a service document of the package.
+    let umrahKind = null;
+    if (isUmrahRequest(request)) {
+      const resolved = umrahDeliverableKind(request, requestedKind);
+      if (resolved.error) refuseWith(resolved.error);
+      umrahKind = resolved.kind;
+    }
     if (travelerIds !== undefined || publish) {
       const invalid = checkCoverage(request, travelerIds || []);
       if (invalid) refuseWith(invalid);
@@ -83,7 +125,8 @@ export async function createContactRequestDeliverable(contactRequestId, { label,
         contactRequestId,
         // The final file of an Egypt clearance is its security approval
         // (circulars and tickets have their own actions, egypt-approval.service.js).
-        kind: isEgyptClearanceCode(request.visaType?.code) ? "APPROVAL" : "GENERAL",
+        // An Umrah file is a pilgrim's VISA or a SERVICE document (umrah-delivery.js).
+        kind: umrahKind || (isEgyptClearanceCode(request.visaType?.code) ? "APPROVAL" : "GENERAL"),
         label,
         fileName: file.originalname,
         // Relative to the uploads root, never the absolute server path.
@@ -99,7 +142,7 @@ export async function createContactRequestDeliverable(contactRequestId, { label,
       action: "CONTACT_REQUEST_DELIVERABLE_UPLOADED",
       entityId: contactRequestId,
       organizationId: request.organizationId,
-      newValue: { deliverableId: draft.id, label, travelerIds: travelerIds || [], publish },
+      newValue: { deliverableId: draft.id, label, kind: draft.kind, travelerIds: travelerIds || [], publish },
     });
     if (!publish) return { deliverable: draft, request };
     const published = await publishInTransaction(tx, { ...request, deliverables: [...request.deliverables, draft] }, draft, uploadedByUserId, travelerIds || []);

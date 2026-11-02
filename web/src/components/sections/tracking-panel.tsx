@@ -13,6 +13,7 @@ import {
   type LegacyPaymentAccount,
   type SettlementOption,
 } from "@/components/sections/payment-transfer";
+import { UmrahJourneySection, type UmrahJourney } from "@/components/sections/umrah-journey-section";
 import { EgyptJourneySection, egyptDeliverableIds, type EgyptOverview } from "@/components/sections/egypt-journey-section";
 
 type TrackedRequestStatus = "NEW" | "CONTACTED" | "CLOSED";
@@ -148,6 +149,8 @@ type TrackedRequest = {
     label: string;
     pricingMode?: "FIXED" | "QUOTE";
     steps: { key: string; label: string; state: TimelineStepState; status?: string; started?: boolean }[];
+    // «رحلتي إلى الحرمين» (Umrah only; backend umrah-journey.js).
+    umrah?: UmrahJourney | null;
   };
   createdAt: string;
   invoice: TrackedInvoice | null;
@@ -847,7 +850,7 @@ function RequestChecklistPanel({ req }: { req: TrackedRequest }) {
       </div>
       <ul className="mt-2 flex flex-col gap-2">
         {checklist.map((item) => (
-          <li key={item.requirementId} className="rounded-lg border border-border/70 p-2 text-xs">
+          <li key={`${item.requirementId}:${item.travelerId ?? ""}`} className="rounded-lg border border-border/70 p-2 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold text-foreground">
                 {item.label}
@@ -1398,8 +1401,14 @@ export function TrackingPanel() {
                   </span>
                 </div>
                 <RequestReference requestId={req.id} />
-                <RequestProgress req={req} />
-                <RequestActionPanel req={req} />
+                {req.progress?.umrah ? (
+                  <UmrahJourneySection requestId={req.id} journey={req.progress.umrah} />
+                ) : (
+                  <>
+                    <RequestProgress req={req} />
+                    <RequestActionPanel req={req} />
+                  </>
+                )}
                 <p className="mt-2 text-sm text-muted-foreground">{req.message}</p>
                 {req.status === "CLOSED" && req.outcomeNote ? (
                   <p className="mt-1 text-sm text-muted-foreground">{req.outcomeNote}</p>
@@ -1415,7 +1424,7 @@ export function TrackingPanel() {
                   />
                 ) : null}
                 <div id={`deliverables-${req.id}`} className="scroll-mt-24">
-                  <RequestDeliverablesPanel req={req} />
+                  {req.progress?.umrah ? null : <RequestDeliverablesPanel req={req} />}
                 </div>
                 <div id={`pricing-${req.id}`} className="scroll-mt-24">
                   <RequestInvoicePanel req={req} onActionComplete={refreshRequests} />

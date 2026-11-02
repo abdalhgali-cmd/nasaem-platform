@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { loginAsSeededAdmin } from "./helpers";
+import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 
 // Umrah on the website against the real backend, as its own section:
 // package (fixed price set in the admin) → applicant → trip → pilgrim →
@@ -181,16 +181,51 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     const started = await admin.post(`${BACKEND}/api/contact-requests/${id}/start-execution`, { data: {} });
     expect(started.ok(), await started.text()).toBeTruthy();
     expect((await started.json()).data.progress.label).toBe(type.execution);
-    for (const traveler of after.travelers as Array<{ id: string; fullName: string }>) {
-      const file = await admin.post(`${BACKEND}/api/contact-requests/${id}/deliverables`, {
-        multipart: {
-          label: `التأشيرة — ${traveler.fullName}`,
-          travelerIds: JSON.stringify([traveler.id]),
-          publish: "true",
-          file: { name: "final.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF") },
-        },
-      });
-      expect(file.ok(), await file.text()).toBeTruthy();
+    const upload = (label: string, travelerIds: string[], kind?: "SERVICE") => admin.post(`${BACKEND}/api/contact-requests/${id}/deliverables`, {
+      multipart: {
+        label,
+        travelerIds: JSON.stringify(travelerIds),
+        publish: "true",
+        ...(kind ? { kind } : {}),
+        file: { name: "final.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF") },
+      },
+    });
+    const pilgrims = after.travelers as Array<{ id: string; fullName: string }>;
+    // One pilgrim's visa first: the group is not done.
+    const firstVisa = await upload(`التأشيرة — ${pilgrims[0].fullName}`, [pilgrims[0].id]);
+    expect(firstVisa.ok(), await firstVisa.text()).toBeTruthy();
+    expect((await firstVisa.json()).data.kind).toBe("VISA");
+
+    // «رحلتي إلى الحرمين» on the website, as the customer.
+    const phone = `+2499${stamp}`;
+    await page.context().clearCookies();
+    await page.goto("/track");
+    await page.locator("#phone").fill(phone);
+    await page.getByRole("button", { name: "إرسال رمز التحقق" }).click();
+    await page.locator("#code").fill(readTrackingLoginCode(phone.replace(/\D/g, "")));
+    await page.getByRole("button", { name: "تأكيد" }).click();
+    const journey = page.getByTestId("umrah-journey");
+    await expect(journey).toBeVisible({ timeout: 15_000 });
+    await expect(journey.getByTestId("umrah-reference")).toHaveText(id);
+    await expect(journey.getByTestId("umrah-stages").locator("li")).toHaveCount(7);
+    await expect(journey.locator('[aria-current="step"]')).toContainText("إصدار التأشيرات");
+    await expect(journey.getByTestId("umrah-now-message")).toHaveText("لا يوجد إجراء مطلوب منك حالياً. سنُحدّث حالة طلبك عند اكتمال الخطوة التالية.");
+    await expect(journey.getByTestId("umrah-visa-state")).toHaveText(["صدرت التأشيرة", "قيد الإجراءات"]);
+    await expect(journey.getByTestId("umrah-file")).toHaveCount(1);
+    const visaDownload = await page.request.get(await journey.getByTestId("umrah-file").getAttribute("href") as string);
+    expect(visaDownload.status(), "the customer downloads their own visa").toBe(200);
+    await expect(journey.getByTestId("umrah-action")).toHaveText("تحميل التأشيرة");
+    if (type.kind === "VISA_ONLY") await expect(journey.locator('[data-state="not_included"]')).toContainText("تسليم الخدمات المشمولة");
+
+    // Back to staff for the rest.
+    await loginAsSeededAdmin(page);
+    const secondVisa = await upload(`التأشيرة — ${pilgrims[1].fullName}`, [pilgrims[1].id]);
+    expect(secondVisa.ok(), await secondVisa.text()).toBeTruthy();
+    if (type.kind !== "VISA_ONLY") {
+      const pending = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
+      expect(pending.status, "a services package is not complete at the visas").not.toBe("CLOSED");
+      const services = await upload("تذاكر وسكن المجموعة", pilgrims.map((p) => p.id), "SERVICE");
+      expect(services.ok(), await services.text()).toBeTruthy();
     }
     const done = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
     expect(done.status).toBe("CLOSED");
