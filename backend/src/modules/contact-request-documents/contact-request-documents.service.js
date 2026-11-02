@@ -10,6 +10,7 @@ import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
 import { sanitizeQualitySignal } from "../egypt-clearance/document-quality.js";
 import { describeRequest, notifyAdmins, refreshCaseTasks } from "../contact-requests/contact-requests.service.js";
+import { buildCustomerChecklist } from "../contact-request-tracking/customer-checklist.js";
 
 import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
 
@@ -275,4 +276,36 @@ export async function updateContactRequestDocumentStatus(
   }
 
   return { document: updated };
+}
+
+// Staff ask the customer for one specific document: a requirement of this
+// request (for one pilgrim, or the case) that is missing or was rejected.
+// It changes no document; it records who asked and why, and tells the
+// customer exactly what to upload. A document already with staff (under
+// review) or accepted is refused: review it instead.
+export async function requestContactRequestDocument(contactRequestId, { requirementId, travelerId, note }, userId) {
+  const result = await withLockedRequest(contactRequestId, null, async (tx, request) => {
+    if (request.status === "CLOSED") return { error: "REQUEST_CLOSED" };
+    const items = buildCustomerChecklist(request).filter((item) => item.kind === "DOCUMENT" && item.requirementId === requirementId);
+    if (!items.length) return { error: "REQUIREMENT_NOT_FOUND" };
+    const item = items.find((candidate) => (candidate.travelerId || null) === (travelerId || null)) || (items.length === 1 && !travelerId ? items[0] : null);
+    if (!item) return { error: "TRAVELER_NOT_FOUND" };
+    if (item.state === "ACCEPTED" || item.state === "UNDER_REVIEW") return { error: "DOCUMENT_NOT_REQUESTABLE", state: item.state };
+    const reason = String(note || "").trim().slice(0, 500);
+    await auditInTransaction(tx, {
+      userId,
+      action: "CONTACT_REQUEST_DOCUMENT_REQUESTED",
+      entityId: contactRequestId,
+      organizationId: request.organizationId,
+      newValue: { requirementId, travelerId: item.travelerId || null, state: item.state, note: reason || null },
+    });
+    return { request, item, reason };
+  });
+  if (result.error || result.refusal) return result;
+  const { request, item, reason } = result;
+  const who = item.travelerName ? ` — ${item.travelerName}` : "";
+  const message = `مطلوب منك رفع المستند "${item.label}${who}" لطلبك (${describeRequest(request)}).${reason ? ` ملاحظة الوكالة: ${reason}` : ""} ارفعه من صفحة الطلب.`;
+  await notifyRequestCustomer(request, { title: "مطلوب مستند لطلبك", message, type: "CONTACT_REQUEST_DOCUMENT_REQUESTED" });
+  sendWhatsAppMessage(request.phoneNormalized, message);
+  return { requested: { requirementId, travelerId: item.travelerId || null, label: item.label, state: item.state, note: reason || null } };
 }
