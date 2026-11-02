@@ -1,0 +1,41 @@
+name: AI Dev Orchestra
+run-name: AI Dev Orchestra ${{ inputs.task_id }} · ${{ inputs.title }}
+on:
+  workflow_dispatch:
+    inputs:
+      task_id: { description: "Orchestra task ID", required: true, type: string }
+      title: { description: "Task title", required: true, type: string }
+      prompt: { description: "Task instructions", required: true, type: string }
+      base_branch: { description: "Base branch", required: true, type: string }
+      task_branch: { description: "Isolated task branch", required: true, type: string }
+permissions:
+  contents: write
+jobs:
+  run-task:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out requested base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install agent CLIs
+        run: npm install --global @anthropic-ai/claude-code @openai/codex
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Execute, review and publish approved branch
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          TASK_TITLE: ${{ inputs.title }}
+          TASK_PROMPT: ${{ inputs.prompt }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          TASK_BRANCH: ${{ inputs.task_branch }}
+          GITHUB_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python .github/scripts/orchestra_runner.py
+
