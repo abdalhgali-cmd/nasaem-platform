@@ -1,0 +1,50 @@
+name: Production read-only health
+
+# Read-only checks of the LIVE production API and website after the #155
+# release, from a GitHub runner (the agent sandbox cannot reach them).
+# GET only, no credentials, no customer data (public catalog fields only).
+# Nothing is created, changed or deleted.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/production-readonly-health.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    env:
+      API: https://nasaem-platform-production.up.railway.app/api
+      SITE: https://nasaem-alharamain.com
+    steps:
+      - name: API health (process up + database connection)
+        run: curl -sS -m 30 -w "\nHTTP %{http_code}\n" "$API/health"
+
+      - name: Which build is live (unauthenticated route probes)
+        run: |
+          probe() { printf "%-50s → " "$1 $2"; curl -sS -m 30 -o /dev/null -w "%{http_code}\n" -X "$1" "$API$2"; }
+          probe GET /customers/review/auto-links     # 401 = new build (#138+); 404 = old build
+          probe POST /admin/staging/attest            # 404 expected on production (no staging key)
+          probe GET /auth/me                          # 401 expected without a session
+
+      - name: Schema reached by the live code (public catalog, read-only)
+        run: |
+          curl -sS -m 30 -o packages.json -w "HTTP %{http_code}\n" "$API/services/public/packages"
+          node -e '
+            const body = JSON.parse(require("fs").readFileSync("packages.json","utf8"));
+            const rows = body.data || [];
+            console.log(`published packages: ${rows.length}`);
+            // pricingMode / priceUnit come from migration 20261014100000_explicit_pricing_mode.
+            console.log(`rows with pricingMode: ${rows.filter(r => r.pricingMode).length}`);
+            for (const r of rows) console.log(JSON.stringify({ code: r.code, pricingMode: r.pricingMode ?? null, priceUnit: r.priceUnit ?? null }));
+          '
+
+      - name: Website (status only)
+        run: |
+          for path in / /umrah /visas/egypt-security-approval /track /admin/login; do
+            printf "%-40s → " "$path"; curl -sS -m 30 -o /dev/null -w "%{http_code}\n" "$SITE$path"
+          done
