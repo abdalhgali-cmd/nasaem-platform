@@ -30,7 +30,7 @@ function fileButtons(files, esc, icon) {
   return files.map((file) => `<button type="button" class="secondary deliverable-btn umrah-file-btn" data-id="${esc(file.id)}">${icon("download", { size: 16 })} ${esc(file.label || "تحميل")}</button>`).join("");
 }
 
-export function umrahJourneyHtml(journey, esc, icon) {
+export function umrahJourneyHtml(journey, esc, icon, { detailsHtml = "" } = {}) {
   if (!journey) return "";
   const action = journey.primaryAction && UMRAH_ACTION_TARGETS[journey.primaryAction.key] ? journey.primaryAction : null;
   const now = journey.now || {};
@@ -88,6 +88,7 @@ export function umrahJourneyHtml(journey, esc, icon) {
         </ul>
         ${files ? "" : `<p class="umrah-files-empty">تظهر هنا التأشيرات ومستندات الخدمات فور نشرها.</p>`}
       </div>
+      ${detailsHtml ? `<details class="journey-details"><summary>تفاصيل كل المراحل</summary>${detailsHtml}</details>` : ""}
     </section>`;
 }
 

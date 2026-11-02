@@ -850,7 +850,7 @@ function RequestChecklistPanel({ req }: { req: TrackedRequest }) {
       </div>
       <ul className="mt-2 flex flex-col gap-2">
         {checklist.map((item) => (
-          <li key={item.requirementId} className="rounded-lg border border-border/70 p-2 text-xs">
+          <li key={`${item.requirementId}:${item.travelerId ?? ""}`} className="rounded-lg border border-border/70 p-2 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold text-foreground">
                 {item.label}

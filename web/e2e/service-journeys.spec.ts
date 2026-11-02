@@ -286,8 +286,10 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     }
     await app.locator(`.request-row[data-id="${id}"]`).click({ timeout: 15_000 });
     // The customer's view first; every server stage under «تفاصيل كل المراحل».
-    await expect(app.locator("#requestJourney")).toBeVisible({ timeout: 15_000 });
-    await app.locator("#requestJourney .journey-details summary").click();
+    // Umrah: «رحلتي إلى الحرمين» (#umrahJourney) in place of the generic journey.
+    const journeyRoot = app.locator("#requestJourney, #umrahJourney");
+    await expect(journeyRoot).toBeVisible({ timeout: 15_000 });
+    await journeyRoot.locator(".journey-details summary").click();
     await expect(app.locator("#requestProgress")).toBeVisible();
   }
 
@@ -314,7 +316,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   async function bothSay(label: string, headline = label) {
     await expect(office.locator("[data-cr-progress-label]")).toHaveText(label);
     await expect(app.locator("#requestProgress .progress-label")).toHaveText(label);
-    await expect(app.locator("#requestJourney .journey-headline")).toHaveText(headline);
+    await expect(app.locator("#requestJourney .journey-headline, #umrahJourney .umrah-status")).toHaveText(headline);
   }
 
   for (const journey of JOURNEYS) {

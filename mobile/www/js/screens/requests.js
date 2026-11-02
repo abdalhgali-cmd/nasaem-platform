@@ -7,7 +7,7 @@ import * as tracking from "../tracking.js";
 import { showOtpSupport } from "../otp-support.js";
 import { getCustomer, isAccountUnlocked, getSessionState, SessionState } from "../auth.js";
 import { pricingOf, paymentActions, formatAmount, sdgEquivalent, sdgUnavailable, SDG_UNAVAILABLE_NOTICE } from "../payment-view.js";
-import { bindProgressTrack, journeyBlockHtml, runProgressAction } from "../progress-view.js";
+import { bindProgressTrack, journeyBlockHtml, progressBlockHtml, runProgressAction } from "../progress-view.js";
 import { bindUmrahJourney, umrahJourneyHtml } from "../umrah-journey-view.js";
 import { canUpload, actionCount, groupChecklist, stateLabel, uploadLabel } from "../checklist-view.js";
 import { validateFile } from "../intake-core.js";
@@ -478,7 +478,7 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
         </div>`}
       </div>
 
-      ${umrah ? umrahJourneyHtml(umrah, esc, icon) : journeyBlockHtml(request.progress, esc, request)}
+      ${umrah ? umrahJourneyHtml(umrah, esc, icon, { detailsHtml: progressBlockHtml(request.progress, esc, request) }) : journeyBlockHtml(request.progress, esc, request)}
 
       ${pricing || payState.label ? `
         <div class="detail-block quote-block" id="quoteBlock">

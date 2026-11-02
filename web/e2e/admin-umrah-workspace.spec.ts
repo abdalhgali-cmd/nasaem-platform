@@ -190,10 +190,25 @@ test.describe.serial("Umrah Case Workspace", () => {
     });
     expect(file.ok(), await file.text()).toBeTruthy();
 
+    // An AIR package: the visa alone does not complete it — the included
+    // services must be delivered too.
+    await page.reload();
+    await expect(page.locator("#umrah-workspace")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("umrah-stage")).not.toHaveText("مغلق");
+    await expect(page.getByTestId("umrah-pilgrims")).toContainText("التأشيرة منشورة");
+    await expect(page.getByTestId("umrah-pilgrims")).toContainText("الخدمات لم تُسلّم");
+    await expect(page.locator('[data-step="SERVICES"]')).toHaveAttribute("data-state", "current");
+    const services = await page.request.post(`${BACKEND}/api/contact-requests/${requestId}/deliverables`, {
+      headers: { Origin: WEB },
+      multipart: { label: "تذكرة الطيران", kind: "SERVICE", travelerIds: JSON.stringify([traveler.id]), publish: "true", file: { name: "ticket.pdf", mimeType: "application/pdf", buffer: PDF } },
+    });
+    expect(services.ok(), await services.text()).toBeTruthy();
+
     await page.reload();
     await expect(page.locator("#umrah-workspace")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId("umrah-stage")).toHaveText("مغلق");
-    await expect(page.getByTestId("umrah-pilgrims")).toContainText("الملف النهائي منشور");
+    await expect(page.getByTestId("umrah-pilgrims")).toContainText("التأشيرة منشورة");
+    await expect(page.getByTestId("umrah-pilgrims")).toContainText("الخدمات مسلّمة");
     await expect(page.locator('[data-step][data-state="upcoming"], [data-step][data-state="current"]')).toHaveCount(0);
 
     // Every transition is in the case's audit log with who did it.
