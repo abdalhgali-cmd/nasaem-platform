@@ -152,10 +152,12 @@ test.describe.serial("Egypt security approval: customer app and back-office", ()
     await app.locator("#sendReceiptBtn").click();
     // Since 9f236eb («keep payment journey continuous») the customer stays on
     // the payment screen, which now shows the receipt under review and the
-    // request's reference, instead of a separate success screen.
+    // request's reference (#requestReference, PR #146), instead of a separate
+    // success screen.
     await expect(app.locator("#paymentUnderReview")).toBeVisible({ timeout: 30_000 });
     await expect(app.locator("#sendReceiptBtn")).toHaveCount(0);
-    airRequestId = (await app.getByTestId("direct-payment-step").locator("code").first().innerText()).trim();
+    await expect(app.locator("#requestReference")).toBeVisible();
+    airRequestId = (await app.locator("#requestReference").innerText()).trim();
     expect(airRequestId).toMatch(/^[a-z0-9]{20,}$/);
 
     // Stored: email, route, flight choice and one linked booking inquiry (no price).

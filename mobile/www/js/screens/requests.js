@@ -13,6 +13,7 @@ import { validateFile } from "../intake-core.js";
 import { bindCopyButtons, bindReceiptPicker, isAlreadySubmitted, needsRefresh, noSettlementAccountHtml, normalizeSettlementOptions, paymentSafetyHtml, receiptPickerHtml, selectedSettlementAccount, settlementOptionsHtml } from "../payment-receipt.js";
 import { egyptVariantEntryMode, isEgyptClearanceItem } from "../egypt-view.js";
 import { egyptFilesHtml, egyptPrepHtml, isEgyptOverview } from "../egypt-journey.js";
+import { formatRequestUpdatedAt, requestListState } from "../request-list-view.js";
 
 // ContactRequest.status (the case lifecycle a staff member works) only has
 // these three values — everything a customer actually cares about day to
@@ -82,7 +83,8 @@ export async function renderRequestsTabScreen(ctx) {
 
 export async function renderMyRequestsScreen({ bodyEl }) {
   bodyEl.innerHTML = `
-    <p class="mode-banner">${icon("user", { size: 16 })}<span>طلبات حسابك</span></p>
+    <p class="mode-banner">${icon("user", { size: 16 })}<span>طلباتي — الحالة المباشرة من الوكالة</span></p>
+    <div class="requests-live-bar"><span><i aria-hidden="true"></i> متصل بلوحة الإدارة</span><button type="button" class="link-btn" id="refreshRequestsBtn">تحديث الآن</button></div>
     <div class="segmented" id="requestsFilter">
       <button class="segmented-btn active" data-filter="current">الحالية</button>
       <button class="segmented-btn" data-filter="past">السابقة</button>
@@ -94,14 +96,20 @@ export async function renderMyRequestsScreen({ bodyEl }) {
 
   let all = [];
   const listEl = bodyEl.querySelector("#requestsList");
+  let loading = false;
 
-  async function load() {
+  async function load({ quiet = false } = {}) {
+    if (loading) return;
+    loading = true;
     try {
       const res = await api("/customer/requests?limit=100");
       all = res.data || [];
       renderFilter(bodyEl.querySelector(".segmented-btn.active").dataset.filter);
+      if (!quiet) toast("تم تحديث طلباتك");
     } catch (error) {
-      listEl.innerHTML = errorState(error.message, { onRetry: load, title: "تعذر تحديث طلباتك", hint: "طلباتك المحفوظة لم تتغير. تحقق من الاتصال ثم أعد المحاولة." });
+      if (!quiet) listEl.innerHTML = errorState(error.message, { onRetry: load, title: "تعذر تحديث طلباتك", hint: "طلباتك المحفوظة لم تتغير. تحقق من الاتصال ثم أعد المحاولة." });
+    } finally {
+      loading = false;
     }
   }
 
@@ -117,15 +125,21 @@ export async function renderMyRequestsScreen({ bodyEl }) {
       listEl.querySelector("#emptyStartRequestBtn")?.addEventListener("click", () => goToTab("services", "services", { title: "ابدأ طلب" }));
       return;
     }
-    listEl.innerHTML = items.map((request) => `
+    listEl.innerHTML = items.map((request) => {
+      const live = requestListState(request);
+      const updated = formatRequestUpdatedAt(live.updatedAt);
+      return `
       <button class="list-item request-row" data-id="${esc(request.id)}">
         <div class="list-item-icon">${icon("requests", { size: 20 })}</div>
         <div class="list-item-body">
           <strong>${esc(request.service?.name || request.visaType?.name || "طلب خدمة")}</strong>
-          <p>${esc(request.progress?.label || request.nextAction || "")}</p>
+          <p class="request-live-status">${esc(live.status)}</p>
+          <small class="request-next-copy">التالي: ${esc(live.nextAction)}</small>
+          ${updated ? `<small class="request-updated-at">آخر تحديث: ${esc(updated)}</small>` : ""}
         </div>
         <span class="status-pill">${esc(requestStatusLabel(request))}</span>
-      </button>`).join("");
+      </button>`;
+    }).join("");
     listEl.querySelectorAll(".request-row").forEach((row) => {
       row.addEventListener("click", () => go("requestDetail", { requestId: row.dataset.id }, { title: "تفاصيل الطلب", tab: "requests" }));
     });
@@ -137,8 +151,16 @@ export async function renderMyRequestsScreen({ bodyEl }) {
     bodyEl.querySelectorAll(".segmented-btn").forEach((b) => b.classList.toggle("active", b === btn));
     renderFilter(btn.dataset.filter);
   });
+  bodyEl.querySelector("#refreshRequestsBtn").addEventListener("click", () => load());
 
-  await load();
+  await load({ quiet: true });
+  const refreshTimer = setInterval(() => {
+    if (!bodyEl.isConnected) {
+      clearInterval(refreshTimer);
+      return;
+    }
+    load({ quiet: true });
+  }, 20_000);
 }
 
 // ---- Guest tracking (no account) -------------------------------------------
@@ -152,6 +174,7 @@ export async function renderGuestTrackingScreen({ bodyEl }) {
     ${locked ? `<p class="field-hint">حسابك مقفل بالبصمة. افتحه من «المزيد» لعرض طلبات الحساب.</p>` : ""}
     <div id="guestTrackingBody"></div>`;
   const container = bodyEl.querySelector("#guestTrackingBody");
+  let trackingRefreshTimer = null;
 
   const showList = async () => {
     container.innerHTML = `<div class="list">${skeletonList(3)}</div>`;
@@ -161,26 +184,38 @@ export async function renderGuestTrackingScreen({ bodyEl }) {
       container.innerHTML = `
         <div class="tracking-head">
           <span>الرقم: <b dir="ltr">${esc(phone || "")}</b></span>
-          <button class="link-btn" id="changePhoneBtn">تغيير الرقم</button>
+          <span><button class="link-btn" id="refreshTrackedBtn">تحديث</button><button class="link-btn" id="changePhoneBtn">تغيير الرقم</button></span>
         </div>
         <div class="list" id="trackedList">
-          ${requests.length ? requests.map((request) => `
+          ${requests.length ? requests.map((request) => {
+            const live = requestListState(request);
+            const updated = formatRequestUpdatedAt(live.updatedAt);
+            return `
             <button class="list-item request-row" data-id="${esc(request.id)}">
               <div class="list-item-icon">${icon("requests", { size: 20 })}</div>
               <div class="list-item-body">
                 <strong>${esc(request.serviceRef?.name || request.visaType?.name || request.service || "طلب خدمة")}</strong>
-                <p>${esc(request.statusLabel || "")}</p>
+                <p class="request-live-status">${esc(live.status)}</p>
+                <small class="request-next-copy">التالي: ${esc(live.nextAction)}</small>
+                ${updated ? `<small class="request-updated-at">آخر تحديث: ${esc(updated)}</small>` : ""}
                 <small dir="ltr">${esc(request.id)}</small>
               </div>
-            </button>`).join("") : emptyState({ icon: "requests", title: "لا توجد طلبات بهذا الرقم", hint: "تأكد أن الرقم هو نفسه المستخدم في الطلب." })}
+            </button>`;
+          }).join("") : emptyState({ icon: "requests", title: "لا توجد طلبات بهذا الرقم", hint: "تأكد أن الرقم هو نفسه المستخدم في الطلب." })}
         </div>`;
       container.querySelector("#changePhoneBtn").addEventListener("click", async () => {
+        clearTimeout(trackingRefreshTimer);
         await tracking.clearTrackingSession();
         showPhoneStep();
       });
+      container.querySelector("#refreshTrackedBtn").addEventListener("click", showList);
       container.querySelectorAll(".request-row").forEach((row) => {
         row.addEventListener("click", () => go("trackedRequestDetail", { requestId: row.dataset.id }, { title: "تفاصيل الطلب", tab: "requests" }));
       });
+      clearTimeout(trackingRefreshTimer);
+      trackingRefreshTimer = setTimeout(() => {
+        if (bodyEl.isConnected) showList();
+      }, 20_000);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         await tracking.clearTrackingSession();
