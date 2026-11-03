@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import prisma from "../src/config/database.js";
 import { UPLOAD_ROOT } from "../src/config/uploadRoot.js";
-import { clearTestRequests, collectCounts, databaseLabel, deleteOrphanedFiles } from "../src/scripts/clear-test-requests.js";
+import { clearTestRequests, collectCounts, databaseLabel, deleteOrphanedFiles, targetRequests } from "../src/scripts/clear-test-requests.js";
 import { createStaffUser } from "./helpers/staff.js";
 
 // Runs on the disposable test database. Builds one of each kind of request
@@ -35,11 +35,21 @@ test("clear-test-requests: deletes requests and their records, keeps refund evid
   const request = await prisma.contactRequest.create({ data: { name: "طلب اختبار", phone: "0912345678", message: "test", customerId: customer.id } });
   await prisma.contactRequestDocument.create({ data: { contactRequestId: request.id, label: "جواز", fileName: "p.pdf", storagePath: requestFile, mimeType: "application/pdf", sizeBytes: 4 } });
   await prisma.notification.create({ data: { title: "t", message: "m", type: "SYSTEM", contactRequestId: request.id, userId: staff.id } }).catch(() => null);
+  // Financial evidence, kept whole: a request whose payment was confirmed
+  // (with its document and file) and one with an issued payment receipt.
+  const confirmedFile = await writeUpload(`contact-request-documents/confirmed-${tag}.pdf`);
+  const confirmed = await prisma.contactRequest.create({ data: { name: "طلب مدفوع", phone: "0912345679", message: "paid", paymentStatus: "CONFIRMED" } });
+  const confirmedDoc = await prisma.contactRequestDocument.create({ data: { contactRequestId: confirmed.id, label: "إيصال", fileName: "r.pdf", storagePath: confirmedFile, mimeType: "application/pdf", sizeBytes: 4 } });
+  const receipted = await prisma.contactRequest.create({ data: { name: "طلب بإيصال", phone: "0912345670", message: "receipt" } });
+  await prisma.paymentReceipt.create({ data: { contactRequestId: receipted.id, receiptNo: `RC-${tag}`, amount: 10, currency: "SAR", customerName: "x", serviceName: "x", paidAt: new Date() } });
   // An unsent draft.
   await prisma.intakeDraft.create({ data: { token: `draft-${tag}`, expiresAt: new Date(Date.now() + 86_400_000) } });
   // A legacy order with a payment (deleted) …
   const order = await prisma.order.create({ data: { orderNumber: `ORD-${tag}`, customerId: customer.id, totalAmount: 100 } });
   await prisma.payment.create({ data: { orderId: order.id, amount: 100, paymentMethod: "BANK_TRANSFER" } });
+  // … an order with money received (kept) …
+  const received = await prisma.order.create({ data: { orderNumber: `ORD-P-${tag}`, customerId: customer.id, totalAmount: 70 } });
+  await prisma.payment.create({ data: { orderId: received.id, amount: 70, paymentMethod: "BANK_TRANSFER", status: "PAID" } });
   // … and an order with a refund (kept: refund evidence).
   const refunded = await prisma.order.create({ data: { orderNumber: `ORD-R-${tag}`, customerId: customer.id, totalAmount: 50 } });
   const paid = await prisma.payment.create({ data: { orderId: refunded.id, amount: 50, paymentMethod: "BANK_TRANSFER", status: "PAID" } });
@@ -48,17 +58,26 @@ test("clear-test-requests: deletes requests and their records, keeps refund evid
   const unrelated = await writeUpload(`site-assets/unrelated-${tag}.png`);
 
   const before = await collectCounts();
-  assert.ok(before.contactRequests >= 1 && before.intakeDrafts >= 1 && before.orders >= 2);
+  assert.ok(before.contactRequests >= 3 && before.intakeDrafts >= 1 && before.orders >= 3);
+  // The dry-run list names the test request, never the protected ones, and no personal data.
+  const targets = await targetRequests();
+  assert.ok(targets.some((t) => t.id === request.id));
+  assert.ok(!targets.some((t) => t.id === confirmed.id || t.id === receipted.id));
+  assert.doesNotMatch(JSON.stringify(targets), /0912345678|طلب اختبار/);
 
   const result = await clearTestRequests();
-  assert.equal(result.after.contactRequests, 0);
-  assert.equal(result.after.contactRequestDocuments, 0);
-  assert.equal(result.after.travelers, 0);
+  assert.equal(result.after.contactRequestsToDelete, 0);
+  assert.equal(result.after.contactRequests, result.after.contactRequestsProtectedFinancial, "only financial evidence remains");
+  assert.equal(await prisma.contactRequest.count({ where: { id: request.id } }), 0);
+  assert.equal(await prisma.contactRequest.count({ where: { id: { in: [confirmed.id, receipted.id] } } }), 2, "financial evidence is kept");
+  assert.equal(await prisma.contactRequestDocument.count({ where: { id: confirmedDoc.id } }), 1);
+  assert.equal(await prisma.paymentReceipt.count({ where: { contactRequestId: receipted.id } }), 1);
   assert.equal(result.after.intakeDrafts, 0);
   assert.equal(await prisma.order.count({ where: { id: order.id } }), 0);
   assert.equal(await prisma.order.count({ where: { id: refunded.id } }), 1, "refund evidence is kept");
   assert.equal(await prisma.payment.count({ where: { orderId: refunded.id } }), 2);
-  assert.ok(result.after.ordersProtectedRefundEvidence >= 1, "orders with refunds are reported as kept");
+  assert.equal(await prisma.order.count({ where: { id: received.id } }), 1, "money received is kept");
+  assert.ok(result.after.ordersProtectedFinancial >= 2, "orders with financial evidence are reported as kept");
   // Kept.
   assert.equal(await prisma.user.count({ where: { id: staff.id } }), 1);
   assert.equal(await prisma.customer.count({ where: { id: customer.id } }), 1);
@@ -70,16 +89,21 @@ test("clear-test-requests: deletes requests and their records, keeps refund evid
 
   // Files: only the deleted request's file goes.
   assert.ok(result.files.includes(requestFile));
+  assert.ok(!result.files.includes(confirmedFile), "a kept request's file is never a deletion candidate");
   const files = await deleteOrphanedFiles(result.files);
   assert.equal(await exists(requestFile), false);
   assert.equal(await exists(unrelated), true);
-  assert.equal(files.refused, 0);
+  assert.equal(await exists(confirmedFile), true);
+  // (A shared database may hold a path outside UPLOAD_ROOT from another test:
+  // that one is refused, never deleted — covered by the next test.)
+  assert.ok(files.deleted >= 1, "the deleted request's file is removed");
 
   // Idempotent.
   const again = await clearTestRequests();
   assert.deepEqual(again.deleted, { requestNotifications: 0, contactRequests: 0, intakeDrafts: 0, flightBookings: 0, orders: 0 });
 
   await fs.rm(path.join(UPLOAD_ROOT, unrelated), { force: true });
+  await fs.rm(path.join(UPLOAD_ROOT, confirmedFile), { force: true });
 });
 
 test("clear-test-requests: a stored path outside UPLOAD_ROOT is never deleted", async () => {

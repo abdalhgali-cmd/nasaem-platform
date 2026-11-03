@@ -22,8 +22,12 @@
 //   Notification rows that point at a deleted request or order
 // Never deleted: users, roles, sessions, customers, services, visa types,
 //   prices, payment accounts, settings, feature flags, site assets, the
-//   activity (audit) log, and any order whose payments include a refund
-//   (refund evidence): such orders are kept and reported.
+//   activity (audit) log, and FINANCIAL EVIDENCE, kept and reported:
+//   - a request whose payment was confirmed, or that has an issued payment
+//     receipt (PaymentReceipt), with everything it owns;
+//   - an order with money received (a PAID/PARTIAL payment) or a refund.
+// The dry run lists every target request (no personal data) with a
+// test-marker hint, so the owner can confirm they are test records.
 // Idempotent: a second run finds nothing left to delete.
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -42,15 +46,22 @@ export function databaseLabel(env = process.env) {
 
 const count = async (db, sql) => Number((await db.$queryRawUnsafe(sql))[0].n);
 
-// Orders kept as refund evidence: any order with a REFUND payment or a
-// payment that was refunded.
-const PROTECTED_ORDERS = `SELECT DISTINCT "orderId" FROM "Payment" WHERE "kind" = 'REFUND' OR "status" = 'REFUNDED' OR "refundOfPaymentId" IS NOT NULL`;
+// Orders kept as financial evidence: money received (PAID/PARTIAL) or any
+// refund (a REFUND payment, a refunded payment, or a payment that refunds).
+const PROTECTED_ORDERS = `SELECT DISTINCT "orderId" FROM "Payment" WHERE "kind" = 'REFUND' OR "status" IN ('REFUNDED', 'PAID', 'PARTIAL') OR "refundOfPaymentId" IS NOT NULL`;
 const DELETABLE_ORDERS = `SELECT "id" FROM "Order" WHERE "id" NOT IN (${PROTECTED_ORDERS})`;
+// Requests kept as financial evidence: a confirmed payment or an issued
+// payment receipt. Everything else is a test request (owner decision).
+const PROTECTED_REQUESTS = `SELECT "id" FROM "ContactRequest" WHERE "paymentStatus" = 'CONFIRMED' OR "id" IN (SELECT "contactRequestId" FROM "PaymentReceipt")`;
+const DELETABLE_REQUESTS = `SELECT "id" FROM "ContactRequest" WHERE "id" NOT IN (${PROTECTED_REQUESTS})`;
+const OWNED = (column) => `"${column}" IN (${DELETABLE_REQUESTS})`;
 
 export async function collectCounts(db = prisma) {
   const n = (sql) => count(db, sql);
   return {
     contactRequests: await n(`SELECT count(*)::int n FROM "ContactRequest"`),
+    contactRequestsToDelete: await n(`SELECT count(*)::int n FROM (${DELETABLE_REQUESTS}) d`),
+    contactRequestsProtectedFinancial: await n(`SELECT count(*)::int n FROM (${PROTECTED_REQUESTS}) p`),
     travelers: await n(`SELECT count(*)::int n FROM "Traveler"`),
     contactRequestDocuments: await n(`SELECT count(*)::int n FROM "ContactRequestDocument"`),
     deliverables: await n(`SELECT count(*)::int n FROM "ContactRequestDeliverable"`),
@@ -65,7 +76,7 @@ export async function collectCounts(db = prisma) {
     customerMessageDeliveries: await n(`SELECT count(*)::int n FROM "CustomerMessageDelivery"`),
     intakeDrafts: await n(`SELECT count(*)::int n FROM "IntakeDraft"`),
     orders: await n(`SELECT count(*)::int n FROM "Order"`),
-    ordersProtectedRefundEvidence: await n(`SELECT count(*)::int n FROM (${PROTECTED_ORDERS}) p`),
+    ordersProtectedFinancial: await n(`SELECT count(*)::int n FROM (${PROTECTED_ORDERS}) p`),
     orderPayments: await n(`SELECT count(*)::int n FROM "Payment"`),
     flightBookings: await n(`SELECT count(*)::int n FROM "flight_bookings"`),
     requestNotifications: await n(`SELECT count(*)::int n FROM "Notification" WHERE "contactRequestId" IS NOT NULL OR "orderId" IS NOT NULL`),
@@ -79,12 +90,26 @@ export async function collectCounts(db = prisma) {
   };
 }
 
+// The requests a run would delete, for the owner to confirm they are test
+// records: no name, phone or message is printed, only a hint whether the
+// row carries a test marker (TEST / E2E / اختبار / تجرب).
+export async function targetRequests(db = prisma) {
+  return db.$queryRawUnsafe(`
+    SELECT r."id", to_char(r."createdAt", 'YYYY-MM-DD') AS "created", r."status", r."paymentStatus",
+           COALESCE(s."code", v."code", r."service") AS "item",
+           (r."name" || ' ' || r."message" || ' ' || COALESCE(r."email", '')) ~* '(test|e2e|اختبار|تجرب)' AS "testMarker"
+    FROM "ContactRequest" r
+    LEFT JOIN "Service" s ON s."id" = r."serviceId"
+    LEFT JOIN "VisaType" v ON v."id" = r."visaTypeId"
+    WHERE r."id" IN (${DELETABLE_REQUESTS})
+    ORDER BY r."createdAt"`);
+}
+
 // Every stored file path a request row points at, before it is deleted.
 async function requestFilePaths(db) {
   const rows = await db.$queryRawUnsafe(`
-    SELECT "storagePath" p FROM "ContactRequestDocument"
-    UNION SELECT "storagePath" FROM "ContactRequestDeliverable"
-    UNION SELECT "storagePath" FROM "PaymentReceipt" WHERE "storagePath" IS NOT NULL
+    SELECT "storagePath" p FROM "ContactRequestDocument" WHERE ${OWNED("contactRequestId")}
+    UNION SELECT "storagePath" FROM "ContactRequestDeliverable" WHERE ${OWNED("contactRequestId")}
     UNION SELECT "storagePath" FROM "Document" WHERE "orderId" IN (${DELETABLE_ORDERS})
     UNION SELECT provisional_ticket_path FROM flight_bookings WHERE provisional_ticket_path IS NOT NULL AND (order_id IS NULL OR order_id IN (${DELETABLE_ORDERS}))
     UNION SELECT payment_receipt_path FROM flight_bookings WHERE payment_receipt_path IS NOT NULL AND (order_id IS NULL OR order_id IN (${DELETABLE_ORDERS}))
@@ -113,10 +138,11 @@ export async function clearTestRequests(db = prisma) {
     const files = await requestFilePaths(tx);
     const deleted = {};
     deleted.requestNotifications = await tx.$executeRawUnsafe(
-      `DELETE FROM "Notification" WHERE "contactRequestId" IS NOT NULL OR "orderId" IN (${DELETABLE_ORDERS})`,
+      `DELETE FROM "Notification" WHERE ${OWNED("contactRequestId")} OR "orderId" IN (${DELETABLE_ORDERS})`,
     );
-    // ContactRequest's own foreign keys cascade to everything the request owns.
-    deleted.contactRequests = await tx.$executeRawUnsafe(`DELETE FROM "ContactRequest"`);
+    // ContactRequest's own foreign keys cascade to everything the request
+    // owns; requests with financial evidence are not touched.
+    deleted.contactRequests = await tx.$executeRawUnsafe(`DELETE FROM "ContactRequest" WHERE "id" IN (${DELETABLE_REQUESTS})`);
     deleted.intakeDrafts = await tx.$executeRawUnsafe(`DELETE FROM "IntakeDraft"`);
     deleted.flightBookings = await tx.$executeRawUnsafe(
       `DELETE FROM flight_bookings WHERE order_id IS NULL OR order_id IN (${DELETABLE_ORDERS})`,
@@ -165,7 +191,10 @@ async function main(argv) {
   }
   console.log(`target database: ${target}`);
   if (!apply) {
+    const targets = await targetRequests();
     console.log(JSON.stringify({ mode: "dry-run", counts: await collectCounts() }, null, 2));
+    console.log(`requests to delete: ${targets.length} (without a test marker: ${targets.filter((t) => !t.testMarker).length})`);
+    for (const t of targets) console.log(`  ${t.id} ${t.created} ${t.item ?? "-"} ${t.status}/${t.paymentStatus}${t.testMarker ? " [test]" : ""}`);
     console.log(`to delete: --apply --confirm-database=${target} [--delete-files]`);
     return 0;
   }
