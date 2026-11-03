@@ -46,22 +46,48 @@ export function databaseLabel(env = process.env) {
 
 const count = async (db, sql) => Number((await db.$queryRawUnsafe(sql))[0].n);
 
-// Orders kept as financial evidence: money received (PAID/PARTIAL) or any
-// refund (a REFUND payment, a refunded payment, or a payment that refunds).
-const PROTECTED_ORDERS = `SELECT DISTINCT "orderId" FROM "Payment" WHERE "kind" = 'REFUND' OR "status" IN ('REFUNDED', 'PAID', 'PARTIAL') OR "refundOfPaymentId" IS NOT NULL`;
-const DELETABLE_ORDERS = `SELECT "id" FROM "Order" WHERE "id" NOT IN (${PROTECTED_ORDERS})`;
-// Requests kept as financial evidence: a confirmed payment or an issued
-// payment receipt. Everything else is a test request (owner decision).
-const PROTECTED_REQUESTS = `SELECT "id" FROM "ContactRequest" WHERE "paymentStatus" = 'CONFIRMED' OR "id" IN (SELECT "contactRequestId" FROM "PaymentReceipt")`;
-const DELETABLE_REQUESTS = `SELECT "id" FROM "ContactRequest" WHERE "id" NOT IN (${PROTECTED_REQUESTS})`;
-const OWNED = (column) => `"${column}" IN (${DELETABLE_REQUESTS})`;
+// Which rows a run touches. By default financial evidence is kept:
+//   orders with money received (PAID/PARTIAL) or any refund, and requests
+//   with a confirmed payment or an issued PaymentReceipt.
+// includeFinancial (--include-financial-test-data, owner decision that even
+//   paid/receipted records are test data) deletes those too; it needs a
+//   second confirmation equal to their count (see main).
+// before (--created-before=<ISO time>) limits every deletion to rows created
+//   before that moment, so a request made during the run is never touched.
+export function cleanupScope({ includeFinancial = false, before = null } = {}) {
+  let cutoff = "";
+  if (before) {
+    const at = new Date(before);
+    if (Number.isNaN(at.getTime())) throw new Error("--created-before is not a valid date/time");
+    cutoff = at.toISOString(); // normalized: no SQL can pass through
+  }
+  const createdBefore = (column) => (cutoff ? ` AND ${column} < '${cutoff}'::timestamptz` : "");
+  const protectedOrders = `SELECT DISTINCT "orderId" FROM "Payment" WHERE "kind" = 'REFUND' OR "status" IN ('REFUNDED', 'PAID', 'PARTIAL') OR "refundOfPaymentId" IS NOT NULL`;
+  const protectedRequests = `SELECT "id" FROM "ContactRequest" WHERE "paymentStatus" = 'CONFIRMED' OR "id" IN (SELECT "contactRequestId" FROM "PaymentReceipt")`;
+  const deletableOrders = `SELECT "id" FROM "Order" WHERE TRUE${includeFinancial ? "" : ` AND "id" NOT IN (${protectedOrders})`}${createdBefore('"createdAt"')}`;
+  const deletableRequests = `SELECT "id" FROM "ContactRequest" WHERE TRUE${includeFinancial ? "" : ` AND "id" NOT IN (${protectedRequests})`}${createdBefore('"createdAt"')}`;
+  return {
+    includeFinancial,
+    cutoff: cutoff || null,
+    protectedOrders,
+    protectedRequests,
+    deletableOrders,
+    deletableRequests,
+    owned: (column) => `"${column}" IN (${deletableRequests})`,
+    drafts: `SELECT "id" FROM "IntakeDraft" WHERE TRUE${createdBefore('"createdAt"')}`,
+    bookings: `SELECT id FROM flight_bookings WHERE (order_id IS NULL${createdBefore("created_at")}) OR order_id IN (${deletableOrders})`,
+  };
+}
 
-export async function collectCounts(db = prisma) {
+export async function collectCounts(db = prisma, scope = cleanupScope()) {
   const n = (sql) => count(db, sql);
   return {
     contactRequests: await n(`SELECT count(*)::int n FROM "ContactRequest"`),
-    contactRequestsToDelete: await n(`SELECT count(*)::int n FROM (${DELETABLE_REQUESTS}) d`),
-    contactRequestsProtectedFinancial: await n(`SELECT count(*)::int n FROM (${PROTECTED_REQUESTS}) p`),
+    contactRequestsToDelete: await n(`SELECT count(*)::int n FROM (${scope.deletableRequests}) d`),
+    // Requests with financial evidence (confirmed payment or issued receipt),
+    // whether or not this run includes them.
+    contactRequestsFinancial: await n(`SELECT count(*)::int n FROM (${scope.protectedRequests}) p`),
+    contactRequestsKept: await n(`SELECT count(*)::int n FROM "ContactRequest" WHERE "id" NOT IN (${scope.deletableRequests})`),
     travelers: await n(`SELECT count(*)::int n FROM "Traveler"`),
     contactRequestDocuments: await n(`SELECT count(*)::int n FROM "ContactRequestDocument"`),
     deliverables: await n(`SELECT count(*)::int n FROM "ContactRequestDeliverable"`),
@@ -76,7 +102,8 @@ export async function collectCounts(db = prisma) {
     customerMessageDeliveries: await n(`SELECT count(*)::int n FROM "CustomerMessageDelivery"`),
     intakeDrafts: await n(`SELECT count(*)::int n FROM "IntakeDraft"`),
     orders: await n(`SELECT count(*)::int n FROM "Order"`),
-    ordersProtectedFinancial: await n(`SELECT count(*)::int n FROM (${PROTECTED_ORDERS}) p`),
+    ordersFinancial: await n(`SELECT count(*)::int n FROM (${scope.protectedOrders}) p`),
+    ordersToDelete: await n(`SELECT count(*)::int n FROM (${scope.deletableOrders}) d`),
     orderPayments: await n(`SELECT count(*)::int n FROM "Payment"`),
     flightBookings: await n(`SELECT count(*)::int n FROM "flight_bookings"`),
     requestNotifications: await n(`SELECT count(*)::int n FROM "Notification" WHERE "contactRequestId" IS NOT NULL OR "orderId" IS NOT NULL`),
@@ -93,27 +120,30 @@ export async function collectCounts(db = prisma) {
 // The requests a run would delete, for the owner to confirm they are test
 // records: no name, phone or message is printed, only a hint whether the
 // row carries a test marker (TEST / E2E / اختبار / تجرب).
-export async function targetRequests(db = prisma) {
+export async function targetRequests(db = prisma, scope = cleanupScope()) {
   return db.$queryRawUnsafe(`
     SELECT r."id", to_char(r."createdAt", 'YYYY-MM-DD') AS "created", r."status", r."paymentStatus",
            COALESCE(s."code", v."code", r."service") AS "item",
-           (r."name" || ' ' || r."message" || ' ' || COALESCE(r."email", '')) ~* '(test|e2e|اختبار|تجرب)' AS "testMarker"
+           (r."name" || ' ' || r."message" || ' ' || COALESCE(r."email", '')) ~* '(test|e2e|اختبار|تجرب)' AS "testMarker",
+           (r."id" IN (${scope.protectedRequests})) AS "financial"
     FROM "ContactRequest" r
     LEFT JOIN "Service" s ON s."id" = r."serviceId"
     LEFT JOIN "VisaType" v ON v."id" = r."visaTypeId"
-    WHERE r."id" IN (${DELETABLE_REQUESTS})
+    WHERE r."id" IN (${scope.deletableRequests})
     ORDER BY r."createdAt"`);
 }
 
 // Every stored file path a request row points at, before it is deleted.
-async function requestFilePaths(db) {
+async function requestFilePaths(db, scope) {
   const rows = await db.$queryRawUnsafe(`
-    SELECT "storagePath" p FROM "ContactRequestDocument" WHERE ${OWNED("contactRequestId")}
-    UNION SELECT "storagePath" FROM "ContactRequestDeliverable" WHERE ${OWNED("contactRequestId")}
-    UNION SELECT "storagePath" FROM "Document" WHERE "orderId" IN (${DELETABLE_ORDERS})
-    UNION SELECT provisional_ticket_path FROM flight_bookings WHERE provisional_ticket_path IS NOT NULL AND (order_id IS NULL OR order_id IN (${DELETABLE_ORDERS}))
-    UNION SELECT payment_receipt_path FROM flight_bookings WHERE payment_receipt_path IS NOT NULL AND (order_id IS NULL OR order_id IN (${DELETABLE_ORDERS}))
-    UNION SELECT final_ticket_path FROM flight_bookings WHERE final_ticket_path IS NOT NULL AND (order_id IS NULL OR order_id IN (${DELETABLE_ORDERS}))`);
+    SELECT "storagePath" p FROM "ContactRequestDocument" WHERE ${scope.owned("contactRequestId")}
+    UNION SELECT "storagePath" FROM "ContactRequestDeliverable" WHERE ${scope.owned("contactRequestId")}
+    UNION SELECT "storagePath" FROM "PaymentReceipt" WHERE "storagePath" IS NOT NULL AND ${scope.owned("contactRequestId")}
+    UNION SELECT "storagePath" FROM "ContactRequestDocument" WHERE "draftId" IN (${scope.drafts})
+    UNION SELECT "storagePath" FROM "Document" WHERE "orderId" IN (${scope.deletableOrders})
+    UNION SELECT provisional_ticket_path FROM flight_bookings WHERE provisional_ticket_path IS NOT NULL AND id IN (${scope.bookings})
+    UNION SELECT payment_receipt_path FROM flight_bookings WHERE payment_receipt_path IS NOT NULL AND id IN (${scope.bookings})
+    UNION SELECT final_ticket_path FROM flight_bookings WHERE final_ticket_path IS NOT NULL AND id IN (${scope.bookings})`);
   return rows.map((r) => r.p).filter(Boolean);
 }
 
@@ -131,26 +161,34 @@ async function remainingFilePaths(db) {
   return new Set(rows.map((r) => r.p).filter(Boolean));
 }
 
-export async function clearTestRequests(db = prisma) {
+export async function clearTestRequests(db = prisma, scope = cleanupScope(), { expectedFinancial = null } = {}) {
   return db.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext('${LOCK_KEY}'))`);
-    const before = await collectCounts(tx);
-    const files = await requestFilePaths(tx);
+    if (scope.includeFinancial) {
+      // Checked under the lock, inside the transaction: if the paid/receipted
+      // set differs from what the owner confirmed, nothing is deleted.
+      const inScope = await count(tx, `SELECT count(*)::int n FROM (${scope.deletableRequests}) d WHERE d."id" IN (${scope.protectedRequests})`);
+      if (expectedFinancial === null || Number(expectedFinancial) !== inScope) {
+        throw new Error(`the paid/receipted requests in scope are ${inScope}, not the confirmed ${expectedFinancial}`);
+      }
+    }
+    const before = await collectCounts(tx, scope);
+    const files = await requestFilePaths(tx, scope);
     const deleted = {};
     deleted.requestNotifications = await tx.$executeRawUnsafe(
-      `DELETE FROM "Notification" WHERE ${OWNED("contactRequestId")} OR "orderId" IN (${DELETABLE_ORDERS})`,
+      `DELETE FROM "Notification" WHERE ${scope.owned("contactRequestId")} OR "orderId" IN (${scope.deletableOrders})`,
     );
     // ContactRequest's own foreign keys cascade to everything the request
-    // owns; requests with financial evidence are not touched.
-    deleted.contactRequests = await tx.$executeRawUnsafe(`DELETE FROM "ContactRequest" WHERE "id" IN (${DELETABLE_REQUESTS})`);
-    deleted.intakeDrafts = await tx.$executeRawUnsafe(`DELETE FROM "IntakeDraft"`);
-    deleted.flightBookings = await tx.$executeRawUnsafe(
-      `DELETE FROM flight_bookings WHERE order_id IS NULL OR order_id IN (${DELETABLE_ORDERS})`,
-    );
-    deleted.orders = await tx.$executeRawUnsafe(`DELETE FROM "Order" WHERE "id" IN (${DELETABLE_ORDERS})`);
-    const after = await collectCounts(tx);
+    // owns (with includeFinancial, its invoice and payment receipt too).
+    deleted.contactRequests = await tx.$executeRawUnsafe(`DELETE FROM "ContactRequest" WHERE "id" IN (${scope.deletableRequests})`);
+    deleted.intakeDrafts = await tx.$executeRawUnsafe(`DELETE FROM "IntakeDraft" WHERE "id" IN (${scope.drafts})`);
+    deleted.flightBookings = await tx.$executeRawUnsafe(`DELETE FROM flight_bookings WHERE id IN (${scope.bookings})`);
+    deleted.orders = await tx.$executeRawUnsafe(`DELETE FROM "Order" WHERE "id" IN (${scope.deletableOrders})`);
+    const after = await collectCounts(tx, scope);
+    // The audit log is never deleted; this row documents the cleanup itself
+    // (counts and options only, no customer data).
     await tx.activityLog.create({
-      data: { action: "TEST_REQUESTS_CLEARED", entity: "System", newValue: { deleted, before, after } },
+      data: { action: "TEST_REQUESTS_CLEARED", entity: "System", newValue: { includeFinancial: scope.includeFinancial, createdBefore: scope.cutoff, deleted, before, after } },
     });
     return { before, after, deleted, files };
   }, { timeout: 120_000, maxWait: 20_000 });
@@ -180,29 +218,52 @@ export async function deleteOrphanedFiles(paths, db = prisma) {
   return result;
 }
 
+const option = (argv, name) => (argv.find((a) => a.startsWith(`${name}=`)) || "").split("=").slice(1).join("=");
+
 async function main(argv) {
   const apply = argv.includes("--apply");
   const deleteFiles = argv.includes("--delete-files");
-  const confirm = (argv.find((a) => a.startsWith("--confirm-database=")) || "").split("=").slice(1).join("=");
+  const includeFinancial = argv.includes("--include-financial-test-data");
+  const confirm = option(argv, "--confirm-database");
+  const confirmFinancial = option(argv, "--confirm-financial-count");
   const target = databaseLabel();
   if (!target) {
     console.error("refused: DATABASE_URL is missing or invalid");
     return 1;
   }
+  let scope;
+  try {
+    scope = cleanupScope({ includeFinancial, before: option(argv, "--created-before") || null });
+  } catch (error) {
+    console.error(`refused: ${error.message}; nothing was changed`);
+    return 1;
+  }
+  if (includeFinancial && !scope.cutoff) {
+    console.error("refused: --include-financial-test-data needs --created-before=<ISO time> (the owner's confirmation time), so no request made later is touched; nothing was changed");
+    return 1;
+  }
   console.log(`target database: ${target}`);
+  console.log(`scope: ${includeFinancial ? "ALL requests, including paid/receipted (financial) test records" : "financial evidence kept"}${scope.cutoff ? `, created before ${scope.cutoff}` : ""}`);
+  const counts = await collectCounts(prisma, scope);
+  const financialInScope = includeFinancial ? (await targetRequests(prisma, scope)).filter((t) => t.financial).length : 0;
   if (!apply) {
-    const targets = await targetRequests();
-    console.log(JSON.stringify({ mode: "dry-run", counts: await collectCounts() }, null, 2));
-    console.log(`requests to delete: ${targets.length} (without a test marker: ${targets.filter((t) => !t.testMarker).length})`);
-    for (const t of targets) console.log(`  ${t.id} ${t.created} ${t.item ?? "-"} ${t.status}/${t.paymentStatus}${t.testMarker ? " [test]" : ""}`);
-    console.log(`to delete: --apply --confirm-database=${target} [--delete-files]`);
+    const targets = await targetRequests(prisma, scope);
+    console.log(JSON.stringify({ mode: "dry-run", counts }, null, 2));
+    console.log(`requests to delete: ${targets.length} (financial: ${targets.filter((t) => t.financial).length}, without a test marker: ${targets.filter((t) => !t.testMarker).length})`);
+    for (const t of targets) console.log(`  ${t.id} ${t.created} ${t.item ?? "-"} ${t.status}/${t.paymentStatus}${t.financial ? " [financial]" : ""}${t.testMarker ? " [test]" : ""}`);
+    const extra = includeFinancial ? ` --include-financial-test-data --confirm-financial-count=${financialInScope}` : "";
+    console.log(`to delete: --apply --confirm-database=${target}${extra}${scope.cutoff ? ` --created-before=${scope.cutoff}` : ""} [--delete-files]`);
     return 0;
   }
   if (confirm !== target) {
     console.error(`refused: --confirm-database must equal the target exactly (${target}); nothing was changed`);
     return 1;
   }
-  const result = await clearTestRequests();
+  if (includeFinancial && confirmFinancial !== String(financialInScope)) {
+    console.error(`refused: --confirm-financial-count must equal the ${financialInScope} paid/receipted requests in scope (run the dry run with the same options); nothing was changed`);
+    return 1;
+  }
+  const result = await clearTestRequests(prisma, scope, { expectedFinancial: includeFinancial ? Number(confirmFinancial) : null });
   console.log(JSON.stringify({ mode: "applied", before: result.before, deleted: result.deleted, after: result.after }, null, 2));
   if (deleteFiles) console.log(JSON.stringify({ files: await deleteOrphanedFiles(result.files) }));
   else console.log(`files referenced by the deleted rows: ${result.files.length} (kept; add --delete-files to remove them)`);

@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import prisma from "../src/config/database.js";
 import { UPLOAD_ROOT } from "../src/config/uploadRoot.js";
-import { clearTestRequests, collectCounts, databaseLabel, deleteOrphanedFiles, targetRequests } from "../src/scripts/clear-test-requests.js";
+import { cleanupScope, clearTestRequests, collectCounts, databaseLabel, deleteOrphanedFiles, targetRequests } from "../src/scripts/clear-test-requests.js";
 import { createStaffUser } from "./helpers/staff.js";
 
 // Runs on the disposable test database. Builds one of each kind of request
@@ -67,7 +67,7 @@ test("clear-test-requests: deletes requests and their records, keeps refund evid
 
   const result = await clearTestRequests();
   assert.equal(result.after.contactRequestsToDelete, 0);
-  assert.equal(result.after.contactRequests, result.after.contactRequestsProtectedFinancial, "only financial evidence remains");
+  assert.equal(result.after.contactRequests, result.after.contactRequestsKept, "only financial evidence remains");
   assert.equal(await prisma.contactRequest.count({ where: { id: request.id } }), 0);
   assert.equal(await prisma.contactRequest.count({ where: { id: { in: [confirmed.id, receipted.id] } } }), 2, "financial evidence is kept");
   assert.equal(await prisma.contactRequestDocument.count({ where: { id: confirmedDoc.id } }), 1);
@@ -77,7 +77,7 @@ test("clear-test-requests: deletes requests and their records, keeps refund evid
   assert.equal(await prisma.order.count({ where: { id: refunded.id } }), 1, "refund evidence is kept");
   assert.equal(await prisma.payment.count({ where: { orderId: refunded.id } }), 2);
   assert.equal(await prisma.order.count({ where: { id: received.id } }), 1, "money received is kept");
-  assert.ok(result.after.ordersProtectedFinancial >= 2, "orders with financial evidence are reported as kept");
+  assert.ok(result.after.ordersFinancial >= 2, "orders with financial evidence are reported as kept");
   // Kept.
   assert.equal(await prisma.user.count({ where: { id: staff.id } }), 1);
   assert.equal(await prisma.customer.count({ where: { id: customer.id } }), 1);
@@ -104,6 +104,52 @@ test("clear-test-requests: deletes requests and their records, keeps refund evid
 
   await fs.rm(path.join(UPLOAD_ROOT, unrelated), { force: true });
   await fs.rm(path.join(UPLOAD_ROOT, confirmedFile), { force: true });
+});
+
+test("clear-test-requests --include-financial-test-data: paid and receipted test requests go too, only before the cutoff, only with the exact count", async () => {
+  const tag = randomUUID().slice(0, 8);
+  const receiptFile = await writeUpload(`payment-receipts/fin-${tag}.pdf`);
+  const paid = await prisma.contactRequest.create({ data: { name: "مدفوع تجريبي", phone: "0912000001", message: "paid", paymentStatus: "CONFIRMED" } });
+  await prisma.paymentReceipt.create({ data: { contactRequestId: paid.id, receiptNo: `RF-${tag}`, amount: 10, currency: "SAR", customerName: "x", serviceName: "x", paidAt: new Date(), storagePath: receiptFile } });
+  const plain = await prisma.contactRequest.create({ data: { name: "عادي", phone: "0912000002", message: "plain" } });
+  await new Promise((r) => setTimeout(r, 20));
+  const cutoff = new Date().toISOString();
+  await new Promise((r) => setTimeout(r, 20));
+  // made after the owner's confirmation: never touched
+  const later = await prisma.contactRequest.create({ data: { name: "بعد التأكيد", phone: "0912000003", message: "later", paymentStatus: "CONFIRMED" } });
+  const auditBefore = await prisma.activityLog.count();
+
+  const scope = cleanupScope({ includeFinancial: true, before: cutoff });
+  assert.throws(() => cleanupScope({ before: "not-a-date" }), /valid date/);
+  assert.throws(() => cleanupScope({ before: "2026-01-01'; DROP TABLE x;--" }), /valid date/);
+  const listed = await targetRequests(prisma, scope);
+  assert.ok(listed.some((t) => t.id === paid.id && t.financial));
+  assert.ok(listed.some((t) => t.id === plain.id && !t.financial));
+  assert.ok(!listed.some((t) => t.id === later.id), "after the cutoff: not a target");
+  const financial = listed.filter((t) => t.financial).length;
+
+  // a wrong confirmation rolls everything back
+  await assert.rejects(() => clearTestRequests(prisma, scope, { expectedFinancial: financial + 1 }), /not the confirmed/);
+  await assert.rejects(() => clearTestRequests(prisma, scope), /not the confirmed/, "no confirmation, no deletion");
+  assert.equal(await prisma.contactRequest.count({ where: { id: { in: [paid.id, plain.id] } } }), 2, "nothing deleted on refusal");
+
+  const result = await clearTestRequests(prisma, scope, { expectedFinancial: financial });
+  assert.equal(await prisma.contactRequest.count({ where: { id: { in: [paid.id, plain.id] } } }), 0);
+  assert.equal(await prisma.paymentReceipt.count({ where: { contactRequestId: paid.id } }), 0, "its receipt goes with it");
+  assert.equal(await prisma.contactRequest.count({ where: { id: later.id } }), 1, "a request made after the cutoff is kept");
+  assert.equal(result.after.contactRequestsToDelete, 0);
+  assert.ok(result.files.includes(receiptFile), "the receipt's file is a deletion candidate");
+  assert.equal(await prisma.activityLog.count(), auditBefore + 1, "the audit log is kept, plus one documenting row");
+  const audit = await prisma.activityLog.findFirst({ where: { action: "TEST_REQUESTS_CLEARED" }, orderBy: { createdAt: "desc" } });
+  assert.equal(audit.newValue.includeFinancial, true);
+  assert.equal(audit.newValue.createdBefore, new Date(cutoff).toISOString());
+  await deleteOrphanedFiles(result.files);
+  assert.equal(await exists(receiptFile), false);
+
+  // idempotent
+  const again = await clearTestRequests(prisma, scope, { expectedFinancial: 0 });
+  assert.equal(again.deleted.contactRequests, 0);
+  await prisma.contactRequest.delete({ where: { id: later.id } });
 });
 
 test("clear-test-requests: a stored path outside UPLOAD_ROOT is never deleted", async () => {
