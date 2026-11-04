@@ -1580,6 +1580,10 @@ enum DeliverableKind {
   APPROVAL
   CIRCULAR
   TICKET
+  // Umrah: one pilgrim's visa, and the documents of the services included
+  // in a package with flight or sea services (umrah/umrah-delivery.js).
+  VISA
+  SERVICE
 }
 
 model ContactRequestDeliverable {

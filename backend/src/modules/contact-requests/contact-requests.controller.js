@@ -31,10 +31,11 @@ import {
   pricingQuoteSchema,
   previewContactRequestPrice,
 } from "./contact-requests.pricing.js";
-import { reviewContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
+import { requestContactRequestDocumentSchema, reviewContactRequestDocumentSchema } from "../contact-request-documents/contact-request-documents.validators.js";
 import {
   getContactRequestDocumentFile,
   updateContactRequestDocumentStatus,
+  requestContactRequestDocument,
 } from "../contact-request-documents/contact-request-documents.service.js";
 import { publishContactRequestDeliverableSchema, uploadContactRequestDeliverableSchema } from "../contact-request-deliverables/contact-request-deliverables.validators.js";
 import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
@@ -570,6 +571,32 @@ export async function reviewDocument(req, res, next) {
   }
 }
 
+const DOCUMENT_REQUEST_ERRORS = {
+  REQUEST_CLOSED: [409, "الطلب مغلق؛ لا يمكن طلب مستندات جديدة."],
+  REQUIREMENT_NOT_FOUND: [404, "هذا المستند ليس من متطلبات الطلب."],
+  TRAVELER_NOT_FOUND: [404, "حدّد المعتمر الذي يخصه المستند."],
+  DOCUMENT_NOT_REQUESTABLE: [409, "المستند مرفوع ومقبول أو قيد المراجعة؛ راجعه بدل طلبه."],
+};
+
+export async function requestDocument(req, res, next) {
+  try {
+    const parsed = requestContactRequestDocumentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: "Validation failed", errors: parsed.error.flatten() });
+    }
+    const result = await requestContactRequestDocument(req.params.id, parsed.data, req.user.id);
+    if (result.refusal) return sendRefusal(res, result.refusal);
+    if (result.error === "NOT_FOUND") return res.status(404).json({ success: false, message: "Contact request not found" });
+    if (result.error) {
+      const [status, message] = DOCUMENT_REQUEST_ERRORS[result.error] || [400, "تعذّر طلب المستند."];
+      return res.status(status).json({ success: false, code: result.error, message });
+    }
+    return res.status(201).json({ success: true, data: result.requested });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function storeDeliverable(req, res, next) {
   try {
     const { id } = req.params;
@@ -583,7 +610,7 @@ export async function storeDeliverable(req, res, next) {
 
     const result = await createContactRequestDeliverable(
       id,
-      { label: parsed.data.label, file: req.file, travelerIds: parsed.data.travelerIds, publish: parsed.data.publish },
+      { label: parsed.data.label, file: req.file, travelerIds: parsed.data.travelerIds, publish: parsed.data.publish, kind: parsed.data.kind },
       req.user.id
     );
     if (result.refusal) return sendRefusal(res, result.refusal);

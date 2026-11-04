@@ -249,10 +249,12 @@ describe("Umrah package types and contacts", () => {
     assert.equal(stored.intakeData.umrahContacts.guarantorPhone, GUARANTOR);
   });
 
-  for (const [kind, execution, delivery] of [
-    ["VISA_ONLY", "جارٍ إصدار التأشيرة", "تسليم التأشيرة"],
-    ["AIR", "جارٍ إصدار التذاكر", "تسليم التأشيرة والتذاكر"],
-    ["SEA", "جارٍ إصدار التذاكر", "تسليم التأشيرة والتذاكر"],
+  // A services package (AIR/SEA) is not complete at the visa: its included
+  // services must be delivered too.
+  for (const [kind, execution, servicesIncluded] of [
+    ["VISA_ONLY", "جارٍ إصدار التأشيرة", false],
+    ["AIR", "جارٍ إصدار التذاكر", true],
+    ["SEA", "جارٍ إصدار التذاكر", true],
   ]) {
     test(`${kind}: package → pilgrims and guarantor → fixed total → payment under review → ${execution} → delivery`, async () => {
       const service = await umrahPackage(kind);
@@ -307,7 +309,11 @@ describe("Umrah package types and contacts", () => {
       const started = await employee.post(`/api/contact-requests/${id}/start-execution`).send({});
       assert.equal(started.status, 200, JSON.stringify(started.body));
       assert.equal(started.body.data.progress.label, execution);
-      assert.equal(started.body.data.progress.steps.find((step) => step.key === "DELIVERY").label, delivery);
+      const stepKeys = started.body.data.progress.steps.map((step) => step.key);
+      assert.ok(stepKeys.includes("VISAS"), "visas are their own stage");
+      assert.equal(stepKeys.includes("SERVICES"), servicesIncluded);
+      assert.equal(started.body.data.progress.steps.find((step) => step.key === "DELIVERY").label, "اكتمال الرحلة");
+      assert.equal(started.body.data.progress.umrah.servicesIncluded, servicesIncluded);
 
       detail = (await employee.get(`/api/contact-requests/${id}`)).body.data;
       for (const traveler of detail.travelers) {
@@ -318,6 +324,20 @@ describe("Umrah package types and contacts", () => {
           .field("publish", "true")
           .attach("file", PDF(), { filename: "final.pdf", contentType: "application/pdf" });
         assert.equal(file.status, 201, JSON.stringify(file.body));
+        assert.equal(file.body.data.kind, "VISA");
+      }
+      if (servicesIncluded) {
+        const afterVisas = await prisma.contactRequest.findUnique({ where: { id }, select: { status: true } });
+        assert.notEqual(afterVisas.status, "CLOSED", "visas alone do not complete a services package");
+        const services = await employee
+          .post(`/api/contact-requests/${id}/deliverables`)
+          .field("label", "تذاكر وسكن المجموعة")
+          .field("kind", "SERVICE")
+          .field("travelerIds", JSON.stringify(detail.travelers.map((t) => t.id)))
+          .field("publish", "true")
+          .attach("file", PDF(), { filename: "services.pdf", contentType: "application/pdf" });
+        assert.equal(services.status, 201, JSON.stringify(services.body));
+        assert.equal(services.body.data.kind, "SERVICE");
       }
       const final = await prisma.contactRequest.findUnique({ where: { id }, select: { status: true, outcome: true, paymentStatus: true } });
       assert.equal(final.paymentStatus, "CONFIRMED");

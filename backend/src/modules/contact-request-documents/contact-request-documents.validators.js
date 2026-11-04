@@ -37,3 +37,10 @@ export const reviewContactRequestDocumentSchema = z
     message: "يرجى توضيح سبب الرفض حتى يعرف العميل ماذا يصحح",
     path: ["reviewNote"],
   });
+
+// Staff request one specific document from the customer (missing or rejected).
+export const requestContactRequestDocumentSchema = z.object({
+  requirementId: z.string().trim().min(1),
+  travelerId: z.string().trim().min(1).optional(),
+  note: z.string().trim().max(500).optional(),
+});

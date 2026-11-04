@@ -198,6 +198,7 @@
   "POST /api/contact-requests/:id/provider-submissions": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/reject-payment": ["ACCOUNTANT", "ADMIN", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/start-execution": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "POST /api/contact-requests/:id/document-requests": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "POST /api/contact-requests/:id/tasks": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "POST /api/coupons": ["ADMIN", "SUPER_ADMIN"],
   "POST /api/coupons/validate": "CUSTOMER",
