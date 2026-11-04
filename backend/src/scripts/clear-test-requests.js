@@ -194,6 +194,24 @@ export async function clearTestRequests(db = prisma, scope = cleanupScope(), { e
   }, { timeout: 120_000, maxWait: 20_000 });
 }
 
+// What --delete-files would do with these paths, without deleting anything.
+export async function fileSummary(paths, db = prisma) {
+  const { resolveStoredUploadPath } = await import("../config/uploadRoot.js");
+  const stillUsed = await remainingFilePaths(db);
+  const summary = { referenced: 0, onDisk: 0, bytesOnDisk: 0, missing: 0, outsideUploadRoot: 0 };
+  for (const stored of new Set(paths)) {
+    summary.referenced += 1;
+    let absolute;
+    try { absolute = resolveStoredUploadPath(stored); } catch { summary.outsideUploadRoot += 1; continue; }
+    try {
+      const stat = await fs.stat(absolute);
+      summary.onDisk += 1;
+      summary.bytesOnDisk += stat.size;
+    } catch { summary.missing += 1; }
+  }
+  return summary;
+}
+
 export async function deleteOrphanedFiles(paths, db = prisma) {
   const { resolveStoredUploadPath } = await import("../config/uploadRoot.js");
   const stillUsed = await remainingFilePaths(db);
@@ -249,6 +267,7 @@ async function main(argv) {
   if (!apply) {
     const targets = await targetRequests(prisma, scope);
     console.log(JSON.stringify({ mode: "dry-run", counts }, null, 2));
+    console.log(JSON.stringify({ files: await fileSummary(await requestFilePaths(prisma, scope)) }));
     console.log(`requests to delete: ${targets.length} (financial: ${targets.filter((t) => t.financial).length}, without a test marker: ${targets.filter((t) => !t.testMarker).length})`);
     for (const t of targets) console.log(`  ${t.id} ${t.created} ${t.item ?? "-"} ${t.status}/${t.paymentStatus}${t.financial ? " [financial]" : ""}${t.testMarker ? " [test]" : ""}`);
     const extra = includeFinancial ? ` --include-financial-test-data --confirm-financial-count=${financialInScope}` : "";
