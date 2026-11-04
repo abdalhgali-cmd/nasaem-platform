@@ -54,6 +54,13 @@ test.describe.serial("customer UX — Umrah and Egypt", () => {
     }
   });
 
+  test("Umrah: a failing catalog shows an error with a retry hint, never an endless spinner", async ({ page }) => {
+    await page.route("**/api/services/public/packages", (route) => route.fulfill({ status: 503, contentType: "application/json", body: "{}" }));
+    await page.goto("/umrah");
+    await expect(page.getByText("تعذّر تحميل قائمة الخدمات، حاول تحديث الصفحة")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".animate-spin")).toHaveCount(0);
+  });
+
   test("Umrah and Egypt forms: the floating WhatsApp button never covers the form on phones; it stays on desktop", async ({ page }) => {
     const floating = page.getByRole("link", { name: "تواصل معنا عبر واتساب" });
     for (const url of ["/umrah", "/visas/egypt-security-approval"]) {
