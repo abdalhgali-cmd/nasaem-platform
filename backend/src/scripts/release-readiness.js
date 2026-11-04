@@ -21,10 +21,11 @@ const present = (name, env) => Boolean(String(env[name] || "").trim());
 export async function collectReadiness({ db = prisma, env = process.env } = {}) {
   const blockers = [];
   const warnings = [];
-  // Outside production the prices and exchange rates are development/test
-  // data (owner decision 2026-11-01): a missing or unconfirmed price is noted
-  // for the admin dashboard, never a release blocker. On the production
-  // deployment a package nobody can book still blocks.
+  // Prices and exchange rates are development/test data outside production,
+  // and on production until PRICES_APPROVED=true (owner decisions 2026-11-01
+  // and 2026-11-02): a missing or unconfirmed price is then noted for the
+  // admin dashboard, never a release blocker. Once the owner approves the
+  // production prices, a package nobody can book blocks.
   const testPrices = pricesAreTestData(env);
   const priceIssues = testPrices ? warnings : blockers;
 
@@ -34,6 +35,7 @@ export async function collectReadiness({ db = prisma, env = process.env } = {}) 
     DEPLOYMENT_ENVIRONMENT: env.DEPLOYMENT_ENVIRONMENT || null,
     deployment: deploymentName(env),
     pricesAreTestData: testPrices,
+    PRICES_APPROVED: env.PRICES_APPROVED === "true" ? "true" : "not set",
     PUBLIC_INTAKE_SCOPE: intakeScope(env) ? intakeScope(env).join(",") : "ALL",
     JWT_SECRET: present("JWT_SECRET", env) ? `present (${String(env.JWT_SECRET).length} chars)` : "missing",
     CORS_ORIGIN: present("CORS_ORIGIN", env) ? "present" : "missing",

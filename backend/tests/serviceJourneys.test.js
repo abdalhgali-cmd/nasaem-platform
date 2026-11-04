@@ -232,7 +232,8 @@ describe("service journeys: request -> documents -> quote -> payment -> executio
       assert.equal(firstFile.status, 201, JSON.stringify(firstFile.body));
       customerView = await tracked(id);
       assert.notEqual(customerView.status, "CLOSED", "one of two travelers delivered");
-      assert.equal(customerView.progress.steps.find((step) => step.key === "DELIVERY").state, "current");
+      // Umrah: the visas stage is where the group waits; elsewhere, delivery.
+      assert.equal(customerView.progress.steps.find((step) => step.key === (customerView.progress.serviceKind === "UMRAH" ? "VISAS" : "DELIVERY")).state, "current");
 
       // the second traveler's file is prepared first, then published
       const secondFile = await employee

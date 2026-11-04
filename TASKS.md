@@ -6,6 +6,19 @@ Single source of truth for release progress. Only results of runs actually execu
 
 Integration branch: `claude/release-integration` = PR #87 (`claude/busy-hamilton-1ccxm1`) + PR #88 + PR #89 + the fix below. Not merged into `main`; nothing deployed.
 
+## Umrah journey «رحلتي إلى الحرمين» — 2026-11-02 (branch `feat/umrah-journey-20261102`, draft PR #160, base #158 → #157)
+
+**VERIFIED (local, disposable DBs):**
+- backend full suite on a fresh migrated+seeded DB: 1091/1092; the single failure (RBAC baseline: new route) fixed, `rbacMatrix` 5/5
+- new: `umrahJourney.test.js` (7), `umrahJourneyFlow.test.js` (full HTTP journey: 3 pilgrims, retry without duplicate, document rejected → requested → replaced, receipt rejected → replaced → accepted, no double confirmation, one visa of three → all, own-download only, services gate completion, roles, VISA_ONLY)
+- mobile 150/150; web typecheck, lint, build; Playwright: umrah-payment-journey ×3 packages (incl. website «رحلتي»), admin-umrah-workspace 3/3, security-umrah-egypt, mobile-app project incl. service-journeys
+
+**Rules added:** AIR/SEA complete only after a visa per pilgrim AND the included services (`SERVICES_INCOMPLETE`); deliverable kinds VISA/SERVICE (additive enum migration `20261102120000`).
+
+**NOT TESTED:** full journey on Staging (needs owner-approved deploy of #160); real device; WhatsApp delivery.
+**BLOCKED (owner):** Staging `DEPLOYMENT_ENVIRONMENT` holds a 64-hex value → set `staging`, rotate the leaked key (code fix #158); production backup unverified → no production data change.
+**NEXT:** CI + APK on #160; owner approval to deploy #157→#158→#160 to Staging; run the full journey there.
+
 ## Unified administration dashboard + staging data decision — 2026-11-01
 
 Owner decisions (2026-11-01): (1) all current staging records are disposable test data — a staging backup/restore is NOT a blocker for development or a staging release (production backup requirements unchanged; never delete/overwrite production data); (2) the Operations Center is THE admin dashboard, one entry, no second dashboard. Branch `feat/mobile-home-concept-c-20261019`, stacked on #152. Not merged, nothing deployed, no migration, no price change.

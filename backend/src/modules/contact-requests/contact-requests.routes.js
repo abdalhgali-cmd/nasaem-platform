@@ -26,6 +26,7 @@ import {
   patchContactRequestStatus,
   previewPricing,
   reviewDocument,
+  requestDocument,
   storeContactRequest,
   storeDeliverable,
   storeInvoice,
@@ -316,6 +317,15 @@ router.patch(
   requireContactRequestOrganization,
   requireFeatureEnabled("STAFF_REVIEW"),
   reviewDocument
+);
+// Ask the customer for one specific missing or rejected document.
+router.post(
+  "/:id/document-requests",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"),
+  requireContactRequestOrganization,
+  requireFeatureEnabled("STAFF_REVIEW"),
+  requestDocument
 );
 router.post(
   "/:id/deliverables",

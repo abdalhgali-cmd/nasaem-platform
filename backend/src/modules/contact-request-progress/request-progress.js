@@ -1,4 +1,6 @@
 import { umrahIncludesTickets } from "../umrah/umrah-packages.js";
+import { evaluateUmrahDelivery } from "../umrah/umrah-delivery.js";
+import { umrahJourney } from "../umrah/umrah-journey.js";
 import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
 import { completionBlockers, egyptTravelBlockers, evaluateDelivery, evaluateReadiness, executionBlockers, isFixedPrice, paymentLockReasons, deliveryDeliverables } from "../contact-request-workflow/workflow-policy.js";
 
@@ -178,6 +180,9 @@ export function deriveRequestProgress(request) {
     label = status === "CONTACTED" ? "تم التواصل معك بخصوص طلبك" : "تم استلام طلبك وهو قيد المراجعة";
   }
 
+  // Umrah: visa procedures, the pilgrims' visas, the included services (a
+  // flight/sea package), then the journey is complete (umrah-delivery.js).
+  const umrah = kind === "UMRAH" ? evaluateUmrahDelivery(request) : null;
   const quoteAccepted = invoice?.status === "APPROVED" || Boolean(selectedOfferId) || ["AWAITING_TRANSFER", "UNDER_REVIEW", "CONFIRMED"].includes(paymentStatus);
   const fullyDelivered = (delivery.complete && published.length > 0) || completed;
   const doneFlags = {
@@ -189,15 +194,30 @@ export function deriveRequestProgress(request) {
     EXECUTION: (Boolean(executionStartedAt) && published.length > 0) || fullyDelivered,
     DELIVERY: fullyDelivered,
     TRAVEL_PLAN: completed || egyptTravelBlockers(request).length === 0,
+    VISAS: completed || Boolean(umrah?.visas.complete),
+    SERVICES: completed || Boolean(umrah && (!umrah.services || umrah.services.complete)),
   };
+  if (umrah) {
+    // Visa procedures are done once the first visa is out (started is not finished).
+    doneFlags.EXECUTION = completed || (Boolean(executionStartedAt) && umrah.visas.files.length > 0);
+  }
   const steps = [
     { key: "RECEIVED", label: fixed ? "تأكيد الطلب بالسعر الثابت" : "استلام الطلب" },
     { key: "DOCUMENTS", label: "مراجعة المستندات والبيانات" },
     ...(fixed ? [] : [{ key: "QUOTE", label: "عرض السعر والموافقة عليه" }]),
     { key: "PAYMENT", label: "تحويل المبلغ ورفع الإيصال" },
     { key: "PAYMENT_REVIEW", label: "مراجعة الإيصال وقبول الدفع" },
-    { key: "EXECUTION", label: copy.executionStep },
-    { key: "DELIVERY", label: copy.deliveryStep },
+    ...(umrah
+      ? [
+          { key: "EXECUTION", label: "إجراءات التأشيرة" },
+          { key: "VISAS", label: "إصدار التأشيرات" },
+          ...(umrah.services ? [{ key: "SERVICES", label: "تسليم الخدمات المشمولة" }] : []),
+          { key: "DELIVERY", label: "اكتمال الرحلة" },
+        ]
+      : [
+          { key: "EXECUTION", label: copy.executionStep },
+          { key: "DELIVERY", label: copy.deliveryStep },
+        ]),
     // Egypt clearance only: the customer's travel plan and the agency's
     // booking/circular tasks it opens, required before completion.
     ...(isEgyptClearanceCode(request.visaType?.code) ? [{ key: "TRAVEL_PLAN", label: "بيانات السفر والتعميم" }] : []),
@@ -247,7 +267,27 @@ export function deriveRequestProgress(request) {
         ? `نُشر جزء من الملفات النهائية؛ ${delivery.reasons.map((r) => r.message).join(" ")}`
         : "لم تُنشر الملفات النهائية بعد.",
     TRAVEL_PLAN: travelPlanBlockers.length ? travelPlanBlockers.map((r) => r.message).join(" ") : "اكتملت بيانات السفر والتعميم.",
+    VISAS: !umrah
+      ? ""
+      : umrah.visas.complete
+        ? "صدرت تأشيرات جميع المعتمرين."
+        : umrah.visas.coveredTravelerIds.length
+          ? `صدرت ${umrah.visas.coveredTravelerIds.length} من ${(request.travelers || []).length} تأشيرات؛ البقية قيد الإجراءات.`
+          : executionStartedAt ? "التأشيرات قيد الإجراءات لدى الوكالة." : "تبدأ إجراءات التأشيرة بعد قبول الدفع واعتماد المستندات.",
+    SERVICES: !umrah?.services
+      ? ""
+      : umrah.services.complete
+        ? "سُلّمت مستندات الخدمات المشمولة لجميع المعتمرين."
+        : "الوكالة تجهّز الخدمات المشمولة في باقتك (التذاكر والسكن والتنقل).",
   };
+  if (umrah) {
+    stepStatus.EXECUTION = doneFlags.EXECUTION
+      ? "اكتملت إجراءات التأشيرة."
+      : executionStartedAt
+        ? "الوكالة تتابع إجراءات التأشيرة."
+        : paymentStatus === "CONFIRMED" ? "تم قبول الدفع، بانتظار بدء إجراءات التأشيرة." : "تبدأ الإجراءات بعد قبول الدفع واعتماد المستندات.";
+    stepStatus.DELIVERY = fullyDelivered ? "اكتملت رحلة العمرة: التأشيرات والخدمات جاهزة." : "تكتمل الرحلة عند إصدار كل التأشيرات وتسليم الخدمات المشمولة.";
+  }
   const progressSteps = steps.map((step, index) => ({
     ...step,
     state: doneFlags[step.key] ? "done" : index === currentIndex ? "current" : "upcoming",
@@ -258,7 +298,7 @@ export function deriveRequestProgress(request) {
 
   const blockers = status === "CLOSED" ? [] : executionStartedAt ? [] : executionBlockers(request);
   const snapshot = request.pricingSnapshot || null;
-  return {
+  const result = {
     serviceKind: kind,
     // "FIXED" (catalog price accepted at submission, no quote step) or
     // "QUOTE"; with the accepted snapshot for FIXED.
@@ -287,4 +327,7 @@ export function deriveRequestProgress(request) {
     },
     steps: progressSteps,
   };
+  // «رحلتي إلى الحرمين» (Umrah only).
+  if (kind === "UMRAH") result.umrah = umrahJourney(request, result);
+  return result;
 }
