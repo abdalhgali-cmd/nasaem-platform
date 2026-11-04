@@ -689,8 +689,13 @@ export function ServiceIntakeWizard({
       ? `${API_URL}/services/public/packages`
       : `${API_URL}/services/public${query}`;
 
-    fetch(catalogUrl)
-      .then((res) => res.json())
+    // fetch has no timeout of its own: a hanging API would leave the customer
+    // on an endless spinner. After 20 s the error (with its retry hint) shows.
+    fetch(catalogUrl, { signal: AbortSignal.timeout(20_000) })
+      .then((res) => {
+        if (!res.ok) throw new Error(`catalog ${res.status}`);
+        return res.json();
+      })
       .then((payload) => {
         if (ignore) return;
         if (service === "package") {
