@@ -504,6 +504,15 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await bothSay("تم إنجاز طلبك بنجاح");
       await expect(app.locator(finalFiles)).toHaveCount(2);
       await expect(app.locator("#requestProgress .progress-node-current")).toHaveCount(0);
+      if (journey.name === "Umrah") {
+        await expect(app.locator("#umrahTicketsBtn")).toBeVisible();
+        await app.locator("#umrahTicketsBtn").click();
+        await expect(app.locator("#umrahTicketBooking")).toContainText("أُرسل طلب الحجز إلى الوكالة", { timeout: 15_000 });
+        await expect(app.locator("#umrahTicketsBtn")).toHaveCount(0);
+        const parent = (await (await office.request.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
+        expect(parent.outcome).toBe("COMPLETED");
+        expect(parent.linkedRequests.filter((r: { linkKind: string }) => r.linkKind === "UMRAH_TICKET")).toHaveLength(1);
+      }
       // closed: read-only for the customer and for staff
       await expect(app.locator("#approveBtn, #uploadReceiptBtn, #egyptTravelBtn, [data-upload-item]")).toHaveCount(0);
       await openStaffRequest(id, travelers[0]);
