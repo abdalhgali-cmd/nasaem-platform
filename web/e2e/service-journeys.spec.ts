@@ -294,13 +294,13 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   }
 
   // Staff find the request the way they would: search by the traveler's name.
-  async function openStaffRequest(id: string, travelerName: string) {
+  async function openStaffRequest(id: string, travelerName: string, expectedMatches = 1) {
     await office.goto(`${BACKEND}/admin-dashboard.html`);
     await office.locator("#tabbtn-requests").click();
     await office.fill("#cr-search", travelerName);
     const row = office.locator(`#cr-body tr[data-cr-id="${id}"]`);
     await expect(row).toBeVisible({ timeout: 15_000 });
-    await expect(office.locator("#cr-body tr")).toHaveCount(1);
+    await expect(office.locator("#cr-body tr")).toHaveCount(expectedMatches);
     await row.click();
     await expect(office.locator("#cr-detail-title")).toBeVisible({ timeout: 15_000 });
   }
@@ -515,7 +515,9 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       }
       // closed: read-only for the customer and for staff
       await expect(app.locator("#approveBtn, #uploadReceiptBtn, #egyptTravelBtn, [data-upload-item]")).toHaveCount(0);
-      await openStaffRequest(id, travelers[0]);
+      // After optional booking the search correctly includes the original
+      // visa case and its one linked ticket inquiry. Open the parent by id.
+      await openStaffRequest(id, travelers[0], journey.name === "Umrah" ? 2 : 1);
       await expect(detail.locator('[data-cr-form="deliverable"], [data-cr-form="close"], [data-doc-accept]')).toHaveCount(0);
     });
   }
