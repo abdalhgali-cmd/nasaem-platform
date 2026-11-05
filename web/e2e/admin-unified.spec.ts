@@ -61,6 +61,9 @@ test.describe("Unified admin — entry and sign-in", () => {
   });
 
   test("old back-office addresses open the matching unified page", async ({ page }) => {
+    // Ten legacy URLs cross several cold-compiled Next.js routes. Keep the
+    // individual redirect assertions strict, with a budget for the full loop.
+    test.setTimeout(60_000);
     await loginAsSeededAdmin(page);
     const cases: [string, RegExp][] = [
       ["/admin-dashboard.html", /\/admin$/],
