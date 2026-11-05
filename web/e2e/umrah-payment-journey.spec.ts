@@ -22,6 +22,9 @@ const KINDS = [
 ] as const;
 
 for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guarantor → fixed total → payment → receipt under review → ${type.execution} → delivery`, async ({ page }) => {
+  // Two actors, two pilgrims, payment review, visa downloads and the optional
+  // booking plus fixture cleanup belong to one complete journey.
+  test.setTimeout(90_000);
   await loginAsSeededAdmin(page);
   const admin = page.request;
   const stamp = `${Date.now()}`.slice(-8);
