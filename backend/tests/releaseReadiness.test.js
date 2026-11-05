@@ -87,6 +87,11 @@ describe("deployment labels", () => {
     assert.equal(pricesAreTestData({ NODE_ENV: "development", DEPLOYMENT_ENVIRONMENT: "production" }), true);
     assert.equal(pricesAreTestData({ NODE_ENV: "test" }), true);
     assert.equal(deploymentName({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: "Staging" }), "staging");
+    // An unexpected value (e.g. a key pasted into the wrong variable) is never echoed.
+    const pasted = "b".repeat(64);
+    assert.equal(deploymentName({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: pasted }), "unrecognized");
+    assert.equal(deploymentName({ NODE_ENV: "development", DEPLOYMENT_ENVIRONMENT: pasted }), "unrecognized");
+    assert.equal(pricesAreTestData({ NODE_ENV: "production", DEPLOYMENT_ENVIRONMENT: pasted, PRICES_APPROVED: "true" }), true);
   });
 
   test("/api/health tells the website and dashboard whether prices are test data", async () => {
