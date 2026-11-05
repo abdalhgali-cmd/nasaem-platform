@@ -21,7 +21,26 @@ const KINDS = [
   { kind: "SEA", label: "مع خدمات البحر", included: "تذاكر العبّارة", execution: "جارٍ إصدار التذاكر" },
 ] as const;
 
-for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guarantor → fixed total → payment → receipt under review → ${type.execution} → delivery`, async ({ page }) => {
+type CatalogFixtures = { services: string[]; accounts: string[] };
+const catalogFixtures = new Map<string, CatalogFixtures>();
+
+// Hooks have a separate teardown budget, including when the journey timed out.
+// Restore every fixture; one failed request must not leave the rest published.
+test.afterEach(async ({ page }, testInfo) => {
+  const created = catalogFixtures.get(testInfo.testId);
+  if (!created) return;
+  await loginAsSeededAdmin(page);
+  const changes = [
+    ...created.accounts.map((id) => page.request.patch(`${BACKEND}/api/payment-accounts/${id}`, { data: { active: false } })),
+    ...created.services.map((id) => page.request.patch(`${BACKEND}/api/services/${id}`, { data: { active: false } })),
+  ];
+  const results = await Promise.allSettled(changes);
+  const failed = results.flatMap((r, index) => r.status === "rejected" ? [`fixture ${index}: request failed`] : r.value.ok() ? [] : [`fixture ${index}: HTTP ${r.value.status()}`]);
+  catalogFixtures.delete(testInfo.testId);
+  expect(failed, "all Umrah catalog fixtures restored").toEqual([]);
+});
+
+for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guarantor → fixed total → payment → receipt under review → ${type.execution} → delivery`, async ({ page }, testInfo) => {
   // Two actors, two pilgrims, payment review, visa downloads and the optional
   // booking plus fixture cleanup belong to one complete journey.
   test.setTimeout(90_000);
@@ -32,7 +51,8 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
   const packageName = `باقة عمرة ${type.label} E2E ${stamp}`;
   const customer = `معتمر اختبار ${stamp}`;
   const accountNumber = `E2EUMR${stamp}`;
-  const created: { services: string[]; accounts: string[] } = { services: [], accounts: [] };
+  const created: CatalogFixtures = { services: [], accounts: [] };
+  catalogFixtures.set(testInfo.testId, created);
 
   const pkg = await admin.post(`${BACKEND}/api/services`, {
     data: {
@@ -60,7 +80,7 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     return (await res.json()).data as Array<{ id: string }>;
   };
 
-  try {
+  await test.step("customer and staff complete the Umrah journey", async () => {
     await page.goto(`/umrah?package=${code}`);
     await expect(page.getByRole("heading", { name: "اختر الباقة", exact: true })).toBeVisible({ timeout: 15_000 });
     const card = page.locator("button").filter({ hasText: packageName });
@@ -244,8 +264,5 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     const inquiry = (await (await admin.get(`${BACKEND}/api/contact-requests/${linked[0].id}`)).json()).data;
     expect(inquiry.pricingMode).toBe("QUOTE");
     expect(inquiry.invoice).toBeNull();
-  } finally {
-    for (const id of created.accounts) await admin.patch(`${BACKEND}/api/payment-accounts/${id}`, { data: { active: false } });
-    for (const id of created.services) await admin.patch(`${BACKEND}/api/services/${id}`, { data: { active: false } });
-  }
+  });
 });

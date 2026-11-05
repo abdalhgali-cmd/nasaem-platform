@@ -22,7 +22,7 @@ const AWAITING = "تم قبول الدفع، بانتظار بدء التنفي�
 type Journey = {
   name: string;
   execution: string;
-  start: (app: Page) => Promise<void>;
+  start: (app: Page, umrahVisaId?: string) => Promise<void>;
   rejectFirstDocument?: boolean;
   rejectFirstReceipt?: boolean;
   // Seeded flights/ferries/hotels have no document requirement; for the run
@@ -87,10 +87,10 @@ const JOURNEYS: Journey[] = [
     // Umrah is booked only at a fixed price: the visa-only package is priced
     // for this run in beforeAll (test fixture price); 2 pilgrims × 450 SAR.
     fixedPrice: { total: "900", currency: "SAR" },
-    start: async (app) => {
+    start: async (app, umrahVisaId) => {
       // The Umrah card opens the package chooser directly (no details page).
       await app.locator("#homeUmrahBtn").click();
-      await app.locator(".package-card:not([disabled])").first().click();
+      await app.locator(`.package-card[data-id="${umrahVisaId}"]`).click();
     },
   },
   {
@@ -328,7 +328,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
 
       // ---- customer: service, its selection, travelers, documents
       await home();
-      await journey.start(app);
+      await journey.start(app, umrahVisa?.id);
       const { id, documents } = await submitIntake(travelers);
 
       // ---- staff: find it, check each traveler's documents, review them
