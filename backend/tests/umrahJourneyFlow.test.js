@@ -270,6 +270,9 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.equal(journey.servicesIncluded, false);
     assert.equal(stage(journey, "SERVICES").state, "not_included");
     assert.equal(journey.pilgrims[0].services, undefined);
+    assert.equal(journey.ticketBooking.available, false);
+    assert.equal((await customer.post(`/api/tracking/requests/${id}/umrah/tickets`).send({})).status, 409, "tickets follow visa issuance");
+    assert.equal((await request(app).post(`/api/tracking/requests/${id}/umrah/tickets`).send({})).status, 401);
 
     const detail = (await employee.get(`/api/contact-requests/${id}`)).body.data;
     for (const document of detail.documents) {
@@ -292,5 +295,27 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     journey = await journeyOf(customer, id);
     assert.equal(journey.primaryAction.key, "VIEW_FILES");
     assert.ok((await notificationTypes(id)).includes("UMRAH_ALL_VISAS_ISSUED"));
+    assert.equal(journey.ticketBooking.available, true, "optional booking is offered after completion");
+    const stranger = trackingClient(testPhone());
+    assert.equal((await stranger.post(`/api/tracking/requests/${id}/umrah/tickets`).send({})).status, 404);
+    const { agent: otherAccount } = await registerCustomer();
+    assert.equal((await otherAccount.post(`/api/customer/requests/${id}/umrah/tickets`).send({})).status, 404);
+    const [booking, retry] = await Promise.all([
+      customer.post(`/api/tracking/requests/${id}/umrah/tickets`).send({}),
+      account.post(`/api/customer/requests/${id}/umrah/tickets`).send({}),
+    ]);
+    assert.deepEqual([booking.status, retry.status].sort(), [200, 201]);
+    assert.equal(booking.body.data.inquiryId, retry.body.data.inquiryId);
+    const inquiries = await prisma.contactRequest.findMany({ where: { parentRequestId: id, linkKind: "UMRAH_TICKET" }, include: { invoice: true, travelers: true } });
+    assert.equal(inquiries.length, 1);
+    assert.equal(inquiries[0].pricingMode, "QUOTE");
+    assert.equal(inquiries[0].invoice, null, "no unapproved fare is invented");
+    assert.equal(inquiries[0].customerId, owner.id);
+    assert.equal(inquiries[0].travelers.length, 1);
+    assert.equal((await prisma.contactRequest.findUnique({ where: { id } })).outcome, "COMPLETED", "booking does not reopen or block the visa case");
+    assert.equal(await prisma.activityLog.count({ where: { entityId: id, action: "UMRAH_TICKET_INQUIRY_OPENED" } }), 1);
+    journey = await journeyOf(customer, id);
+    assert.equal(journey.ticketBooking.available, false);
+    assert.equal(journey.ticketBooking.inquiryId, inquiries[0].id);
   });
 });

@@ -1,5 +1,18 @@
 import { isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
-import { umrahIncludesTickets } from "./umrah-packages.js";
+import { umrahIncludesTickets, umrahPackageKind } from "./umrah-packages.js";
+
+export const UMRAH_TICKET_LINK = "UMRAH_TICKET";
+
+export function umrahTicketBooking(request) {
+  const inquiry = request.linkedRequests?.find((r) => r.linkKind === UMRAH_TICKET_LINK);
+  const eligible = isUmrahRequest(request) && !["CANCELLED", "REJECTED"].includes(request.outcome) && evaluateUmrahDelivery(request).visas.complete;
+  return {
+    available: eligible && !inquiry,
+    inquiryId: inquiry?.id || null,
+    status: inquiry?.status || null,
+    mode: umrahPackageKind(request.serviceRef?.features) === "SEA" ? "SEA" : "AIR",
+  };
+}
 
 // What "delivered" means for an Umrah request (owner decision 2026-11-02):
 // every pilgrim's visa is published, and, for a package with flight or sea

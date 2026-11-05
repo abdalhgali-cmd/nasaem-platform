@@ -52,6 +52,13 @@ export function umrahJourneyHtml(journey, esc, icon, { detailsHtml = "" } = {}) 
         ${journey.updatedAt ? `<div><dt>آخر تحديث</dt><dd>${esc(formatDate(journey.updatedAt))}</dd></div>` : ""}
       </dl>
 
+      ${journey.ticketBooking?.available || journey.ticketBooking?.inquiryId ? `
+        <div class="detail-block" id="umrahTicketBooking">
+          <h4>حجز التذاكر بعد صدور التأشيرات</h4>
+          <p>خدمة اختيارية؛ يؤكد موظف الوكالة السعر والتوفر قبل الحجز.</p>
+          ${journey.ticketBooking.inquiryId ? `<p role="status">أُرسل طلب الحجز إلى الوكالة. رقم الطلب: <bdi>${esc(journey.ticketBooking.inquiryId)}</bdi></p>` : `<button type="button" class="secondary" id="umrahTicketsBtn">طلب حجز تذاكر ${journey.ticketBooking.mode === "SEA" ? "البحر" : "الطيران"} من الوكالة</button>`}
+        </div>` : ""}
+
       <ol class="umrah-stages" aria-label="مراحل رحلتك">
         ${journey.stages.map((stage) => `
           <li class="umrah-stage umrah-stage-${esc(stage.state)}"${stage.state === "current" ? ' aria-current="step"' : ""}>

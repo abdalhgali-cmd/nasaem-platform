@@ -1,5 +1,5 @@
 import { evaluateReadiness } from "../contact-request-workflow/workflow-policy.js";
-import { evaluateUmrahDelivery, isUmrahRequest } from "./umrah-delivery.js";
+import { evaluateUmrahDelivery, isUmrahRequest, umrahTicketBooking } from "./umrah-delivery.js";
 import { umrahPackageKind } from "./umrah-packages.js";
 
 // «رحلتي إلى الحرمين»: everything the customer's Umrah screen shows, derived
@@ -113,5 +113,6 @@ export function umrahJourney(request, progress) {
           nextStepLabel: next?.label || null,
         },
     primaryAction,
+    ticketBooking: umrahTicketBooking(request),
   };
 }

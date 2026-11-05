@@ -43,6 +43,7 @@ export type UmrahJourney = {
     nextStepLabel: string | null;
   };
   primaryAction: { key: string; label: string } | null;
+  ticketBooking?: { available: boolean; inquiryId: string | null; status: string | null; mode: "AIR" | "SEA" };
 };
 
 const VISA_STATE = { ISSUED: "صدرت التأشيرة", IN_PROGRESS: "قيد الإجراءات", PENDING: "لم تبدأ بعد" } as const;
@@ -99,7 +100,11 @@ function FileLinks({ requestId, files }: { requestId: string; files: JourneyFile
   );
 }
 
-export function UmrahJourneySection({ requestId, journey }: { requestId: string; journey: UmrahJourney }) {
+export function UmrahJourneySection({ requestId, journey, onActionComplete }: { requestId: string; journey: UmrahJourney; onActionComplete?: () => void }) {
+  const [bookingPending, setBookingPending] = React.useState(false);
+  const [bookingMessage, setBookingMessage] = React.useState("");
+  const [inquiryId, setInquiryId] = React.useState<string | null>(null);
+  const bookingInFlight = React.useRef(false);
   const section = journey.primaryAction ? umrahActionSection(journey.primaryAction.key, requestId) : null;
   // Never a button whose action cannot be performed: shown only once the
   // section that performs it is on the page with content.
@@ -120,6 +125,27 @@ export function UmrahJourneySection({ requestId, journey }: { requestId: string;
     target.scrollIntoView({ block: "start", behavior: "smooth" });
     if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     target.focus({ preventScroll: true });
+  }
+
+  async function requestTickets() {
+    if (bookingInFlight.current) return;
+    bookingInFlight.current = true;
+    setBookingPending(true);
+    setBookingMessage("");
+    try {
+      const response = await fetch(`${API_URL}/tracking/requests/${requestId}/umrah/tickets`, {
+        method: "POST", credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" }, signal: AbortSignal.timeout(20_000),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.message || "تعذّر إرسال طلب الحجز؛ حاول مجددًا.");
+      setInquiryId(payload.data.inquiryId);
+      onActionComplete?.();
+    } catch (error) {
+      setBookingMessage(error instanceof Error ? error.message : "تعذّر الاتصال؛ يمكنك إعادة المحاولة دون تكرار الطلب.");
+    } finally {
+      bookingInFlight.current = false;
+      setBookingPending(false);
+    }
   }
 
   return (
@@ -225,6 +251,16 @@ export function UmrahJourneySection({ requestId, journey }: { requestId: string;
         </ul>
         {anyFiles ? null : <p className="mt-2 text-xs text-muted-foreground">تظهر هنا التأشيرات ومستندات الخدمات فور نشرها.</p>}
       </div>
+      {journey.ticketBooking?.available || journey.ticketBooking?.inquiryId || inquiryId ? (
+        <div className="mt-4 rounded-lg border border-border p-3" data-testid="umrah-ticket-booking">
+          <h4 className="font-bold">حجز التذاكر بعد صدور التأشيرات</h4>
+          <p className="my-2 text-sm text-muted-foreground">خدمة اختيارية؛ يؤكد موظف الوكالة السعر والتوفر قبل الحجز.</p>
+          {journey.ticketBooking?.inquiryId || inquiryId ? (
+            <p role="status">أُرسل طلب الحجز إلى الوكالة. رقم الطلب: <bdi>{journey.ticketBooking?.inquiryId || inquiryId}</bdi></p>
+          ) : <button type="button" disabled={bookingPending} onClick={requestTickets} className="min-h-11 rounded-lg border border-border px-3 font-semibold text-primary disabled:opacity-50">{bookingPending ? "جارٍ إرسال الطلب…" : `طلب حجز تذاكر ${journey.ticketBooking?.mode === "SEA" ? "البحر" : "الطيران"} من الوكالة`}</button>}
+          {bookingMessage ? <p role="alert" className="mt-2 text-sm text-destructive">{bookingMessage}</p> : null}
+        </div>
+      ) : null}
     </section>
   );
 }

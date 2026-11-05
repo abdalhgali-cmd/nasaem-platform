@@ -1402,7 +1402,7 @@ export function TrackingPanel() {
                 </div>
                 <RequestReference requestId={req.id} />
                 {req.progress?.umrah ? (
-                  <UmrahJourneySection requestId={req.id} journey={req.progress.umrah} />
+                  <UmrahJourneySection requestId={req.id} journey={req.progress.umrah} onActionComplete={refreshRequests} />
                 ) : (
                   <>
                     <RequestProgress req={req} />

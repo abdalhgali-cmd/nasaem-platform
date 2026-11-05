@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { postAccountUmrahTickets } from "../umrah/umrah-ticket-booking.js";
 
 import { requireCustomerAuth } from "../customer-auth/customer-auth.middleware.js";
 import { requireFeatureEnabled } from "../feature-flags/feature-flags.middleware.js";
@@ -23,6 +24,7 @@ router.post("/requests/:id/documents", requireFeatureEnabled("CUSTOMER_UPLOAD"),
 router.get("/requests/:id/deliverables/:deliverableId/file", downloadRequestDeliverable);
 router.get("/requests/:id/payment-receipt/file", downloadAccountReceipt);
 router.post("/requests/:id/egypt/flight", postAccountFlightChoice);
+router.post("/requests/:id/umrah/tickets", postAccountUmrahTickets);
 router.get("/notifications", getNotifications);
 router.patch("/notifications/:id/read", readNotification);
 router.post("/orders", storeSelfOrder);

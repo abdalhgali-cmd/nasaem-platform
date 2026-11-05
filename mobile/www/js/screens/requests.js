@@ -536,6 +536,23 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
     `;
 
     const panel = bodyEl.querySelector("#trackingActionPanel");
+    bodyEl.querySelector("#umrahTicketsBtn")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      if (button.disabled) return;
+      button.disabled = true;
+      const done = () => { toast("أُرسل طلب حجز التذاكر إلى الوكالة"); load(); };
+      if (viaTracking) {
+        button.disabled = false;
+        return ensureTrackingAndRun(panel, () => tracking.requestUmrahTickets(request.id), { onDone: done });
+      }
+      try {
+        await api(`/customer/requests/${request.id}/umrah/tickets`, { method: "POST" });
+        done();
+      } catch (error) {
+        toast(error.message, { tone: "error" });
+        button.disabled = false;
+      }
+    });
     bindProgressTrack(bodyEl, { request, progress: request.progress, esc });
     if (umrah) bindUmrahJourney(bodyEl, runProgressAction);
 

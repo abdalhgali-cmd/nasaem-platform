@@ -101,4 +101,23 @@ describe("deployment labels", () => {
     assert.equal(res.body.pricesAreTestData, true, "the test suite never runs as production");
     assert.equal(typeof res.body.environment, "string");
   });
+
+  test("/api/health never exposes an accidentally pasted deployment secret", async () => {
+    const { app, request } = await import("./helpers/api.js");
+    const original = process.env.DEPLOYMENT_ENVIRONMENT;
+    const pastedSecret = "test-only-private-value-" + "a".repeat(64);
+    try {
+      process.env.DEPLOYMENT_ENVIRONMENT = pastedSecret;
+      const res = await request(app).get("/api/health");
+      assert.equal(res.status, 200);
+      assert.equal(res.body.environment, "unrecognized");
+      assert.equal(res.body.pricesAreTestData, true);
+      assert.equal(res.text.includes(pastedSecret), false);
+      process.env.DEPLOYMENT_ENVIRONMENT = "Staging";
+      assert.equal((await request(app).get("/api/health")).body.environment, "staging");
+    } finally {
+      if (original === undefined) delete process.env.DEPLOYMENT_ENVIRONMENT;
+      else process.env.DEPLOYMENT_ENVIRONMENT = original;
+    }
+  });
 });

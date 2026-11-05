@@ -46,6 +46,9 @@ test.describe("website registration signs the customer in", () => {
   });
 
   test("register → straight into the account, without the API cookie; one request for a double click; network failure keeps the session; logout ends it", async ({ page, context }) => {
+    // This scenario includes registration, two reloads, an offline/retry cycle
+    // and logout. Cold Next.js route compilation counts toward the same budget.
+    test.setTimeout(60_000);
     await blockApiCookies(context);
     const phone = uniquePhone();
     const name = `عميل تسجيل ${phone.slice(-6)}`;

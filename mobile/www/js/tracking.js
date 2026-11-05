@@ -78,6 +78,10 @@ export async function markTransferSent(requestId) {
   return api(`/tracking/requests/${requestId}/mark-transfer-sent`, { method: "POST", headers: await trackingHeaders() });
 }
 
+export async function requestUmrahTickets(requestId) {
+  return api(`/tracking/requests/${requestId}/umrah/tickets`, { method: "POST", headers: await trackingHeaders() });
+}
+
 export async function selectOffer(requestId, offerId) {
   return api(`/tracking/requests/${requestId}/offers/${offerId}/select`, { method: "POST", headers: await trackingHeaders() });
 }

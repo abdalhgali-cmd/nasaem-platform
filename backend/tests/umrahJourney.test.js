@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { deriveRequestProgress } from "../src/modules/contact-request-progress/request-progress.js";
 import { evaluateDelivery } from "../src/modules/contact-request-workflow/workflow-policy.js";
 import { NO_ACTION_MESSAGE } from "../src/modules/umrah/umrah-journey.js";
-import { umrahDeliverableKind } from "../src/modules/umrah/umrah-delivery.js";
+import { umrahDeliverableKind, umrahTicketBooking } from "../src/modules/umrah/umrah-delivery.js";
 
 // «رحلتي إلى الحرمين»: the server derives every pilgrim's visa and service
 // state, the current step, who it waits on and the one customer action.
@@ -34,6 +34,14 @@ function request({ kind = "VISA_ONLY", travelers = [T1], deliverables = [], ...r
   };
 }
 const file = (id, kind, travelerIds, published = true) => ({ id, kind, label: `ملف ${id}`, travelerIds, publishedAt: published ? NOW : null, supersededAt: null });
+
+test("optional tickets follow all published visas, use the package's transport, and never appear on cancelled cases", () => {
+  assert.equal(umrahTicketBooking(request()).available, false);
+  assert.equal(umrahTicketBooking(request({ deliverables: [file("v", "VISA", [])] })).available, true);
+  assert.equal(umrahTicketBooking(request({ kind: "SEA", deliverables: [file("v", "VISA", [])] })).mode, "SEA");
+  assert.equal(umrahTicketBooking(request({ outcome: "CANCELLED", deliverables: [file("v", "VISA", [])] })).available, false);
+  assert.equal(umrahTicketBooking(request({ travelers: [T1, T2], deliverables: [file("v", "VISA", [T1.id])] })).available, false);
+});
 
 test("one pilgrim: the visa completes a visa-only package", () => {
   const before = deriveRequestProgress(request());

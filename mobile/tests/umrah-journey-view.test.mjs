@@ -30,6 +30,14 @@ function journey(overrides = {}) {
   };
 }
 
+test("optional tickets: only server-authorized actions are offered; an existing inquiry cannot be sent again", () => {
+  assert.doesNotMatch(umrahJourneyHtml(journey(), esc, icon), /umrahTicketsBtn/);
+  assert.match(umrahJourneyHtml(journey({ ticketBooking: { available: true, mode: "SEA" } }), esc, icon), /طلب حجز تذاكر البحر/);
+  const sent = umrahJourneyHtml(journey({ ticketBooking: { available: false, inquiryId: "inquiry-1", mode: "AIR" } }), esc, icon);
+  assert.match(sent, /inquiry-1/);
+  assert.doesNotMatch(sent, /umrahTicketsBtn/);
+});
+
 test("the four sections: facts, seven stages, what happens now, the action", () => {
   const html = umrahJourneyHtml(journey(), esc, icon);
   for (const text of ["رحلتي إلى الحرمين", "cmref123", "عمرة بالطيران", "عدد المعتمرين", "آخر تحديث", "ماذا يحدث الآن؟", "الخطوة التالية", "تسليم الخدمات المشمولة"]) assert.ok(html.includes(text), text);

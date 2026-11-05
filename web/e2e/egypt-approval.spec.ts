@@ -252,8 +252,8 @@ test.describe.serial("Egypt security approval: customer app and back-office", ()
     expect(workspace.reminders.some((r: { status: string; kind: string }) => r.status === "SCHEDULED" && r.kind === "THREE_DAY")).toBeTruthy();
   });
 
-  test("overland: border crossing only, submitted without a travel date and without any ticket", async () => {
-    test.setTimeout(120_000);
+  test("overland: passport → payment → approval → crossing and date → circular, without a flight ticket", async () => {
+    test.setTimeout(180_000);
     await home();
     await app.locator('[data-egypt-variant="VISA-EGYPT-CLEARANCE-BORDER"]').click();
     await expect(app.locator('[name="entryPort"]')).toBeVisible();
@@ -270,13 +270,56 @@ test.describe.serial("Egypt security approval: customer app and back-office", ()
     await app.locator("#confirmTotal").check();
     await app.locator("#nextStepBtn").dispatchEvent("click");
     await expect(app.getByTestId("direct-payment-step")).toBeVisible({ timeout: 30_000 });
-    // Pay later: the request is kept and offered again from home.
-    await app.locator("#paymentLaterBtn").click();
+    await app.locator('[name="settlementAccountId"]').first().check();
+    await app.setInputFiles('#directReceiptForm [data-receipt-input="PDF"]', { name: "land-receipt.pdf", mimeType: "application/pdf", buffer: PDF });
+    await app.locator("#sendReceiptBtn").click();
+    await expect(app.locator("#paymentUnderReview")).toBeVisible({ timeout: 30_000 });
     await expect(app.locator("#requestReference")).toBeVisible({ timeout: 30_000 });
     const id = (await app.locator("#requestReference").innerText()).trim();
     const stored = (await (await office.request.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
     expect(stored.intakeData.egyptRoute).toEqual({ entryMode: "BORDER", entryPort: "أرقين" });
     expect(stored.travelEntryDate).toBeNull();
     expect(stored.linkedRequests).toHaveLength(0);
+    expect(stored.paymentStatus).toBe("UNDER_REVIEW");
+
+    await openWorkspace(id);
+    await staffAct(office.locator("[data-cr-confirm-payment]"), "تم تأكيد استلام الدفع");
+    await openWorkspace(id);
+    while ((await office.locator("[data-doc-accept]").count()) > 0) {
+      const before = await office.locator("[data-doc-accept]").count();
+      await office.locator("[data-doc-accept]").first().click();
+      await expect(office.locator("[data-doc-accept]")).toHaveCount(before - 1, { timeout: 15_000 });
+    }
+    await office.locator("#egypt-approval-file").setInputFiles({ name: "land-approval.pdf", mimeType: "application/pdf", buffer: PDF });
+    await staffAct(office.locator('[data-cr-form="egypt-approval"] button[type="submit"]'), "تم تسجيل إصدار الموافقة");
+
+    await openTracked(id);
+    await app.locator("#egyptTravelBtn").click();
+    await expect(app.locator('#egyptPlanForm [name="bookingStatus"], #egyptPlanForm [name="ticket"]')).toHaveCount(0);
+    const entry = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
+    await app.fill('#egyptPlanForm [name="entryPort"]', "أرقين");
+    await app.fill('#egyptPlanForm [name="entryDate"]', entry);
+    await app.locator('#egyptPlanForm [name="confirmDate"]').check();
+    await app.locator("#egyptPlanForm button[type=submit]").click();
+    await expect(app.locator("#egyptPrep")).toContainText(entry, { timeout: 20_000 });
+
+    await openWorkspace(id);
+    await staffAct(office.locator("[data-egypt-circular-start]"), "بدأ تجهيز التعميم");
+    await office.locator("#egypt-circular-file").setInputFiles({ name: "land-circular.pdf", mimeType: "application/pdf", buffer: PDF });
+    await staffAct(office.locator('[data-cr-form="egypt-circular"] button[type="submit"]'), "تم رفع التعميم");
+
+    await openTracked(id);
+    await expect(app.locator("#egyptCircularIssued")).toBeVisible();
+    await expect(app.locator('[data-egypt-file="CIRCULAR"]')).toBeVisible();
+    await expect(app.locator('[data-egypt-file="APPROVAL"]')).toBeVisible();
+    await expect(app.locator('[data-egypt-file="TICKET"]')).toHaveCount(0);
+    const final = (await (await office.request.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
+    expect(final.linkedRequests).toHaveLength(0);
+    expect(final.deliverables.filter((file: { kind: string }) => file.kind === "TICKET")).toHaveLength(0);
+    for (const file of final.deliverables.filter((file: { kind: string; publishedAt?: string }) => file.publishedAt && ["APPROVAL", "CIRCULAR"].includes(file.kind))) {
+      const download = await app.request.get(`${BACKEND}/api/tracking/requests/${id}/deliverables/${file.id}/file`);
+      expect(download.ok()).toBeTruthy();
+      expect((await download.body()).subarray(0, 4).toString()).toBe("%PDF");
+    }
   });
 });
