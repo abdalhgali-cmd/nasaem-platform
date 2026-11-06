@@ -51,7 +51,7 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   const state = umrahLoadState({ error: loadError, packages });
   if (state.kind === "NETWORK" || state.kind === "API_ERROR") {
     packagesList.innerHTML = `
-      <p class="info-note error-note" id="umrahLoadError" data-state="${state.kind}" role="alert">${icon("info", { size: 15 })} ${esc(state.message)}</p>
+      <p class="info-note error-note" id="umrahLoadError" data-state="${state.kind}" role="alert">${icon("info", { size: 15 })} ${esc(packages.some((pkg) => startingPrice(pkg)) ? "الأسعار المعروضة هي الأسعار المنشورة من الوكالة. للاستفسار وإتمام الطلب تواصل معنا." : state.message)}</p>
       <button type="button" class="primary" id="umrahRetryBtn">إعادة المحاولة</button>`;
     packagesList.querySelector("#umrahRetryBtn").addEventListener("click", () => renderUmrahScreen({ bodyEl, params }));
     return;
@@ -109,9 +109,12 @@ function packageCard(pkg) {
   const details = umrahPackageSummary(pkg);
   const fixed = umrahPriceText(pkg);
   const price = startingPrice(pkg);
-  const sdg = fixed && price ? sdgText(price) || (sdgUnavailable(price) ? SDG_UNAVAILABLE_NOTICE : "") : "";
+  const sdg = price ? sdgText(price) || (sdgUnavailable(price) ? SDG_UNAVAILABLE_NOTICE : "") : "";
+  // Always show the price published by admin, even when its pricing mode is QUOTE.
+  // Booking eligibility remains separate: only FIXED packages enter the checkout flow.
+  const publishedPrice = price ? `${Number(price.amount).toLocaleString("en-US")} ${price.currency}` : null;
   return `
-    <button type="button" class="package-card${fixed ? "" : " package-unavailable"}" role="radio" aria-checked="false" data-id="${esc(pkg.id)}" aria-label="${esc(`${pkg.name}${fixed ? `، ${fixed}` : `، ${UMRAH_PRICE_MISSING}`}`)}" ${fixed ? "" : 'disabled aria-disabled="true"'}>
+    <button type="button" class="package-card${fixed ? "" : " package-unavailable"}" role="radio" aria-checked="false" data-id="${esc(pkg.id)}" aria-label="${esc(`${pkg.name}${fixed ? `، ${fixed}` : publishedPrice ? `، السعر المعلن ${publishedPrice}` : `، ${UMRAH_PRICE_MISSING}`}`)}" ${fixed ? "" : 'disabled aria-disabled="true"'}>
       <span class="package-radio" aria-hidden="true"></span>
       <div class="package-body">
         <span class="package-title-row"><b>${esc(pkg.name)}</b>${details.kindLabel ? `<span class="package-kind">${esc(details.kindLabel)}</span>` : ""}</span>
@@ -122,7 +125,9 @@ function packageCard(pkg) {
       </div>
       ${fixed
         ? `<strong class="package-price"><bdi>${esc(fixed)}</bdi>${sdg ? `<small><bdi>${esc(sdg)}</bdi></small>` : ""}</strong>`
-        : `<span class="pending-price">${esc(UMRAH_PRICE_MISSING)}</span>`}
+        : publishedPrice
+          ? `<strong class="package-price"><bdi>${esc(publishedPrice)}</bdi>${sdg ? `<small><bdi>${esc(sdg)}</bdi></small>` : ""}<small>للاستفسار والحجز تواصل مع الوكالة</small></strong>`
+          : `<span class="pending-price">${esc(UMRAH_PRICE_MISSING)}</span>`}
     </button>`;
 }
 
