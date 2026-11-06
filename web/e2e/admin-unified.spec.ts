@@ -60,9 +60,10 @@ test.describe("Unified admin — entry and sign-in", () => {
     await expect(page).toHaveURL(`${WEB}/admin`);
   });
 
-  test("old back-office addresses open the matching unified page", async ({ page }) => {
-    await loginAsSeededAdmin(page);
-    const cases: [string, RegExp][] = [
+  // Each legacy URL is a separate contract, with its own normal test budget.
+  // Waiting for iframe resources on ten destinations in one loop used to
+  // exhaust the shared budget before the last redirects were even checked.
+  const legacyAddresses: [string, RegExp][] = [
       ["/admin-dashboard.html", /\/admin$/],
       ["/admin-dashboard.html#/requests/abc123", /\/admin\/cases\?requestId=abc123$/],
       ["/admin-dashboard.html?customerRequest=req9", /\/admin\/cases\?requestId=req9$/],
@@ -73,12 +74,14 @@ test.describe("Unified admin — entry and sign-in", () => {
       ["/admin-dashboard.html#/management", /\/admin\/tools$/],
       ["/flight-management.html", /\/admin\/tools\/flight-inventory$/],
       ["/login.html", /\/admin(\/login)?$/],
-    ];
-    for (const [from, to] of cases) {
-      await page.goto(from);
+  ];
+  for (const [from, to] of legacyAddresses) {
+    test(`old back-office address ${from} opens the matching unified page`, async ({ page }) => {
+      await loginAsSeededAdmin(page);
+      await page.goto(from, { waitUntil: "domcontentloaded" });
       await expect(page, from).toHaveURL(to);
-    }
-  });
+    });
+  }
 });
 
 test.describe("Unified admin — screens of the old back-office inside the admin", () => {

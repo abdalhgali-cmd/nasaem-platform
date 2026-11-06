@@ -12,6 +12,7 @@
 import { requirementApplies } from "../requirements/requirement-conditions.js";
 import { isEgyptTravelTask } from "../contact-request-tracking/egypt-travel-tasks.js";
 import { requestPricingMode } from "../contact-request-pricing/fixed-price.js";
+import { evaluateUmrahDelivery, isUmrahRequest, UMRAH_SERVICE_KINDS, UMRAH_VISA_KINDS } from "../umrah/umrah-delivery.js";
 
 export const ACTIONS = Object.freeze({
   ISSUE_QUOTE: "ISSUE_QUOTE",
@@ -109,6 +110,11 @@ export function publishedDeliverables(request) {
 // "delivered" means. For the Egypt approval only the current APPROVAL files
 // (never its circular or a ticket); for every other service its GENERAL files.
 export function deliveryDeliverables(request) {
+  // Umrah: the pilgrims' visas and the included services' documents.
+  if (isUmrahRequest(request)) {
+    const kinds = [...UMRAH_VISA_KINDS, ...UMRAH_SERVICE_KINDS];
+    return publishedDeliverables(request).filter((d) => kinds.includes(d.kind || "GENERAL"));
+  }
   const egypt = isEgyptClearanceCode(request.visaType?.code);
   return publishedDeliverables(request).filter((d) => (d.kind || "GENERAL") === (egypt ? "APPROVAL" : "GENERAL"));
 }
@@ -211,6 +217,11 @@ export function evaluatePayment(request) {
 // traveler rows, or a single one, is covered by any published file that is
 // not explicitly assigned to someone else.
 export function evaluateDelivery(request) {
+  // Umrah: every pilgrim's visa, and the services of a flight/sea package.
+  if (isUmrahRequest(request)) {
+    const { complete, coveredTravelerIds, missingTravelerIds, reasons } = evaluateUmrahDelivery(request);
+    return { complete, coveredTravelerIds, missingTravelerIds, reasons };
+  }
   const published = deliveryDeliverables(request);
   const travelers = request.travelers || [];
   if (travelers.length <= 1) {

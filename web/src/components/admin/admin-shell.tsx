@@ -153,6 +153,14 @@ const roleLabels: Record<AdminUser["role"], string> = {
   CONTENT_MANAGER: "مدير المحتوى",
 };
 
+// The old back-office screens embedded in /admin/tools/* (same origin) read
+// the API address from here, so they always call the same API as the admin
+// around them, on any host (backend/public/assets/api.js, website copy).
+declare global {
+  interface Window { __NASAEM_API_URL__?: string }
+}
+if (typeof window !== "undefined") window.__NASAEM_API_URL__ = API_URL;
+
 export function AdminShell({ children, title, description }: { children: React.ReactNode; title?: string; description?: string }) {
   const pathname = usePathname();
   const router = useRouter();

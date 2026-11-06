@@ -324,3 +324,48 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus {outline:none;}
 .egypt-flight {margin-top:12px;border-top:1px solid #e3e8f0;padding-top:12px;}
 .chip-row {display:flex;flex-wrap:wrap;gap:8px;}
 .chip-row .chip-btn {min-height:48px;}
+
+/* «رحلتي إلى الحرمين» — Umrah journey (umrah-journey-view.js) */
+.umrah-journey {display:grid;gap:14px;}
+.umrah-head {display:flex;gap:12px;align-items:center;}
+.umrah-head h3 {margin:0;font-size:1.05rem;color:var(--navy);}
+.umrah-icon {display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--navy);color:var(--gold);flex:none;}
+.umrah-status {margin:2px 0 0;color:var(--gold-dark);font-weight:700;font-size:.92rem;}
+.umrah-facts {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0;}
+.umrah-facts > div {background:var(--bg);border-radius:var(--radius-sm);padding:8px 10px;min-width:0;}
+.umrah-facts dt {font-size:.75rem;color:var(--text-muted);}
+.umrah-facts dd {margin:2px 0 0;font-weight:700;color:var(--text);overflow-wrap:anywhere;}
+.umrah-ref {font-family:ui-monospace,monospace;font-size:.85rem;}
+.umrah-stages {list-style:none;margin:0;padding:0;display:grid;}
+.umrah-stage {position:relative;display:flex;gap:12px;align-items:flex-start;padding:0 0 14px;}
+.umrah-stage:not(:last-child)::after {content:"";position:absolute;inset-inline-start:10px;top:24px;bottom:2px;width:2px;background:var(--border);}
+.umrah-stage-done:not(:last-child)::after {background:var(--gold);}
+.umrah-dot {width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:var(--surface);display:grid;place-items:center;flex:none;color:#fff;}
+.umrah-stage-done .umrah-dot {background:var(--gold);border-color:var(--gold);}
+.umrah-stage-current .umrah-dot {border-color:var(--navy);box-shadow:0 0 0 4px rgba(8,43,88,.12);}
+.umrah-stage-not_included {opacity:.55;}
+.umrah-stage-text {display:grid;gap:2px;}
+.umrah-stage-text b {font-size:.92rem;color:var(--text);}
+.umrah-stage-current .umrah-stage-text b {color:var(--navy);}
+.umrah-stage-text small {color:var(--text-muted);font-size:.8rem;}
+.umrah-now {border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;display:grid;gap:8px;background:var(--surface);}
+.umrah-now.needs-action {border-color:var(--warn-border);background:var(--warn-bg);}
+.umrah-now h4 {margin:0;color:var(--navy);}
+.umrah-now-step {margin:0;display:grid;gap:2px;}
+.umrah-now-step small {color:var(--text-muted);font-size:.75rem;}
+.umrah-now-message {margin:0;line-height:1.7;}
+.umrah-now-meta {display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;margin:0;}
+.umrah-now-meta dt {font-size:.72rem;color:var(--text-muted);}
+.umrah-now-meta dd {margin:0;font-weight:700;font-size:.85rem;}
+.umrah-action {width:100%;}
+.umrah-pilgrims h4 {margin:0 0 4px;color:var(--navy);}
+.umrah-count {margin:0 0 8px;color:var(--text-muted);font-size:.85rem;}
+.umrah-pilgrims ul {list-style:none;margin:0;padding:0;display:grid;gap:8px;}
+.umrah-pilgrim {border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;display:grid;gap:8px;}
+.umrah-pilgrim-head {display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.umrah-pilgrim-head b {flex:1 1 100%;}
+.umrah-badge {display:inline-flex;gap:4px;align-items:center;border-radius:999px;padding:3px 10px;font-size:.75rem;font-weight:700;background:var(--bg);color:var(--text-muted);}
+.umrah-badge-issued, .umrah-badge-delivered {background:var(--success-bg);color:var(--success);}
+.umrah-badge-in_progress, .umrah-badge-preparing {background:var(--warn-bg);color:var(--warn-text);}
+.umrah-files {display:grid;gap:6px;}
+.umrah-files-empty {margin:6px 0 0;color:var(--text-faint);font-size:.8rem;}

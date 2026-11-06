@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { postTrackedUmrahTickets } from "../umrah/umrah-ticket-booking.js";
 import rateLimit from "express-rate-limit";
 import { resolveTrackingCodeLimit } from "./tracking-code-limit.js";
 
@@ -61,6 +62,7 @@ router.get("/requests/:id/deliverables/:deliverableId/file", requireTrackingAuth
 // Egypt approval: "book my flight through Nasaem" (opens one linked booking
 // inquiry), and the paid receipt PDF.
 router.post("/requests/:id/egypt/flight", requireTrackingAuth, postMyFlightChoice);
+router.post("/requests/:id/umrah/tickets", requireTrackingAuth, postTrackedUmrahTickets);
 router.get("/requests/:id/payment-receipt/file", requireTrackingAuth, downloadMyReceipt);
 router.post("/logout", requireTrackingAuth, logout);
 

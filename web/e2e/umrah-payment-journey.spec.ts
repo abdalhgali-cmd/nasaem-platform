@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { loginAsSeededAdmin } from "./helpers";
+import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 
 // Umrah on the website against the real backend, as its own section:
 // package (fixed price set in the admin) → applicant → trip → pilgrim →
@@ -21,7 +21,29 @@ const KINDS = [
   { kind: "SEA", label: "مع خدمات البحر", included: "تذاكر العبّارة", execution: "جارٍ إصدار التذاكر" },
 ] as const;
 
-for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guarantor → fixed total → payment → receipt under review → ${type.execution} → delivery`, async ({ page }) => {
+type CatalogFixtures = { services: string[]; accounts: string[] };
+const catalogFixtures = new Map<string, CatalogFixtures>();
+
+// Hooks have a separate teardown budget, including when the journey timed out.
+// Restore every fixture; one failed request must not leave the rest published.
+test.afterEach(async ({ page }, testInfo) => {
+  const created = catalogFixtures.get(testInfo.testId);
+  if (!created) return;
+  await loginAsSeededAdmin(page);
+  const changes = [
+    ...created.accounts.map((id) => page.request.patch(`${BACKEND}/api/payment-accounts/${id}`, { data: { active: false } })),
+    ...created.services.map((id) => page.request.patch(`${BACKEND}/api/services/${id}`, { data: { active: false } })),
+  ];
+  const results = await Promise.allSettled(changes);
+  const failed = results.flatMap((r, index) => r.status === "rejected" ? [`fixture ${index}: request failed`] : r.value.ok() ? [] : [`fixture ${index}: HTTP ${r.value.status()}`]);
+  catalogFixtures.delete(testInfo.testId);
+  expect(failed, "all Umrah catalog fixtures restored").toEqual([]);
+});
+
+for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guarantor → fixed total → payment → receipt under review → ${type.execution} → delivery`, async ({ page }, testInfo) => {
+  // Two actors, two pilgrims, payment review, visa downloads and the optional
+  // booking plus fixture cleanup belong to one complete journey.
+  test.setTimeout(90_000);
   await loginAsSeededAdmin(page);
   const admin = page.request;
   const stamp = `${Date.now()}`.slice(-8);
@@ -29,7 +51,8 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
   const packageName = `باقة عمرة ${type.label} E2E ${stamp}`;
   const customer = `معتمر اختبار ${stamp}`;
   const accountNumber = `E2EUMR${stamp}`;
-  const created: { services: string[]; accounts: string[] } = { services: [], accounts: [] };
+  const created: CatalogFixtures = { services: [], accounts: [] };
+  catalogFixtures.set(testInfo.testId, created);
 
   const pkg = await admin.post(`${BACKEND}/api/services`, {
     data: {
@@ -57,7 +80,7 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     return (await res.json()).data as Array<{ id: string }>;
   };
 
-  try {
+  await test.step("customer and staff complete the Umrah journey", async () => {
     await page.goto(`/umrah?package=${code}`);
     await expect(page.getByRole("heading", { name: "اختر الباقة", exact: true })).toBeVisible({ timeout: 15_000 });
     const card = page.locator("button").filter({ hasText: packageName });
@@ -181,22 +204,65 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     const started = await admin.post(`${BACKEND}/api/contact-requests/${id}/start-execution`, { data: {} });
     expect(started.ok(), await started.text()).toBeTruthy();
     expect((await started.json()).data.progress.label).toBe(type.execution);
-    for (const traveler of after.travelers as Array<{ id: string; fullName: string }>) {
-      const file = await admin.post(`${BACKEND}/api/contact-requests/${id}/deliverables`, {
-        multipart: {
-          label: `التأشيرة — ${traveler.fullName}`,
-          travelerIds: JSON.stringify([traveler.id]),
-          publish: "true",
-          file: { name: "final.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF") },
-        },
-      });
-      expect(file.ok(), await file.text()).toBeTruthy();
+    const upload = (label: string, travelerIds: string[], kind?: "SERVICE") => admin.post(`${BACKEND}/api/contact-requests/${id}/deliverables`, {
+      multipart: {
+        label,
+        travelerIds: JSON.stringify(travelerIds),
+        publish: "true",
+        ...(kind ? { kind } : {}),
+        file: { name: "final.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF") },
+      },
+    });
+    const pilgrims = after.travelers as Array<{ id: string; fullName: string }>;
+    // One pilgrim's visa first: the group is not done.
+    const firstVisa = await upload(`التأشيرة — ${pilgrims[0].fullName}`, [pilgrims[0].id]);
+    expect(firstVisa.ok(), await firstVisa.text()).toBeTruthy();
+    expect((await firstVisa.json()).data.kind).toBe("VISA");
+
+    // «رحلتي إلى الحرمين» on the website, as the customer.
+    const phone = `+2499${stamp}`;
+    await page.context().clearCookies();
+    await page.goto("/track");
+    await page.locator("#phone").fill(phone);
+    await page.getByRole("button", { name: "إرسال رمز التحقق" }).click();
+    await page.locator("#code").fill(readTrackingLoginCode(phone.replace(/\D/g, "")));
+    await page.getByRole("button", { name: "تأكيد" }).click();
+    const journey = page.getByTestId("umrah-journey");
+    await expect(journey).toBeVisible({ timeout: 15_000 });
+    await expect(journey.getByTestId("umrah-reference")).toHaveText(id);
+    await expect(journey.getByTestId("umrah-stages").locator("li")).toHaveCount(7);
+    await expect(journey.locator('[aria-current="step"]')).toContainText("إصدار التأشيرات");
+    await expect(journey.getByTestId("umrah-now-message")).toHaveText("لا يوجد إجراء مطلوب منك حالياً. سنُحدّث حالة طلبك عند اكتمال الخطوة التالية.");
+    await expect(journey.getByTestId("umrah-visa-state")).toHaveText(["صدرت التأشيرة", "قيد الإجراءات"]);
+    await expect(journey.getByTestId("umrah-file")).toHaveCount(1);
+    const visaDownload = await page.request.get(await journey.getByTestId("umrah-file").getAttribute("href") as string);
+    expect(visaDownload.status(), "the customer downloads their own visa").toBe(200);
+    await expect(journey.getByTestId("umrah-action")).toHaveText("تحميل التأشيرة");
+    if (type.kind === "VISA_ONLY") await expect(journey.locator('[data-state="not_included"]')).toContainText("تسليم الخدمات المشمولة");
+
+    // Back to staff for the rest.
+    await loginAsSeededAdmin(page);
+    const secondVisa = await upload(`التأشيرة — ${pilgrims[1].fullName}`, [pilgrims[1].id]);
+    expect(secondVisa.ok(), await secondVisa.text()).toBeTruthy();
+    if (type.kind !== "VISA_ONLY") {
+      const pending = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
+      expect(pending.status, "a services package is not complete at the visas").not.toBe("CLOSED");
+      const services = await upload("تذاكر وسكن المجموعة", pilgrims.map((p) => p.id), "SERVICE");
+      expect(services.ok(), await services.text()).toBeTruthy();
     }
     const done = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
     expect(done.status).toBe("CLOSED");
     expect(done.outcome).toBe("COMPLETED");
-  } finally {
-    for (const id of created.accounts) await admin.patch(`${BACKEND}/api/payment-accounts/${id}`, { data: { active: false } });
-    for (const id of created.services) await admin.patch(`${BACKEND}/api/services/${id}`, { data: { active: false } });
-  }
+    // Booking is optional and follows the visas; it never gates completion.
+    await page.reload();
+    const booking = page.getByTestId("umrah-ticket-booking");
+    await expect(booking).toBeVisible();
+    await booking.getByRole("button", { name: /طلب حجز تذاكر/ }).click();
+    await expect(booking).toContainText("أُرسل طلب الحجز إلى الوكالة");
+    const linked = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data.linkedRequests.filter((r: { linkKind: string }) => r.linkKind === "UMRAH_TICKET");
+    expect(linked).toHaveLength(1);
+    const inquiry = (await (await admin.get(`${BACKEND}/api/contact-requests/${linked[0].id}`)).json()).data;
+    expect(inquiry.pricingMode).toBe("QUOTE");
+    expect(inquiry.invoice).toBeNull();
+  });
 });

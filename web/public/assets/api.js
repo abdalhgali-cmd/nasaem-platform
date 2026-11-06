@@ -20,7 +20,24 @@ const PRODUCTION_WEB_HOSTS = new Set([
 const STAGING_API_BASE = "https://adaptable-quietude-staging.up.railway.app/api";
 const STAGING_WEB_HOSTS = new Set(["nasaem-website-staging-staging.up.railway.app"]);
 const LOCAL_WEB_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-const API_BASE = PRODUCTION_WEB_HOSTS.has(window.location.hostname)
+// Inside the unified admin (a same-origin frame), the admin page around it
+// says which API it uses (AdminShell sets window.__NASAEM_API_URL__ from
+// NEXT_PUBLIC_API_URL): the embedded screen uses the same one, on any host,
+// e.g. the website's Railway domain. Only an http(s) URL is taken.
+const ADMIN_FRAME_API_BASE = (() => {
+  try {
+    if (window.self === window.top || window.top.location.origin !== window.location.origin) return null;
+    const value = window.top.__NASAEM_API_URL__;
+    if (typeof value !== "string") return null;
+    const url = new URL(value, window.location.origin);
+    return url.protocol === "https:" || url.protocol === "http:" ? (value.endsWith("/") ? value.slice(0, -1) : value) : null;
+  } catch {
+    return null;
+  }
+})();
+const API_BASE = ADMIN_FRAME_API_BASE
+  ? ADMIN_FRAME_API_BASE
+  : PRODUCTION_WEB_HOSTS.has(window.location.hostname)
   ? PRODUCTION_API_BASE
   : STAGING_WEB_HOSTS.has(window.location.hostname)
     ? STAGING_API_BASE

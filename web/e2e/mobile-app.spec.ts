@@ -533,9 +533,13 @@ test.describe.serial("customer app: Umrah packages", () => {
     try {
       await skipOnboarding(page);
       await page.locator("#homeUmrahBtn").click();
-      await expect(page.locator("#umrahUnavailable")).toHaveAttribute("data-state", "UNPRICED");
-      await expect(page.locator(`.package-card[data-id="${rows[1]!.id}"]`)).toContainText("لم تُحدِّد الوكالة سعر هذه الباقة بعد");
-      await expect(page.locator(`.package-card[data-id="${rows[1]!.id}"]`)).toBeDisabled();
+      // Other published packages may exist. Verify the three fixtures, not
+      // that the entire agency catalog happens to be unavailable.
+      for (const row of rows) {
+        const card = page.locator(`.package-card[data-id="${row!.id}"]`);
+        await expect(card).toContainText("لم تُحدِّد الوكالة سعر هذه الباقة بعد");
+        await expect(card).toBeDisabled();
+      }
 
       for (const s of rows) {
         const res = await api.patch(`${BACKEND}/api/services/${s!.id}`, { data: { pricingMode: "FIXED", basePrice: prices[s!.code], currency: "SAR", priceUnit: "PER_TRAVELER", active: true } });

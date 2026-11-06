@@ -22,7 +22,7 @@ const AWAITING = "تم قبول الدفع، بانتظار بدء التنفي�
 type Journey = {
   name: string;
   execution: string;
-  start: (app: Page) => Promise<void>;
+  start: (app: Page, umrahVisaId?: string) => Promise<void>;
   rejectFirstDocument?: boolean;
   rejectFirstReceipt?: boolean;
   // Seeded flights/ferries/hotels have no document requirement; for the run
@@ -87,10 +87,10 @@ const JOURNEYS: Journey[] = [
     // Umrah is booked only at a fixed price: the visa-only package is priced
     // for this run in beforeAll (test fixture price); 2 pilgrims × 450 SAR.
     fixedPrice: { total: "900", currency: "SAR" },
-    start: async (app) => {
+    start: async (app, umrahVisaId) => {
       // The Umrah card opens the package chooser directly (no details page).
       await app.locator("#homeUmrahBtn").click();
-      await app.locator(".package-card:not([disabled])").first().click();
+      await app.locator(`.package-card[data-id="${umrahVisaId}"]`).click();
     },
   },
   {
@@ -286,19 +286,21 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     }
     await app.locator(`.request-row[data-id="${id}"]`).click({ timeout: 15_000 });
     // The customer's view first; every server stage under «تفاصيل كل المراحل».
-    await expect(app.locator("#requestJourney")).toBeVisible({ timeout: 15_000 });
-    await app.locator("#requestJourney .journey-details summary").click();
+    // Umrah: «رحلتي إلى الحرمين» (#umrahJourney) in place of the generic journey.
+    const journeyRoot = app.locator("#requestJourney, #umrahJourney");
+    await expect(journeyRoot).toBeVisible({ timeout: 15_000 });
+    await journeyRoot.locator(".journey-details summary").click();
     await expect(app.locator("#requestProgress")).toBeVisible();
   }
 
   // Staff find the request the way they would: search by the traveler's name.
-  async function openStaffRequest(id: string, travelerName: string) {
+  async function openStaffRequest(id: string, travelerName: string, expectedMatches = 1) {
     await office.goto(`${BACKEND}/admin-dashboard.html`);
     await office.locator("#tabbtn-requests").click();
     await office.fill("#cr-search", travelerName);
     const row = office.locator(`#cr-body tr[data-cr-id="${id}"]`);
     await expect(row).toBeVisible({ timeout: 15_000 });
-    await expect(office.locator("#cr-body tr")).toHaveCount(1);
+    await expect(office.locator("#cr-body tr")).toHaveCount(expectedMatches);
     await row.click();
     await expect(office.locator("#cr-detail-title")).toBeVisible({ timeout: 15_000 });
   }
@@ -314,7 +316,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   async function bothSay(label: string, headline = label) {
     await expect(office.locator("[data-cr-progress-label]")).toHaveText(label);
     await expect(app.locator("#requestProgress .progress-label")).toHaveText(label);
-    await expect(app.locator("#requestJourney .journey-headline")).toHaveText(headline);
+    await expect(app.locator("#requestJourney .journey-headline, #umrahJourney .umrah-status")).toHaveText(headline);
   }
 
   for (const journey of JOURNEYS) {
@@ -326,7 +328,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
 
       // ---- customer: service, its selection, travelers, documents
       await home();
-      await journey.start(app);
+      await journey.start(app, umrahVisa?.id);
       const { id, documents } = await submitIntake(travelers);
 
       // ---- staff: find it, check each traveler's documents, review them
@@ -502,9 +504,20 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
       await bothSay("تم إنجاز طلبك بنجاح");
       await expect(app.locator(finalFiles)).toHaveCount(2);
       await expect(app.locator("#requestProgress .progress-node-current")).toHaveCount(0);
+      if (journey.name === "Umrah") {
+        await expect(app.locator("#umrahTicketsBtn")).toBeVisible();
+        await app.locator("#umrahTicketsBtn").click();
+        await expect(app.locator("#umrahTicketBooking")).toContainText("أُرسل طلب الحجز إلى الوكالة", { timeout: 15_000 });
+        await expect(app.locator("#umrahTicketsBtn")).toHaveCount(0);
+        const parent = (await (await office.request.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
+        expect(parent.outcome).toBe("COMPLETED");
+        expect(parent.linkedRequests.filter((r: { linkKind: string }) => r.linkKind === "UMRAH_TICKET")).toHaveLength(1);
+      }
       // closed: read-only for the customer and for staff
       await expect(app.locator("#approveBtn, #uploadReceiptBtn, #egyptTravelBtn, [data-upload-item]")).toHaveCount(0);
-      await openStaffRequest(id, travelers[0]);
+      // After optional booking the search correctly includes the original
+      // visa case and its one linked ticket inquiry. Open the parent by id.
+      await openStaffRequest(id, travelers[0], journey.name === "Umrah" ? 2 : 1);
       await expect(detail.locator('[data-cr-form="deliverable"], [data-cr-form="close"], [data-doc-accept]')).toHaveCount(0);
     });
   }
