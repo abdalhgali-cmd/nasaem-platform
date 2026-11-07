@@ -43,6 +43,16 @@ test("optional tickets follow all published visas on a visa-only package, and ne
   assert.equal(umrahTicketBooking(request({ travelers: [T1, T2], deliverables: [file("v", "VISA", [T1.id])] })).available, false);
 });
 
+test("the optional booking is hidden while its booking service is missing or switched off", () => {
+  const issued = { deliverables: [file("v", "VISA", [])] };
+  const off = umrahTicketBooking(request({ ...issued, umrahTicketServices: { AIR: false, SEA: true } }));
+  assert.equal(off.available, false);
+  assert.equal(off.serviceAvailable, false);
+  assert.equal(umrahTicketBooking(request({ ...issued, umrahTicketServices: { AIR: true, SEA: false } })).available, true);
+  // Staff views and other callers that do not look the services up hide nothing.
+  assert.equal(umrahTicketBooking(request(issued)).serviceAvailable, true);
+});
+
 test("a flight or sea package includes its tickets: no optional booking, before or after the services are delivered", () => {
   for (const kind of ["AIR", "SEA"]) {
     const visasOnly = umrahTicketBooking(request({ kind, deliverables: [file("v", "VISA", [])] }));
