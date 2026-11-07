@@ -24,3 +24,17 @@
 
 ## Definition of done
 A reviewed, cohesive #91 candidate; green CI on its final SHA; finance/security and end-to-end acceptance; verified production backup/restore before a production release, and explicit approvals before any release (staging backup/restore is not required, owner decision 2026-11-01). Clearly identify unverified device/provider/infrastructure checks.
+
+## Claude ↔ Codex workflow
+Claude Code leads; OpenAI Codex implements and reviews as an independent second engineer. The owner decides.
+- **Allowed without asking:** inspecting, analysing, testing; implementing, committing and pushing on a `claude/*` or `codex/*` work branch; opening a **draft** PR.
+- **Approval required (in addition to the list above):** marking a PR ready, force-push, deleting a branch, pushing to `main`; creating, changing or deleting secrets/API keys; disabling a service or workflow (including AI Dev Orchestra and NotebookLM); running Codex as implementer (`codex-implement.sh`) once per approved task plan. Approving a plan does not approve every command in it, nor a merge or deploy.
+- **Never discard local work:** no `git reset --hard`, `git clean`, `git restore`, `git checkout -f`, `git stash drop/clear`, `git branch -D` or `git worktree remove/prune`. Preserve unmerged Codex work in other branches and worktrees.
+- **Never** run Codex with `--full-auto`, `danger-full-access` or `--dangerously-*`, call the `codex_implement` bridge tool, or put secrets in prompts sent to Codex (Codex can read files outside its sandbox).
+- **Task flow:** inspect without changing files → plan (design, files, risks, tests) → read-only Codex review of the plan → owner approval → implement in a task worktree → independent read-only Codex review of diff and tests → report and open a draft PR.
+- **Scripts** (`.codex/scripts/`):
+  - Task worktree: `git worktree add -b codex/<slug> ../nasaem-tasks/<slug> origin/main` (slug: lowercase letters, digits, hyphens). Install dependencies there first: Codex has no network.
+  - `bash .codex/scripts/codex-review.sh <dir> <prompt-file> <output-file>`: fresh `codex exec --sandbox read-only --ephemeral`, never resumed.
+  - `bash .codex/scripts/codex-implement.sh <slug> <prompt-file> <output-file>`: `codex exec --sandbox workspace-write --ephemeral`, no network; only the worktree and `../nasaem-tasks/.tmp/<slug>` are writable, and Codex cannot commit.
+  - `bash .codex/scripts/tests/test-codex-scripts.sh`: offline tests for both scripts; run after changing them.
+- The bridge's `codex_review_*` MCP tools stay allowed until `codex-review.sh` passes a real authenticated review; note that they resume earlier Codex sessions without `--sandbox`.
