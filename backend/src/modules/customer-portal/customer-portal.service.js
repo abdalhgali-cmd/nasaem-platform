@@ -13,6 +13,7 @@ import { getContactRequestDeliverableFile } from "../contact-request-deliverable
 import { createNotification } from "../../utils/notifications.js";
 import { createContactRequestDocument } from "../contact-request-documents/contact-request-documents.service.js";
 import { COUPON_ERROR_MESSAGES } from "../coupons/coupons.service.js";
+import { withUmrahTicketServices } from "../umrah/umrah-ticket-services.js";
 
 const ACTIVE_ORDER_STATUSES = ["NEW", "UNDER_REVIEW", "WAITING_DOCUMENTS", "PAYMENT_PENDING", "PROCESSING", "APPROVED"];
 
@@ -260,7 +261,7 @@ export async function listMyRequests(customerId, { page, limit, skip }) {
     prisma.contactRequest.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit, include: CUSTOMER_REQUEST_INCLUDE }),
     prisma.contactRequest.count({ where }),
   ]);
-  return { data: requests.map(toCustomerRequest), meta: buildPaginationMeta(page, limit, total) };
+  return { data: (await withUmrahTicketServices(requests)).map(toCustomerRequest), meta: buildPaginationMeta(page, limit, total) };
 }
 
 export async function getMyRequestById(customerId, requestId) {
@@ -273,7 +274,8 @@ export async function getMyRequestById(customerId, requestId) {
   });
   // How an open payment may be settled (same options as phone tracking).
   const paymentSettlementOptions = request.paymentStatus === "AWAITING_TRANSFER" && isPaymentOpen(request) ? await loadSettlementOptions(prisma, payableOf(request)) : [];
-  return { ...toCustomerRequest(request), timeline, paymentSettlementOptions };
+  const [withServices] = await withUmrahTicketServices([request]);
+  return { ...toCustomerRequest(withServices), timeline, paymentSettlementOptions };
 }
 
 export async function uploadMyRequestDocument(customerId, requestId, { label, file, requirementId, travelerId, quality }) {

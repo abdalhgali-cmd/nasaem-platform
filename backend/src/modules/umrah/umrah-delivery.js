@@ -7,16 +7,24 @@ export const UMRAH_TICKET_LINK = "UMRAH_TICKET";
 // for a visa-only package. A flight or sea package already includes its
 // tickets (delivered as the package's services), so offering a booking there
 // would book and price the same tickets twice.
+//
+// request.umrahTicketServices ({ AIR, SEA } → active), attached by the
+// customer pages (umrah-ticket-services.js), hides the booking while its
+// service is missing or switched off. Without it (staff views, pure tests)
+// nothing is hidden; the booking endpoint checks the service itself.
 export function umrahTicketBooking(request) {
   const inquiry = request.linkedRequests?.find((r) => r.linkKind === UMRAH_TICKET_LINK);
   const ticketsIncluded = umrahServicesRequired(request);
+  const mode = umrahPackageKind(request.serviceRef?.features) === "SEA" ? "SEA" : "AIR";
+  const serviceAvailable = request.umrahTicketServices ? request.umrahTicketServices[mode] === true : true;
   const eligible = isUmrahRequest(request) && !ticketsIncluded && !["CANCELLED", "REJECTED"].includes(request.outcome) && evaluateUmrahDelivery(request).visas.complete;
   return {
-    available: eligible && !inquiry,
+    available: eligible && serviceAvailable && !inquiry,
     ticketsIncluded,
+    serviceAvailable,
     inquiryId: inquiry?.id || null,
     status: inquiry?.status || null,
-    mode: umrahPackageKind(request.serviceRef?.features) === "SEA" ? "SEA" : "AIR",
+    mode,
   };
 }
 

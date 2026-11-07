@@ -305,6 +305,26 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.equal(journey.primaryAction.key, "VIEW_FILES");
     assert.ok((await notificationTypes(id)).includes("UMRAH_ALL_VISAS_ISSUED"));
     assert.equal(journey.ticketBooking.available, true, "optional booking is offered after completion");
+
+    // The flight booking service switched off: not offered, and refused.
+    const flight = await prisma.service.findUnique({ where: { code: "SVC-FLIGHT" }, select: { id: true, active: true } });
+    await prisma.service.update({ where: { id: flight.id }, data: { active: false } });
+    try {
+      assert.equal((await journeyOf(customer, id)).ticketBooking.available, false, "phone tracking hides it");
+      const viaAccount = (await account.get(`/api/customer/requests/${id}`)).body.data.progress.umrah.ticketBooking;
+      assert.equal(viaAccount.available, false, "the account hides it");
+      assert.equal(viaAccount.serviceAvailable, false);
+      const off = await customer.post(`/api/tracking/requests/${id}/umrah/tickets`).send({});
+      assert.equal(off.status, 409, JSON.stringify(off.body));
+      assert.equal(off.body.code, "BOOKING_SERVICE_UNAVAILABLE");
+      assert.equal(await prisma.contactRequest.count({ where: { parentRequestId: id, linkKind: "UMRAH_TICKET" } }), 0);
+    } finally {
+      await prisma.service.update({ where: { id: flight.id }, data: { active: flight.active } });
+    }
+    assert.equal((await journeyOf(customer, id)).ticketBooking.available, true, "offered again once the service is back");
+    const tracked = (await customer.get("/api/tracking/requests")).body.data.find((r) => r.id === id);
+    assert.equal(tracked.umrahTicketServices, undefined, "the lookup is not sent to the customer");
+
     const stranger = trackingClient(testPhone());
     assert.equal((await stranger.post(`/api/tracking/requests/${id}/umrah/tickets`).send({})).status, 404);
     const { agent: otherAccount } = await registerCustomer();
@@ -323,6 +343,10 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.equal(inquiries[0].travelers.length, 1);
     assert.equal((await prisma.contactRequest.findUnique({ where: { id } })).outcome, "COMPLETED", "booking does not reopen or block the visa case");
     assert.equal(await prisma.activityLog.count({ where: { entityId: id, action: "UMRAH_TICKET_INQUIRY_OPENED" } }), 1);
+    // The customer's own confirmation of the booking request, exactly once.
+    const confirmations = await prisma.customerMessageDelivery.findMany({ where: { contactRequestId: inquiries[0].id, kind: "REQUEST_CONFIRMATION", channel: "WHATSAPP" } });
+    assert.equal(confirmations.length, 1);
+    assert.equal(confirmations[0].recipient, inquiries[0].phoneNormalized);
     journey = await journeyOf(customer, id);
     assert.equal(journey.ticketBooking.available, false);
     assert.equal(journey.ticketBooking.inquiryId, inquiries[0].id);
