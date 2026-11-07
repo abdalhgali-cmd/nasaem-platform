@@ -3,11 +3,17 @@ import { umrahIncludesTickets, umrahPackageKind } from "./umrah-packages.js";
 
 export const UMRAH_TICKET_LINK = "UMRAH_TICKET";
 
+// Optional ticket booking after the visas (owner decision 2026-11-07): only
+// for a visa-only package. A flight or sea package already includes its
+// tickets (delivered as the package's services), so offering a booking there
+// would book and price the same tickets twice.
 export function umrahTicketBooking(request) {
   const inquiry = request.linkedRequests?.find((r) => r.linkKind === UMRAH_TICKET_LINK);
-  const eligible = isUmrahRequest(request) && !["CANCELLED", "REJECTED"].includes(request.outcome) && evaluateUmrahDelivery(request).visas.complete;
+  const ticketsIncluded = umrahServicesRequired(request);
+  const eligible = isUmrahRequest(request) && !ticketsIncluded && !["CANCELLED", "REJECTED"].includes(request.outcome) && evaluateUmrahDelivery(request).visas.complete;
   return {
     available: eligible && !inquiry,
+    ticketsIncluded,
     inquiryId: inquiry?.id || null,
     status: inquiry?.status || null,
     mode: umrahPackageKind(request.serviceRef?.features) === "SEA" ? "SEA" : "AIR",

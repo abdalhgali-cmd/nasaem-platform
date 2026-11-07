@@ -35,12 +35,22 @@ function request({ kind = "VISA_ONLY", travelers = [T1], deliverables = [], ...r
 }
 const file = (id, kind, travelerIds, published = true) => ({ id, kind, label: `ملف ${id}`, travelerIds, publishedAt: published ? NOW : null, supersededAt: null });
 
-test("optional tickets follow all published visas, use the package's transport, and never appear on cancelled cases", () => {
+test("optional tickets follow all published visas on a visa-only package, and never appear on cancelled cases", () => {
   assert.equal(umrahTicketBooking(request()).available, false);
   assert.equal(umrahTicketBooking(request({ deliverables: [file("v", "VISA", [])] })).available, true);
-  assert.equal(umrahTicketBooking(request({ kind: "SEA", deliverables: [file("v", "VISA", [])] })).mode, "SEA");
+  assert.equal(umrahTicketBooking(request({ deliverables: [file("v", "VISA", [])] })).ticketsIncluded, false);
   assert.equal(umrahTicketBooking(request({ outcome: "CANCELLED", deliverables: [file("v", "VISA", [])] })).available, false);
   assert.equal(umrahTicketBooking(request({ travelers: [T1, T2], deliverables: [file("v", "VISA", [T1.id])] })).available, false);
+});
+
+test("a flight or sea package includes its tickets: no optional booking, before or after the services are delivered", () => {
+  for (const kind of ["AIR", "SEA"]) {
+    const visasOnly = umrahTicketBooking(request({ kind, deliverables: [file("v", "VISA", [])] }));
+    assert.equal(visasOnly.available, false, `${kind}: visas issued`);
+    assert.equal(visasOnly.ticketsIncluded, true, kind);
+    const delivered = umrahTicketBooking(request({ kind, outcome: "COMPLETED", deliverables: [file("v", "VISA", []), file("s", "SERVICE", [])] }));
+    assert.equal(delivered.available, false, `${kind}: services delivered`);
+  }
 });
 
 test("one pilgrim: the visa completes a visa-only package", () => {

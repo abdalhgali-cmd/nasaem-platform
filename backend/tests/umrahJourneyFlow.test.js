@@ -255,6 +255,15 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.equal(journey.primaryAction.key, "VIEW_FILES");
     assert.equal(journey.now.actionRequired, false);
     assert.equal((await customer.get(`/api/tracking/requests/${id}/deliverables/${services.body.data.id}/file`)).status, 200);
+
+    // The package's tickets are its services: no separate optional booking.
+    assert.equal(journey.ticketBooking.available, false);
+    assert.equal(journey.ticketBooking.ticketsIncluded, true);
+    const duplicate = await customer.post(`/api/tracking/requests/${id}/umrah/tickets`).send({});
+    assert.equal(duplicate.status, 409, JSON.stringify(duplicate.body));
+    assert.equal(duplicate.body.code, "TICKETS_INCLUDED");
+    assert.equal(await prisma.contactRequest.count({ where: { parentRequestId: id, linkKind: "UMRAH_TICKET" } }), 0, "no second booking of included tickets");
+    assert.equal(await prisma.activityLog.count({ where: { entityId: id, action: "UMRAH_TICKET_INQUIRY_OPENED" } }), 0);
   });
 
   test("VISA_ONLY, one pilgrim: no services stage, a service document is refused, the visa completes it", async () => {

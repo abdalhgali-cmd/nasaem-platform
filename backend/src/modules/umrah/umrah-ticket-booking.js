@@ -13,6 +13,7 @@ export async function requestUmrahTickets(id, scope) {
       refuseWith({ status: 409, code: "UMRAH_BOOKING_UNAVAILABLE", message: "طلب حجز التذاكر غير متاح لهذه الحالة." });
     }
     if (booking.inquiryId) return { inquiryId: booking.inquiryId, created: false };
+    if (booking.ticketsIncluded) refuseWith({ status: 409, code: "TICKETS_INCLUDED", message: "تذاكر السفر مشمولة في باقتك وتُسلَّم ضمن خدماتها؛ لا حاجة إلى طلب حجز منفصل." });
     if (!booking.available) refuseWith({ status: 409, code: "VISAS_NOT_ISSUED", message: "يمكن طلب حجز التذاكر بعد إصدار تأشيرات المعتمرين." });
     const service = await tx.service.findUnique({ where: { code: booking.mode === "SEA" ? "SVC-FERRY" : "SVC-FLIGHT" }, select: { id: true, name: true } });
     if (!service) refuseWith({ status: 409, code: "BOOKING_SERVICE_UNAVAILABLE", message: "خدمة الحجز غير متاحة الآن؛ تواصل مع الوكالة." });
