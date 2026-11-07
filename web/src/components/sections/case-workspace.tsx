@@ -13,6 +13,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
+import { CaseWorkflowPanel, PAYMENT_LABEL } from "@/components/sections/case-workflow-panel";
+import { EgyptCasePanel } from "@/components/admin/egypt/egypt-case-panel";
+import { UmrahCasePanel, type UmrahCase } from "@/components/admin/umrah/umrah-case-panel";
 
 // Smart Case Operations — Release C (employee case workspace), with the
 // Release E queues/tasks/SLA, Release F provider section and Release G
@@ -31,6 +34,8 @@ type QueueKey =
   | "WAITING_PAYMENT"
   | "READY_FOR_PROCESSING"
   | "WAITING_PROVIDER"
+  | "AWAITING_EXECUTION"
+  | "IN_EXECUTION"
   | "RESULTS_READY"
   | "COMPLETED";
 
@@ -39,9 +44,11 @@ const QUEUE_LABEL: Record<QueueKey, string> = {
   NEEDS_REVIEW: "بحاجة لمراجعة",
   WAITING_CUSTOMER: "بانتظار العميل",
   WAITING_PAYMENT: "بانتظار الدفع",
-  READY_FOR_PROCESSING: "جاهزة للتنفيذ",
+  READY_FOR_PROCESSING: "جاهزة للتسعير/المعالجة",
   WAITING_PROVIDER: "لدى الجهة",
-  RESULTS_READY: "النتيجة جاهزة",
+  AWAITING_EXECUTION: "مدفوعة، بانتظار التنفيذ",
+  IN_EXECUTION: "قيد التنفيذ",
+  RESULTS_READY: "الملفات النهائية منشورة",
   COMPLETED: "مكتملة",
 };
 
@@ -52,6 +59,8 @@ const QUEUE_ORDER: QueueKey[] = [
   "WAITING_PAYMENT",
   "READY_FOR_PROCESSING",
   "WAITING_PROVIDER",
+  "AWAITING_EXECUTION",
+  "IN_EXECUTION",
   "RESULTS_READY",
 ];
 
@@ -100,6 +109,7 @@ type CaseDocument = {
   travelerId: string | null;
   requirementId: string | null;
   supersededAt: string | null;
+  classification?: string;
   createdAt: string;
 };
 
@@ -145,6 +155,7 @@ type CaseRow = {
   message: string;
   status: string;
   paymentStatus: string;
+  executionStartedAt?: string | null;
   createdAt: string;
   dueAt: string | null;
   serviceRef: { name: string } | null;
@@ -155,6 +166,31 @@ type CaseRow = {
   tasks: CaseTask[];
   providerSubmissions: ProviderSubmission[];
   readiness: Readiness;
+  progress?: { serviceKind?: string; serviceKindLabel?: string; pricingMode?: string } | null;
+  /** Umrah only (backend umrah-staff-queue.js): the next staff step; lower rank = sooner. */
+  umrahQueue?: { nextAction: string; rank: number; preferredTravelDate?: string | null } | null;
+  intakeData?: {
+    umrahContacts?: { guarantorPhone?: string; guarantorPhoneMissing?: boolean; extraContact?: { name?: string; phone?: string } } | null;
+    /** Umrah: the customer's preferred travel date (provisional, not a booking). */
+    umrahTravel?: { preferredDate?: string; preferredDateMissing?: boolean } | null;
+  } | null;
+};
+
+// What a request is for (backend deriveServiceKind) — the Umrah and Egypt
+// security-approval queues are the ones staff asked to see on their own.
+const SERVICE_KIND_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: "ALL", label: "كل الخدمات" },
+  { value: "UMRAH", label: "العمرة" },
+  { value: "EGYPT_CLEARANCE", label: "الموافقة الأمنية لمصر" },
+];
+const SERVICE_KIND_CHIP: Record<string, string> = {
+  UMRAH: "العمرة",
+  EGYPT_CLEARANCE: "موافقة أمنية لمصر",
+};
+const PAYMENT_CHIP_CLASS: Record<string, string> = {
+  AWAITING_TRANSFER: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+  UNDER_REVIEW: "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300",
+  CONFIRMED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
 };
 
 type Warning = {
@@ -193,6 +229,8 @@ const ACTION_LABEL: Record<string, string> = {
   CONTACT_REQUEST_TRANSFER_MARKED_SENT: "إعلان العميل عن التحويل",
   CONTACT_REQUEST_PAYMENT_RECEIPT_UPLOADED: "رفع إشعار الدفع",
   CONTACT_REQUEST_PAYMENT_CONFIRMED: "تأكيد الدفع",
+  CONTACT_REQUEST_PAYMENT_REJECTED: "رفض إيصال الدفع",
+  CONTACT_REQUEST_EXECUTION_STARTED: "بدء التنفيذ",
   CONTACT_REQUEST_AUTO_COMPLETED: "إغلاق تلقائي بعد التسليم",
   TASK_CREATED: "إنشاء مهمة",
   TASK_COMPLETED: "إنهاء مهمة",
@@ -221,7 +259,7 @@ async function readJson(res: Response) {
   return payload;
 }
 
-export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: string | null }) {
+export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { initialRequestId?: string | null; initialTab?: string | null }) {
   const [cases, setCases] = React.useState<CaseRow[]>([]);
   const [summary, setSummary] = React.useState<{
     queues: Record<string, number>;
@@ -235,7 +273,16 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
   const [error, setError] = React.useState("");
   const [queueFilter, setQueueFilter] = React.useState<"ALL" | QueueKey>("ALL");
   const [ownerFilter, setOwnerFilter] = React.useState("ALL");
+  const [serviceKindFilter, setServiceKindFilter] = React.useState("ALL");
+  const [paymentFilter, setPaymentFilter] = React.useState("ALL");
+  const [fromDate, setFromDate] = React.useState("");
+  const [toDate, setToDate] = React.useState("");
   const [selectedId, setSelectedId] = React.useState<string | null>(initialRequestId);
+  // A request opened from a link (notification, ?requestId=) that is not in
+  // the loaded list (older than the first page, or outside the filters) is
+  // fetched on its own, so the link always opens that exact request.
+  const [linkedCase, setLinkedCase] = React.useState<CaseRow | null>(null);
+  const [linkedError, setLinkedError] = React.useState("");
 
   // The list is loaded by the effect itself rather than by a callback the
   // effect invokes — setState reached synchronously from an effect body
@@ -253,8 +300,14 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
 
     (async () => {
       try {
-        const params = new URLSearchParams({ limit: "50" });
+        // The Umrah queue is re-ordered "needs action first" below, so it
+        // loads the largest page the API allows.
+        const params = new URLSearchParams({ limit: serviceKindFilter === "UMRAH" ? "100" : "50" });
         if (ownerFilter !== "ALL") params.set("assignedUserId", ownerFilter);
+        if (serviceKindFilter !== "ALL") params.set("serviceKind", serviceKindFilter);
+        if (paymentFilter !== "ALL") params.set("paymentStatus", paymentFilter);
+        if (fromDate) params.set("createdFrom", fromDate);
+        if (toDate) params.set("createdTo", toDate);
 
         const [listRes, summaryRes] = await Promise.all([
           fetch(`${API_URL}/contact-requests?${params.toString()}`, { credentials: "include" }),
@@ -276,7 +329,7 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
     return () => {
       cancelled = true;
     };
-  }, [ownerFilter, reloadToken]);
+  }, [ownerFilter, serviceKindFilter, paymentFilter, fromDate, toDate, reloadToken]);
 
   // Loaded once, and separately from the case list: the staff roster changes
   // far less often than the queues, and a failure to load it must only cost
@@ -293,12 +346,50 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
     })();
   }, []);
 
-  const visible = React.useMemo(
-    () => (queueFilter === "ALL" ? cases : cases.filter((row) => row.readiness?.queue === queueFilter)),
-    [cases, queueFilter]
-  );
+  const visible = React.useMemo(() => {
+    const rows = queueFilter === "ALL" ? cases : cases.filter((row) => row.readiness?.queue === queueFilter);
+    if (serviceKindFilter !== "UMRAH") return rows;
+    // Umrah: the request needing staff soonest first, then the nearest
+    // preferred travel date (none last), then the oldest.
+    const dateKey = (row: CaseRow) => row.umrahQueue?.preferredTravelDate || "9999-12-31";
+    return [...rows].sort(
+      (a, b) =>
+        (a.umrahQueue?.rank ?? 9) - (b.umrahQueue?.rank ?? 9) ||
+        dateKey(a).localeCompare(dateKey(b)) ||
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  }, [cases, queueFilter, serviceKindFilter]);
 
-  const selected = visible.find((row) => row.id === selectedId) ?? null;
+  const listed = visible.find((row) => row.id === selectedId) ?? null;
+  // The open case always comes from its own endpoint: lists mask passport
+  // numbers, the case's details show them to staff. The list row never
+  // stands in for the details (its masked values would be shown or edited).
+  const needsLinkedFetch = Boolean(selectedId) && !loading;
+
+  React.useEffect(() => {
+    if (!needsLinkedFetch || !selectedId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(selectedId)}`, { credentials: "include" });
+        const payload = await readJson(res);
+        if (cancelled) return;
+        setLinkedCase(payload.data as CaseRow);
+        setLinkedError("");
+      } catch (err) {
+        if (!cancelled) {
+          setLinkedCase(null);
+          setLinkedError(err instanceof Error ? err.message : "تعذر فتح الطلب");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [needsLinkedFetch, selectedId, reloadToken]);
+
+  const linked = linkedCase?.id === selectedId ? linkedCase : null;
+  const selected = linked;
 
   return (
     <main className="min-h-screen bg-section py-8 sm:py-10">
@@ -330,13 +421,28 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
         />
 
         <section className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-          <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-black">الحالات ({visible.length})</h2>
+          <div className="min-w-0 rounded-3xl border border-border bg-card p-4 shadow-sm">
+            {/* Wraps on a phone: the heading and both filters never force sideways scrolling. */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="w-full text-sm font-black sm:w-auto">الحالات ({visible.length})</h2>
+              <select
+                value={serviceKindFilter}
+                onChange={(e) => setServiceKindFilter(e.target.value)}
+                aria-label="تصفية حسب الخدمة"
+                data-testid="case-service-filter"
+                className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none sm:flex-none"
+              >
+                {SERVICE_KIND_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
               <select
                 value={ownerFilter}
                 onChange={(e) => setOwnerFilter(e.target.value)}
-                className="h-9 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none"
+                aria-label="تصفية حسب الموظف"
+                className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none sm:flex-none"
               >
                 <option value="ALL">كل الموظفين</option>
                 <option value="unassigned">بلا موظف</option>
@@ -346,6 +452,30 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="mt-2 grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2">
+              <select
+                value={paymentFilter}
+                onChange={(e) => setPaymentFilter(e.target.value)}
+                aria-label="تصفية حسب حالة الدفع"
+                data-testid="case-payment-filter"
+                className="col-span-2 h-9 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none sm:col-span-1 lg:col-span-2"
+              >
+                <option value="ALL">كل حالات الدفع</option>
+                {Object.entries(PAYMENT_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <label className="flex flex-col gap-1 text-[11px] font-bold text-muted-foreground">
+                من تاريخ
+                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} data-testid="case-from-date" className="h-9 w-full min-w-0 rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground outline-none" />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] font-bold text-muted-foreground">
+                إلى تاريخ
+                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} data-testid="case-to-date" className="h-9 w-full min-w-0 rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground outline-none" />
+              </label>
             </div>
 
             <ul className="mt-3 flex max-h-[36rem] flex-col gap-2 overflow-y-auto">
@@ -376,13 +506,33 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
                       {row.serviceRef?.name || row.visaType?.name || "استفسار عام"}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                      {row.progress?.serviceKind && SERVICE_KIND_CHIP[row.progress.serviceKind] ? (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 font-bold text-primary">
+                          {SERVICE_KIND_CHIP[row.progress.serviceKind]}
+                        </span>
+                      ) : null}
                       <span className="rounded-full bg-muted px-2 py-0.5 font-bold text-muted-foreground">
                         {QUEUE_LABEL[row.readiness?.queue] ?? "—"}
                       </span>
+                      {PAYMENT_CHIP_CLASS[row.paymentStatus] ? (
+                        <span className={`rounded-full px-2 py-0.5 font-bold ${PAYMENT_CHIP_CLASS[row.paymentStatus]}`} data-testid="case-payment-chip">
+                          {PAYMENT_LABEL[row.paymentStatus]}
+                        </span>
+                      ) : null}
                       <span className="text-muted-foreground">
                         {row.assignedUser?.fullName ?? "بلا موظف"}
                       </span>
                     </div>
+                    {row.umrahQueue ? (
+                      <p className="mt-2 text-xs font-bold text-foreground" data-testid="case-next-action">
+                        الخطوة التالية: {row.umrahQueue.nextAction}
+                      </p>
+                    ) : null}
+                    {row.umrahQueue?.preferredTravelDate ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground" data-testid="case-preferred-travel-date">
+                        السفر المفضل (مبدئي): <span dir="ltr">{row.umrahQueue.preferredTravelDate}</span>
+                      </p>
+                    ) : null}
                   </button>
                 </li>
               ))}
@@ -390,7 +540,22 @@ export function CaseWorkspace({ initialRequestId = null }: { initialRequestId?: 
           </div>
 
           {selected ? (
-            <CaseDetail key={selected.id} caseRow={selected} staff={staff} onChanged={refresh} />
+            <div className="min-w-0">
+              {linked && !listed ? (
+                <p className="mb-3 rounded-2xl border border-primary/20 bg-primary/5 p-3 text-xs font-bold text-primary" data-testid="case-linked-note">
+                  فُتح هذا الطلب من رابط مباشر، وهو خارج القائمة أو التصفية الحالية.
+                </p>
+              ) : null}
+              <CaseDetail key={selected.id} caseRow={selected} staff={staff} onChanged={refresh} initialTab={selected.id === initialRequestId ? initialTab : null} />
+            </div>
+          ) : selectedId && linkedError && !loading ? (
+            <div className="flex items-center justify-center rounded-3xl border border-destructive/20 bg-destructive/5 p-10 text-sm font-bold text-destructive" data-testid="case-linked-error">
+              {linkedError}
+            </div>
+          ) : selectedId ? (
+            <div className="flex items-center justify-center rounded-3xl border border-border bg-card p-10 text-sm text-muted-foreground" data-testid="case-detail-loading">
+              جارٍ تحميل تفاصيل الطلب...
+            </div>
           ) : (
             <div className="flex items-center justify-center rounded-3xl border border-dashed border-border bg-card p-10 text-sm text-muted-foreground">
               اختر حالة من القائمة لعرض تفاصيلها.
@@ -451,12 +616,22 @@ function CaseDetail({
   caseRow,
   staff,
   onChanged,
+  initialTab = null,
 }: {
   caseRow: CaseRow;
   staff: StaffUser[];
   onChanged: () => void;
+  initialTab?: string | null;
 }) {
-  const [tab, setTab] = React.useState<"overview" | "travelers" | "documents" | "tasks" | "provider" | "notes" | "activity">("overview");
+  // Egypt security-approval requests get their own workspace tab (the same
+  // panel as the back-office «الموافقة الأمنية لمصر» view).
+  const isEgypt = caseRow.progress?.serviceKind === "EGYPT_CLEARANCE";
+  // Umrah requests get an «العمرة» tab: the server's stage, steps, next step,
+  // guarantor and per-pilgrim documents/final files in one place.
+  const isUmrah = caseRow.progress?.serviceKind === "UMRAH";
+  const [tab, setTab] = React.useState<"overview" | "egypt" | "umrah" | "workflow" | "travelers" | "documents" | "tasks" | "provider" | "notes" | "activity">(
+    initialTab === "egypt" && isEgypt ? "egypt" : initialTab === "umrah" && isUmrah ? "umrah" : "overview"
+  );
   const [warnings, setWarnings] = React.useState<Warning[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [actionError, setActionError] = React.useState("");
@@ -494,6 +669,9 @@ function CaseDetail({
 
   const tabs = [
     { key: "overview" as const, label: "نظرة عامة" },
+    ...(isEgypt ? [{ key: "egypt" as const, label: "الموافقة الأمنية" }] : []),
+    ...(isUmrah ? [{ key: "umrah" as const, label: "العمرة" }] : []),
+    { key: "workflow" as const, label: "سير العمل" },
     { key: "travelers" as const, label: `المسافرون (${caseRow.travelers.length})` },
     { key: "documents" as const, label: `المستندات (${caseRow.documents.filter((d) => !d.supersededAt).length})` },
     { key: "tasks" as const, label: `المهام (${caseRow.tasks.length})` },
@@ -510,6 +688,32 @@ function CaseDetail({
           <p className="mt-1 text-sm text-muted-foreground" dir="ltr">
             {caseRow.phone}
           </p>
+          {caseRow.intakeData?.umrahContacts?.guarantorPhone ? (
+            <p className="mt-1 text-sm text-muted-foreground" data-testid="case-guarantor-phone">
+              هاتف الضامن: <span dir="ltr">{caseRow.intakeData.umrahContacts.guarantorPhone}</span>
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahContacts?.guarantorPhoneMissing ? (
+            <p className="mt-1 text-sm font-bold text-amber-700" data-testid="case-guarantor-phone-missing">
+              رقم هاتف الضامن لم يُرسل (تطبيق قديم) — اطلبه من العميل.
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahTravel?.preferredDate ? (
+            <p className="mt-1 text-sm text-muted-foreground" data-testid="case-umrah-travel-date">
+              تاريخ السفر المفضل (مبدئي، ليس حجزًا): <span dir="ltr">{caseRow.intakeData.umrahTravel.preferredDate}</span>
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahTravel?.preferredDateMissing ? (
+            <p className="mt-1 text-sm font-bold text-amber-700" data-testid="case-umrah-travel-date-missing">
+              تاريخ السفر المفضل لم يُرسل (تطبيق قديم) — اطلبه من العميل.
+            </p>
+          ) : null}
+          {caseRow.intakeData?.umrahContacts?.extraContact?.phone ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              جهة اتصال إضافية: {caseRow.intakeData.umrahContacts.extraContact.name ? `${caseRow.intakeData.umrahContacts.extraContact.name} — ` : ""}
+              <span dir="ltr">{caseRow.intakeData.umrahContacts.extraContact.phone}</span>
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
@@ -571,6 +775,9 @@ function CaseDetail({
 
       <div className="mt-4">
         {tab === "overview" ? <OverviewTab caseRow={caseRow} staff={staff} busy={busy} run={run} /> : null}
+        {tab === "umrah" && isUmrah ? <UmrahCasePanel caseRow={caseRow as unknown as UmrahCase} onOpenTab={setTab} /> : null}
+        {tab === "egypt" && isEgypt ? <EgyptCasePanel caseId={caseRow.id} travelers={caseRow.travelers} onChanged={onChanged} /> : null}
+        {tab === "workflow" ? <CaseWorkflowPanel caseId={caseRow.id} onChanged={onChanged} /> : null}
         {tab === "travelers" ? <TravelersTab caseRow={caseRow} /> : null}
         {tab === "documents" ? <DocumentsTab caseRow={caseRow} busy={busy} run={run} /> : null}
         {tab === "tasks" ? <TasksTab caseRow={caseRow} busy={busy} run={run} /> : null}
@@ -712,6 +919,20 @@ function DocumentsTab({
   run: (action: () => Promise<void>) => Promise<void>;
 }) {
   const [noteByDocument, setNoteByDocument] = React.useState<Record<string, string>>({});
+  // After execution started, changing a decided document is a manager-only
+  // correction (server: documentCorrectionRefusal). Hidden until the role is
+  // known.
+  const [viewerRole, setViewerRole] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let active = true;
+    fetch(`${API_URL}/auth/me`, { credentials: "include" })
+      .then((response) => response.json())
+      .then((payload) => { if (active) setViewerRole(payload?.data?.role ?? null); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  const canReview = (document: { status: string }) =>
+    document.status === "PENDING" || !caseRow.executionStartedAt || viewerRole === "ADMIN" || viewerRole === "SUPER_ADMIN";
 
   // Grouped per traveler, because that is how a passport-per-person case is
   // actually reviewed. Documents with no traveler (or on a case with none)
@@ -728,7 +949,11 @@ function DocumentsTab({
   if (ungrouped.length > 0) groups.push({ id: null, name: "مستندات عامة", documents: ungrouped });
 
   async function review(documentId: string, status: "ACCEPTED" | "REJECTED") {
-    const reviewNote = noteByDocument[documentId] || "";
+    const reviewNote = (noteByDocument[documentId] || "").trim();
+    const document = caseRow.documents.find((item) => item.id === documentId);
+    if (caseRow.executionStartedAt && document?.status !== "PENDING" && reviewNote.length < 5) {
+      throw new Error("اكتب سبب تصحيح القرار (5 أحرف على الأقل).");
+    }
     // A rejection the customer can't act on is a wasted round trip, so the
     // reason is required here rather than optional.
     if (status === "REJECTED" && reviewNote.trim().length === 0) {
@@ -789,13 +1014,19 @@ function DocumentsTab({
                         <FileText className="size-3.5" />
                         فتح الملف
                       </a>
+                      {/* Review only while the request is open; a payment
+                          receipt is decided in «سير العمل» (payment). */}
+                      {caseRow.status !== "CLOSED" && document.classification !== "FINANCIAL_DOCUMENT" && canReview(document) ? (
+                        <>
                       <input
                         type="text"
                         value={noteByDocument[document.id] ?? ""}
                         onChange={(e) =>
                           setNoteByDocument((current) => ({ ...current, [document.id]: e.target.value }))
                         }
-                        placeholder="سبب الرفض (مطلوب عند الرفض)"
+                        aria-label={caseRow.executionStartedAt && document.status !== "PENDING" ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض (مطلوب عند الرفض)"}
+                        placeholder={caseRow.executionStartedAt && document.status !== "PENDING" ? "سبب تصحيح القرار (5 أحرف على الأقل)" : "سبب الرفض (مطلوب عند الرفض)"}
+                        maxLength={500}
                         className="h-8 min-w-48 flex-1 rounded-lg border border-border bg-background px-2 outline-none"
                       />
                       <Button
@@ -816,6 +1047,8 @@ function DocumentsTab({
                       >
                         رفض
                       </Button>
+                        </>
+                      ) : null}
                     </div>
                   ) : null}
                 </li>

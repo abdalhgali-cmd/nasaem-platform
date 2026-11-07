@@ -1,0 +1,8 @@
+
+# Signing material must never be committed (the release key lives only in
+# GitHub Actions Secrets). The one tracked exception is the publicly known QA
+# debug key, stored base64-encoded as mobile/android-debug.keystore.b64.
+*.jks
+*.keystore
+*.p12
+nasaem-release*

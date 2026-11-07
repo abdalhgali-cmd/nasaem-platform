@@ -27,6 +27,8 @@ const PATHS = {
   "map-pin": '<path d="M12 21s6.5-6.1 6.5-11A6.5 6.5 0 0 0 5.5 10c0 4.9 6.5 11 6.5 11Z"/><circle cx="12" cy="10" r="2.3"/>',
   phone: '<path d="M6 4.5h3l1.3 4L8.5 10a10 10 0 0 0 5.5 5.5l1.5-1.8 4 1.3v3a1.5 1.5 0 0 1-1.6 1.5C11.2 19 5 12.8 4.5 6.1A1.5 1.5 0 0 1 6 4.5Z"/>',
   mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4.5 6.5 7.5 6 7.5-6"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8h.01"/>',
+  chat: '<path d="M5 18.5 4 21l3.2-1.2A8.5 8.5 0 1 0 4.2 15"/><path d="M9 10.5h6M9 13.5h4"/>',
   lock: '<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
   eye: '<path d="M3 12s3.5-6.5 9-6.5S21 12 21 12s-3.5 6.5-9 6.5S3 12 3 12Z"/><circle cx="12" cy="12" r="2.6"/>',
   "eye-off": '<path d="M3.5 3.5l17 17"/><path d="M10.6 5.7A9.9 9.9 0 0 1 12 5.5c5.5 0 9 6.5 9 6.5a15.6 15.6 0 0 1-3.2 4M7.8 7.6C5.2 9.2 3 12 3 12s3.5 6.5 9 6.5a9.7 9.7 0 0 0 3.2-.6"/><path d="M9.6 10a2.6 2.6 0 0 0 3.7 3.6"/>',
@@ -45,6 +47,7 @@ const PATHS = {
   hotel: '<path d="M4 20V6.5h9V20" /><path d="M13 11h7v9" /><path d="M7 10h.01M7 13.5h.01M4 20h16" /><path d="M16 14.5h.01"/>',
   package: '<path d="M12 3.5 20 7.5v9L12 20.5 4 16.5v-9L12 3.5Z"/><path d="M4 7.5 12 11.5l8-4M12 11.5V20.5"/>',
   "shield-check": '<path d="M12 3.5 19 6v5.5c0 5-3 8-7 9-4-1-7-4-7-9V6l7-2.5Z"/><path d="m9 12 2 2 4-4.3"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.3 3.5 5.3 3.5 8.5s-1.2 6.2-3.5 8.5c-2.3-2.3-3.5-5.3-3.5-8.5s1.2-6.2 3.5-8.5Z"/>',
   family: '<circle cx="8.5" cy="7.5" r="2.3"/><circle cx="16" cy="8.5" r="2"/><path d="M4 19c0-2.8 2-5 4.5-5s4.5 2.2 4.5 5M13 19c0-2.3 1.6-4.2 3.5-4.2s3.5 1.9 3.5 4.2"/>',
   // Extra keys so every admin-configurable HOMEPAGE_ICONS value (see

@@ -1,5 +1,7 @@
 import { Router } from "express";
+import { postTrackedUmrahTickets } from "../umrah/umrah-ticket-booking.js";
 import rateLimit from "express-rate-limit";
+import { resolveTrackingCodeLimit } from "./tracking-code-limit.js";
 
 import { requireTrackingAuth } from "./tracking-auth.middleware.js";
 import { getMyReusableDocuments } from "../case-intelligence/case-intelligence.controller.js";
@@ -21,6 +23,7 @@ import {
   uploadPaymentReceipt,
   verifyCode,
 } from "./contact-request-tracking.controller.js";
+import { downloadMyReceipt, postMyFlightChoice } from "../egypt-clearance/egypt-customer.controller.js";
 
 const router = Router();
 
@@ -31,7 +34,9 @@ function handleUpload(req, res, next) {
   });
 }
 
-const requestCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "Too many requests. Please try again later." } });
+// Codes per client per 15 minutes: 5, except in a test/development process
+// (see tracking-code-limit.js — production ignores TRACKING_CODE_RATE_LIMIT).
+const requestCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: resolveTrackingCodeLimit(), standardHeaders: true, legacyHeaders: false, message: { success: false, message: "Too many requests. Please try again later." } });
 const verifyCodeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { success: false, message: "Too many requests. Please try again later." } });
 
 router.post("/request-code", requestCodeLimiter, requestCode);
@@ -54,6 +59,11 @@ router.post("/requests/:id/documents", requireTrackingAuth, requireFeatureEnable
 router.post("/requests/:id/egypt-travel-plan", requireTrackingAuth, requireFeatureEnabled("CUSTOMER_UPLOAD"), handleUpload, saveEgyptTravelPlan);
 router.get("/requests/:id/documents/:documentId/file", requireTrackingAuth, downloadMyDocumentFile);
 router.get("/requests/:id/deliverables/:deliverableId/file", requireTrackingAuth, downloadMyDeliverableFile);
+// Egypt approval: "book my flight through Nasaem" (opens one linked booking
+// inquiry), and the paid receipt PDF.
+router.post("/requests/:id/egypt/flight", requireTrackingAuth, postMyFlightChoice);
+router.post("/requests/:id/umrah/tickets", requireTrackingAuth, postTrackedUmrahTickets);
+router.get("/requests/:id/payment-receipt/file", requireTrackingAuth, downloadMyReceipt);
 router.post("/logout", requireTrackingAuth, logout);
 
 export default router;

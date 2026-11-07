@@ -1,49 +1,20 @@
+import { customerFlightDetails, hasFlightDetails } from "../egypt-clearance/flight-details.js";
 import prisma from "../../config/database.js";
-import { logActivity } from "../../utils/activityLog.js";
+import { trackingScope } from "../../utils/publicOrganization.js";
 import { createContactRequestDocument } from "../contact-request-documents/contact-request-documents.service.js";
 import { notifyAdmins } from "../contact-requests/contact-requests.service.js";
+import { EGYPT_TRAVEL_TASK_KEYS, EGYPT_TRAVEL_TASK_TITLES } from "./egypt-travel-tasks.js";
+import { ACTIONS, checkAction } from "../contact-request-workflow/workflow-policy.js";
+import { auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 
-const EGYPT_CLEARANCE_CODE = "VISA-EGYPT-CLEARANCE";
-const KHARTOUM_TIME_ZONE = "Africa/Khartoum";
+import { isEgyptClearanceCode, variantEntryMode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { calendarDaysUntil, isApprovalIssued, parseDateOnly, requestTravelDate } from "../egypt-clearance/egypt-approval-rules.js";
+import { syncTravelReminders } from "../egypt-clearance/travel-reminders.service.js";
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function localDateParts(date, timeZone = KHARTOUM_TIME_ZONE) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const parts = formatter.formatToParts(date);
-  const year = Number(parts.find((part) => part.type === "year")?.value);
-  const month = Number(parts.find((part) => part.type === "month")?.value);
-  const day = Number(parts.find((part) => part.type === "day")?.value);
-  return { year, month, day };
-}
-
-function parseDateOnly(value) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const utc = new Date(Date.UTC(year, month - 1, day));
-  if (
-    utc.getUTCFullYear() !== year ||
-    utc.getUTCMonth() !== month - 1 ||
-    utc.getUTCDate() !== day
-  ) {
-    return null;
-  }
-  return { year, month, day, utc };
-}
-
+// Dates are Africa/Khartoum calendar days (egypt-approval-rules.js).
 export function calendarDaysUntilEntry(entryDate, now = new Date()) {
-  const parsed = parseDateOnly(entryDate);
-  if (!parsed) return null;
-  const today = localDateParts(now);
-  const todayUtc = Date.UTC(today.year, today.month - 1, today.day);
-  return Math.floor((parsed.utc.getTime() - todayUtc) / MS_PER_DAY);
+  return calendarDaysUntil(entryDate, now);
 }
 
 // The customer supplies a date, not an exact arrival time. We therefore
@@ -67,120 +38,164 @@ function ticketLabel(entryMode) {
     : "إثبات حجز الرحلة البرية — التعميم";
 }
 
-function bookingTaskTitle(entryMode) {
-  return entryMode === "AIR"
-    ? "ترتيب حجز طيران للموافقة الأمنية لمصر"
-    : "ترتيب رحلة برية للموافقة الأمنية لمصر";
+function bookingTaskKey(entryMode) {
+  return entryMode === "AIR" ? EGYPT_TRAVEL_TASK_KEYS.BOOKING_AIR : EGYPT_TRAVEL_TASK_KEYS.BOOKING_BORDER;
 }
 
-async function syncEgyptTravelTasks(contactRequestId, plan) {
-  const bookingTitles = [
-    "ترتيب حجز طيران للموافقة الأمنية لمصر",
-    "ترتيب رحلة برية للموافقة الأمنية لمصر",
-  ];
+// Tasks are found by their stable systemKey; the title is only for display.
+export async function syncEgyptTravelTasks(db, contactRequestId, plan) {
+  const bookingKeys = [EGYPT_TRAVEL_TASK_KEYS.BOOKING_AIR, EGYPT_TRAVEL_TASK_KEYS.BOOKING_BORDER];
 
   if (plan.bookingStatus === "NEEDS_NASAEM") {
-    await prisma.caseTask.updateMany({
+    await db.caseTask.updateMany({
       where: {
         contactRequestId,
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: { in: bookingTitles.filter((title) => title !== bookingTaskTitle(plan.entryMode)) },
+        systemKey: { in: bookingKeys.filter((key) => key !== bookingTaskKey(plan.entryMode)) },
       },
       data: { status: "CANCELLED" },
     });
 
-    const existing = await prisma.caseTask.findFirst({
+    const existing = await db.caseTask.findFirst({
       where: {
         contactRequestId,
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: bookingTaskTitle(plan.entryMode),
+        systemKey: bookingTaskKey(plan.entryMode),
       },
       select: { id: true },
     });
     if (!existing) {
-      await prisma.caseTask.create({
+      await db.caseTask.create({
         data: {
           contactRequestId,
           type: "OTHER",
           source: "SYSTEM",
-          title: bookingTaskTitle(plan.entryMode),
+          systemKey: bookingTaskKey(plan.entryMode),
+          title: EGYPT_TRAVEL_TASK_TITLES[bookingTaskKey(plan.entryMode)],
         },
       });
     }
   } else {
-    await prisma.caseTask.updateMany({
+    await db.caseTask.updateMany({
       where: {
         contactRequestId,
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: { in: bookingTitles },
+        systemKey: { in: bookingKeys },
       },
       data: { status: "CANCELLED" },
     });
   }
 
-  const circularTitle = "تجهيز تعميم الموافقة الأمنية لمصر";
+  const circularKey = EGYPT_TRAVEL_TASK_KEYS.CIRCULAR;
   if (plan.circularStatus === "READY_FOR_CIRCULAR") {
     const parsed = parseDateOnly(plan.entryDate);
     const dueAt = parsed ? new Date(parsed.utc.getTime() - 3 * MS_PER_DAY) : null;
-    const existingCircular = await prisma.caseTask.findFirst({
+    const existingCircular = await db.caseTask.findFirst({
       where: {
         contactRequestId,
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: circularTitle,
+        systemKey: circularKey,
       },
       select: { id: true },
     });
     if (existingCircular) {
-      await prisma.caseTask.update({ where: { id: existingCircular.id }, data: { dueAt } });
+      await db.caseTask.update({ where: { id: existingCircular.id }, data: { dueAt } });
     } else {
-      await prisma.caseTask.create({
+      await db.caseTask.create({
         data: {
           contactRequestId,
           type: "OTHER",
           source: "SYSTEM",
-          title: circularTitle,
+          systemKey: circularKey,
+          title: EGYPT_TRAVEL_TASK_TITLES[circularKey],
           dueAt,
         },
       });
     }
   } else {
-    await prisma.caseTask.updateMany({
+    await db.caseTask.updateMany({
       where: {
         contactRequestId,
         status: "OPEN",
         source: "SYSTEM",
         type: "OTHER",
-        title: circularTitle,
+        systemKey: circularKey,
       },
       data: { status: "CANCELLED" },
     });
   }
 }
 
+// Writes a travel date as the request's canonical date, inside the caller's
+// locked transaction: the typed column, the plan kept in intakeData for
+// older clients, a new schedule revision when the date changes, the
+// circular task and the staff reminders — all from the same state.
+// `plan` is the full egyptTravel object to store.
+export async function applyTravelPlanInTransaction(tx, locked, plan) {
+  const previousDate = requestTravelDate(locked);
+  const dateChanged = previousDate !== plan.entryDate;
+  const updated = await tx.contactRequest.update({
+    where: { id: locked.id },
+    data: {
+      intakeData: { ...(locked.intakeData || {}), egyptTravel: plan },
+      travelEntryDate: plan.entryDate ? new Date(`${plan.entryDate}T00:00:00.000Z`) : null,
+      ...(dateChanged ? { travelScheduleRevision: { increment: 1 } } : {}),
+    },
+    select: { id: true, status: true, intakeData: true, travelEntryDate: true, travelScheduleRevision: true, visaType: { select: { code: true } } },
+  });
+  await syncEgyptTravelTasks(tx, locked.id, plan);
+  await syncTravelReminders(tx, updated);
+  return { updated, previousDate, dateChanged };
+}
+
+// The circular status for a plan as it would be stored on `request`.
+export function travelPlanFor(request, { entryMode, bookingStatus, entryDate, ticketDocumentId }) {
+  const circular = deriveEgyptCircularStatus({ entryDate, bookingStatus, approvalIssued: isApprovalIssued(request) });
+  return {
+    ...(request.intakeData?.egyptTravel || {}),
+    entryMode,
+    bookingStatus,
+    entryDate,
+    ticketDocumentId,
+    circularStatus: circular.status,
+    daysUntilEntry: circular.daysUntilEntry,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export async function saveMyEgyptTravelPlan(
   phoneNormalized,
   contactRequestId,
-  { entryMode, bookingStatus, entryDate },
+  { entryMode: givenEntryMode, bookingStatus, entryDate, entryPort, ...flightValues },
   file
 ) {
   const request = await prisma.contactRequest.findFirst({
-    where: { id: contactRequestId, phoneNormalized },
+    where: { id: contactRequestId, ...trackingScope(phoneNormalized) },
     include: {
       visaType: { select: { code: true } },
-      deliverables: { select: { id: true } },
+      deliverables: { select: { id: true, kind: true, publishedAt: true, supersededAt: true, travelerIds: true } },
+      travelers: { select: { id: true } },
     },
   });
 
   if (!request) return { error: "NOT_FOUND" };
-  if (request.visaType?.code !== EGYPT_CLEARANCE_CODE) return { error: "WRONG_SERVICE" };
+  if (!isEgyptClearanceCode(request.visaType?.code)) return { error: "WRONG_SERVICE" };
+  // A variant request already fixed the entry method when it was booked: it
+  // is not asked again, and a different one is refused.
+  const fixedEntryMode = variantEntryMode(request.visaType?.code);
+  if (fixedEntryMode && givenEntryMode && givenEntryMode !== fixedEntryMode) return { error: "ENTRY_MODE_MISMATCH" };
+  const entryMode = fixedEntryMode || givenEntryMode;
+  if (!entryMode) return { error: "ENTRY_MODE_REQUIRED" };
+  const closedRefusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, request);
+  if (closedRefusal) return { refusal: closedRefusal };
 
   const daysUntilEntry = calendarDaysUntilEntry(entryDate);
   if (daysUntilEntry === null) return { error: "INVALID_DATE" };
@@ -189,8 +204,11 @@ export async function saveMyEgyptTravelPlan(
   const currentPlan = request.intakeData?.egyptTravel || null;
   let ticketDocumentId = currentPlan?.ticketDocumentId || null;
 
+  // Air: an existing booking comes with its ticket. Overland: the crossing
+  // and the confirmed arrival date are what the circular needs (a document
+  // is optional).
   if (bookingStatus === "EXISTING") {
-    if (!file && !ticketDocumentId) return { error: "BOOKING_DOCUMENT_REQUIRED" };
+    if (!file && !ticketDocumentId && entryMode === "AIR") return { error: "BOOKING_DOCUMENT_REQUIRED" };
     if (file) {
       const upload = await createContactRequestDocument(contactRequestId, {
         label: ticketLabel(entryMode),
@@ -204,39 +222,32 @@ export async function saveMyEgyptTravelPlan(
     ticketDocumentId = null;
   }
 
-  const circular = deriveEgyptCircularStatus({
-    entryDate,
-    bookingStatus,
-    approvalIssued: request.deliverables.length > 0,
+  // Written under the request's row lock, re-checking that it is still
+  // open (and that the circular was not issued meanwhile) and merging into
+  // the intakeData stored at that moment.
+  const saved = await withLockedRequest(contactRequestId, null, async (tx, locked) => {
+    const refusal = checkAction(ACTIONS.SAVE_TRAVEL_PLAN, locked);
+    if (refusal) refuseWith(refusal);
+    const plan = travelPlanFor(locked, { entryMode, bookingStatus, entryDate, ticketDocumentId });
+    // Flight details go with an air ticket the customer holds: new values
+    // replace the stored ones (and their verification); none keeps them.
+    if (entryMode !== "AIR" || bookingStatus !== "EXISTING") plan.flightDetails = null;
+    else if (hasFlightDetails(flightValues)) plan.flightDetails = customerFlightDetails(flightValues);
+    // Overland: the crossing goes with the request's route (one place).
+    const port = entryMode === "BORDER" && typeof entryPort === "string" ? entryPort.trim().replace(/\s+/g, " ") : "";
+    const base = port ? { ...locked, intakeData: { ...(locked.intakeData || {}), egyptRoute: { ...(locked.intakeData?.egyptRoute || { entryMode: "BORDER" }), entryPort: port } } } : locked;
+    const { previousDate } = await applyTravelPlanInTransaction(tx, base, plan);
+    await auditInTransaction(tx, {
+      action: "EGYPT_CLEARANCE_TRAVEL_PLAN_UPDATED",
+      entityId: contactRequestId,
+      organizationId: locked.organizationId,
+      oldValue: { entryDate: previousDate, bookingStatus: currentPlan?.bookingStatus ?? null },
+      newValue: { entryDate, bookingStatus, entryMode, ...(port ? { entryPort: port } : {}), ...(plan.flightDetails ? { flightDetails: plan.flightDetails } : {}), by: "CUSTOMER", confirmed: true },
+    });
+    return { plan };
   });
-
-  const plan = {
-    entryMode,
-    bookingStatus,
-    entryDate,
-    ticketDocumentId,
-    circularStatus: circular.status,
-    daysUntilEntry: circular.daysUntilEntry,
-    updatedAt: new Date().toISOString(),
-  };
-
-  await prisma.contactRequest.update({
-    where: { id: contactRequestId },
-    data: {
-      intakeData: {
-        ...(request.intakeData || {}),
-        egyptTravel: plan,
-      },
-    },
-  });
-
-  await syncEgyptTravelTasks(contactRequestId, plan);
-
-  logActivity({
-    action: "EGYPT_CLEARANCE_TRAVEL_PLAN_UPDATED",
-    entity: "ContactRequest",
-    entityId: contactRequestId,
-  });
+  if (saved.error || saved.refusal) return saved;
+  const { plan } = saved;
 
   await notifyAdmins({
     organizationId: request.organizationId,
@@ -246,6 +257,8 @@ export async function saveMyEgyptTravelPlan(
         ? `طلب العميل حجز ${entryMode === "AIR" ? "طيران" : "رحلة برية"} للطلب ${contactRequestId} بتاريخ دخول ${entryDate}.`
         : `رفع العميل بيانات الحجز للطلب ${contactRequestId} بتاريخ دخول ${entryDate}.`,
     type: "EGYPT_CLEARANCE_TRAVEL_PLAN_UPDATED",
+    contactRequestId,
+    alsoRoles: ["EMPLOYEE"],
   });
 
   return { plan };

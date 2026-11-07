@@ -83,7 +83,10 @@ test.describe("Homepage — admin change reflects publicly", () => {
     }
   });
 
-  test("an admin-created service appears in the public services catalog", async ({ page }) => {
+  // Owner decision (PR #151): the public catalog lists only Umrah and Egypt.
+  // An admin-created service is kept and reachable on its own page, but is not
+  // listed in the catalog.
+  test("an admin-created service gets its own public page but is not listed in the catalog (approved scope)", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
     const code = `E2E-SERVICE-${Date.now()}`;
@@ -93,23 +96,22 @@ test.describe("Homepage — admin change reflects publicly", () => {
     const created = (await createRes.json()).data;
 
     try {
-      // The homepage's Services grid is intentionally capped at 6 curated
-      // entry points (services.tsx) and already has 9 seeded core services
-      // ahead of it in sortOrder — a freshly created service is never
-      // guaranteed a slot there. /services renders the same <Services />
-      // component with no limit, so it's the one surface where "an
-      // admin-created service appears publicly" is actually guaranteed.
       await pollByReloading(
         page,
-        (timeoutMs) => page.getByRole("heading", { name }).count().then((count) => count > 0 ? name : page.locator("body").innerText({ timeout: timeoutMs })),
+        (timeoutMs) => page.locator("h1").innerText({ timeout: timeoutMs }),
         (text) => text.includes(name),
-        "admin-created service on /services",
-        "/services"
+        "admin-created service on its own page",
+        `/services/${code.toLowerCase()}`
       );
+      await page.goto("/services", { waitUntil: "domcontentloaded" });
+      const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
+      await expect(section.locator("a").first()).toBeVisible();
+      await expect(section.locator("a").filter({ hasText: name })).toHaveCount(0);
     } finally {
       await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
     }
   });
+
 
   test("changing the theme's primary color updates the public site's CSS variable", async ({ page }) => {
     test.setTimeout(180_000);
@@ -623,7 +625,11 @@ test.describe("Security approvals — full lifecycle through the real customer-f
       const docLabelInput = page.locator("input[placeholder='مثال: جواز السفر']");
       await docLabelInput.fill("جواز السفر");
       await page.setInputFiles("input[type='file']", path.join(__dirname, "fixtures", "sample-document.png"));
+      // Wait for the upload itself: the page already shows «قيد المراجعة»
+      // in the request status line before any file is sent.
+      const uploaded = page.waitForResponse((res) => res.request().method() === "POST" && /\/documents(\?|$)/.test(new URL(res.url()).pathname) && res.status() === 201);
       await page.getByRole("button", { name: "رفع" }).click();
+      await uploaded;
       await expect(page.getByText("قيد المراجعة").first()).toBeVisible({ timeout: 15_000 });
 
       // Staff reviews the document (admin API — the review UI itself was
@@ -655,24 +661,32 @@ test.describe("Security approvals — full lifecycle through the real customer-f
       await page.getByRole("button", { name: "تم تحويل المبلغ" }).click();
       await expect(page.getByRole("button", { name: "تم تحويل المبلغ" })).not.toBeVisible({ timeout: 15_000 });
 
-      // Staff confirms the payment (admin API).
-      const confirmRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/confirm-payment`, { data: {} });
+      // Staff confirms the payment (admin API). A declared transfer has no
+      // receipt, so the confirmation carries a reason (AUDIT-00 G-05).
+      const confirmRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/confirm-payment`, { data: { reason: "تمت المطابقة مع كشف البنك" } });
       expect(confirmRes.ok(), await confirmRes.text()).toBeTruthy();
 
-      // 5. Delivery — staff uploads the finished clearance letter (admin API).
+      // 5. Processing — staff record the start of execution (admin API);
+      // the customer's page now shows the service stage, not "completed".
+      const startRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/start-execution`, { data: {} });
+      expect(startRes.ok(), await startRes.text()).toBeTruthy();
+      await page.reload();
+      await expect(page.getByText("جارٍ استخراج الموافقة الأمنية").first()).toBeVisible({ timeout: 15_000 });
+
+      // 6. Delivery — staff upload and publish the finished clearance letter
+      // (admin API). Publishing the last required output completes the
+      // request (a prepared, unpublished file would not).
       const deliverableRes = await admin.post(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/deliverables`, {
         multipart: {
           label: "خطاب الموافقة الأمنية",
+          publish: "true",
           file: { name: "clearance.png", mimeType: "image/png", buffer: Buffer.from(HERO_TEST_PNG_BASE64, "base64") },
         },
       });
       expect(deliverableRes.ok(), await deliverableRes.text()).toBeTruthy();
-
-      // 6. Completion — staff closes the request as COMPLETED.
-      const closeRes = await admin.patch(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}/status`, {
-        data: { status: "CLOSED", outcome: "COMPLETED" },
-      });
-      expect(closeRes.ok(), await closeRes.text()).toBeTruthy();
+      const closed = await (await admin.get(`${BACKEND_URL}/api/contact-requests/${contactRequest.id}`)).json();
+      expect(closed.data.status).toBe("CLOSED");
+      expect(closed.data.outcome).toBe("COMPLETED");
 
       // The real customer, in the real browser, sees the finished result:
       // completion status and a downloadable deliverable.
@@ -726,14 +740,13 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       await createPackage(firstCode, firstName, 10);
       await createPackage(secondCode, secondName, 20);
 
-      // /umrah now renders SimpleUmrahRequest's selectable button-cards
-      // (feat(web): simplify umrah request flow), not the old
-      // <article><h3> package-grid — each card's name lives in a
-      // <p class="pe-8 ..."> inside a <button>, not a heading.
+      // /umrah renders the shared intake wizard on the Umrah packages: each
+      // package is a selectable button whose name carries
+      // data-testid="intake-option-name".
       await page.goto("/umrah", { waitUntil: "networkidle" });
       await expect(page.locator("button").filter({ hasText: firstName })).toBeVisible({ timeout: 15_000 });
       await expect(page.locator("button").filter({ hasText: secondName })).toBeVisible({ timeout: 15_000 });
-      const initialCards = await page.locator("button p.pe-8").allTextContents();
+      const initialCards = await page.getByTestId("intake-option-name").allTextContents();
       expect(initialCards.indexOf(firstName)).toBeGreaterThanOrEqual(0);
       expect(initialCards.indexOf(firstName)).toBeLessThan(initialCards.indexOf(secondName));
 
@@ -749,7 +762,7 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       await page.reload({ waitUntil: "networkidle" });
       await expect(page.locator("button").filter({ hasText: updatedName })).toBeVisible({ timeout: 15_000 });
       await expect(page.locator("button").filter({ hasText: firstName })).toHaveCount(0);
-      const updatedCards = await page.locator("button p.pe-8").allTextContents();
+      const updatedCards = await page.getByTestId("intake-option-name").allTextContents();
       expect(updatedCards.indexOf(updatedName)).toBeLessThan(updatedCards.indexOf(secondName));
 
       const deactivateResponse = await admin.patch(`${BACKEND_URL}/api/services/${firstItem.id}`, { data: { active: false } });
@@ -768,26 +781,33 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
 // page in one click, never on a general catalog the customer has to search
 // again. Covers the two real customer-facing surfaces that used to hardcode
 // a generic "/visas?visaType=...#book" destination for every visa type
-// regardless of whether it had a dedicated page: the homepage's Services
-// grid (services.tsx) and the /visas page's own catalog
+// regardless of whether it had a dedicated page: the /services catalog
+// (services.tsx) and the /visas page's own catalog
 // (dynamic-visa-catalog.tsx). "Navigation" in the routing spec maps onto
 // this app's actual architecture as the /visas listing catalog — the top
 // nav bar only ever held category-level links (التأشيرات), never
 // individual service links, on this site.
 test.describe("Direct service routing — no intermediate catalog browsing", () => {
-  test("homepage Services grid: Egypt Security Approval card goes straight to its dedicated page", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+  test("Services catalog: Egypt Security Approval card goes straight to its dedicated page", async ({ page }) => {
+    await page.goto("/services", { waitUntil: "domcontentloaded" });
     await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
     await page.locator("a").filter({ hasText: "الموافقة الأمنية لمصر" }).first().click();
     await expect(page).toHaveURL(/\/visas\/egypt-security-approval$/);
     await expect(page.locator("h1")).toContainText("الموافقة الأمنية");
   });
 
-  test("homepage Services grid: Family Visit card goes straight to its dedicated page", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
-    await page.locator("a").filter({ hasText: "الزيارة العائلية" }).first().click();
-    await expect(page).toHaveURL(/\/visas\/saudi-family-visit$/);
+  // Owner decision (PR #151): the website offers only Umrah and Egypt security
+  // approval. Other services are no longer listed in the catalog, but their
+  // pages and backend are kept (not deleted) and still open directly.
+  test("Services catalog lists only the approved services; hidden services' pages still open directly", async ({ page }) => {
+    await page.goto("/services", { waitUntil: "domcontentloaded" });
+    const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
+    await expect(section.locator("a").first()).toBeVisible();
+    const hrefs = await section.locator("a").evaluateAll((els) => els.map((el) => el.getAttribute("href")));
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const href of hrefs) expect(["/umrah", "/visas/egypt-security-approval"], `catalog link ${href}`).toContain(href);
+    await expect(section.locator("a").filter({ hasText: "الزيارة العائلية" })).toHaveCount(0);
+    await page.goto("/visas/saudi-family-visit", { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1")).toContainText("الزيارة العائلية");
   });
 
@@ -820,17 +840,15 @@ test.describe("Direct service routing — no intermediate catalog browsing", () 
     const expectedSlug = code.toLowerCase();
 
     try {
-      // Same homepage-curation reasoning as the "admin-created service"
-      // test above — /services (no limit) is where this card is actually
-      // guaranteed to render.
+      // Not listed in the catalog (approved scope, see above): its own route
+      // still renders the generic dynamic template.
       await pollByReloading(
         page,
-        (timeoutMs) => page.locator("a").filter({ hasText: name }).first().getAttribute("href", { timeout: timeoutMs }),
-        (href) => href === `/services/${expectedSlug}`,
-        "generic service card href on /services",
-        "/services"
+        (timeoutMs) => page.locator("h1").innerText({ timeout: timeoutMs }),
+        (text) => text.includes(name),
+        "generic service page",
+        `/services/${expectedSlug}`
       );
-
       await page.goto(`/services/${expectedSlug}`, { waitUntil: "networkidle" });
       await expect(page.locator("h1")).toContainText(name);
       await expect(page.getByText("يتم تحديد التكلفة بعد مراجعة الطلب")).toBeVisible();
@@ -846,72 +864,67 @@ test.describe("Direct service routing — no intermediate catalog browsing", () 
   });
 });
 
+// The Egypt approval's Service row, and its card on /services once a change shows.
+async function egyptCatalogService(page: Page) {
+  const services = (await (await page.request.get(`${BACKEND_URL}/api/services/public`)).json()).data.services as Array<{ id: string; code: string; iconKey: string | null; imageKey: string | null }>;
+  const egypt = services.find((service) => service.code === "SVC-EGYPT-CLEARANCE");
+  expect(egypt, "SVC-EGYPT-CLEARANCE is seeded and published").toBeTruthy();
+  return egypt!;
+}
+// Reloads until the card shows `icon` (the catalog may be served from cache briefly).
+async function egyptCatalogCard(page: Page, icon: string) {
+  return pollByReloading(
+    page,
+    async (timeoutMs) => {
+      const link = page.locator('a[href="/visas/egypt-security-approval"]').filter({ has: page.locator("h3") }).first();
+      await link.locator(icon).waitFor({ timeout: timeoutMs });
+      return link;
+    },
+    () => true,
+    "Egypt card on /services",
+    "/services"
+  );
+}
+
 test.describe("Service media — admin-controlled icon and safe fallbacks", () => {
+  // The catalog lists only the approved services (PR #151), so the icon is
+  // checked on a real catalog card: the Egypt approval's. Its iconKey is set
+  // for the test and restored afterwards.
   test("admin sets a service's icon and the public services catalog card renders it", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
-    const code = `E2E-ICON-${Date.now()}`;
-    const name = `خدمة أيقونة الاختبار ${Date.now()}`;
-    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
-      data: { code, name, category: "e2e_icon_category", basePrice: 0, currency: "SAR", active: true, iconKey: "ship", features: [] },
-    });
-    expect(createRes.ok(), await createRes.text()).toBeTruthy();
-    const created = (await createRes.json()).data;
-
+    const egypt = await egyptCatalogService(page);
+    expect(egypt.imageKey, "the Egypt card has no image in the seed, so its icon renders").toBeFalsy();
+    const set = await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: "ship" } });
+    expect(set.ok(), await set.text()).toBeTruthy();
     try {
-      // Homepage-curation reasoning again: /services is where a freshly
-      // created, arbitrary-category service is actually guaranteed a card.
-      const card = await pollByReloading(
-        page,
-        async (timeoutMs) => {
-          const link = page.locator("a").filter({ hasText: name }).first();
-          await link.waitFor({ timeout: timeoutMs });
-          return link;
-        },
-        () => true,
-        "generic service card on /services",
-        "/services"
-      );
-      // No image was uploaded — the card must render the chosen icon, never
-      // a broken <img>.
+      const card = await egyptCatalogCard(page, "svg.lucide-ship");
       await expect(card.locator("img")).toHaveCount(0);
       await expect(card.locator("svg.lucide-ship")).toBeVisible();
     } finally {
-      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+      await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: egypt.iconKey ?? null } });
     }
   });
+
 
   test("a service with neither icon nor image falls back to the default catalog icon, never a broken image", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
-    const code = `E2E-FALLBACK-${Date.now()}`;
-    const name = `خدمة بدون صورة ${Date.now()}`;
-    const createRes = await page.request.post(`${BACKEND_URL}/api/services`, {
-      data: { code, name, category: "e2e_fallback_category", basePrice: 0, currency: "SAR", active: true, features: [] },
-    });
-    expect(createRes.ok(), await createRes.text()).toBeTruthy();
-    const created = (await createRes.json()).data;
-
+    const egypt = await egyptCatalogService(page);
+    expect(egypt.imageKey).toBeFalsy();
+    const set = await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: null } });
+    expect(set.ok(), await set.text()).toBeTruthy();
     try {
-      const card = await pollByReloading(
-        page,
-        async (timeoutMs) => {
-          const link = page.locator("a").filter({ hasText: name }).first();
-          await link.waitFor({ timeout: timeoutMs });
-          return link;
-        },
-        () => true,
-        "fallback service card on /services",
-        "/services"
-      );
+      const card = await egyptCatalogCard(page, "svg.lucide-package");
       await expect(card.locator("img")).toHaveCount(0);
       // The default Package icon specifically — the card's "اعرف المزيد"
       // arrow icon is also an <svg>, so plain `svg` would match both.
       await expect(card.locator("svg.lucide-package")).toBeVisible();
     } finally {
-      await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
+      await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: egypt.iconKey ?? null } });
     }
   });
+
 });
 
 test.describe("Egypt hero motion — respects prefers-reduced-motion", () => {
@@ -937,16 +950,17 @@ test.describe("Egypt hero motion — respects prefers-reduced-motion", () => {
 // the pre-existing direct routes (Umrah, Flights, Ferries — never hardcoded
 // to the generic visa flow to begin with) are untouched by this work.
 test.describe("Service page SEO metadata and related services", () => {
-  test("Egypt page has a canonical link, OpenGraph tags, and a related-services section that links elsewhere", async ({ page }) => {
+  test("Egypt page has a canonical link and OpenGraph tags, and no links to services outside the approved scope", async ({ page }) => {
     await page.goto("/visas/egypt-security-approval", { waitUntil: "networkidle" });
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/visas\/egypt-security-approval$/);
     await expect(page.locator('meta[property="og:title"]')).toHaveCount(1);
     await expect(page.locator('meta[property="og:description"]')).toHaveCount(1);
-    const relatedSection = page.locator("section", { has: page.getByText("قد تهمك أيضًا") });
-    await expect(relatedSection).toBeVisible();
-    // At least one related-service card must link somewhere other than this same page.
-    const relatedHrefs = await relatedSection.locator("a").evaluateAll((els) => els.map((el) => el.getAttribute("href")));
-    expect(relatedHrefs.some((href) => href && !href.includes("egypt-security-approval"))).toBeTruthy();
+    // Owner decision (PR #151): no «قد تهمك أيضًا» cross-selling of other visas.
+    await expect(page.locator("section", { has: page.getByText("قد تهمك أيضًا") })).toHaveCount(0);
+    const hrefs = await page.locator("main a[href^='/']").evaluateAll((els) => els.map((el) => el.getAttribute("href") || ""));
+    for (const hidden of ["/visas/saudi-family-visit", "/services/", "/flights", "/ferries", "/hotels"]) {
+      expect(hrefs.filter((href) => href === hidden || (hidden.endsWith("/") && href.startsWith(hidden))), hidden).toEqual([]);
+    }
   });
 
   test("Saudi Family Visit page has a canonical link and OpenGraph tags", async ({ page }) => {
@@ -1018,31 +1032,29 @@ test.describe("Every named service opens its own page — no generic-catalog dea
     });
   }
 
-  test("VISA-UMRAH (Umrah's visa-type card, e.g. from the /visas catalog) routes to Umrah's own dedicated page", async ({ page }) => {
+  test("Umrah is its own section: no VISA-UMRAH card in /visas, and the main menu links to /umrah", async ({ page }) => {
     const servicesRes = await page.request.get(`${BACKEND_URL}/api/services/public`);
     const payload = await servicesRes.json();
     const umrahVisaType = payload.data.visaTypes.find((v: { code: string }) => v.code === "VISA-UMRAH");
     expect(umrahVisaType, "VISA-UMRAH must be seeded").toBeTruthy();
 
     await page.goto("/visas", { waitUntil: "networkidle" });
-    const card = page.locator("article").filter({ hasText: umrahVisaType.name }).first();
-    await card.scrollIntoViewIfNeeded();
-    const href = await card.getByRole("link", { name: "قدّم الآن" }).getAttribute("href");
-    expect(href).toBe("/umrah");
+    await expect(page.locator("article").filter({ hasText: "تأشيرة" }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("article").filter({ hasText: umrahVisaType.name })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "العمرة", exact: true }).first()).toHaveAttribute("href", "/umrah");
   });
 
-  test("homepage Services grid sends International Visa, Work Visa, and Tasheel to their own pages, not a shared catalog", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+  test("International Visa, Work Visa and Tasheel are out of the catalog (approved scope) but keep their own pages", async ({ page }) => {
+    await page.goto("/services", { waitUntil: "domcontentloaded" });
     const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
-    const hrefs = await section.locator("a").evaluateAll((els) =>
-      Object.fromEntries(els.map((el) => [el.querySelector("h3")?.textContent ?? "", el.getAttribute("href")]))
-    );
-    for (const [name, href] of Object.entries(hrefs)) {
-      if (["التأشيرات الدولية", "تأشيرة العمل", "حجز مواعيد تساهيل"].includes(name)) {
-        expect(href, `${name} must not land on the shared /visas catalog`).not.toMatch(/^\/visas\?/);
-        expect(href, `${name} must not land on the dead-end /contact fallback`).not.toMatch(/^\/contact\?/);
-        expect(href).toMatch(/^\/services\//);
-      }
+    await expect(section.locator("a").first()).toBeVisible();
+    for (const name of ["التأشيرات الدولية", "تأشيرة العمل", "حجز مواعيد تساهيل"]) {
+      await expect(section.locator("a").filter({ hasText: name }), name).toHaveCount(0);
+    }
+    // Their routes are kept (nothing deleted): each still renders its own page.
+    for (const slug of ["intl-visa", "work-visa", "tasheel"]) {
+      const res = await page.goto(`/services/${slug}`, { waitUntil: "domcontentloaded" });
+      expect(res?.status(), slug).toBe(200);
     }
   });
 });

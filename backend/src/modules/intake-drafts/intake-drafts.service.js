@@ -3,10 +3,14 @@ import path from "path";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
 import { normalizePhone } from "../../utils/phone.js";
+import { pendingConfirmationCreate } from "../customer-messages/customer-messages.service.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
+import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from "../egypt-clearance/egypt-clearance-variants.js";
+import { resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
+import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
 
 // Smart Case Operations — Release B (server-side intake drafts). The
 // authoritative pre-submission state for an in-progress intake, so a weak
@@ -255,6 +259,8 @@ export async function removeDraftDocument(token, documentId) {
   return { deleted: true };
 }
 
+class DraftAlreadySubmitted extends Error {}
+
 // DRAFT → SUBMITTED. Creates exactly one ContactRequest from the draft's
 // accumulated state, re-points the already-uploaded documents at it (they
 // keep their id, file, OCR result and requirement link — nothing is
@@ -265,7 +271,7 @@ export async function removeDraftDocument(token, documentId) {
 // Everything runs in one transaction: either the request exists with all
 // its travelers and documents attached, or nothing changed and the
 // customer's draft is still intact to retry.
-export async function submitDraft(token, { message }) {
+export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone, preferredTravelDate, departureCity, arrivalAirport, entryPort } = {}) {
   const found = await findMutableDraft(token);
   if (found.error) return found;
 
@@ -284,6 +290,51 @@ export async function submitDraft(token, { message }) {
 
   const travelers = Array.isArray(draft.travelers) ? draft.travelers : [];
   const travelerRefs = draft.documentTravelerRefs || {};
+  // Only named travelers are created; keep each one's index in the
+  // submitted list so document refs (by that index) find the right person.
+  const namedTravelers = travelers.map((traveler, index) => ({ traveler, index })).filter(({ traveler }) => traveler?.fullName);
+  const positionBySubmittedIndex = new Map(namedTravelers.map(({ index }, position) => [index, position]));
+
+  // Egypt clearance: the variant fixes the entry method (recorded as the
+  // answer); a draft claiming the other one is refused.
+  let answers = draft.answers;
+  let egyptEntryMode = null;
+  let egyptRoute = null;
+  if (draft.visaTypeId) {
+    const visaType = await prisma.visaType.findUnique({ where: { id: draft.visaTypeId }, select: { code: true, active: true, pricingMode: true, basePrice: true, currency: true } });
+    const unavailable = egyptVariantBookingError(visaType, { acceptedTotal });
+    if (unavailable) return unavailable;
+    const egypt = applyEgyptEntryMode(visaType?.code, requirementsSnapshot, answers);
+    if (egypt.error) return egypt;
+    answers = egypt.answers;
+    egyptEntryMode = egypt.entryMode || null;
+    const route = resolveEgyptRoute(visaType?.code, { departureCity, arrivalAirport, entryPort });
+    if (route.error) return route;
+    egyptRoute = route.route;
+  }
+
+  // Umrah: the guarantor's phone and extra contact (same rule as POST /contact-requests).
+  let umrahContacts = null;
+  let umrahTravel = null;
+  if (draft.serviceId && !draft.visaTypeId) {
+    const service = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { category: true, features: true } });
+    const umrah = resolveUmrahContacts(service?.category, { guarantorPhone, extraContactName, extraContactPhone });
+    if (umrah.error) return umrah;
+    umrahContacts = umrah.contacts;
+    const travel = resolveUmrahTravel(service?.category, service?.features, preferredTravelDate);
+    if (travel.error) return travel;
+    umrahTravel = travel.travel;
+  }
+
+  // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
+  // a fixed-price item is recorded as FIXED only when the customer confirmed
+  // the total and currency the server recomputes; without a confirmation it
+  // is a quote request (reason kept); a mismatch creates nothing (409).
+  const pricing = await resolveSubmissionPricing(
+    { serviceId: draft.serviceId, visaTypeId: draft.visaTypeId, travelerCount: draft.travelerCount, acceptedTotal, acceptedCurrency },
+    { travelers: namedTravelers.length }
+  );
+  if (pricing.error) return pricing;
 
   const contactRequest = await prisma.$transaction(async (tx) => {
     const created = await tx.contactRequest.create({
@@ -293,21 +344,32 @@ export async function submitDraft(token, { message }) {
         phone: draft.phone,
         phoneNormalized: normalizePhone(draft.phone),
         email: draft.email || null,
+        // Written with the request (AUDIT-00 G-13): a crash right after the
+        // insert still leaves the confirmations for the reconciler.
+        customerMessages: pendingConfirmationCreate(normalizePhone(draft.phone), draft.email),
         serviceId: draft.serviceId || null,
         visaTypeId: draft.visaTypeId || null,
         travelerCount: draft.travelerCount ?? null,
+        // The guided intake is always an application for a service.
+        requestKind: "SERVICE_APPLICATION",
+        pricingMode: pricing.mode,
+        pricingSnapshot: pricing.snapshot ?? undefined,
+        ...(pricing.mode === "FIXED" ? { invoice: { create: pricing.invoice }, paymentStatus: "AWAITING_TRANSFER" } : {}),
         intakeData: {
           ...(travelers.length ? { travelers } : {}),
           ...(draft.notes ? { notes: draft.notes } : {}),
-          ...(draft.answers ? { answers: draft.answers } : {}),
+          ...(answers ? { answers } : {}),
+          ...(egyptEntryMode ? { egyptEntryMode } : {}),
+          ...(umrahContacts ? { umrahContacts } : {}),
+          ...(umrahTravel ? { umrahTravel } : {}),
+          ...(egyptRoute ? { egyptRoute } : {}),
         },
         requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
         message: message || draft.notes || "طلب خدمة عبر نموذج الحجز الإلكتروني",
-        travelers: travelers.length
+        travelers: namedTravelers.length
           ? {
-              create: travelers
-                .filter((traveler) => traveler?.fullName)
-                .map((traveler, index) => ({
+              create: namedTravelers
+                .map(({ traveler }, index) => ({
                   fullName: traveler.fullName,
                   passportNo: traveler.passportNo || null,
                   nationality: traveler.nationality || null,
@@ -323,8 +385,11 @@ export async function submitDraft(token, { message }) {
     });
 
     for (const document of draft.documents) {
+      // A ref is the traveler's index in the submitted list (unnamed ones
+      // included); a ref to an unnamed, not created traveler stays unassigned.
       const ref = travelerRefs[document.id];
-      const travelerId = ref !== undefined && created.travelers[Number(ref)] ? created.travelers[Number(ref)].id : null;
+      const position = ref !== undefined ? positionBySubmittedIndex.get(Number(ref)) : undefined;
+      const travelerId = position !== undefined ? created.travelers[position]?.id ?? null : null;
 
       await tx.contactRequestDocument.update({
         where: { id: document.id },
@@ -332,13 +397,21 @@ export async function submitDraft(token, { message }) {
       });
     }
 
-    await tx.intakeDraft.update({
-      where: { id: draft.id },
+    // Claimed only if no other submission got there first (AUDIT-00 G-09):
+    // a concurrent submit waits on this row, then finds it taken and rolls
+    // back its own request, so one draft makes exactly one request.
+    const claimed = await tx.intakeDraft.updateMany({
+      where: { id: draft.id, submittedContactRequestId: null },
       data: { submittedContactRequestId: created.id },
     });
+    if (claimed.count !== 1) throw new DraftAlreadySubmitted();
 
     return created;
+  }).catch((error) => {
+    if (error instanceof DraftAlreadySubmitted) return null;
+    throw error;
   });
+  if (!contactRequest) return { error: "ALREADY_SUBMITTED" };
 
   await announceNewContactRequest(contactRequest, { documentCount: draft.documents.length });
 

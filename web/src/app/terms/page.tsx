@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import { LegalPlaceholder } from "@/components/sections/legal-placeholder";
+import { LegalDocument } from "@/components/sections/legal-document";
 
 export const metadata: Metadata = {
   title: "الشروط والأحكام",
-  description: "صفحة الشروط والأحكام في نسائم الحرمين — النص المعتمد سيُنشر قبل الإطلاق العام.",
-  robots: { index: false, follow: false },
+  description: "باستخدامك تطبيق «نسائم الحرمين للسفر والسياحة» أو موقعها وتقديم طلب عبرهما، فإنك توافق على الشروط الآتية.",
 };
 
 export default function TermsPage() {
-  return <LegalPlaceholder title="الشروط والأحكام" description="راجع الشروط الرسمية لاستخدام خدمات نسائم الحرمين بعد اعتمادها ونشرها من الجهة المسؤولة." />;
+  return <LegalDocument id="terms" />;
 }

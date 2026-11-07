@@ -15,6 +15,11 @@ export function HotelRequestClient() {
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState("");
   const [success, setSuccess] = React.useState("");
+  // One lead guest per room (owner decision D7): the name the hotel needs
+  // for each reservation; other guests are counted only. No passport.
+  const [leadGuests, setLeadGuests] = React.useState<string[]>([""]);
+  const roomCount = Math.min(10, Math.max(1, form.rooms));
+  const leadGuestNames = Array.from({ length: roomCount }, (_, i) => leadGuests[i] ?? "");
 
   React.useEffect(() => {
     fetch(`${API_URL}/services/public`)
@@ -37,6 +42,8 @@ export function HotelRequestClient() {
     if (!form.city || !form.checkin || !form.checkout || !form.name || !form.phone) return setError("أكمل المدينة والتواريخ والاسم ورقم الهاتف.");
     if (form.checkout <= form.checkin) return setError("تاريخ المغادرة يجب أن يكون بعد تاريخ الدخول.");
     if (form.guests < 1 || form.guests > 20 || form.rooms < 1 || form.rooms > 10) return setError("تحقق من عدد النزلاء والغرف.");
+    if (form.guests < form.rooms) return setError("عدد النزلاء لا يقل عن عدد الغرف.");
+    if (leadGuestNames.some((name) => !name.trim())) return setError("اكتب اسم الضيف الرئيسي لكل غرفة.");
     setSubmitting(true);
     try {
       const response = await fetch(`${API_URL}/contact-requests`, {
@@ -48,13 +55,17 @@ export function HotelRequestClient() {
           email: form.email,
           service: "حجز الفنادق",
           serviceId,
-          travelerCount: form.guests,
+          // The travelers are the lead guests (one per room); the full guest
+          // count stays in intakeData.
+          travelerCount: roomCount,
+          travelers: leadGuestNames.map((name, index) => ({ fullName: name.trim(), isPrimary: index === 0 })),
           intakeData: {
             city: form.city,
             checkin: form.checkin,
             checkout: form.checkout,
             guests: form.guests,
             rooms: form.rooms,
+            leadGuestPerRoom: true,
             notes: form.notes,
           },
           message: `طلب فندق في ${form.city} من ${form.checkin} إلى ${form.checkout}، عدد النزلاء ${form.guests}، الغرف ${form.rooms}. ${form.notes}`,
@@ -103,6 +114,15 @@ export function HotelRequestClient() {
                   <label className="grid gap-2"><span className="text-sm font-bold">رقم الهاتف / واتساب</span><input className={inputClass} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
                   <label className="grid gap-2"><span className="text-sm font-bold">البريد الإلكتروني</span><input type="email" className={inputClass} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
                 </div>
+                <fieldset className="grid gap-3 rounded-2xl border border-border p-4" data-testid="hotel-lead-guests">
+                  <legend className="px-1 text-sm font-bold">اسم الضيف الرئيسي لكل غرفة</legend>
+                  <p className="text-xs text-muted-foreground">يكفي اسم ضيف واحد لكل غرفة كما في جواز السفر؛ لا نطلب أرقام الجوازات للحجز الفندقي.</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {leadGuestNames.map((name, index) => (
+                      <label key={index} className="grid gap-1"><span className="text-xs font-bold">الغرفة {index + 1}</span><input className={inputClass} value={name} onChange={(e) => setLeadGuests((current) => { const next = Array.from({ length: Math.max(current.length, index + 1) }, (_, i) => current[i] ?? ""); next[index] = e.target.value; return next; })} aria-label={`اسم الضيف الرئيسي للغرفة ${index + 1}`} /></label>
+                    ))}
+                  </div>
+                </fieldset>
                 <label className="grid gap-2"><span className="text-sm font-bold">ملاحظات</span><textarea rows={4} className="rounded-xl border border-border bg-background p-3 text-sm outline-none focus:border-primary" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="نوع الغرفة، قرب الفندق من الحرم، أو أي طلب خاص..." /></label>
                 {loading ? <p className="text-sm text-muted-foreground">جاري تجهيز الخدمة...</p> : null}
                 {error ? <p className="rounded-xl bg-destructive/10 p-3 text-sm font-bold text-destructive">{error}</p> : null}

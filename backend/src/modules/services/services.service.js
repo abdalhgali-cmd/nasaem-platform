@@ -1,6 +1,8 @@
 import prisma from "../../config/database.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
+import { pricingConfigError } from "../contact-request-pricing/fixed-price.js";
 import { getCurrencyRates } from "../flights/flights.service.js";
+import { ensureUmrahGuarantorRequirement, isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
 
 async function withSdgEquivalent(items) {
   const rates = await getCurrencyRates();
@@ -57,7 +59,11 @@ const PUBLIC_SERVICE_SELECT = {
   motionEnabled: true,
   motionVideoKey: true,
   features: true,
-  processingTime: true,
+  processingTime: true,  // What the customer surfaces need to show a fixed total or "price by
+  // quote" (contact-request-pricing/fixed-price.js).
+  pricingMode: true,
+  priceUnit: true,
+  paymentAfterDocumentReview: true,
 };
 
 const PUBLIC_VISA_TYPE_SELECT = {
@@ -75,7 +81,11 @@ const PUBLIC_VISA_TYPE_SELECT = {
   stayDuration: true,
   validity: true,
   entryType: true,
-  category: true,
+  category: true,  // What the customer surfaces need to show a fixed total or "price by
+  // quote" (contact-request-pricing/fixed-price.js).
+  pricingMode: true,
+  priceUnit: true,
+  paymentAfterDocumentReview: true,
 };
 
 // visaCategory (VISA_TYPE_CATEGORIES — INTERNATIONAL/UMRAH/FAMILY_VISIT/
@@ -117,55 +127,88 @@ export async function listPublicCatalog({ visaCategory } = {}) {
 }
 
 export async function createService(data) {
-  return prisma.service.create({
-    data: {
-      code: data.code,
-      name: data.name,
-      category: data.category,
-      description: data.description || null,
-      basePrice: data.basePrice,
-      currency: data.currency || "SAR",
-      active: typeof data.active === "boolean" ? data.active : true,
-      sortOrder: data.sortOrder ?? 0,
-      iconKey: data.iconKey || null,
-      motionEnabled: typeof data.motionEnabled === "boolean" ? data.motionEnabled : false,
-      features: data.features ?? undefined,
-      processingTime: data.processingTime || null,
-    },
+  // An Umrah package inherits the guarantor-residence requirement in the
+  // same transaction (requirements/umrah-guarantor.js).
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.service.create({ data: serviceCreateData(data) });
+    if (isUmrahServiceCategory(created.category)) await ensureUmrahGuarantorRequirement(tx, created.id);
+    return created;
   });
+}
+
+function serviceCreateData(data) {
+  return {
+    code: data.code,
+    name: data.name,
+    category: data.category,
+    description: data.description || null,
+    basePrice: data.basePrice,
+    currency: data.currency || "SAR",
+    active: typeof data.active === "boolean" ? data.active : true,
+    sortOrder: data.sortOrder ?? 0,
+    iconKey: data.iconKey || null,
+    motionEnabled: typeof data.motionEnabled === "boolean" ? data.motionEnabled : false,
+    features: data.features ?? undefined,
+    processingTime: data.processingTime || null,
+    pricingMode: data.pricingMode || "QUOTE",
+    priceUnit: data.priceUnit || "PER_REQUEST",
+    paymentAfterDocumentReview: Boolean(data.paymentAfterDocumentReview),
+  };
+}
+
+// A service is "in use" once a customer request or an order references it
+// (AUDIT-00 G-07). Its code then never changes and it is never hard
+// deleted: existing requests keep the procedure they were created with.
+async function serviceInUse(tx, id) {
+  const [requests, orderItems] = await Promise.all([
+    tx.contactRequest.count({ where: { serviceId: id } }),
+    tx.orderItem.count({ where: { serviceId: id } }),
+  ]);
+  return requests + orderItems > 0;
+}
+
+// Locks the service row for the rest of the transaction. A request being
+// inserted holds a key-share lock on it (foreign key), so a delete or code
+// change waits for that insert and then sees it.
+async function lockService(tx, id) {
+  const rows = await tx.$queryRaw`SELECT id FROM "Service" WHERE id = ${id} FOR UPDATE`;
+  return rows.length > 0;
 }
 
 export async function updateService(id, data) {
-  const existing = await prisma.service.findUnique({ where: { id } });
-
-  if (!existing) {
-    return null;
-  }
-
-  return prisma.service.update({
-    where: { id },
-    data,
+  return prisma.$transaction(async (tx) => {
+    if (!(await lockService(tx, id))) return null;
+    const existing = await tx.service.findUnique({ where: { id } });
+    if (data.code !== undefined && data.code !== existing.code && (await serviceInUse(tx, id))) {
+      return { error: "CODE_IN_USE" };
+    }
+    // Checked on the locked row merged with the change, so two concurrent
+    // edits (one to FIXED, one to price 0) cannot together leave FIXED at 0.
+    const pricingError = pricingConfigError({ ...existing, ...data });
+    if (pricingError) return { error: "INVALID_PRICING", message: pricingError };
+    const updated = await tx.service.update({ where: { id }, data });
+    // Moved into an Umrah category: inherit the guarantor residence too.
+    if (isUmrahServiceCategory(updated.category) && !isUmrahServiceCategory(existing.category)) {
+      await ensureUmrahGuarantorRequirement(tx, id);
+    }
+    return updated;
   });
 }
 
+// A service used by any request or order is deactivated instead of
+// deleted (requests used to lose their service through onDelete: SetNull).
+// Returns { service, previous, deactivated } or null (previous = the row
+// before the change, for the audit).
 export async function deleteService(id) {
-  const existing = await prisma.service.findUnique({ where: { id } });
-
-  if (!existing) {
-    return null;
-  }
-
-  // Services referenced by existing order items are protected at the DB
-  // level (onDelete: Restrict on OrderItem.service) — deactivate instead of
-  // deleting if a service has ever been used in an order.
-  const usageCount = await prisma.orderItem.count({ where: { serviceId: id } });
-
-  if (usageCount > 0) {
-    return prisma.service.update({ where: { id }, data: { active: false } });
-  }
-
-  await prisma.service.delete({ where: { id } });
-  return existing;
+  return prisma.$transaction(async (tx) => {
+    if (!(await lockService(tx, id))) return null;
+    const existing = await tx.service.findUnique({ where: { id } });
+    if (await serviceInUse(tx, id)) {
+      return { service: await tx.service.update({ where: { id }, data: { active: false } }), previous: existing, deactivated: true };
+    }
+    await tx.service.delete({ where: { id } });
+    return { service: existing, previous: existing, deactivated: false };
+  });
 }
 
 export async function setServiceImageKey(id, imageKey) {

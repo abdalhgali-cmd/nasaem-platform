@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import { LegalPlaceholder } from "@/components/sections/legal-placeholder";
+import { LegalDocument } from "@/components/sections/legal-document";
 
 export const metadata: Metadata = {
   title: "سياسة الإلغاء",
-  description: "صفحة سياسة الإلغاء في نسائم الحرمين — النص المعتمد سيُنشر قبل الإطلاق العام.",
-  robots: { index: false, follow: false },
+  description: "توضح هذه الصفحة كيفية إلغاء الطلب وما يترتب عليه.",
 };
 
 export default function CancellationPage() {
-  return <LegalPlaceholder title="سياسة الإلغاء" description="سيتم نشر أحكام الإلغاء المعتمدة لكل خدمة بعد مراجعة المالك والمراجع القانوني." />;
+  return <LegalDocument id="cancellation" />;
 }

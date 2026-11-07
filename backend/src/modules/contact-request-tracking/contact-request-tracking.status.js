@@ -1,3 +1,5 @@
+import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
+
 // Plain-language, customer-facing translation of a ContactRequest's overall
 // state. Kept as its own pure function (rather than inlined in the
 // controller) so later phases that enrich ContactRequest (documents,
@@ -21,51 +23,10 @@ export const OUTCOME_LABELS = {
   CANCELLED: "تم إلغاء الطلب",
 };
 
-// Precedence (highest first): a closed request always wins; then delivered
-// final files (the single most concrete, actionable thing a customer can
-// see — more useful than repeating "payment confirmed" once there's
-// actually something to download); then payment progress (once a price is
-// settled — via Invoice approval or an offer selection — the payment side
-// of the story matters more than how the price was settled); then the
-// still-open pricing decision (an Invoice awaiting approval/rejection, or a
-// set of offers awaiting selection — a request only ever has one of the
-// two, see contact-requests.service.js); falling back to the bare request
-// status.
+// The label is the service-aware progress label (request-progress.js), so
+// the tracking page, the account screens and the back-office all say the
+// same thing. Payment acceptance reads "awaiting execution"; the
+// service-specific execution text appears only once staff record it.
 export function deriveTrackingStatusLabel(contactRequest) {
-  const { status, outcome, paymentStatus, invoice, offers, selectedOfferId, deliverables } =
-    contactRequest;
-
-  if (status === "CLOSED") {
-    return (outcome && OUTCOME_LABELS[outcome]) || STATUS_LABELS.CLOSED;
-  }
-
-  if (deliverables?.length > 0) {
-    return "ملفاتك النهائية جاهزة للتحميل";
-  }
-
-  if (paymentStatus === "CONFIRMED") {
-    return "تم قبول الدفع، بانتظار صدور التأشيرة";
-  }
-
-  if (paymentStatus === "UNDER_REVIEW") {
-    return "بانتظار مراجعة إثبات التحويل";
-  }
-
-  if (paymentStatus === "AWAITING_TRANSFER") {
-    return "تمت الموافقة على السعر، بانتظار تحويل المبلغ";
-  }
-
-  if (invoice?.status === "PENDING") {
-    return "يوجد عرض سعر بانتظار موافقتك";
-  }
-
-  if (invoice?.status === "REJECTED") {
-    return "تم رفض عرض السعر، بانتظار عرض جديد من فريقنا";
-  }
-
-  if (offers?.length > 0 && !selectedOfferId) {
-    return "توجد عروض أسعار متعددة بانتظار اختيارك";
-  }
-
-  return STATUS_LABELS[status] ?? status;
+  return deriveRequestProgress(contactRequest).label;
 }

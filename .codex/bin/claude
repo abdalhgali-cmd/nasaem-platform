@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Argument adapter for the exact runClaude layout in claude-codex-bridge@0.3.1.
+set -euo pipefail
+SHIM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Remove our PATH entry without external text filters or evaluating prompt text.
+CLEAN_PATH=""
+remaining="${PATH-}"
+while :; do
+  part="${remaining%%:*}"
+  if [ "$part" != "$SHIM_DIR" ]; then
+    CLEAN_PATH="${CLEAN_PATH:+$CLEAN_PATH:}$part"
+  fi
+  case "$remaining" in
+    *:*) remaining="${remaining#*:}" ;;
+    *) break ;;
+  esac
+done
+REAL_CLAUDE="$(PATH="$CLEAN_PATH" type -P claude || true)"
+if [ -z "$REAL_CLAUDE" ] || [ "$REAL_CLAUDE" -ef "${BASH_SOURCE[0]}" ]; then
+  echo "claude CLI not found outside the bridge shim on PATH" >&2
+  exit 127
+fi
+
+# Match only: -p --output-format json [known option/value pairs] <prompt>.
+# Unknown layouts (including an existing --) pass through unchanged.
+args=("$@")
+matched=false
+if [ "$#" -ge 4 ] && [ "${1-}" = "-p" ] &&
+   [ "${2-}" = "--output-format" ] && [ "${3-}" = "json" ]; then
+  i=3
+  end=$(( $# - 1 ))
+  while [ "$i" -lt "$end" ]; do
+    case "${args[$i]}" in
+      --resume|--model|--max-turns|--allowedTools)
+        if [ $(( i + 1 )) -ge "$end" ]; then break; fi
+        i=$(( i + 2 ))
+        ;;
+      *) break ;;
+    esac
+  done
+  if [ "$i" -eq "$end" ]; then matched=true; fi
+fi
+if [ "$matched" = true ]; then
+  set -- "${args[@]:0:$end}" -- "${args[$end]}"
+fi
+PATH="$CLEAN_PATH" exec "$REAL_CLAUDE" "$@"

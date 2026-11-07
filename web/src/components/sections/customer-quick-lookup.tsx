@@ -118,7 +118,7 @@ export function CustomerQuickLookup() {
             </div>
             <div className="flex gap-2">
               <Button type="button" variant="outline" size="sm" onClick={clear}><X className="size-4" />مسح</Button>
-              <Button asChild size="sm" variant="gold"><Link href={`/admin-dashboard.html?customer=${encodeURIComponent(customer.id)}`}>فتح ملف العميل</Link></Button>
+              <Button asChild size="sm" variant="gold"><Link href={`/admin/tools/customers?id=${encodeURIComponent(customer.id)}`}>فتح ملف العميل</Link></Button>
             </div>
           </div>
 

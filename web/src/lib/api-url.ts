@@ -6,6 +6,12 @@ const PRODUCTION_WEB_HOSTS = new Set([
   "www.nasaem-alharamain.com",
   "nasaem-platform.vercel.app",
   "nasaem-platform-abdalhgali-cmds-projects.vercel.app",
+  // The production website's own Railway domain (e.g. <service>.up.railway.app),
+  // set at build time on that service only: comma-separated host names.
+  ...String(process.env.NEXT_PUBLIC_PRODUCTION_WEB_HOSTS || "")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter((host) => /^[a-z0-9.-]+$/.test(host)),
 ]);
 
 function pointsAtProductionApi(value: string, base = "http://localhost") {

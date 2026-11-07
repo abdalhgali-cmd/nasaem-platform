@@ -3,12 +3,9 @@ import { siteConfig } from "@/lib/site-config";
 
 const routes = [
   "",
+  // Approved customer scope only (see lib/active-services.ts).
   "/umrah",
-  "/visas",
-  "/flights",
-  "/ferries",
-  "/hotels",
-  "/packages",
+  "/visas/egypt-security-approval",
   "/about",
   "/contact",
   "/track",

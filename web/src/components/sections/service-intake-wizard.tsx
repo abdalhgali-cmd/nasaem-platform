@@ -17,6 +17,25 @@ import {
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
+import { UMRAH_KIND_LABELS, isValidContactPhone, umrahPackageDetails } from "@/lib/umrah-package";
+import { customerErrorMessage } from "@/lib/network-error";
+import { duplicatePassportIndexes, mrzSexToGender, passportValidityWarning } from "@/lib/passport-review";
+import {
+  RequestPaymentStep,
+  clearPendingPayment,
+  readPendingPayment,
+  savePendingPayment,
+  type PaymentAccess,
+  type PaymentSummary,
+} from "@/components/sections/request-payment-step";
+
+// One key per form session, sent on every attempt: a repeated tap or a retry
+// after a lost response returns the request already created (backend
+// findExistingSubmission) instead of a duplicate.
+function newSubmissionKey() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 export type IntakeServiceKind = "umrah" | "visa" | "package";
 
@@ -30,6 +49,10 @@ type PublicService = {
   currency: string;
   fxRateToSdg: number | null;
   priceSdg: number | null;
+  pricingMode?: "QUOTE" | "FIXED" | null;
+  priceUnit?: "PER_REQUEST" | "PER_TRAVELER" | null;
+  paymentAfterDocumentReview?: boolean | null;
+  features?: string[] | null;
 };
 
 type PublicVisaType = {
@@ -42,6 +65,9 @@ type PublicVisaType = {
   currency: string;
   fxRateToSdg: number | null;
   priceSdg: number | null;
+  pricingMode?: "QUOTE" | "FIXED" | null;
+  priceUnit?: "PER_REQUEST" | "PER_TRAVELER" | null;
+  paymentAfterDocumentReview?: boolean | null;
   serviceId: string | null;
   category: string;
 };
@@ -50,6 +76,14 @@ type Traveler = {
   fullName: string;
   passportNo: string;
   nationality: string;
+  // Issue #103: filled from the passport MRZ when scanned, editable either way.
+  birthDate?: string;
+  gender?: "MALE" | "FEMALE";
+  passportExpiry?: string;
+  // A scan filled fields the customer has not confirmed yet; the step
+  // cannot continue until they do (ocrConfirmed).
+  ocrPending?: boolean;
+  ocrConfirmed?: boolean;
 };
 
 // A checklist item from the Requirements Engine (Platform 3.0 Phase 5/8,
@@ -139,10 +173,10 @@ const DEFAULT_ATTACHMENT_ACCEPT = "image/jpeg,image/png,image/webp,application/p
 
 // Matches createContactRequestSchema's `documents`/documentLabels/
 // documentRequirementIds arrays (backend/src/modules/contact-requests/
-// contact-requests.validators.js), each capped at 6 — enforced here too so
+// contact-requests.validators.js; upload.middleware.js's MAX_INTAKE_DOCUMENTS) — enforced here too so
 // the wizard never lets a customer assemble a submission the API would
 // reject outright.
-const MAX_TOTAL_DOCUMENTS = 6;
+const MAX_TOTAL_DOCUMENTS = 16;
 
 // `attachmentType` is free text set per-requirement by staff (see the
 // Requirements Engine) and is usually left empty, so passport-specific
@@ -258,6 +292,11 @@ export function ServiceIntakeWizard({
   const [name, setName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [email, setEmail] = React.useState("");
+  // Umrah only: the guarantor's phone (required) and an optional second
+  // contact person (checked again server-side, umrah/umrah-packages.js).
+  const [guarantorPhone, setGuarantorPhone] = React.useState("");
+  const [extraContactName, setExtraContactName] = React.useState("");
+  const [extraContactPhone, setExtraContactPhone] = React.useState("");
 
   // Service details (step "details")
   const [travelDate, setTravelDate] = React.useState("");
@@ -300,7 +339,26 @@ export function ServiceIntakeWizard({
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState("");
-  const [result, setResult] = React.useState<{ id: string } | null>(null);
+  // Fixed-price confirmation (backend contact-request-pricing/fixed-price.js):
+  // the customer ticks the exact total + currency; the server recomputes it
+  // and answers 409 PRICE_CHANGED (new total in `details`) or
+  // PRICING_MODE_CHANGED (the item is now quoted) instead of creating.
+  const [priceConfirmed, setPriceConfirmed] = React.useState(false);
+  const [serverPrice, setServerPrice] = React.useState<{ itemId: string; total: number; currency: string } | null>(null);
+  const [quotedNow, setQuotedNow] = React.useState<string | null>(null);
+  // `fixed` is set only when a confirmed total was sent and accepted (the
+  // server records such a request as FIXED or refuses it with 409).
+  const [result, setResult] = React.useState<{
+    id: string;
+    fixed?: { total: number; currency: string; afterDocuments: boolean } | null;
+    // Fixed price with payment open now: the payment step comes next
+    // (request-payment-step.tsx), then the confirmation.
+    paymentAccess?: PaymentAccess | null;
+  } | null>(null);
+  const [payment, setPayment] = React.useState<{ summary: PaymentSummary | null; outcome: "RECEIPT_SENT" | "LATER" } | null>(null);
+  const submissionKeyRef = React.useRef<string>("");
+  const [resumedPayment, setResumedPayment] = React.useState(false);
+  const submittingRef = React.useRef(false);
   const [copiedRequestNumber, setCopiedRequestNumber] = React.useState(false);
 
   // Draft save/resume (per-browser, via localStorage — no account or
@@ -331,6 +389,9 @@ export function ServiceIntakeWizard({
     travelerCount: number;
     travelers: Traveler[];
     notes: string;
+    guarantorPhone?: string;
+    extraContactName?: string;
+    extraContactPhone?: string;
     // Smart Case Operations — Release A/B. Answer-type requirements are
     // part of what the customer has filled in, so a resumed draft that
     // dropped them would silently lose work.
@@ -404,6 +465,9 @@ export function ServiceIntakeWizard({
       travelerCount,
       travelers,
       notes,
+      guarantorPhone,
+      extraContactName,
+      extraContactPhone,
       answers,
     };
     // A completely untouched form has nothing worth saving yet.
@@ -417,7 +481,7 @@ export function ServiceIntakeWizard({
       // Storage can legitimately be unavailable (private browsing, quota) —
       // the wizard must keep working without persistence either way.
     }
-  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, answers, result]);
+  }, [draftKey, step, selectedServiceId, selectedVisaTypeId, name, phone, email, travelDate, travelerCount, travelers, notes, guarantorPhone, extraContactName, extraContactPhone, answers, result]);
 
   // Mirrors the local draft to the server, debounced so typing doesn't
   // produce a request per keystroke. Every failure path here is silent by
@@ -571,6 +635,9 @@ export function ServiceIntakeWizard({
     setTravelerCount(draft.travelerCount || 1);
     setTravelers(draft.travelers?.length ? draft.travelers : [{ fullName: "", passportNo: "", nationality: "" }]);
     setNotes(draft.notes || "");
+    setGuarantorPhone(draft.guarantorPhone || "");
+    setExtraContactName(draft.extraContactName || "");
+    setExtraContactPhone(draft.extraContactPhone || "");
     setAnswers(draft.answers || {});
     setStep(Math.max(0, draft.step || 0));
     setDraftAvailable(false);
@@ -597,10 +664,22 @@ export function ServiceIntakeWizard({
     if (!result) return;
     try {
       window.localStorage.removeItem(draftKey);
+      // The server draft too: otherwise a refresh would offer to resume
+      // (and resend) a request that already exists.
+      window.localStorage.removeItem(serverDraftKey);
     } catch {
       // ignore
     }
-  }, [result, draftKey]);
+    serverDraftTokenRef.current = null;
+  }, [result, draftKey, serverDraftKey]);
+
+  // A refresh during the payment step: back to that step, never the form.
+  React.useEffect(() => {
+    const pending = readPendingPayment(draftKey);
+    if (!pending) return;
+    setResult({ id: pending.requestId, fixed: null, paymentAccess: pending.access });
+    setResumedPayment(true);
+  }, [draftKey]);
 
   React.useEffect(() => {
     let ignore = false;
@@ -610,8 +689,13 @@ export function ServiceIntakeWizard({
       ? `${API_URL}/services/public/packages`
       : `${API_URL}/services/public${query}`;
 
-    fetch(catalogUrl)
-      .then((res) => res.json())
+    // fetch has no timeout of its own: a hanging API would leave the customer
+    // on an endless spinner. After 20 s the error (with its retry hint) shows.
+    fetch(catalogUrl, { signal: AbortSignal.timeout(20_000) })
+      .then((res) => {
+        if (!res.ok) throw new Error(`catalog ${res.status}`);
+        return res.json();
+      })
       .then((payload) => {
         if (ignore) return;
         if (service === "package") {
@@ -619,7 +703,10 @@ export function ServiceIntakeWizard({
           setVisaTypes([]);
         } else {
           setServices(payload?.data?.services ?? []);
-          setVisaTypes(payload?.data?.visaTypes ?? []);
+          // Umrah has its own section: never offered as a visa type here
+          // (an explicit ?visaCategory=UMRAH request still gets it).
+          const allVisaTypes: PublicVisaType[] = payload?.data?.visaTypes ?? [];
+          setVisaTypes(visaCategory ? allVisaTypes : allVisaTypes.filter((visa) => visa.category !== "UMRAH"));
         }
       })
       .catch(() => {
@@ -664,6 +751,18 @@ export function ServiceIntakeWizard({
 
   const selectedPackage = packageServices.find((p) => p.id === effectiveServiceId);
   const selectedVisaType = visaTypes.find((v) => v.id === effectiveVisaTypeId);
+  // Same rule as the server: an Umrah service or package request (an Umrah
+  // visa type is not affected).
+  const needsGuarantor =
+    service === "umrah" ||
+    (service === "package" && ["UMRAH_PACKAGE", "umrah", "umrah_package"].includes(selectedPackage?.category ?? ""));
+  // Umrah with flight or sea services needs a preferred travel date (visa
+  // only: optional). Provisional, not a booking; same rule as the server
+  // (umrah-packages.js resolveUmrahTravel).
+  const umrahKind = needsGuarantor ? umrahPackageDetails(selectedPackage?.features).kind : null;
+  const travelDateRequired = umrahKind === "AIR" || umrahKind === "SEA";
+  const extraContactValid =
+    (!extraContactName.trim() && !extraContactPhone.trim()) || isValidContactPhone(extraContactPhone);
 
   // The single source of truth for the price shown to the customer is
   // whatever Pricing/Admin published against this Service/VisaType — never
@@ -673,6 +772,30 @@ export function ServiceIntakeWizard({
   const selectedPriceItem: PublicService | PublicVisaType | undefined =
     service === "umrah" ? umrahService : service === "package" ? selectedPackage : selectedVisaType;
   const hasPublishedPrice = Boolean(selectedPriceItem && Number(selectedPriceItem.basePrice) > 0);
+
+  // Same arithmetic as the server (fixed-price.js billableUnits/fixedTotal):
+  // per-traveler items count max(named travelers, declared count, 1).
+  const priceUnits =
+    selectedPriceItem?.priceUnit === "PER_TRAVELER" ? Math.max(filledTravelers.length, travelerCount, 1) : 1;
+  const isFixedPrice = Boolean(
+    hasPublishedPrice && selectedPriceItem?.pricingMode === "FIXED" && quotedNow !== selectedPriceItem?.id
+  );
+  const fixedPrice =
+    isFixedPrice && selectedPriceItem
+      ? serverPrice && serverPrice.itemId === selectedPriceItem.id
+        ? { total: serverPrice.total, currency: serverPrice.currency }
+        : {
+            total: Math.round(Number(selectedPriceItem.basePrice) * priceUnits * 100) / 100,
+            currency: selectedPriceItem.currency || "SAR",
+          }
+      : null;
+  const estimateUnits = selectedPriceItem?.priceUnit === "PER_REQUEST" ? 1 : travelerCount;
+  // SDG equivalent of the fixed total, only from the agency's active exchange
+  // rate (fxRateToSdg is null without one — never a default rate).
+  const fixedSdg =
+    fixedPrice && selectedPriceItem && fixedPrice.currency !== "SDG" && Number(selectedPriceItem.fxRateToSdg) > 0 && fixedPrice.currency === selectedPriceItem.currency
+      ? `${Math.round(fixedPrice.total * Number(selectedPriceItem.fxRateToSdg)).toLocaleString("en-US")} SDG`
+      : "";
 
   // Umrah and Package are Services; Visa uses the selected VisaType — each
   // has its own Requirements Engine endpoint (both backed by the same
@@ -744,6 +867,13 @@ export function ServiceIntakeWizard({
       return [{ key, requirement, travelerIndex: null, files: documentFilesBySlotKey[key] ?? [] }];
     });
   const answerSlots: PublicRequirement[] = applicableRequirements.filter((r) => r.type !== "DOCUMENT");
+  // Issue #103: the passport photo the traveler form can read. Without an
+  // OCR-enabled document requirement the server never reads an upload, so
+  // the scan button is not offered and the customer types the data.
+  const passportScanRequirement =
+    applicableRequirements.find((r) => r.type === "DOCUMENT" && r.ocrEnabled && r.scope === "TRAVELER") ??
+    applicableRequirements.find((r) => r.type === "DOCUMENT" && r.ocrEnabled) ??
+    null;
 
   const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
 
@@ -865,7 +995,7 @@ export function ServiceIntakeWizard({
   const steps = service === "umrah"
     ? ["customer", "details", "documents", "review"]
     : service === "package"
-      ? ["select", "trip", "customer", "details", "documents", "review"]
+      ? ["select", "customer", "trip", "details", "documents", "review"]
       : ["select", "customer", "details", "documents", "review"];
 
   function updateTravelerCount(count: number) {
@@ -943,19 +1073,50 @@ export function ServiceIntakeWizard({
   }
 
   async function scanPassport(index: number, file: File) {
+    if (!passportScanRequirement) return;
     setScanningTraveler(index);
     setScanMessageByTraveler((current) => ({ ...current, [index]: "" }));
 
     try {
       const token = await ensureServerDraftToken();
+      // The server runs OCR only for an upload tagged with an OCR-enabled
+      // requirement of the draft's own service, so the draft must name the
+      // service even when it was preselected from the URL.
+      await fetch(`${API_URL}/intake-drafts/${token}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          serviceKind: service,
+          serviceId: effectiveServiceId || undefined,
+          visaTypeId: effectiveVisaTypeId || undefined,
+        }),
+      });
       const body = new FormData();
       body.append("label", "جواز السفر");
+      body.append("requirementId", passportScanRequirement.id);
       body.append("travelerIndex", String(index));
       body.append("file", file);
 
       const res = await fetch(`${API_URL}/intake-drafts/${token}/documents`, { method: "POST", body });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.message || "تعذّرت قراءة الجواز");
+
+      // The draft copy existed only to be read. The request is submitted with
+      // the files attached in the documents step, so remove it rather than
+      // keep a second stored passport image.
+      const draftDocumentId = payload?.data?.id;
+      if (draftDocumentId) {
+        void fetch(`${API_URL}/intake-drafts/${token}/documents/${draftDocumentId}`, { method: "DELETE" }).catch(() => {});
+      }
+
+      // Offer the same photo as this traveler's passport document, unless the
+      // customer already attached one there.
+      const namedBefore = travelers.slice(0, index).filter((t) => t.fullName.trim()).length;
+      const slotKey =
+        passportScanRequirement.scope === "TRAVELER" ? `${passportScanRequirement.id}::${namedBefore}` : passportScanRequirement.id;
+      if (!(documentFilesBySlotKey[slotKey]?.length) && !validateDocumentFile(passportScanRequirement, file)) {
+        addDocumentFile(slotKey, passportScanRequirement, file);
+      }
 
       const ocr = payload?.data?.ocrResult;
       if (!ocr?.documentNumber) {
@@ -969,16 +1130,22 @@ export function ServiceIntakeWizard({
       }
 
       const fullName = [ocr.givenNames, ocr.surname].filter(Boolean).join(" ").trim();
+      const gender = mrzSexToGender(ocr.sex);
       updateTraveler(index, {
+        ocrPending: true,
+        ocrConfirmed: false,
         // Never overwrite something the customer already typed — a scan is
         // an offer to save them work, not a correction of their own input.
         ...(fullName && !travelers[index]?.fullName ? { fullName } : {}),
         ...(ocr.documentNumber && !travelers[index]?.passportNo ? { passportNo: ocr.documentNumber } : {}),
         ...(ocr.nationality && !travelers[index]?.nationality ? { nationality: ocr.nationality } : {}),
+        ...(ocr.dateOfBirth && !travelers[index]?.birthDate ? { birthDate: ocr.dateOfBirth } : {}),
+        ...(gender && !travelers[index]?.gender ? { gender } : {}),
+        ...(ocr.expirationDate && !travelers[index]?.passportExpiry ? { passportExpiry: ocr.expirationDate } : {}),
       });
       setScanMessageByTraveler((current) => ({
         ...current,
-        [index]: "تمت قراءة بيانات الجواز — يرجى مراجعتها وتصحيح أي خطأ قبل المتابعة.",
+        [index]: "تمت قراءة بيانات الجواز — راجعها وصحّح أي خطأ، ثم أكّد المراجعة للمتابعة.",
       }));
     } catch (err) {
       setScanMessageByTraveler((current) => ({
@@ -990,9 +1157,15 @@ export function ServiceIntakeWizard({
     }
   }
 
+  const duplicatePassports = React.useMemo(() => duplicatePassportIndexes(travelers), [travelers]);
+
   function updateTraveler(index: number, patch: Partial<Traveler>) {
     setTravelers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
   }
+
+  React.useEffect(() => {
+    setPriceConfirmed(false);
+  }, [fixedPrice?.total, fixedPrice?.currency]);
 
   function canGoNext() {
     const current = steps[step];
@@ -1002,11 +1175,16 @@ export function ServiceIntakeWizard({
     }
 
     if (current === "trip") {
-      return travelerCount >= 1;
+      return travelerCount >= 1 && (!travelDateRequired || Boolean(travelDate));
     }
 
     if (current === "customer") {
-      return name.trim().length >= 2 && phone.trim().length >= 6;
+      const contactOk = name.trim().length >= 2 && phone.trim().length >= 6;
+      return needsGuarantor ? contactOk && isValidContactPhone(guarantorPhone) && extraContactValid : contactOk;
+    }
+
+    if (current === "details") {
+      return !travelers.some((t) => t.ocrPending) && duplicatePassports.size === 0;
     }
 
     return true;
@@ -1024,14 +1202,28 @@ export function ServiceIntakeWizard({
   }
 
   async function handleSubmit() {
+    // A second tap while the first submission is in flight sends nothing.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmitError("");
+    if (!submissionKeyRef.current) submissionKeyRef.current = newSubmissionKey();
 
     try {
       const formData = new FormData();
       formData.append("name", name);
       formData.append("phone", phone);
       if (email) formData.append("email", email);
+      if (needsGuarantor) {
+        formData.append("guarantorPhone", guarantorPhone.trim());
+        // Always sent for Umrah (empty when not given): the server requires it
+        // for flight/sea packages from this form.
+        formData.append("preferredTravelDate", travelDate);
+        if (extraContactPhone.trim()) {
+          formData.append("extraContactName", extraContactName.trim());
+          formData.append("extraContactPhone", extraContactPhone.trim());
+        }
+      }
 
       const serviceLabel =
         service === "umrah"
@@ -1054,11 +1246,24 @@ export function ServiceIntakeWizard({
       }
 
       formData.append("travelerCount", String(travelerCount));
+      formData.append("submissionKey", submissionKeyRef.current);
+      if (fixedPrice && priceConfirmed) {
+        formData.append("acceptedTotal", fixedPrice.total.toFixed(2));
+        formData.append("acceptedCurrency", fixedPrice.currency);
+      }
 
       formData.append(
         "intakeData",
         JSON.stringify({
-          travelers: filledTravelers,
+          travelers: filledTravelers.map((t) => ({
+            fullName: t.fullName,
+            passportNo: t.passportNo,
+            nationality: t.nationality,
+            ...(t.birthDate ? { birthDate: t.birthDate } : {}),
+            ...(t.gender ? { gender: t.gender } : {}),
+            ...(t.passportExpiry ? { passportExpiry: t.passportExpiry } : {}),
+            ...(t.ocrConfirmed ? { ocrConfirmed: true } : {}),
+          })),
           travelDate: travelDate || undefined,
           notes: notes.trim() || undefined,
         })
@@ -1071,7 +1276,7 @@ export function ServiceIntakeWizard({
       if (filledTravelers.length > 0) {
         formData.append(
           "travelers",
-          JSON.stringify(filledTravelers.map((t) => ({ fullName: t.fullName, passportNo: t.passportNo || undefined, nationality: t.nationality || undefined })))
+          JSON.stringify(filledTravelers.map((t) => ({ fullName: t.fullName, passportNo: t.passportNo || undefined, nationality: t.nationality || undefined, birthDate: t.birthDate || undefined, gender: t.gender || undefined })))
         );
       }
       if (Object.keys(answers).length > 0) {
@@ -1115,18 +1320,57 @@ export function ServiceIntakeWizard({
       const payload = await response.json().catch(() => null);
 
       if (!response.ok) {
+        if (response.status === 409 && payload?.code === "PRICE_CHANGED" && payload.details && selectedPriceItem) {
+          setServerPrice({
+            itemId: selectedPriceItem.id,
+            total: Number(payload.details.total),
+            currency: String(payload.details.currency),
+          });
+          setPriceConfirmed(false);
+        } else if (response.status === 409 && payload?.code === "PRICING_MODE_CHANGED" && selectedPriceItem) {
+          setQuotedNow(selectedPriceItem.id);
+          setPriceConfirmed(false);
+        }
         throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
       }
 
-      setResult({ id: payload.data.id });
+      const paymentAccess: PaymentAccess | null =
+        payload.data.paymentAccess?.token && !selectedPriceItem?.paymentAfterDocumentReview ? payload.data.paymentAccess : null;
+      if (paymentAccess) savePendingPayment(draftKey, { requestId: payload.data.id, access: paymentAccess });
+      setResult({
+        id: payload.data.id,
+        fixed:
+          fixedPrice && priceConfirmed
+            ? { ...fixedPrice, afterDocuments: Boolean(selectedPriceItem?.paymentAfterDocumentReview) }
+            : null,
+        paymentAccess,
+      });
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "تعذّر إرسال طلبك، حاول مرة أخرى");
+      // A dropped connection keeps the same submissionKey: a retry returns
+      // the request the server may already have created, never a second one.
+      setSubmitError(customerErrorMessage(error, "تعذّر إرسال طلبك، حاول مرة أخرى"));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
+  if (result && result.paymentAccess && !payment) {
+    return (
+      <RequestPaymentStep
+        requestId={result.id}
+        access={result.paymentAccess}
+        resumed={resumedPayment}
+        onFinished={(summary, outcome) => {
+          clearPendingPayment(draftKey);
+          setPayment({ summary, outcome });
+        }}
+      />
+    );
+  }
+
   if (result) {
+    const paidNow = payment?.outcome === "RECEIPT_SENT";
     return (
       <div className="mx-auto max-w-lg rounded-3xl border border-success/30 bg-success/5 p-10 text-center">
         <CheckCircle2 className="mx-auto size-14 text-success" />
@@ -1154,15 +1398,57 @@ export function ServiceIntakeWizard({
               </button>
             </div>
           </div>
+          {payment?.summary ? (
+            <>
+              <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">حالة الطلب</span>
+                <span className="font-semibold text-foreground" data-testid="request-status">{payment.summary.statusLabel}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">حالة الدفع</span>
+                <span className="font-semibold text-foreground" data-testid="payment-status">{payment.summary.paymentStatusLabel}</span>
+              </div>
+            </>
+          ) : null}
         </div>
         <div className="mt-4 rounded-2xl border border-border bg-background p-5 text-start">
           <h3 className="text-sm font-bold text-foreground">ماذا سيحدث الآن؟</h3>
-          <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
-            <li><span className="font-semibold text-foreground">1.</span> سنراجع بيانات طلبك والمستندات المرفقة.</li>
-            <li><span className="font-semibold text-foreground">2.</span> سيتواصل معك فريقنا عند الحاجة إلى معلومة أو مستند إضافي.</li>
-            <li><span className="font-semibold text-foreground">3.</span> يمكنك متابعة الحالة باستخدام رقم الطلب من صفحة التتبع.</li>
-          </ol>
-          <p className="mt-3 text-xs text-muted-foreground">هذا طلب خدمة أولي، وليس عملية دفع أو طلبًا مؤكدًا داخل حساب العميل.</p>
+          {paidNow ? (
+            <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+              <li><span className="font-semibold text-foreground">1.</span> وصل إشعار التحويل، وحالة الدفع الآن «بانتظار مراجعة التحويل».</li>
+              <li><span className="font-semibold text-foreground">2.</span> يراجع موظف مختص التحويل ويؤكد السداد، ويصلك إشعار عند تغيّر الحالة.</li>
+              <li><span className="font-semibold text-foreground">3.</span> بعد تأكيد السداد يبدأ التنفيذ، وتتابع كل مرحلة برقم الطلب.</li>
+            </ol>
+          ) : result.fixed ? (
+            <>
+              <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+                <li>
+                  <span className="font-semibold text-foreground">1.</span> اعتمدت السعر الثابت{" "}
+                  <span dir="ltr" className="font-semibold text-foreground">
+                    {result.fixed.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {result.fixed.currency}
+                  </span>
+                  ؛ لن يصلك عرض سعر آخر.
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">2.</span>{" "}
+                  {result.fixed.afterDocuments
+                    ? "سنراجع مستنداتك أولًا، وبعد اعتمادها تُفتح خطوة الدفع بالسعر نفسه."
+                    : "خطوة الدفع مفتوحة: حوّل المبلغ إلى أحد حسابات الوكالة، ثم ارفع إشعار التحويل من صفحة التتبع."}
+                </li>
+                <li><span className="font-semibold text-foreground">3.</span> يبدأ التنفيذ بعد تأكيد الوكالة لاستلام المبلغ، وتتابع كل مرحلة برقم الطلب.</li>
+              </ol>
+              <p className="mt-3 text-xs text-muted-foreground">لا تحوّل أي مبلغ إلا إلى حسابات الوكالة الظاهرة في صفحة التتبع.</p>
+            </>
+          ) : (
+            <>
+              <ol className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+                <li><span className="font-semibold text-foreground">1.</span> سنراجع بيانات طلبك والمستندات المرفقة.</li>
+                <li><span className="font-semibold text-foreground">2.</span> سيتواصل معك فريقنا عند الحاجة إلى معلومة أو مستند إضافي.</li>
+                <li><span className="font-semibold text-foreground">3.</span> يمكنك متابعة الحالة باستخدام رقم الطلب من صفحة التتبع.</li>
+              </ol>
+              <p className="mt-3 text-xs text-muted-foreground">هذا طلب خدمة أولي، وليس عملية دفع أو طلبًا مؤكدًا داخل حساب العميل.</p>
+            </>
+          )}
         </div>
         <Button asChild variant="gold" size="lg" className="mt-6 w-full">
           <Link href="/track">تابع طلبك من هنا</Link>
@@ -1257,21 +1543,27 @@ export function ServiceIntakeWizard({
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-bold text-foreground">{item.name}</span>
+                    <span className="font-bold text-foreground" data-testid="intake-option-name">{item.name}</span>
                     {service !== "package" ? (
                       <span className="text-xs text-muted-foreground">{(item as PublicVisaType).country}</span>
                     ) : null}
                   </div>
-                  {Number(item.basePrice) > 0 ? (
-                    <span className="mt-1 block text-xs text-muted-foreground" dir="ltr">
-                      يبدأ من {Number(item.basePrice).toLocaleString("en-US")} {item.currency}
-                    </span>
-                  ) : null}
-                  {Number(item.basePrice) > 0 && item.currency !== "SDG" && item.priceSdg != null ? (
-                    <span className="mt-1 block text-xs font-bold text-primary">
-                      يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
-                    </span>
-                  ) : null}
+                  {service === "package" ? (
+                    <PackageOptionDetails item={item as PublicService} />
+                  ) : (
+                    <>
+                      {Number(item.basePrice) > 0 ? (
+                        <span className="mt-1 block text-xs text-muted-foreground" dir="ltr">
+                          يبدأ من {Number(item.basePrice).toLocaleString("en-US")} {item.currency}
+                        </span>
+                      ) : null}
+                      {Number(item.basePrice) > 0 && item.currency !== "SDG" && item.priceSdg != null ? (
+                        <span className="mt-1 block text-xs font-bold text-primary">
+                          يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                 </button>
               );
             })}
@@ -1288,18 +1580,33 @@ export function ServiceIntakeWizard({
       {current === "trip" ? (
         <StepShell
           title="متى ترغب في أداء العمرة؟"
-          description="حدد عدد المسافرين، ويمكنك إضافة تاريخ السفر المتوقع الآن أو تركه لوقت لاحق."
+          description={
+            needsGuarantor
+              ? "حدد عدد المعتمرين وتاريخ السفر المفضل. التاريخ مبدئي وليس حجزًا مؤكدًا؛ تؤكد الوكالة الموعد لاحقًا."
+              : "حدد عدد المسافرين، ويمكنك إضافة تاريخ السفر المتوقع الآن أو تركه لوقت لاحق."
+          }
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <label className={labelClass}>تاريخ السفر المتوقع (اختياري)</label>
+              <label className={labelClass} htmlFor="wizard-travel-date">
+                {needsGuarantor ? "تاريخ السفر المفضل" : "تاريخ السفر المتوقع"}
+                {travelDateRequired ? " *" : " (اختياري)"}
+              </label>
               <input
+                id="wizard-travel-date"
                 type="date"
+                required={travelDateRequired}
                 min={new Date().toISOString().slice(0, 10)}
                 value={travelDate}
                 onChange={(e) => setTravelDate(e.target.value)}
                 className={inputClass}
+                data-testid="wizard-travel-date"
               />
+              {needsGuarantor ? (
+                <p className="text-xs text-muted-foreground" data-testid="wizard-travel-date-note">
+                  تاريخ مبدئي وليس حجزًا مؤكدًا.
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-col gap-1.5">
               <label className={labelClass}>عدد المسافرين</label>
@@ -1323,10 +1630,13 @@ export function ServiceIntakeWizard({
       ) : null}
 
       {current === "customer" ? (
-        <StepShell title="بيانات العميل" description="سنستخدمها للتواصل معك بخصوص طلبك.">
+        <StepShell
+          title={needsGuarantor ? "بيانات مقدم الطلب والضامن" : "بيانات العميل"}
+          description={needsGuarantor ? "بيانات التواصل معك ومع الضامن المقيم في السعودية." : "سنستخدمها للتواصل معك بخصوص طلبك."}
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <label className={labelClass}>الاسم الكامل</label>
+              <label className={labelClass}>{needsGuarantor ? "اسم مقدم الطلب" : "الاسم الكامل"}</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -1355,6 +1665,55 @@ export function ServiceIntakeWizard({
                 placeholder="example@email.com"
               />
             </div>
+            {needsGuarantor ? (
+              <>
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <label className={labelClass} htmlFor="umrah-guarantor-phone">رقم هاتف الضامن</label>
+                  <input
+                    id="umrah-guarantor-phone"
+                    data-testid="umrah-guarantor-phone"
+                    value={guarantorPhone}
+                    onChange={(e) => setGuarantorPhone(e.target.value)}
+                    type="tel"
+                    dir="ltr"
+                    required
+                    className={`${inputClass} text-end`}
+                    placeholder="+966 5X XXX XXXX"
+                  />
+                  <span className="text-xs text-muted-foreground">مطلوب: صاحب الإقامة التي ترفعها في خطوة المستندات.</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className={labelClass} htmlFor="umrah-extra-name">جهة اتصال إضافية (اختياري)</label>
+                  <input
+                    id="umrah-extra-name"
+                    data-testid="umrah-extra-contact-name"
+                    value={extraContactName}
+                    onChange={(e) => setExtraContactName(e.target.value)}
+                    className={inputClass}
+                    placeholder="الاسم"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className={labelClass} htmlFor="umrah-extra-phone">هاتف جهة الاتصال الإضافية</label>
+                  <input
+                    id="umrah-extra-phone"
+                    data-testid="umrah-extra-contact-phone"
+                    value={extraContactPhone}
+                    onChange={(e) => setExtraContactPhone(e.target.value)}
+                    type="tel"
+                    dir="ltr"
+                    className={`${inputClass} text-end`}
+                    placeholder="رقم الهاتف"
+                  />
+                </div>
+                {guarantorPhone.trim() && !isValidContactPhone(guarantorPhone) ? (
+                  <p className="text-xs font-semibold text-destructive sm:col-span-2">رقم هاتف الضامن غير صحيح.</p>
+                ) : null}
+                {!extraContactValid ? (
+                  <p className="text-xs font-semibold text-destructive sm:col-span-2">أدخل رقم هاتف صحيحًا لجهة الاتصال الإضافية أو اترك الحقلين فارغين.</p>
+                ) : null}
+              </>
+            ) : null}
           </div>
           <StepNav
             onBack={() => setStep((s) => s - 1)}
@@ -1402,8 +1761,41 @@ export function ServiceIntakeWizard({
                     placeholder="الجنسية (اختياري)"
                     className={`${inputClass} h-10 text-xs`}
                   />
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    تاريخ الميلاد (اختياري)
+                    <input
+                      type="date"
+                      value={traveler.birthDate ?? ""}
+                      onChange={(e) => updateTraveler(index, { birthDate: e.target.value })}
+                      data-testid={`traveler-birth-date-${index}`}
+                      className={`${inputClass} h-10 text-xs`}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    الجنس (اختياري)
+                    <select
+                      value={traveler.gender ?? ""}
+                      onChange={(e) => updateTraveler(index, { gender: (e.target.value || undefined) as Traveler["gender"] })}
+                      data-testid={`traveler-gender-${index}`}
+                      className={`${inputClass} h-10 text-xs`}
+                    >
+                      <option value="">—</option>
+                      <option value="MALE">ذكر</option>
+                      <option value="FEMALE">أنثى</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                    تاريخ انتهاء الجواز (اختياري)
+                    <input
+                      type="date"
+                      value={traveler.passportExpiry ?? ""}
+                      onChange={(e) => updateTraveler(index, { passportExpiry: e.target.value })}
+                      data-testid={`traveler-passport-expiry-${index}`}
+                      className={`${inputClass} h-10 text-xs`}
+                    />
+                  </label>
                   <div className="sm:col-span-3">
-                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
+                      {passportScanRequirement ? <label data-testid={`passport-scan-${index}`} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted">
                         {scanningTraveler === index ? "جارٍ قراءة الجواز…" : "تعبئة البيانات من صورة الجواز"}
                         <input
                           type="file"
@@ -1416,9 +1808,31 @@ export function ServiceIntakeWizard({
                             if (file) void scanPassport(index, file);
                           }}
                         />
-                      </label>
+                      </label> : null}
                     {scanMessageByTraveler[index] ? (
                       <p className="mt-1 text-xs text-muted-foreground">{scanMessageByTraveler[index]}</p>
+                    ) : null}
+                    {traveler.ocrPending || traveler.ocrConfirmed ? (
+                      <label className="mt-2 flex items-start gap-2 rounded-lg border border-accent/50 bg-accent/5 p-2 text-xs font-semibold text-foreground">
+                        <input
+                          type="checkbox"
+                          data-testid={`passport-review-confirm-${index}`}
+                          className="mt-0.5"
+                          checked={Boolean(traveler.ocrConfirmed)}
+                          onChange={(e) => updateTraveler(index, { ocrPending: !e.target.checked, ocrConfirmed: e.target.checked })}
+                        />
+                        راجعتُ البيانات المقروءة من الجواز وهي مطابقة للجواز.
+                      </label>
+                    ) : null}
+                    {duplicatePassports.has(index) ? (
+                      <p role="alert" data-testid={`passport-duplicate-${index}`} className="mt-1 text-xs font-semibold text-destructive">
+                        رقم الجواز هذا مُدخل لمسافر آخر في الطلب نفسه — صحّح أحدهما للمتابعة.
+                      </p>
+                    ) : null}
+                    {passportValidityWarning(traveler.passportExpiry, travelDate) ? (
+                      <p data-testid={`passport-validity-warning-${index}`} className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        {passportValidityWarning(traveler.passportExpiry, travelDate)}
+                      </p>
                     ) : null}
                   </div>
                 </div>
@@ -1439,6 +1853,7 @@ export function ServiceIntakeWizard({
           <StepNav
             onBack={() => setStep((s) => s - 1)}
             onNext={() => setStep((s) => s + 1)}
+            nextDisabled={!canGoNext()}
           />
         </StepShell>
       ) : null}
@@ -1570,12 +1985,27 @@ export function ServiceIntakeWizard({
                 <span>{name}</span>
                 <span dir="ltr">{phone}</span>
                 {email ? <span>{email}</span> : null}
+                {needsGuarantor ? (
+                  <span data-testid="review-guarantor-phone">
+                    هاتف الضامن: <span dir="ltr">{guarantorPhone}</span>
+                  </span>
+                ) : null}
+                {needsGuarantor && extraContactPhone.trim() ? (
+                  <span>
+                    جهة اتصال إضافية: {extraContactName.trim() ? `${extraContactName.trim()} — ` : ""}
+                    <span dir="ltr">{extraContactPhone}</span>
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="rounded-xl border border-border/70 p-4">
               <span className="font-bold text-foreground">تفاصيل الرحلة</span>
               <div className="mt-2 flex flex-col gap-1 text-muted-foreground">
-                {travelDate ? <span>تاريخ السفر المتوقع: {travelDate}</span> : null}
+                {travelDate ? (
+                  <span data-testid="review-travel-date">
+                    {needsGuarantor ? `تاريخ السفر المفضل (مبدئي، ليس حجزًا مؤكدًا): ${travelDate}` : `تاريخ السفر المتوقع: ${travelDate}`}
+                  </span>
+                ) : null}
                 <span>عدد المسافرين: {travelerCount}</span>
                 {travelers
                   .filter((t) => t.fullName.trim())
@@ -1588,9 +2018,56 @@ export function ServiceIntakeWizard({
             <div className="rounded-xl border border-accent/40 bg-accent/5 p-4">
               <span className="font-bold text-foreground">التكلفة</span>
               <div className="mt-2 flex flex-col gap-1.5">
-                {hasPublishedPrice && selectedPriceItem ? (
+                {fixedPrice && selectedPriceItem ? (
                   <>
-                    {travelerCount > 1 ? (
+                    {priceUnits > 1 ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>سعر الفرد × {priceUnits}</span>
+                        <span dir="ltr">
+                          {Number(selectedPriceItem.basePrice).toLocaleString("en-US")} {selectedPriceItem.currency}
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">الإجمالي النهائي</span>
+                      <span className="font-bold text-foreground" dir="ltr" data-testid="fixed-total">
+                        {fixedPrice.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {fixedPrice.currency}
+                      </span>
+                    </div>
+                    {fixedSdg ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground" data-testid="fixed-total-sdg">
+                        <span>ما يعادل بالجنيه السوداني</span>
+                        <span dir="ltr">{fixedSdg}</span>
+                      </div>
+                    ) : fixedPrice.currency !== "SDG" ? (
+                      <p className="text-[11px] text-muted-foreground">المقابل بالجنيه السوداني غير متاح حاليًا؛ الدفع بالعملة الظاهرة.</p>
+                    ) : null}
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      سعر ثابت معتمد من الإدارة، بلا عرض سعر لاحق.
+                      {selectedPriceItem.paymentAfterDocumentReview
+                        ? " تُفتح خطوة الدفع بعد اعتماد مستنداتك، بالسعر نفسه."
+                        : " بعد التأكيد تنتقل مباشرة إلى الدفع: بيانات الحساب ورفع إشعار التحويل."}
+                    </p>
+                    <label className="mt-2 flex items-start gap-2 text-sm font-semibold text-foreground">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-4 accent-primary"
+                        checked={priceConfirmed}
+                        onChange={(e) => setPriceConfirmed(e.target.checked)}
+                        data-testid="confirm-fixed-total"
+                      />
+                      <span>
+                        أؤكد الإجمالي النهائي{" "}
+                        <span dir="ltr">
+                          {fixedPrice.total.toLocaleString("en-US", { maximumFractionDigits: 2 })} {fixedPrice.currency}
+                        </span>{" "}
+                        وعملته
+                      </span>
+                    </label>
+                  </>
+                ) : hasPublishedPrice && selectedPriceItem ? (
+                  <>
+                    {estimateUnits > 1 ? (
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>سعر الفرد</span>
                         <span dir="ltr">
@@ -1599,9 +2076,9 @@ export function ServiceIntakeWizard({
                       </div>
                     ) : null}
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">{travelerCount > 1 ? "الإجمالي" : "السعر"}</span>
+                      <span className="text-xs text-muted-foreground">{estimateUnits > 1 ? "الإجمالي التقديري" : "السعر"}</span>
                       <span className="font-bold text-foreground" dir="ltr">
-                        {(Number(selectedPriceItem.basePrice) * travelerCount).toLocaleString("en-US")}{" "}
+                        {(Number(selectedPriceItem.basePrice) * estimateUnits).toLocaleString("en-US")}{" "}
                         {selectedPriceItem.currency}
                       </span>
                     </div>
@@ -1609,12 +2086,12 @@ export function ServiceIntakeWizard({
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>السعر التقريبي بالجنيه</span>
                         <span dir="ltr">
-                          يعادل تقريبًا {Math.round(selectedPriceItem.priceSdg * travelerCount).toLocaleString("en-US")} ج.س
+                          يعادل تقريبًا {Math.round(selectedPriceItem.priceSdg * estimateUnits).toLocaleString("en-US")} ج.س
                         </span>
                       </div>
                     ) : null}
                     <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                      السعر المعروض من تسعير الإدارة الحالي، والمبلغ النهائي يُعتمد بعد مراجعة طلبك.
+                      السعر المعروض تقديري من تسعير الإدارة الحالي، والمبلغ النهائي يصلك في عرض سعر بعد مراجعة طلبك.
                     </p>
                   </>
                 ) : (
@@ -1652,9 +2129,9 @@ export function ServiceIntakeWizard({
               <ChevronRight className="size-4" />
               السابق
             </Button>
-            <Button type="button" variant="gold" onClick={handleSubmit} disabled={submitting}>
+            <Button type="button" variant="gold" onClick={handleSubmit} disabled={submitting || Boolean(fixedPrice && !priceConfirmed)}>
               {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-              {submitting ? "جارٍ الإرسال..." : "إرسال الطلب"}
+              {submitting ? "جارٍ الإرسال..." : fixedPrice && !selectedPriceItem?.paymentAfterDocumentReview ? "تأكيد ومتابعة إلى الدفع" : "إرسال الطلب"}
             </Button>
           </div>
         </StepShell>
@@ -1674,3 +2151,53 @@ export function ServiceIntakeWizard({
   );
 }
 
+
+// A package option on the selection step: its type (visa only / flights /
+// sea), the price (exact for a fixed price, per pilgrim or per request; a
+// "from" figure for a quoted one), the SDG equivalent only from the agency's
+// active exchange rate, and short lists of what is and is not included.
+function PackageOptionDetails({ item }: { item: PublicService }) {
+  const { kind, included, excluded } = umrahPackageDetails(item.features);
+  const price = Number(item.basePrice);
+  const fixed = item.pricingMode === "FIXED" && price > 0;
+  const perTraveler = item.priceUnit === "PER_TRAVELER";
+  return (
+    <div className="mt-2 flex flex-col gap-1.5 text-xs" data-testid="package-option-details">
+      {kind ? (
+        <span className="w-fit rounded-full bg-primary/10 px-2.5 py-0.5 font-bold text-primary" data-testid="package-kind">
+          {UMRAH_KIND_LABELS[kind]}
+        </span>
+      ) : null}
+      {fixed ? (
+        <span className="font-bold text-foreground" data-testid="package-price">
+          السعر: <span dir="ltr">{price.toLocaleString("en-US")} {item.currency}</span>
+          {perTraveler ? " للمعتمر" : " للطلب"}
+        </span>
+      ) : price > 0 ? (
+        <span className="text-muted-foreground">
+          {/* The phrase stays right-to-left; only the amount is isolated as LTR. */}
+          يبدأ من <span dir="ltr">{price.toLocaleString("en-US")} {item.currency}</span>
+        </span>
+      ) : null}
+      {price > 0 && item.currency !== "SDG" ? (
+        item.priceSdg != null ? (
+          <span className="font-bold text-primary" data-testid="package-price-sdg">
+            يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
+          </span>
+        ) : fixed ? (
+          <span className="text-muted-foreground" data-testid="package-price-sdg">المقابل بالجنيه السوداني غير متاح حاليًا</span>
+        ) : null
+      ) : null}
+      {included.length ? (
+        <span className="text-foreground/80" data-testid="package-included">
+          يشمل: {included.join("، ")}
+        </span>
+      ) : null}
+      {excluded.length ? (
+        <span className="text-muted-foreground" data-testid="package-excluded">
+          لا يشمل: {excluded.join("، ")}
+        </span>
+      ) : null}
+    </div>
+  );
+}

@@ -3,6 +3,7 @@ import { icon } from "../icons.js";
 import * as auth from "../auth.js";
 import { ApiError } from "../api.js";
 import { go } from "../router.js";
+import { showOtpSupport } from "../otp-support.js";
 
 function applyFieldErrors(form, errors) {
   const fieldErrors = errors?.fieldErrors || {};
@@ -19,32 +20,46 @@ export function setOnAuthenticated(callback) {
   onAuthenticated = callback;
 }
 
-export function renderWelcomeScreen({ bodyEl }) {
+export function renderWelcomeScreen({ bodyEl, params = {} }) {
   bodyEl.innerHTML = `
     <div class="welcome-screen">
-      <div class="welcome-mark"><img src="assets/brand/logo-mark.png" alt="نسائم الحرمين" width="88" height="88"></div>
-      <h1>نسائم الحرمين</h1>
-      <p class="welcome-tagline">رحلتك للعمرة والسفر والتأشيرات، في مكان واحد موثوق.</p>
-      <div class="welcome-points">
-        <span>${icon("shield-check", { size: 18 })} بياناتك محمية ولا يراها إلا فريقنا</span>
-        <span>${icon("clock", { size: 18 })} تابع طلبك لحظة بلحظة</span>
-        <span>${icon("umrah", { size: 18 })} عمرة، طيران، تأشيرات، فنادق وبواخر</span>
+      <div class="welcome-top">
+        <button type="button" class="welcome-about chip-btn" id="welcomeAbout">${icon("info", { size: 16 })}<span>من نحن</span></button>
       </div>
-      <button class="primary" id="goLogin">تسجيل الدخول</button>
-      <button class="secondary" id="goRegister">إنشاء حساب جديد</button>
+      ${params.notice ? `<p class="session-notice" role="status">${esc(params.notice)}</p>` : ""}
+      <div class="welcome-hero">
+        <div class="welcome-mark pop-in"><img src="assets/brand/logo-mark.png" alt="شعار نسائم الحرمين" width="96" height="96"></div>
+        <h1 class="reveal" style="--i:1">نسائم الحرمين</h1>
+        <p class="welcome-sub reveal" style="--i:2">للسفر والسياحة</p>
+        <p class="welcome-tagline reveal" style="--i:3">رحلتك تبدأ معنا بثقة</p>
+        <p class="welcome-intro reveal" style="--i:4">العمرة والتأشيرات والطيران والبواخر في تطبيق واحد.</p>
+      </div>
+      <div class="welcome-actions">
+        <button class="primary welcome-login" id="goLogin">${icon("user", { size: 20 })}<span>تسجيل الدخول</span></button>
+        <button class="welcome-guest-cta" id="continueAsGuest">المتابعة كزائر</button>
+        <p class="welcome-guest-note">تقدّم طلبك وتتابعه برقم هاتفك، دون حساب.</p>
+        <div class="welcome-links">
+          <button type="button" class="link-btn" id="goRegister">إنشاء حساب</button>
+          <button type="button" class="link-btn" id="trackPrevious">تتبع طلب سابق</button>
+        </div>
+      </div>
     </div>
   `;
   bodyEl.querySelector("#goLogin").addEventListener("click", () => go("login", {}, { title: "تسجيل الدخول" }));
   bodyEl.querySelector("#goRegister").addEventListener("click", () => go("register", {}, { title: "إنشاء حساب" }));
+  bodyEl.querySelector("#welcomeAbout").addEventListener("click", () => go("about", {}, { title: "من نحن" }));
+  bodyEl.querySelector("#continueAsGuest").addEventListener("click", () => params.onContinueAsGuest?.());
+  bodyEl.querySelector("#trackPrevious").addEventListener("click", () => (params.onTrackRequest || params.onContinueAsGuest)?.());
 }
 
-export function renderLoginScreen({ bodyEl }) {
+export function renderLoginScreen({ bodyEl, params = {} }) {
   bodyEl.innerHTML = `
     <form id="loginForm" class="form auth-form" novalidate>
-      <p class="auth-intro">سجّل الدخول لمتابعة طلباتك وإرسال طلبات جديدة.</p>
+      ${params.notice ? `<p class="session-notice" role="status" id="loginNotice">${esc(params.notice)}</p>` : ""}
+      <p class="auth-intro">سجّل الدخول لعرض طلباتك وبياناتك المحفوظة. تقديم الطلبات ومتابعتها متاحة أيضًا دون حساب.</p>
       <label class="field">
         <span>رقم الهاتف أو البريد الإلكتروني *</span>
-        <input name="identifier" required autocomplete="username">
+        <input name="identifier" required autocomplete="username" value="${esc(params.identifier || "")}">
       </label>
       <label class="field">
         <span>كلمة المرور *</span>
@@ -106,12 +121,16 @@ export function renderRegisterScreen({ bodyEl }) {
           <button type="button" class="icon-btn toggle-password" data-target="registerPassword">${icon("eye", { size: 18 })}</button>
         </div>
       </label>
+      <p class="legal-consent">بإنشاء الحساب فإنك توافق على <button type="button" class="link-btn" data-legal="terms">الشروط والأحكام</button> و<button type="button" class="link-btn" data-legal="privacy">سياسة الخصوصية</button>.</p>
       <button type="submit" class="primary" id="registerSubmit">إنشاء الحساب</button>
       <p class="auth-switch">لديك حساب بالفعل؟ <button type="button" class="link-btn" id="toLogin">تسجيل الدخول</button></p>
     </form>
   `;
 
   wirePasswordToggle(bodyEl);
+  bodyEl.querySelectorAll("[data-legal]").forEach((btn) =>
+    btn.addEventListener("click", () => go("legal", { doc: btn.dataset.legal }, { title: btn.textContent }))
+  );
   bodyEl.querySelector("#toLogin").addEventListener("click", () => go("login", {}, { title: "تسجيل الدخول" }));
 
   const form = bodyEl.querySelector("#registerForm");
@@ -127,6 +146,12 @@ export function renderRegisterScreen({ bodyEl }) {
       onAuthenticated();
     } catch (error) {
       setLoading(submitBtn, false);
+      // The phone already has an account (also when a lost response hid a
+      // registration that did succeed): straight to sign-in with the number.
+      if (error instanceof ApiError && error.status === 409 && /الهاتف/.test(error.message || "")) {
+        go("login", { identifier: data.phone, notice: "هذا الرقم لديه حساب بالفعل. سجّل الدخول بكلمة المرور." }, { title: "تسجيل الدخول" });
+        return;
+      }
       if (error instanceof ApiError && error.errors) applyFieldErrors(form, error.errors);
       toast(error.message, { tone: "error" });
     }
@@ -142,6 +167,7 @@ export function renderForgotPasswordScreen({ bodyEl }) {
         <input name="phone" required inputmode="tel" autocomplete="tel">
       </label>
       <button type="submit" class="primary" id="forgotSubmit">إرسال رمز التحقق</button>
+      <div id="otpSupportSlot"></div>
     </form>
   `;
   const form = bodyEl.querySelector("#forgotForm");
@@ -152,11 +178,13 @@ export function renderForgotPasswordScreen({ bodyEl }) {
     setLoading(submitBtn, true, "جارٍ الإرسال…");
     try {
       await auth.requestPasswordReset(phone);
-      toast("إذا كان الرقم مسجلاً، سيصلك رمز التحقق عبر واتساب");
+      toast("إذا كان الرقم مسجلاً، طلبنا إرسال رمز التحقق إليه عبر واتساب");
       go("resetPassword", { phone }, { title: "تعيين كلمة مرور جديدة" });
     } catch (error) {
       setLoading(submitBtn, false);
-      toast(error.message, { tone: "error" });
+      if (!(await showOtpSupport(bodyEl.querySelector("#otpSupportSlot"), error, { context: "استعادة كلمة المرور" }))) {
+        toast(error.message, { tone: "error" });
+      }
     }
   });
 }

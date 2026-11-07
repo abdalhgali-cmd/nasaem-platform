@@ -1,7 +1,8 @@
 import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { app, request, loginAsSuperAdmin, uniqueSuffix, quoteVersion } from "./helpers/api.js";
+import prisma from "../src/config/database.js";
 
 // The public POST /api/contact-requests endpoint enforces a hard 5-per-window
 // rate limit shared across this whole test file's process (see
@@ -105,9 +106,7 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     );
     assert.equal(earlyMarkSentRes.status, 409);
 
-    const approveRes = await customerAgent.post(
-      `/api/tracking/requests/${contactRequestId}/invoice/approve`
-    );
+    const approveRes = await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) });
     assert.equal(approveRes.status, 200, JSON.stringify(approveRes.body));
 
     tracked = await fetchTracked(customerAgent, contactRequestId);
@@ -116,9 +115,7 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     assert.equal(tracked.statusLabel, "تمت الموافقة على السعر، بانتظار تحويل المبلغ");
 
     // Approving an already-approved invoice again is invalid, not a no-op.
-    const doubleApproveRes = await customerAgent.post(
-      `/api/tracking/requests/${contactRequestId}/invoice/approve`
-    );
+    const doubleApproveRes = await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) });
     assert.equal(doubleApproveRes.status, 409);
 
     // Staff can no longer touch the price once approved.
@@ -139,24 +136,36 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     // EMPLOYEE is allowed to quote, but not to confirm a payment.
     const employeeConfirmRes = await employeeAgent.post(
       `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    ).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(employeeConfirmRes.status, 403);
+
+    // Declared transfer, no receipt (AUDIT-00 G-05): confirming needs a
+    // written reason; without one nothing changes.
+    for (const body of [{}, { reason: "  ok " }]) {
+      const refused = await accountantAgent.post(`/api/contact-requests/${contactRequestId}/confirm-payment`).send(body);
+      assert.equal(refused.status, 409, JSON.stringify(refused.body));
+      assert.equal(refused.body.code, "RECEIPT_OR_REASON_REQUIRED");
+    }
+    assert.equal((await fetchTracked(customerAgent, contactRequestId)).paymentStatus, "UNDER_REVIEW");
 
     const confirmRes = await accountantAgent.post(
       `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    ).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(confirmRes.status, 200, JSON.stringify(confirmRes.body));
+    const audit = await prisma.activityLog.findFirst({ where: { entityId: contactRequestId, action: "CONTACT_REQUEST_PAYMENT_CONFIRMED" } });
+    assert.equal(audit.newValue.withoutReceipt, true);
+    assert.equal(audit.newValue.reason, "تمت المطابقة مع كشف البنك");
     assert.equal(confirmRes.body.data.paymentStatus, "CONFIRMED");
     assert.ok(confirmRes.body.data.paymentConfirmedAt);
 
     tracked = await fetchTracked(customerAgent, contactRequestId);
     assert.equal(tracked.paymentStatus, "CONFIRMED");
-    assert.equal(tracked.statusLabel, "تم قبول الدفع، بانتظار صدور التأشيرة");
+    assert.equal(tracked.statusLabel, "تم قبول الدفع، بانتظار بدء التنفيذ");
 
     // Confirming an already-confirmed payment is rejected, not a silent no-op.
     const doubleConfirmRes = await accountantAgent.post(
       `/api/contact-requests/${contactRequestId}/confirm-payment`
-    );
+    ).send({ reason: "تمت المطابقة مع كشف البنك" });
     assert.equal(doubleConfirmRes.status, 409);
   });
 
@@ -170,9 +179,7 @@ describe("contact request invoice + payment (customer approval flow)", () => {
 
     const customerAgent = await loginTrackingAgent(phone);
 
-    const rejectRes = await customerAgent.post(
-      `/api/tracking/requests/${contactRequestId}/invoice/reject`
-    );
+    const rejectRes = await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/reject`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) });
     assert.equal(rejectRes.status, 200);
 
     let tracked = await fetchTracked(customerAgent, contactRequestId);
@@ -180,9 +187,7 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     assert.equal(tracked.statusLabel, "تم رفض عرض السعر، بانتظار عرض جديد من فريقنا");
 
     // Rejecting again (already REJECTED, no longer PENDING) is invalid.
-    const rejectAgainRes = await customerAgent.post(
-      `/api/tracking/requests/${contactRequestId}/invoice/reject`
-    );
+    const rejectAgainRes = await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/reject`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) });
     assert.equal(rejectAgainRes.status, 409);
 
     const reissueRes = await superAdminAgent
@@ -192,9 +197,7 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     assert.equal(reissueRes.body.data.status, "PENDING");
     assert.equal(Number(reissueRes.body.data.amount), 700);
 
-    const approveRes = await customerAgent.post(
-      `/api/tracking/requests/${contactRequestId}/invoice/approve`
-    );
+    const approveRes = await customerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(customerAgent, contactRequestId) });
     assert.equal(approveRes.status, 200);
 
     tracked = await fetchTracked(customerAgent, contactRequestId);
@@ -239,15 +242,11 @@ describe("contact request invoice + payment (customer approval flow)", () => {
     // A different, unrelated customer (zero contact requests of their own —
     // logging in never requires one) can't approve someone else's invoice.
     const attackerAgent = await loginTrackingAgent(`0910${uniqueSuffix()}`);
-    const crossOwnerApproveRes = await attackerAgent.post(
-      `/api/tracking/requests/${contactRequestId}/invoice/approve`
-    );
+    const crossOwnerApproveRes = await attackerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(attackerAgent, contactRequestId) });
     assert.equal(crossOwnerApproveRes.status, 404);
 
     // The rightful owner can.
-    const approveRes = await ownerAgent.post(
-      `/api/tracking/requests/${contactRequestId}/invoice/approve`
-    );
+    const approveRes = await ownerAgent.post(`/api/tracking/requests/${contactRequestId}/invoice/approve`).send({ invoiceVersion: await quoteVersion(ownerAgent, contactRequestId) });
     assert.equal(approveRes.status, 200);
   });
 });
