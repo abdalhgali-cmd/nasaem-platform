@@ -57,3 +57,9 @@
 - **لماذا triggers لا FK مركّب:** الـ FK المركّب غير قابل للتمثيل دون تغيير نموذج Prisma ويفشل على أي شاذة قديمة؛ الـ trigger لا يغيّر النموذج ولا يُحدث drift.
 - **الاختبار:** `travelerOwnershipGuards` 3/3 (إدراج/تحديث عابر للطلبات مرفوض بـ 23514، المشروع مقبول، مستند مسودة بلا طلب مقبول). تشغيل كامل للمجموعة: انظر أدناه.
 - **غير منفَّذ من U-08:** تحويل `String[]` للتغطية إلى جدول علاقة، وجعل `IntakeDraft.submittedContactRequestId` علاقة؛ يحتاجان ترحيل بيانات وتصميمًا أكبر. لا استعادة backup حية أُجريت لهذه الدفعة (سُجّل drill اصطناعي سابقًا فقط).
+
+### نتيجة التشغيل الكامل لدفعة T05 (على آخر commit، PostgreSQL اصطناعي، Node 24 على Windows)
+
+- الباكند كاملًا: **1125 اختبارًا، 1109 ناجحًا، 16 فاشلًا، 0 ملغى.**
+- الـ16 نفسها تفشل على كود #172 قبل أي من هذه الدفعات (تشغيل ملفاتها على الفرع الأساسي: 80 اختبارًا، 16 فشل): caseTasks، clearTestRequests، corsOrigins، csrfProtection، flightBookingStorage، migrationIntegrity (ملف migration قديم)، passportOcr، siteAssets، staffAdminSafety، staticAdminSync، umrahActivationScript (2)، uploadRootProductionGuard (4). أسبابها بيئية (Windows/المسارات/المنطقة الزمنية/OCR) أو سابقة؛ لم أعدّل أيًّا منها ولم أخفف assertion.
+- لا فشل جديد من هذه الدفعات. تبقى شهادة CI على GitHub (Linux/Node 22) هي المرجع قبل أي إطلاق.
