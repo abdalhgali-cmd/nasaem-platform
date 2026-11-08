@@ -12,6 +12,8 @@ Owner approved implementation of the audit plan. Branch: `fix/umrah-p0-draft-pri
 
 **الدفعات اللاحقة (كلها Draft، مكدّسة):** T04 #174 (تزامن المسودات)، رمز المسودة header+hash #175 (migration إضافية على قاعدة اصطناعية فقط)، T06 #176 (submissionKey دائم). NEXT: T03 (إرسال موحد من المسودة)، T05/T07/T08... ما يحتاج قرار مالك يُسجَّل في F-decisions.
 
+**تحديث:** U-05 #177، T08 (ربط تقني) #178، T05 (حراس DB) #179 — كلها Draft ومكدّسة؛ الباكند كاملًا 1109/1125 والـ16 فشلًا نفسها على #172. T03 مؤجل بقرار موثّق (يحتاج تحقق متصفح). المتبقي يحتاج قرار مالك (T07/T10/سياسة التذاكر) أو تحقق جهاز/متصفح (T03/T13) أو تصميم أكبر (T09/T11/T14–T16). التفاصيل: docs/umrah-audit/FOLLOWUP.md.
+
 Historical release evidence below refers to its named branches, not this P0 candidate.
 
 All critical automated suites pass on `claude/release-integration`; release is stopped at the approval gate (merge, staging, deployment).
