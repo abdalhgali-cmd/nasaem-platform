@@ -113,7 +113,9 @@ export function UmrahQueue() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const query = listQuery(filters);
+  // Ordering is decided by the server over the whole result set (not only this page).
+  const sortParam = sort === "action" ? "queue" : sort === "travel" ? "travel" : "";
+  const query = listQuery(filters) + (sortParam ? `&sort=${sortParam}` : "");
   const requestKey = `${query}#${reload}`;
   const loading = settledKey !== requestKey;
 
@@ -207,7 +209,7 @@ export function UmrahQueue() {
       <Card title="الفلاتر" icon={<Search className="size-4 text-muted-foreground" aria-hidden="true" />} aside={filtered ? <button type="button" className={cx(btn.base, btn.ghost, btn.sm)} onClick={() => { setSearch(""); setStage(""); setKind(""); setAlert(""); setFilters(EMPTY_SERVER_FILTERS); }}>مسح الفلاتر</button> : null}>
         <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
           <label className="text-xs font-bold text-muted-foreground">بحث<input aria-label="بحث" type="search" value={search} onChange={(e) => setSearch(e.target.value)} maxLength={100} placeholder="الاسم أو الهاتف أو المرجع" className={cx(control, "font-normal")} /></label>
-          <label className="text-xs font-bold text-muted-foreground">الترتيب<select aria-label="الترتيب" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={control}>{(Object.keys(SORT_AR) as SortKey[]).map((key) => <option key={key} value={key}>{SORT_AR[key]}</option>)}</select></label>
+          <label className="text-xs font-bold text-muted-foreground">الترتيب<select aria-label="الترتيب" value={sort} onChange={(e) => { setSort(e.target.value as SortKey); setFilters((current) => (current.page === 1 ? current : { ...current, page: 1 })); }} className={control}>{(Object.keys(SORT_AR) as SortKey[]).map((key) => <option key={key} value={key}>{SORT_AR[key]}</option>)}</select></label>
           <label className="text-xs font-bold text-muted-foreground">المرحلة<select aria-label="المرحلة" value={stage} onChange={(e) => setStage(e.target.value)} className={control}>
             <option value="">كل المراحل</option>
             {Object.entries(STAGE_AR).filter(([key]) => stages.has(key) || key === stage).map(([key, label]) => <option key={key} value={key}>{label} ({stages.get(key) || 0})</option>)}
