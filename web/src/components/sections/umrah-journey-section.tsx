@@ -28,7 +28,10 @@ export type UmrahJourney = {
   pilgrims: {
     id: string;
     name: string;
-    visa: "ISSUED" | "IN_PROGRESS" | "PENDING";
+    visa: "ISSUED" | "IN_PROGRESS" | "PENDING" | "DELAYED" | "REJECTED";
+    // Delayed / rejected only: the reason staff gave and the next follow-up day.
+    visaReason?: string | null;
+    visaFollowUpAt?: string | null;
     visaFiles: JourneyFile[];
     services?: "DELIVERED" | "PREPARING" | "PENDING";
     serviceFiles?: JourneyFile[];
@@ -46,7 +49,7 @@ export type UmrahJourney = {
   ticketBooking?: { available: boolean; inquiryId: string | null; status: string | null; mode: "AIR" | "SEA" };
 };
 
-const VISA_STATE = { ISSUED: "صدرت التأشيرة", IN_PROGRESS: "قيد الإجراءات", PENDING: "لم تبدأ بعد" } as const;
+const VISA_STATE = { ISSUED: "صدرت التأشيرة", IN_PROGRESS: "قيد الإجراءات", PENDING: "لم تبدأ بعد", DELAYED: "تأشيرة متأخرة", REJECTED: "تأشيرة مرفوضة" } as const;
 const SERVICE_STATE = { DELIVERED: "سُلّمت الخدمات", PREPARING: "قيد التجهيز", PENDING: "لم تبدأ بعد" } as const;
 const ACTOR = { CUSTOMER: "مطلوب منك", AGENCY: "الوكالة", NONE: "—" } as const;
 const STAGE_STATE: Record<StageState, string> = { done: "مكتملة", current: "الآن", upcoming: "لاحقًا", not_included: "غير مشمولة" };
@@ -74,6 +77,8 @@ const BADGE: Record<string, string> = {
   IN_PROGRESS: "bg-amber-50 text-amber-800",
   PREPARING: "bg-amber-50 text-amber-800",
   PENDING: "bg-muted text-muted-foreground",
+  DELAYED: "bg-amber-50 text-amber-800",
+  REJECTED: "bg-red-50 text-red-700",
 };
 
 function formatUpdated(value: string | null) {
@@ -240,6 +245,13 @@ export function UmrahJourneySection({ requestId, journey, onActionComplete }: { 
                   </span>
                 ) : null}
               </div>
+              {pilgrim.visa === "DELAYED" || pilgrim.visa === "REJECTED" ? (
+                <p className="text-sm" role="status" data-testid="umrah-visa-reason">
+                  {pilgrim.visaReason ? <span>{pilgrim.visaReason}. </span> : null}
+                  {pilgrim.visa === "DELAYED" && pilgrim.visaFollowUpAt ? <span>المتابعة القادمة: <bdi>{String(pilgrim.visaFollowUpAt).slice(0, 10)}</bdi>. </span> : null}
+                  <span>ستتواصل معك الوكالة بالقرار؛ لا يُغلق الطلب قبل ذلك.</span>
+                </p>
+              ) : null}
               {pilgrim.visaFiles.length || pilgrim.serviceFiles?.length ? (
                 <div className="flex flex-wrap gap-2">
                   <FileLinks requestId={requestId} files={pilgrim.visaFiles} />

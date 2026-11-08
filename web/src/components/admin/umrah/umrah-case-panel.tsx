@@ -7,6 +7,7 @@ import { API_URL } from "@/lib/api-url";
 import { formatAmount, formatDay, paymentLabel } from "@/components/admin/operations/ops-model";
 import { SignalBadge, btn, cx } from "@/components/admin/operations/ops-ui";
 import { isGuarantorResidenceDocument } from "./guarantor";
+import { VisaStateControl, type VisaStateValue } from "./visa-state-control";
 import { DOCUMENT_STATUS_AR, GUARANTOR_RESIDENCE, packageKind, stageLabel, umrahRowSignal, type UmrahListRow } from "./umrah-model";
 
 // The Umrah view of a case, inside /admin/cases (tab «العمرة»). Read-only
@@ -18,7 +19,7 @@ import { DOCUMENT_STATUS_AR, GUARANTOR_RESIDENCE, packageKind, stageLabel, umrah
 
 type Doc = { id: string; requirementId?: string | null; label: string; status: string; travelerId: string | null; supersededAt: string | null; classification?: string; reviewNote?: string | null };
 type SnapshotRequirement = { id: string; attachmentType?: string | null; name?: string; type?: string; scope?: string; required?: boolean };
-export type UmrahCase = Omit<UmrahListRow, "travelers"> & { documents: Doc[]; travelers: { id: string; fullName: string | null; passportNo?: string | null }[]; requirementsSnapshot?: SnapshotRequirement[] | null };
+export type UmrahCase = Omit<UmrahListRow, "travelers"> & { documents: Doc[]; travelers: { id: string; fullName: string | null; passportNo?: string | null; visaState?: VisaStateValue | null; visaStateReason?: string | null; visaFollowUpAt?: string | null }[]; allowedActions?: string[]; requirementsSnapshot?: SnapshotRequirement[] | null };
 export type CaseTabKey = "documents" | "workflow" | "travelers" | "activity" | "overview";
 
 function StatusChip({ status }: { status: string }) {
@@ -203,12 +204,15 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
                     const idle = "bg-muted text-muted-foreground";
                     return (
                       <span className="flex flex-wrap gap-1">
-                        <span data-visa-state={journeyPilgrim.visa} className={cx("rounded-md px-2 text-xs font-bold", journeyPilgrim.visa === "ISSUED" ? ok : idle)}>{journeyPilgrim.visa === "ISSUED" ? "التأشيرة منشورة" : "لا تأشيرة بعد"}</span>
+                        <span data-visa-state={journeyPilgrim.visa} className={cx("rounded-md px-2 text-xs font-bold", journeyPilgrim.visa === "ISSUED" ? ok : journeyPilgrim.visa === "REJECTED" || journeyPilgrim.visa === "DELAYED" ? "bg-[var(--nh-warning-soft)] text-[var(--nh-warning-ink)]" : idle)}>{journeyPilgrim.visa === "ISSUED" ? "التأشيرة منشورة" : journeyPilgrim.visa === "REJECTED" ? "تأشيرة مرفوضة" : journeyPilgrim.visa === "DELAYED" ? "تأشيرة متأخرة" : "لا تأشيرة بعد"}</span>
                         {journeyPilgrim.services ? <span data-services-state={journeyPilgrim.services} className={cx("rounded-md px-2 text-xs font-bold", journeyPilgrim.services === "DELIVERED" ? ok : idle)}>{journeyPilgrim.services === "DELIVERED" ? "الخدمات مسلّمة" : "الخدمات لم تُسلّم"}</span> : null}
                       </span>
                     );
                   })()}
                 </div>
+                {caseRow.status !== "CLOSED" && caseRow.allowedActions?.includes("SET_VISA_STATE") && !covered.has(t.id) ? (
+                  <VisaStateControl requestId={caseRow.id} travelerId={t.id} travelerName={t.fullName || "المعتمر"} initial={{ state: t.visaState ?? null, reason: t.visaStateReason, followUpAt: t.visaFollowUpAt }} />
+                ) : null}
                 {docs.length ? (
                   <ul className="mt-2 space-y-1">{docs.map((d) => <li key={d.id} className="flex flex-wrap items-center gap-2 text-xs"><FileText className="size-3.5 text-muted-foreground" aria-hidden="true" /><a href={fileUrl(d.id)} target="_blank" rel="noopener" className="hover:underline">{d.label}</a><StatusChip status={d.status} /></li>)}</ul>
                 ) : <p className="mt-1 text-xs text-[var(--nh-warning-ink)]">لا مستندات مرفوعة لهذا المعتمر.</p>}

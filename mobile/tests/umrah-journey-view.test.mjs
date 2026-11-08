@@ -85,3 +85,18 @@ test("the button is removed when its control is not on the screen", () => {
   bindUmrahJourney({ querySelector: (sel) => (sel === "#umrahActionBtn" ? button : {}) }, () => {});
   assert.ok(!removed && bound);
 });
+
+test("delayed and rejected pilgrims show their reason, the follow-up day and that the request stays open; escaped", () => {
+  const html = umrahJourneyHtml(journey({
+    pilgrims: [
+      { id: "t1", name: "أ", visa: "DELAYED", visaReason: "بانتظار <السفارة>", visaFollowUpAt: "2026-11-20T00:00:00.000Z", visaFiles: [] },
+      { id: "t2", name: "ب", visa: "REJECTED", visaReason: "بيانات غير مطابقة", visaFiles: [] },
+    ],
+  }), esc, icon);
+  assert.ok(html.includes("تأشيرة متأخرة") && html.includes("تأشيرة مرفوضة"));
+  assert.ok(html.includes("المتابعة القادمة") && html.includes("2026-11-20"));
+  assert.ok(html.includes("بيانات غير مطابقة"));
+  assert.ok(html.includes("لا يُغلق الطلب قبل ذلك"));
+  assert.ok(!html.includes("<السفارة>") && html.includes("&lt;السفارة&gt;"));
+  assert.equal((html.match(/المتابعة القادمة/g) || []).length, 1, "a follow-up day is shown for the delayed pilgrim only");
+});
