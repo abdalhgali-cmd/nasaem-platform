@@ -312,6 +312,9 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.equal(inquiries[0].invoice, null, "no unapproved fare is invented");
     assert.equal(inquiries[0].customerId, owner.id);
     assert.equal(inquiries[0].travelers.length, 1);
+    // The copy points at the exact pilgrim it came from (by id, not by name or order).
+    const parentTravelers = await prisma.traveler.findMany({ where: { contactRequestId: id }, orderBy: { sortOrder: "asc" } });
+    assert.deepEqual(inquiries[0].travelers.map((t) => t.sourceTravelerId), parentTravelers.map((t) => t.id));
     assert.equal((await prisma.contactRequest.findUnique({ where: { id } })).outcome, "COMPLETED", "booking does not reopen or block the visa case");
     assert.equal(await prisma.activityLog.count({ where: { entityId: id, action: "UMRAH_TICKET_INQUIRY_OPENED" } }), 1);
     journey = await journeyOf(customer, id);
