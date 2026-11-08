@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, Circle, CircleDot, FileText, ShieldCheck, 
 import { API_URL } from "@/lib/api-url";
 import { formatAmount, formatDay, paymentLabel } from "@/components/admin/operations/ops-model";
 import { SignalBadge, btn, cx } from "@/components/admin/operations/ops-ui";
+import { isGuarantorResidenceDocument } from "./guarantor";
 import { DOCUMENT_STATUS_AR, GUARANTOR_RESIDENCE, packageKind, stageLabel, umrahRowSignal, type UmrahListRow } from "./umrah-model";
 
 // The Umrah view of a case, inside /admin/cases (tab «العمرة»). Read-only
@@ -15,8 +16,8 @@ import { DOCUMENT_STATUS_AR, GUARANTOR_RESIDENCE, packageKind, stageLabel, umrah
 // (documents review, workflow: execution, final files, closing). No action
 // or rule is added here; payment decisions stay on «مراجعة الدفعات».
 
-type Doc = { id: string; label: string; status: string; travelerId: string | null; supersededAt: string | null; classification?: string; reviewNote?: string | null };
-type SnapshotRequirement = { id: string; name?: string; type?: string; scope?: string; required?: boolean };
+type Doc = { id: string; requirementId?: string | null; label: string; status: string; travelerId: string | null; supersededAt: string | null; classification?: string; reviewNote?: string | null };
+type SnapshotRequirement = { id: string; attachmentType?: string | null; name?: string; type?: string; scope?: string; required?: boolean };
 export type UmrahCase = Omit<UmrahListRow, "travelers"> & { documents: Doc[]; travelers: { id: string; fullName: string | null; passportNo?: string | null }[]; requirementsSnapshot?: SnapshotRequirement[] | null };
 export type CaseTabKey = "documents" | "workflow" | "travelers" | "activity" | "overview";
 
@@ -124,7 +125,7 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
   const contacts = caseRow.intakeData?.umrahContacts || {};
   const travel = caseRow.intakeData?.umrahTravel || {};
   const current = caseRow.documents.filter((d) => !d.supersededAt);
-  const residence = current.filter((d) => d.label.includes(GUARANTOR_RESIDENCE));
+  const residence = current.filter((d) => isGuarantorResidenceDocument(d, caseRow.requirementsSnapshot));
   const covered = new Set(progress.delivery?.coveredTravelerIds || []);
   // «رحلتي إلى الحرمين» per pilgrim (server: progress.umrah).
   const umrahJourney = (progress as { umrah?: { pilgrims?: { id: string; visa: string; services?: string }[] } | null }).umrah;
