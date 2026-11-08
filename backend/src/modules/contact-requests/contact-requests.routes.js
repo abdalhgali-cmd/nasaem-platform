@@ -1,9 +1,10 @@
+import { postClaim } from "./contact-request-claim.js";
 import { patchPilgrimVisaState } from "../umrah/umrah-visa-state.js";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
 import { requireAuth, requireRole } from "../../middleware/auth.middleware.js";
-import { requireContactRequestOrganization } from "../../middleware/organization.middleware.js";
+import { requireContactRequestOrganization, requireContactRequestOrganizationOnly } from "../../middleware/organization.middleware.js";
 import { attachOptionalCustomer } from "../customer-auth/customer-auth.middleware.js";
 import { requireFeatureEnabled } from "../feature-flags/feature-flags.middleware.js";
 import {
@@ -225,6 +226,10 @@ router.patch(
 // action (SUPER_ADMIN/ADMIN) — an EMPLOYEE can see and work their own
 // assigned cases (via GET /?assignedUserId=mine) but can't reassign work,
 // matching the spec's "Managers can assign/reassign" rule.
+// Take an unassigned request (T10): the explicit claim that lets a regular
+// EMPLOYEE work an Umrah request; managers may claim too. One conditional update decides
+// between simultaneous claims (contact-request-claim.js).
+router.post("/:id/claim", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), requireContactRequestOrganizationOnly, postClaim);
 // Umrah: one pilgrim's visa processing state (umrah-visa-state.js). Same roles
 // as the other case work; the workflow policy adds the execution gate.
 router.patch("/:id/travelers/:travelerId/visa-state", requireAuth, requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE"), requireContactRequestOrganization, patchPilgrimVisaState);

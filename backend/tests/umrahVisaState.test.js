@@ -51,6 +51,7 @@ async function requestToExecution({ start = true } = {}) {
     .field("guarantorPhone", "+966 55 000 2222");
   assert.equal(res.status, 201, JSON.stringify(res.body));
   const id = res.body.data.id;
+  assert.equal((await employee.post(`/api/contact-requests/${id}/claim`).send({})).status, 200);
   const customer = trackingClient(owner.phone);
   // The package asks for the guarantor's residence permit: the customer sends it, staff accept it.
   const checklist = (await request(app).get(`/api/services/${service.id}/requirements/public`)).body.data.filter((r) => r.type === "DOCUMENT" && r.required);

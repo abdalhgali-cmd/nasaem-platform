@@ -154,6 +154,36 @@ test.describe.serial("Umrah visa state", () => {
     await assertNoHorizontalOverflow(page);
   });
 
+  test("EMPLOYEE: an unassigned request is claimed first; a colleague then sees it read-only; the server enforces it", async ({ browser }) => {
+    const row = (await (await admin.request.get(`${BACKEND}/api/contact-requests/${requestId}`)).json()).data;
+    expect(row.assignedUserId ?? null).toBeNull();
+    const first = await staffPage(browser, admin, "EMPLOYEE");
+    const second = await staffPage(browser, admin, "EMPLOYEE");
+    // the API refuses work before the claim
+    const early = await first.page.request.patch(`${BACKEND}/api/contact-requests/${requestId}/travelers/${travelers[1].id}/visa-state`, { headers, data: { state: "IN_PROGRESS" } });
+    expect(early.status()).toBe(409);
+    expect((await early.json()).code).toBe("CLAIM_REQUIRED");
+
+    await first.page.goto(`${WEB}/admin/cases?requestId=${requestId}&tab=umrah`);
+    await expect(first.page.locator("#umrah-workspace")).toBeVisible({ timeout: 20_000 });
+    await expect(first.page.getByTestId("visa-state-form")).toHaveCount(0);
+    await first.page.getByTestId("umrah-claim").click();
+    await expect(first.page.getByTestId("umrah-assignee")).toContainText("أنت");
+    await expect(first.page.getByTestId("umrah-claim")).toHaveCount(0);
+    await expect(first.page.getByTestId("visa-state-form")).toBeVisible();
+
+    await second.page.goto(`${WEB}/admin/cases?requestId=${requestId}&tab=umrah`);
+    await expect(second.page.locator("#umrah-workspace")).toBeVisible({ timeout: 20_000 });
+    await expect(second.page.getByTestId("umrah-readonly")).toContainText("للقراءة فقط");
+    await expect(second.page.getByTestId("umrah-claim")).toHaveCount(0);
+    await expect(second.page.getByTestId("visa-state-form")).toHaveCount(0);
+    const refused = await second.page.request.patch(`${BACKEND}/api/contact-requests/${requestId}/travelers/${travelers[1].id}/visa-state`, { headers, data: { state: "IN_PROGRESS" } });
+    expect(refused.status()).toBe(403);
+    await assertNoHorizontalOverflow(first.page);
+    await first.context.close();
+    await second.context.close();
+  });
+
   test("an ACCOUNTANT sees the case read-only: no visa-state control, and the endpoint refuses", async ({ browser }) => {
     const accountant = await staffPage(browser, admin, "ACCOUNTANT");
     const refused = await accountant.page.request.patch(`${BACKEND}/api/contact-requests/${requestId}/travelers/${travelers[1].id}/visa-state`, { headers, data: { state: "IN_PROGRESS" } });

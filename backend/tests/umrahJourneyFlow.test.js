@@ -114,6 +114,7 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     const created = await submit(pkg, { phone, pilgrims: 3, submissionKey, agent: account });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const { id } = created.body.data;
+    assert.equal((await employee.post(`/api/contact-requests/${id}/claim`).send({})).status, 200, "the employee takes the unassigned request first");
     // network loss: the same submission sent again is the same request
     const again = await submit(pkg, { phone, pilgrims: 3, submissionKey, agent: account });
     assert.equal(again.status, 200, JSON.stringify(again.body));
@@ -274,6 +275,7 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     const created = await submit(pkg, { phone, pilgrims: 1, agent: account });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const { id } = created.body.data;
+    assert.equal((await employee.post(`/api/contact-requests/${id}/claim`).send({})).status, 200, "the employee takes the unassigned request first");
     const customer = trackingClient(phone);
     let journey = await journeyOf(customer, id);
     assert.equal(journey.packageKind, "VISA_ONLY");
