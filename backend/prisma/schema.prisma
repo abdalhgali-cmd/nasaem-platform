@@ -1461,7 +1461,10 @@ enum DocumentClassification {
 // anything guessable (see intake-drafts.service.js).
 model IntakeDraft {
   id                        String   @id @default(cuid())
-  token                     String   @unique
+  // Drafts created before token hashing keep their plaintext token here
+  // until they are migrated; new drafts store only tokenHash (SHA-256 hex).
+  token                     String?  @unique
+  tokenHash                 String?  @unique
   organizationId            String   @default("org_nasaem_default")
   // Set once the customer types a phone — lets an OTP-verified customer
   // recover a draft whose token they no longer have (cleared browser).

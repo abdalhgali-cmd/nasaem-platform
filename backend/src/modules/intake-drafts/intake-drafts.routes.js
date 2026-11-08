@@ -13,6 +13,21 @@ import {
 
 const router = Router();
 
+// The token travels in the X-Draft-Token header on /intake-drafts/current/...
+// so it never appears in a URL (access logs, Referer, history). The legacy
+// /intake-drafts/:token/... URLs keep working for clients already installed.
+const DRAFT_HEADER = "x-draft-token";
+function resolveHeaderToken(req, res, next) {
+  if (req.params.token === "current") {
+    const value = req.get(DRAFT_HEADER);
+    res.set("Cache-Control", "no-store");
+    // An absent header resolves to a token that matches nothing (404).
+    req.params.token = typeof value === "string" && value.length <= 200 ? value : "";
+  }
+  next();
+}
+router.param("token", (req, res, next) => resolveHeaderToken(req, res, next));
+
 function handleUpload(req, res, next) {
   uploadContactRequestDocument(req, res, (error) => {
     if (error) {
