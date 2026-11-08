@@ -185,6 +185,9 @@ export async function getContactRequests(req, res, next) {
       serviceKind: req.query.serviceKind,
       createdFrom: req.query.createdFrom,
       createdTo: req.query.createdTo,
+      sort: typeof req.query.sort === "string" ? req.query.sort : undefined,
+      stage: typeof req.query.stage === "string" ? req.query.stage.slice(0, 40) : undefined,
+      packageKind: typeof req.query.packageKind === "string" ? req.query.packageKind.slice(0, 20) : undefined,
     });
 
     return res.status(200).json({

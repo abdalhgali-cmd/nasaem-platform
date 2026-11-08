@@ -10,6 +10,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { createNotification, notifyRequestCustomer } from "../../utils/notifications.js";
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
+import { arrangeUmrahQueue, UMRAH_QUEUE_CAP, UMRAH_QUEUE_SORTS } from "../umrah/umrah-queue-list.js";
 import { buildUmrahPackageSnapshot, resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { umrahStaffQueue } from "../umrah/umrah-staff-queue.js";
 import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions, hasCurrentReceipt, confirmWithoutReceiptRefusal } from "../contact-request-workflow/workflow-policy.js";
@@ -578,7 +579,7 @@ export const SERVICE_KIND_FILTERS = Object.freeze({
   },
 });
 
-export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId, search, paymentStatus, serviceId, category, serviceKind, createdFrom, createdTo }) {
+export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId, search, paymentStatus, serviceId, category, serviceKind, createdFrom, createdTo, sort, stage, packageKind }) {
   const from = parseDay(createdFrom, false);
   const to = parseDay(createdTo, true);
   const where = {
@@ -598,10 +599,29 @@ export async function listContactRequests({ page, limit, skip, status, organizat
     ...contactRequestSearchWhere(search),
   };
 
+  // Umrah queue views order or filter by facts derived from the whole case
+  // (next step, stage, package type), so they are decided on the server over
+  // the full matching set before paging (umrah-queue-list.js), not inside one
+  // page. Bounded: beyond UMRAH_QUEUE_CAP rows the newest are used and the
+  // response says so (meta.truncated).
+  if (serviceKind === "UMRAH" && (UMRAH_QUEUE_SORTS.has(sort) || stage || packageKind)) {
+    const rows = await prisma.contactRequest.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: UMRAH_QUEUE_CAP + 1, include: CONTACT_REQUEST_CASE_INCLUDE });
+    const truncated = rows.length > UMRAH_QUEUE_CAP;
+    const items = rows.slice(0, UMRAH_QUEUE_CAP).map((row) => {
+      const progress = deriveRequestProgress(row);
+      return { row, progress, queue: umrahStaffQueue(row, progress) };
+    });
+    const arranged = arrangeUmrahQueue(items, { sort, stage, packageKind });
+    return {
+      data: arranged.slice(skip, skip + limit).map(({ row, progress, queue }) => withMaskedTravelers({ ...row, readiness: computeReadiness(row), progress, ...(queue ? { umrahQueue: queue } : {}) })),
+      meta: { ...buildPaginationMeta(page, limit, arranged.length), queueLimit: UMRAH_QUEUE_CAP, truncated },
+    };
+  }
+
   const [data, total] = await Promise.all([
     prisma.contactRequest.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip,
       take: limit,
       include: CONTACT_REQUEST_CASE_INCLUDE,
