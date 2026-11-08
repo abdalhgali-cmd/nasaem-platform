@@ -18,6 +18,47 @@ export function umrahIncludesTickets(features) {
   return kind === "AIR" || kind === "SEA";
 }
 
+// What the package promised when the request was submitted, frozen into
+// intakeData.umrahPackage so that later catalog edits (KIND, features) never
+// change what an existing request owes the customer. Returns null for
+// anything that is not an Umrah package.
+export const UMRAH_PACKAGE_SNAPSHOT_SOURCE = "SNAPSHOT";
+export const UMRAH_PACKAGE_LEGACY_SOURCE = "LEGACY_CATALOG";
+
+export function buildUmrahPackageSnapshot(serviceCategory, serviceId, features, now = new Date()) {
+  if (!isUmrahServiceCategory(serviceCategory)) return null;
+  return {
+    kind: umrahPackageKind(features),
+    includesServices: umrahIncludesTickets(features),
+    serviceId: serviceId || null,
+    source: UMRAH_PACKAGE_SNAPSHOT_SOURCE,
+    capturedAt: now.toISOString(),
+  };
+}
+
+function validSnapshot(value) {
+  return Boolean(
+    value && typeof value === "object" && value.source === UMRAH_PACKAGE_SNAPSHOT_SOURCE &&
+    typeof value.includesServices === "boolean" &&
+    (value.kind === null || UMRAH_PACKAGE_KINDS.includes(value.kind)) &&
+    value.includesServices === (value.kind === "AIR" || value.kind === "SEA")
+  );
+}
+
+// The obligations of an Umrah request. A request submitted after the
+// snapshot existed uses it (source SNAPSHOT). An older request has no record
+// of what was promised: it falls back to the live catalog and says so
+// (source LEGACY_CATALOG) so staff can review it; that value is not
+// historical fact and is never written back.
+export function umrahObligations(request) {
+  const snapshot = request?.intakeData?.umrahPackage;
+  if (validSnapshot(snapshot)) {
+    return { kind: snapshot.kind, includesServices: snapshot.includesServices, source: UMRAH_PACKAGE_SNAPSHOT_SOURCE, capturedAt: snapshot.capturedAt || null };
+  }
+  const features = request?.serviceRef?.features;
+  return { kind: umrahPackageKind(features), includesServices: umrahIncludesTickets(features), source: UMRAH_PACKAGE_LEGACY_SOURCE, capturedAt: null };
+}
+
 const PHONE_PATTERN = /^\+?[0-9][0-9\s-]{5,19}$/;
 
 function cleanPhone(value) {

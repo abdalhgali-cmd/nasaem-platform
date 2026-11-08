@@ -10,7 +10,7 @@ import { logActivity } from "../../utils/activityLog.js";
 import { createNotification, notifyRequestCustomer } from "../../utils/notifications.js";
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
-import { resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
+import { buildUmrahPackageSnapshot, resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { umrahStaffQueue } from "../umrah/umrah-staff-queue.js";
 import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions, hasCurrentReceipt, confirmWithoutReceiptRefusal } from "../contact-request-workflow/workflow-policy.js";
 import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
@@ -70,6 +70,12 @@ function prepareFileForStorage(file) {
 // opening it in the back-office goes straight to that request. `alsoRoles`
 // adds the staff roles that do the work the event asks for (e.g. ACCOUNTANT
 // for a payment receipt) on top of the administrators.
+function withoutUmrahPackage(intakeData) {
+  if (!intakeData || typeof intakeData !== "object" || Array.isArray(intakeData)) return intakeData || {};
+  const { umrahPackage: _ignored, ...rest } = intakeData;
+  return rest;
+}
+
 export async function notifyAdmins({ title, message, type, organizationId = "org_nasaem_default", contactRequestId, alsoRoles = [] }) {
   const admins = await prisma.user.findMany({
     where: { organizationId, role: { in: ["SUPER_ADMIN", "ADMIN", ...alsoRoles] }, status: "ACTIVE" },
@@ -135,6 +141,7 @@ async function createContactRequestOnce(data, req, files) {
   // boundary.
   let umrahContacts = null;
   let umrahTravel = null;
+  let umrahPackage = null;
   if (data.serviceId) {
     const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true, features: true } });
     const flagKey = service ? SERVICE_CATEGORY_FEATURE_FLAGS[service.category] : null;
@@ -149,6 +156,7 @@ async function createContactRequestOnce(data, req, files) {
     const travel = resolveUmrahTravel(data.visaTypeId ? null : service?.category, service?.features, data.preferredTravelDate);
     if (travel.error) return travel;
     umrahTravel = travel.travel;
+    umrahPackage = buildUmrahPackageSnapshot(data.visaTypeId ? null : service?.category, data.serviceId, service?.features);
   }
 
   // Platform 3.0 Phase 5: capture the selected visa type's (or, since
@@ -279,13 +287,15 @@ async function createContactRequestOnce(data, req, files) {
     // comment); a submission with neither keeps intakeData exactly as it
     // was before this release.
     intakeData:
-      data.intakeData || data.answers || egyptEntryMode || umrahContacts || umrahTravel || egyptRoute
+      data.intakeData || data.answers || egyptEntryMode || umrahContacts || umrahTravel || umrahPackage || egyptRoute
         ? {
-            ...(data.intakeData || {}),
+            // A client never supplies the package record: only the server does.
+            ...withoutUmrahPackage(data.intakeData),
             ...(data.answers ? { answers: data.answers } : {}),
             ...(egyptEntryMode ? { egyptEntryMode } : {}),
             ...(umrahContacts ? { umrahContacts } : {}),
             ...(umrahTravel ? { umrahTravel } : {}),
+            ...(umrahPackage ? { umrahPackage } : {}),
             ...(egyptRoute ? { egyptRoute } : {}),
             ...(egyptFlight ? { egyptFlight } : {}),
           }

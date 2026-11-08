@@ -1,4 +1,4 @@
-import { umrahIncludesTickets } from "../umrah/umrah-packages.js";
+import { umrahObligations } from "../umrah/umrah-packages.js";
 import { evaluateUmrahDelivery } from "../umrah/umrah-delivery.js";
 import { umrahJourney } from "../umrah/umrah-journey.js";
 import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
@@ -74,7 +74,7 @@ const UMRAH_WITH_TICKETS = {
 };
 
 function serviceCopy(kind, request) {
-  if (kind === "UMRAH" && !request?.visaType && umrahIncludesTickets(request?.serviceRef?.features)) return UMRAH_WITH_TICKETS;
+  if (kind === "UMRAH" && !request?.visaType && umrahObligations(request).includesServices) return UMRAH_WITH_TICKETS;
   return SERVICE_KINDS[kind];
 }
 
