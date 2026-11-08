@@ -25,6 +25,7 @@ import { buildCustomerChecklist, buildCustomerNextActions } from "./customer-che
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
+import { withUmrahTicketServices } from "../umrah/umrah-ticket-services.js";
 
 // Sends a one-time tracking code over WhatsApp, the only channel that proves
 // possession of the phone. Never reports success for a code nobody can
@@ -165,7 +166,8 @@ export async function listContactRequestsForPhone(phoneNormalized) {
     for (const [row, payable] of awaiting) settlementByRequest.set(row.id, settlementOptions(payable, accounts));
   }
 
-  return requests.map((request) => {
+  // Whether an optional Umrah ticket booking can be offered now.
+  return (await withUmrahTicketServices(requests)).map((request) => {
     const selectedOffer = request.offers.find((offer) => offer.id === request.selectedOfferId);
     const paymentCurrency = request.invoice?.currency || selectedOffer?.currency || null;
     const checklist = buildCustomerChecklist(request);
@@ -190,7 +192,7 @@ export async function listContactRequestsForPhone(phoneNormalized) {
     }
 
     // Who recorded execution and their note are staff-only.
-    const { executionStartedByUserId, executionNote, tasks, linkedRequests, paymentReceipt, ...customerRequest } = request;
+    const { executionStartedByUserId, executionNote, tasks, linkedRequests, paymentReceipt, umrahTicketServices, ...customerRequest } = request;
 
     return {
       ...customerRequest,
