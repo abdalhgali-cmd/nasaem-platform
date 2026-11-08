@@ -11,10 +11,11 @@ import { createNotification, notifyRequestCustomer } from "../../utils/notificat
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { arrangeUmrahQueue, UMRAH_QUEUE_CAP, UMRAH_QUEUE_SORTS } from "../umrah/umrah-queue-list.js";
+import { entryData, QUEUE_ENTRY_MAX_AGE_MS, QUEUE_HEAL_BATCH, QUEUE_STALE_BATCH, queueOrderBy, sameEntry } from "../umrah/umrah-queue-index.js";
 import { buildUmrahPackageSnapshot, resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { umrahStaffQueue } from "../umrah/umrah-staff-queue.js";
 import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions, hasCurrentReceipt, confirmWithoutReceiptRefusal } from "../contact-request-workflow/workflow-policy.js";
-import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
+import { WORKFLOW_INCLUDE, auditInTransaction, refuseWith, setAfterMutationHook, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 import { sendWhatsAppMessage } from "../../utils/whatsapp.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
 import { normalizePhone } from "../../utils/phone.js";
@@ -600,22 +601,13 @@ export async function listContactRequests({ page, limit, skip, status, organizat
   };
 
   // Umrah queue views order or filter by facts derived from the whole case
-  // (next step, stage, package type), so they are decided on the server over
-  // the full matching set before paging (umrah-queue-list.js), not inside one
-  // page. Bounded: beyond UMRAH_QUEUE_CAP rows the newest are used and the
-  // response says so (meta.truncated).
+  // (next step, stage, package type). They are decided in SQL over the
+  // persisted, rebuildable UmrahQueueEntry cache (umrah-queue-index.js), so
+  // there is no row limit. Only while entries are still missing (a database
+  // not yet rebuilt) does the list use the bounded in-memory sweep, and it
+  // says so (meta.queueIndex.status BUILDING, meta.truncated).
   if (serviceKind === "UMRAH" && (UMRAH_QUEUE_SORTS.has(sort) || stage || packageKind)) {
-    const rows = await prisma.contactRequest.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: UMRAH_QUEUE_CAP + 1, include: CONTACT_REQUEST_CASE_INCLUDE });
-    const truncated = rows.length > UMRAH_QUEUE_CAP;
-    const items = rows.slice(0, UMRAH_QUEUE_CAP).map((row) => {
-      const progress = deriveRequestProgress(row);
-      return { row, progress, queue: umrahStaffQueue(row, progress) };
-    });
-    const arranged = arrangeUmrahQueue(items, { sort, stage, packageKind });
-    return {
-      data: arranged.slice(skip, skip + limit).map(({ row, progress, queue }) => withMaskedTravelers({ ...row, readiness: computeReadiness(row), progress, ...(queue ? { umrahQueue: queue } : {}) })),
-      meta: { ...buildPaginationMeta(page, limit, arranged.length), queueLimit: UMRAH_QUEUE_CAP, truncated },
-    };
+    return listUmrahQueue({ where, organizationId, page, limit, skip, sort, stage, packageKind });
   }
 
   const [data, total] = await Promise.all([
@@ -1203,4 +1195,122 @@ export async function revertContactRequestExecution(contactRequestId, organizati
     type: "CONTACT_REQUEST_EXECUTION_REVERTED",
   });
   return { contactRequest: { ...result.updated, progress: deriveRequestProgress({ ...result.updated, deliverables: [] }) } };
+}
+
+
+// ---- Umrah staff queue: persisted ordering cache (umrah-queue-index.js) ----
+
+const shapeUmrahRow = (row, progress, queue) => withMaskedTravelers({ ...row, readiness: computeReadiness(row), progress, ...(queue ? { umrahQueue: queue } : {}) });
+
+function deriveUmrah(row) {
+  const progress = deriveRequestProgress(row);
+  return { progress, queue: umrahStaffQueue(row, progress) };
+}
+
+// Recomputes one request's entry from the request itself. Best-effort: the
+// cache never fails a staff action, and the list repairs what this misses.
+export async function refreshUmrahQueueEntry(contactRequestId) {
+  try {
+    const row = await prisma.contactRequest.findUnique({ where: { id: contactRequestId }, include: CONTACT_REQUEST_CASE_INCLUDE });
+    if (!row) return null;
+    const { progress, queue } = deriveUmrah(row);
+    if (!queue) {
+      await prisma.umrahQueueEntry.deleteMany({ where: { contactRequestId } });
+      return null;
+    }
+    const data = entryData(row, progress, queue);
+    await prisma.umrahQueueEntry.upsert({ where: { contactRequestId }, create: { contactRequestId, ...data }, update: { ...data, derivedAt: new Date() } });
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+setAfterMutationHook(refreshUmrahQueueEntry);
+
+async function healMissingEntries(organizationId) {
+  const missingWhere = { organizationId, AND: [SERVICE_KIND_FILTERS.UMRAH], umrahQueueEntry: null };
+  const missing = await prisma.contactRequest.count({ where: missingWhere });
+  if (!missing) return 0;
+  const batch = await prisma.contactRequest.findMany({ where: missingWhere, select: { id: true }, take: QUEUE_HEAL_BATCH, orderBy: { createdAt: "desc" } });
+  for (const { id } of batch) await refreshUmrahQueueEntry(id);
+  return prisma.contactRequest.count({ where: missingWhere });
+}
+
+async function listUmrahQueue({ where, organizationId, page, limit, skip, sort, stage, packageKind }) {
+  const stillMissing = await healMissingEntries(organizationId);
+  if (stillMissing > 0) {
+    // Index not complete: the bounded sweep, openly flagged. Rebuild with
+    // backend/src/scripts/rebuild-umrah-queue.js to remove this state.
+    const rows = await prisma.contactRequest.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: UMRAH_QUEUE_CAP + 1, include: CONTACT_REQUEST_CASE_INCLUDE });
+    const truncated = rows.length > UMRAH_QUEUE_CAP;
+    const items = rows.slice(0, UMRAH_QUEUE_CAP).map((row) => ({ row, ...deriveUmrah(row) }));
+    const arranged = arrangeUmrahQueue(items, { sort, stage, packageKind });
+    return {
+      data: arranged.slice(skip, skip + limit).map(({ row, progress, queue }) => shapeUmrahRow(row, progress, queue)),
+      meta: { ...buildPaginationMeta(page, limit, arranged.length), queueLimit: UMRAH_QUEUE_CAP, truncated, queueIndex: { status: "BUILDING", missing: stillMissing } },
+    };
+  }
+
+  const entryWhere = { organizationId, contactRequest: where, ...(stage ? { stage } : {}), ...(packageKind ? { packageKind } : {}) };
+  const [entries, total] = await Promise.all([
+    prisma.umrahQueueEntry.findMany({ where: entryWhere, orderBy: queueOrderBy(sort), skip, take: limit, include: { contactRequest: { include: CONTACT_REQUEST_CASE_INCLUDE } } }),
+    prisma.umrahQueueEntry.count({ where: entryWhere }),
+  ]);
+
+  // What is shown is always derived now; an entry that disagrees is repaired.
+  let repaired = 0;
+  const data = [];
+  for (const { contactRequest: row, ...entry } of entries) {
+    const { progress, queue } = deriveUmrah(row);
+    const fresh = queue ? entryData(row, progress, queue) : null;
+    if (fresh && !sameEntry(entry, fresh)) {
+      repaired += 1;
+      prisma.umrahQueueEntry.update({ where: { contactRequestId: entry.contactRequestId }, data: { ...fresh, derivedAt: new Date() } }).catch(() => {});
+    }
+    data.push(shapeUmrahRow(row, progress, queue));
+  }
+
+  // Entries nobody refreshed for a while are re-derived in the background.
+  prisma.umrahQueueEntry
+    .findMany({ where: { organizationId, derivedAt: { lt: new Date(Date.now() - QUEUE_ENTRY_MAX_AGE_MS) } }, select: { contactRequestId: true }, take: QUEUE_STALE_BATCH, orderBy: { derivedAt: "asc" } })
+    .then((stale) => Promise.all(stale.map((s) => refreshUmrahQueueEntry(s.contactRequestId))))
+    .catch(() => {});
+
+  return { data, meta: { ...buildPaginationMeta(page, limit, total), truncated: false, queueIndex: { status: "READY", repaired } } };
+}
+
+// Compares (and, with dryRun false, recreates) the whole cache. Derived data
+// only: no request, customer or financial record is read for writing.
+export async function rebuildUmrahQueueEntries({ organizationId, dryRun = true, batchSize = 200 } = {}) {
+  const report = { total: 0, ok: 0, missing: 0, mismatched: 0, written: 0, dryRun };
+  let cursor = null;
+  for (;;) {
+    const rows = await prisma.contactRequest.findMany({
+      where: { ...(organizationId ? { organizationId } : {}), AND: [SERVICE_KIND_FILTERS.UMRAH] },
+      orderBy: { id: "asc" },
+      take: batchSize,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: { ...CONTACT_REQUEST_CASE_INCLUDE, umrahQueueEntry: true },
+    });
+    if (!rows.length) break;
+    for (const { umrahQueueEntry: existing, ...row } of rows) {
+      const { progress, queue } = deriveUmrah(row);
+      if (!queue) continue;
+      report.total += 1;
+      const data = entryData(row, progress, queue);
+      if (!existing) report.missing += 1;
+      else if (!sameEntry(existing, data)) report.mismatched += 1;
+      else {
+        report.ok += 1;
+        continue;
+      }
+      if (!dryRun) {
+        await prisma.umrahQueueEntry.upsert({ where: { contactRequestId: row.id }, create: { contactRequestId: row.id, ...data }, update: { ...data, derivedAt: new Date() } });
+        report.written += 1;
+      }
+    }
+    cursor = rows[rows.length - 1].id;
+  }
+  return report;
 }

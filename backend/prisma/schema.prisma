@@ -1263,7 +1263,30 @@ enum ContactRequestPaymentStatus {
   CONFIRMED
 }
 
+// Derived, rebuildable ordering state of an Umrah request for the staff queue
+// (umrah-queue-index.js). It is a cache of values computed from the request's
+// own facts - never a source of truth: the list re-derives the rows it shows,
+// repairs a row that disagrees, and `rebuild-umrah-queue.js` recreates all of
+// it from scratch. Deleting the whole table loses nothing.
+model UmrahQueueEntry {
+  contactRequestId    String         @id
+  organizationId      String
+  rank                Int
+  stage               String
+  packageKind         String
+  preferredTravelDate String?
+  requestCreatedAt    DateTime
+  derivedAt           DateTime       @default(now())
+  contactRequest      ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, rank, preferredTravelDate, requestCreatedAt])
+  @@index([organizationId, preferredTravelDate, rank, requestCreatedAt])
+  @@index([organizationId, stage])
+  @@index([derivedAt])
+}
+
 model ContactRequest {
+  umrahQueueEntry UmrahQueueEntry?
   id                       String                      @id @default(cuid())
   // Client-generated key for one submission (the mobile app keeps it across
   // retries): a retried POST returns the request already created instead of
