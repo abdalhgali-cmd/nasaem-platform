@@ -24,6 +24,7 @@ const DRAFT_ERROR_RESPONSES = {
   NOT_FOUND: { status: 404, message: "الطلب غير موجود" },
   EXPIRED: { status: 410, message: "انتهت صلاحية هذا الطلب، يرجى بدء طلب جديد" },
   ALREADY_SUBMITTED: { status: 409, message: "تم إرسال هذا الطلب بالفعل" },
+  DRAFT_CHANGED: { status: 409, message: "تغيّرت بيانات الطلب أثناء الإرسال. راجعها ثم أعد المحاولة" },
   INCOMPLETE_DRAFT: { status: 400, message: "الاسم ورقم الهاتف مطلوبان قبل إرسال الطلب" },
   EGYPT_CLEARANCE_INCOMPLETE: {
     status: 400,
