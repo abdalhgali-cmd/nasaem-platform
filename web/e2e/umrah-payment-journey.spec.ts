@@ -123,8 +123,25 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     await expect(page.getByText("إقامة الضامن").first()).toBeVisible();
     await expect(page.getByText("الصورة الشخصية")).toHaveCount(0);
     // each pilgrim's passport + the guarantor's residence
+    // Lose the first upload's response after the server stored it. Reload must
+    // recover that exact document rather than asking for another upload.
+    let lostUploadResponse = false;
+    await page.route("**/api/intake-drafts/current/documents", async (route) => {
+      const response = await route.fetch();
+      if (!lostUploadResponse && route.request().method() === "POST") {
+        lostUploadResponse = true;
+        await route.abort("connectionreset");
+      } else await route.fulfill({ response });
+    });
     for (let i = 0; i < 3; i += 1) {
       await page.locator('label:has-text("اختر ملفًا") input[type="file"]').first().setInputFiles(FIXTURE);
+      if (i === 0) {
+        await expect(page.locator('[data-testid="draft-doc"][data-status="error"]')).toHaveCount(1);
+        await page.unroute("**/api/intake-drafts/current/documents");
+        await page.reload();
+        await page.getByRole("button", { name: "متابعة الطلب", exact: true }).click();
+        await expect(page.locator('[data-testid="draft-doc"][data-status="uploaded"]')).toHaveCount(1);
+      }
     }
     await expect(page.locator('[data-testid="draft-doc"][data-status="uploaded"]')).toHaveCount(3);
     const documentIds = await page.getByTestId("draft-doc").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-document-id")).sort());
