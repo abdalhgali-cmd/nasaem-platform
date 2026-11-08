@@ -98,6 +98,16 @@ export function evaluateUmrahDelivery(request) {
   if (!visas.complete) {
     const missing = names(request, visas.missingTravelerIds);
     reasons.push({ code: "VISAS_INCOMPLETE", message: missing.length ? `لم تُنشر التأشيرة بعد لـ: ${missing.join("، ")}.` : "لم تُنشر التأشيرة بعد." });
+    // A rejected or delayed pilgrim keeps the request open until staff decide:
+    // the group is never closed around them.
+    const unresolved = (request?.travelers || []).filter((t) => visas.missingTravelerIds.includes(t.id) && (t.visaState === "REJECTED" || t.visaState === "DELAYED"));
+    if (unresolved.length) {
+      reasons.push({
+        code: "VISA_UNRESOLVED",
+        message: `قرار تأشيرة غير محسوم لـ: ${unresolved.map((t) => `${t.fullName || "معتمر"} (${t.visaState === "REJECTED" ? "مرفوضة" : "متأخرة"})`).join("، ")}. يبقى الطلب مفتوحًا حتى يُحسم.`,
+        travelerIds: unresolved.map((t) => t.id),
+      });
+    }
   }
   if (services && !services.complete) {
     const missing = names(request, services.missingTravelerIds);

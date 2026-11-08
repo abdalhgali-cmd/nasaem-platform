@@ -38,6 +38,8 @@ export const ACTIONS = Object.freeze({
   ATTACH_TICKET: "ATTACH_TICKET",
   EDIT_TRAVEL_DATE: "EDIT_TRAVEL_DATE",
   REQUEST_FLIGHT_BOOKING: "REQUEST_FLIGHT_BOOKING",
+  // Umrah: staff record one pilgrim's visa processing state (umrah-visa-state.js).
+  SET_VISA_STATE: "SET_VISA_STATE",
   COMPLETE: "COMPLETE",
   CLOSE: "CLOSE",
   REOPEN: "REOPEN",
@@ -75,6 +77,7 @@ export const STAFF_ACTION_ROLES = Object.freeze({
   [ACTIONS.ISSUE_CIRCULAR]: WORK,
   [ACTIONS.ATTACH_TICKET]: WORK,
   [ACTIONS.EDIT_TRAVEL_DATE]: WORK,
+  [ACTIONS.SET_VISA_STATE]: WORK,
   [ACTIONS.COMPLETE]: WORK,
   [ACTIONS.CLOSE]: WORK,
   [ACTIONS.REOPEN]: MANAGERS,
@@ -498,6 +501,12 @@ export function checkAction(action, request, context = {}) {
     case ACTIONS.REQUEST_FLIGHT_BOOKING:
       if (!isEgyptClearanceCode(request.visaType?.code)) return refuse("WRONG_SERVICE", "هذا الإجراء خاص بطلبات الموافقة الأمنية لمصر.");
       return null;
+    case ACTIONS.SET_VISA_STATE:
+      if (!isUmrahRequest(request)) return refuse("WRONG_SERVICE", "هذا الإجراء خاص بطلبات العمرة.");
+      // The same gates as publishing a visa: nothing is processed before the
+      // documents are accepted, the payment is confirmed and execution started.
+      if (!request.executionStartedAt) return refuse("EXECUTION_NOT_STARTED", "سجّل بدء التنفيذ قبل تحديث حالة تأشيرة المعتمر.");
+      return null;
     case ACTIONS.COMPLETE: {
       const reasons = completionBlockers(request);
       if (!reasons.length) return null;
@@ -520,6 +529,7 @@ export function allowedActions(request, { audience, role } = {}) {
   return candidates.filter((action) => {
     if (action === ACTIONS.SAVE_TRAVEL_PLAN && !isEgyptClearanceCode(request.visaType?.code)) return false;
     if (action === ACTIONS.REQUEST_FLIGHT_BOOKING && (!isEgyptClearanceCode(request.visaType?.code) || request.intakeData?.egyptFlight?.choice === "REQUEST")) return false;
+    if (action === ACTIONS.SET_VISA_STATE && (!isUmrahRequest(request) || !request.executionStartedAt)) return false;
     if (action === ACTIONS.PUBLISH_DELIVERABLE && !(request.deliverables || []).some((d) => !isPublished(d))) return false;
     if (action === ACTIONS.REVIEW_DOCUMENT && !(request.documents || []).some((d) => !d.supersededAt && d.classification !== "FINANCIAL_DOCUMENT" && (d.status === "PENDING" || !request.executionStartedAt || MANAGERS.includes(role)))) return false;
     // Offered when allowed for the version currently stored (what the
