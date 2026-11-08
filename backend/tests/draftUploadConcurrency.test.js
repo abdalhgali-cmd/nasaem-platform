@@ -5,6 +5,7 @@ import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { hashDraftToken } from "../src/modules/intake-drafts/intake-drafts.service.js";
 import prisma from "../src/config/database.js";
 
 let service;
@@ -53,7 +54,7 @@ describe("draft uploads under concurrency", () => {
     const token = await draftWith(PEOPLE);
     const results = await Promise.all(Array.from({ length: PEOPLE }, (_, i) => upload(token, i)));
     assert.deepEqual(results.map((r) => r.status), Array(PEOPLE).fill(201), JSON.stringify(results.map((r) => r.body)));
-    const draft = await prisma.intakeDraft.findUnique({ where: { token } });
+    const draft = await prisma.intakeDraft.findUnique({ where: { tokenHash: hashDraftToken(token) } });
     const refs = draft.documentTravelerRefs || {};
     assert.equal(Object.keys(refs).length, PEOPLE, "no mapping was overwritten by a parallel upload");
     assert.deepEqual(Object.values(refs).sort(), Array.from({ length: PEOPLE }, (_, i) => String(i)).sort());
@@ -65,7 +66,7 @@ describe("draft uploads under concurrency", () => {
     const results = await Promise.all(Array.from({ length: 6 }, () => upload(token, 0)));
     assert.equal(results.filter((r) => r.status === 201).length, 1, JSON.stringify(results.map((r) => r.status)));
     assert.equal(results.filter((r) => r.status === 400).length, 5);
-    const draft = await prisma.intakeDraft.findUnique({ where: { token } });
+    const draft = await prisma.intakeDraft.findUnique({ where: { tokenHash: hashDraftToken(token) } });
     assert.equal(await prisma.contactRequestDocument.count({ where: { draftId: draft.id } }), 1);
   });
 
@@ -79,7 +80,7 @@ describe("draft uploads under concurrency", () => {
       .field("label", "late")
       .attach("file", Buffer.from([0x89, 0x50, 0x4e, 0x47]), { filename: "late.png", contentType: "image/png" });
     assert.equal(late.status, 409, JSON.stringify(late.body));
-    const draft = await prisma.intakeDraft.findUnique({ where: { token } });
+    const draft = await prisma.intakeDraft.findUnique({ where: { tokenHash: hashDraftToken(token) } });
     assert.equal(await prisma.contactRequestDocument.count({ where: { draftId: draft.id } }), 0);
     assert.equal(await prisma.contactRequestDocument.count({ where: { contactRequestId: submitted.body.data.id } }), 1);
   });

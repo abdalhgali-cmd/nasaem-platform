@@ -1,5 +1,6 @@
 "use client";
 
+import { draftAuth, draftUrl } from "@/lib/draft-api";
 import * as React from "react";
 
 import Link from "next/link";
@@ -525,9 +526,9 @@ export function ServiceIntakeWizard({
           }
         }
 
-        const patchRes = await fetch(`${API_URL}/intake-drafts/${serverDraftTokenRef.current}`, {
+        const patchRes = await fetch(draftUrl(API_URL), {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...draftAuth(serverDraftTokenRef.current ?? "") },
           body: JSON.stringify({
             step,
             serviceKind: service,
@@ -584,7 +585,7 @@ export function ServiceIntakeWizard({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/intake-drafts/${token}`);
+        const res = await fetch(draftUrl(API_URL), { headers: draftAuth(token) });
         if (!res.ok) return;
         const payload = await res.json();
         const draft = payload?.data;
@@ -1082,9 +1083,9 @@ export function ServiceIntakeWizard({
       // The server runs OCR only for an upload tagged with an OCR-enabled
       // requirement of the draft's own service, so the draft must name the
       // service even when it was preselected from the URL.
-      await fetch(`${API_URL}/intake-drafts/${token}`, {
+      await fetch(draftUrl(API_URL), {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...draftAuth(token) },
         body: JSON.stringify({
           serviceKind: service,
           serviceId: effectiveServiceId || undefined,
@@ -1097,7 +1098,7 @@ export function ServiceIntakeWizard({
       body.append("travelerIndex", String(index));
       body.append("file", file);
 
-      const res = await fetch(`${API_URL}/intake-drafts/${token}/documents`, { method: "POST", body });
+      const res = await fetch(draftUrl(API_URL, "/documents"), { method: "POST", headers: draftAuth(token), body });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.message || "تعذّرت قراءة الجواز");
 
@@ -1106,7 +1107,7 @@ export function ServiceIntakeWizard({
       // keep a second stored passport image.
       const draftDocumentId = payload?.data?.id;
       if (draftDocumentId) {
-        void fetch(`${API_URL}/intake-drafts/${token}/documents/${draftDocumentId}`, { method: "DELETE" }).catch(() => {});
+        void fetch(draftUrl(API_URL, `/documents/${draftDocumentId}`), { method: "DELETE", headers: draftAuth(token) }).catch(() => {});
       }
 
       // Offer the same photo as this traveler's passport document, unless the

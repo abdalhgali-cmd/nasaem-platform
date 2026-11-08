@@ -32,6 +32,27 @@ function generateDraftToken() {
   return crypto.randomBytes(32).toString("base64url");
 }
 
+// Only a hash of the token is stored for new drafts, so a database read
+// (backup, SQL console) cannot be replayed as a draft credential. The token
+// is high-entropy random, so an unsalted SHA-256 is sufficient.
+export function hashDraftToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+// Matches a hashed draft, or a legacy one still holding its plaintext token.
+function tokenWhere(token) {
+  if (typeof token !== "string" || !token || token.length > 200) return { id: "__invalid__" };
+  return { OR: [{ tokenHash: hashDraftToken(token) }, { token }] };
+}
+
+// A legacy draft found by plaintext gets its hash recorded (best effort);
+// the plaintext stays until an approved cleanup clears it.
+function backfillHash(draft, token) {
+  if (draft && draft.tokenHash === null) {
+    prisma.intakeDraft.updateMany({ where: { id: draft.id, tokenHash: null }, data: { tokenHash: hashDraftToken(token) } }).catch(() => {});
+  }
+}
+
 function draftExpiry() {
   return new Date(Date.now() + DRAFT_TTL_DAYS * 24 * 60 * 60 * 1000);
 }
@@ -77,7 +98,7 @@ export async function createDraft(data, organizationId = "org_nasaem_default") {
 
   const draft = await prisma.intakeDraft.create({
     data: {
-      token,
+      tokenHash: hashDraftToken(token),
       organizationId,
       serviceKind: data.serviceKind || null,
       serviceId: data.serviceId || null,
@@ -96,18 +117,21 @@ export async function createDraft(data, organizationId = "org_nasaem_default") {
 // listed. Submitted drafts remain readable only during their validity;
 // expiry revokes read access as well as mutation access.
 export async function getDraftByToken(token) {
-  const draft = await prisma.intakeDraft.findUnique({ where: { token }, select: DRAFT_PUBLIC_SELECT });
+  const draft = await prisma.intakeDraft.findFirst({ where: tokenWhere(token), select: { ...DRAFT_PUBLIC_SELECT, tokenHash: true } });
+  if (draft) backfillHash(draft, token);
+  if (draft) delete draft.tokenHash;
   if (draft && draft.expiresAt <= new Date()) return { error: "EXPIRED" };
   return draft;
 }
 
 async function findMutableDraft(token) {
-  const draft = await prisma.intakeDraft.findUnique({
-    where: { token },
-    select: { id: true, organizationId: true, submittedContactRequestId: true, expiresAt: true, serviceId: true, visaTypeId: true },
+  const draft = await prisma.intakeDraft.findFirst({
+    where: tokenWhere(token),
+    select: { tokenHash: true, id: true, organizationId: true, submittedContactRequestId: true, expiresAt: true, serviceId: true, visaTypeId: true },
   });
 
   if (!draft) return { error: "NOT_FOUND" };
+  backfillHash(draft, token);
   if (draft.submittedContactRequestId) return { error: "ALREADY_SUBMITTED" };
   if (draft.expiresAt <= new Date()) return { error: "EXPIRED" };
   return { draft };
