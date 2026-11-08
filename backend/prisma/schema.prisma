@@ -1420,6 +1420,16 @@ model Traveler {
   // is not such a copy, and for inquiries opened before this link existed:
   // those are never matched to a pilgrim by name or order.
   sourceTravelerId String?
+  // Umrah only: where this pilgrim's visa stands while it is being processed
+  // (staff-set; null = never set, shown as pending / in progress by the
+  // request's own execution state). "Issued" is never stored: it is derived
+  // from the published visa file that covers this traveler. A reason is shown
+  // to the customer; DELAYED needs a follow-up date.
+  visaState          UmrahVisaState?
+  visaStateReason    String?
+  visaFollowUpAt     DateTime?
+  visaStateChangedAt DateTime?
+  visaStateChangedBy String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -1430,6 +1440,13 @@ model Traveler {
 
   @@index([contactRequestId])
   @@index([sourceTravelerId])
+}
+
+enum UmrahVisaState {
+  PENDING
+  IN_PROGRESS
+  DELAYED
+  REJECTED
 }
 
 enum ContactRequestDocumentStatus {

@@ -69,7 +69,12 @@ export function umrahJourney(request, progress) {
   const pilgrims = travelers.map((traveler, index) => ({
     id: traveler.id,
     name: traveler.fullName || `المعتمر ${index + 1}`,
-    visa: visaCovered.has(traveler.id) ? "ISSUED" : started ? "IN_PROGRESS" : "PENDING",
+    // ISSUED only from a published file covering this pilgrim; otherwise the
+    // staff-set state (rejected / delayed carry a reason and follow-up date).
+    visa: visaCovered.has(traveler.id) ? "ISSUED" : traveler.visaState && traveler.visaState !== "PENDING" ? traveler.visaState : started ? "IN_PROGRESS" : "PENDING",
+    ...(!visaCovered.has(traveler.id) && (traveler.visaState === "REJECTED" || traveler.visaState === "DELAYED")
+      ? { visaReason: traveler.visaStateReason || null, visaFollowUpAt: traveler.visaFollowUpAt || null }
+      : {}),
     visaFiles: filesFor(delivery.visas.files, traveler.id),
     ...(delivery.services
       ? { services: servicesCovered.has(traveler.id) ? "DELIVERED" : started ? "PREPARING" : "PENDING", serviceFiles: filesFor(delivery.services.files, traveler.id) }
