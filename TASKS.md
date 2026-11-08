@@ -14,6 +14,8 @@ Owner approved implementation of the audit plan. Branch: `fix/umrah-p0-draft-pri
 
 **تحديث:** U-05 #177، T08 (ربط تقني) #178، T05 (حراس DB) #179 — كلها Draft ومكدّسة؛ الباكند كاملًا 1109/1125 والـ16 فشلًا نفسها على #172. T03 مؤجل بقرار موثّق (يحتاج تحقق متصفح). المتبقي يحتاج قرار مالك (T07/T10/سياسة التذاكر) أو تحقق جهاز/متصفح (T03/T13) أو تصميم أكبر (T09/T11/T14–T16). التفاصيل: docs/umrah-audit/FOLLOWUP.md.
 
+**آخر تشغيل كامل (فرع T14، قاعدة نظيفة):** الباكند 1141 اختبارًا، 1125 ناجحًا، 16 فاشلًا، وهي نفسها الفاشلة على #172 قبل الدفعات؛ لا فشل جديد. الدفعات #172–#183 كلها Draft ومكدّسة؛ migrations الإضافية الثلاث (#175، #178، #179) طُبّقت على قواعد اصطناعية فقط. CI على GitHub لم يُشغَّل بعد. الجدول والمؤجَّل في docs/umrah-audit/FOLLOWUP.md.
+
 Historical release evidence below refers to its named branches, not this P0 candidate.
 
 All critical automated suites pass on `claude/release-integration`; release is stopped at the approval gate (merge, staging, deployment).
