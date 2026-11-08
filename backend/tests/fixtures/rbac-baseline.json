@@ -57,6 +57,7 @@
   "GET /api/dashboard/operations": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/dashboard/stats": ["ADMIN", "SUPER_ADMIN"],
   "GET /api/dashboard/summary": ["ADMIN", "SUPER_ADMIN"],
+  "GET /api/dashboard/umrah-report": ["ACCOUNTANT", "ADMIN", "SUPER_ADMIN"],
   "GET /api/documents": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/documents/:id": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/feature-flags": ["ADMIN", "SUPER_ADMIN"],
