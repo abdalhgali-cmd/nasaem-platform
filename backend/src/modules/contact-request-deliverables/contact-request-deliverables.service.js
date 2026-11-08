@@ -49,13 +49,23 @@ async function publishInTransaction(tx, request, deliverable, userId, travelerId
     newValue: { deliverableId: deliverable.id, label: deliverable.label, travelerIds: coverage },
   });
   const after = { ...request, deliverables: request.deliverables.map((d) => (d.id === current.id ? current : d)).concat(request.deliverables.some((d) => d.id === current.id) ? [] : [current]) };
+  if (isUmrahRequest(request) && request.customerId) {
+    await announceUmrahPublished(request, current, (req, { title, message, type }) =>
+      tx.notification.create({ data: { title, message, type, customerId: req.customerId, contactRequestId: req.id } })
+    );
+  }
   const completed = await completeIfDone(tx, after, { userId });
   return { deliverable: current, completed };
 }
 
 // Umrah: say which pilgrim's visa (or the services) is ready, and when the
 // last visa / the last service document of the request is out.
-async function announceUmrahPublished(request, deliverable) {
+//
+// The in-app notification is written inside the publishing transaction
+// (`notify` is bound to it), so a crash right after the commit cannot leave
+// a published visa the customer is never told about, and a rolled-back
+// publish never notifies. WhatsApp stays best-effort after the commit.
+async function announceUmrahPublished(request, deliverable, notify = notifyRequestCustomer) {
   const after = { ...request, deliverables: (request.deliverables || []).filter((d) => d.id !== deliverable.id).concat([deliverable]) };
   const before = evaluateUmrahDelivery(request);
   const now = evaluateUmrahDelivery(after);
@@ -63,24 +73,24 @@ async function announceUmrahPublished(request, deliverable) {
   const nameOf = (id) => travelers.find((t) => t.id === id)?.fullName || "أحد المعتمرين";
   if (deliverable.kind === "SERVICE") {
     if (now.services?.complete && !before.services?.complete) {
-      await notifyRequestCustomer(request, { title: "سُلّمت الخدمات المشمولة", message: `أصبحت مستندات الخدمات المشمولة في باقتك جاهزة للتحميل (${describeRequest(request)}).`, type: "UMRAH_SERVICES_DELIVERED" });
+      await notify(request, { title: "سُلّمت الخدمات المشمولة", message: `أصبحت مستندات الخدمات المشمولة في باقتك جاهزة للتحميل (${describeRequest(request)}).`, type: "UMRAH_SERVICES_DELIVERED" });
     } else {
-      await notifyRequestCustomer(request, { title: "مستند خدمة جاهز", message: `أصبح المستند "${deliverable.label}" جاهزًا لطلبك (${describeRequest(request)}).`, type: "UMRAH_SERVICE_DOCUMENT_READY" });
+      await notify(request, { title: "مستند خدمة جاهز", message: `أصبح المستند "${deliverable.label}" جاهزًا لطلبك (${describeRequest(request)}).`, type: "UMRAH_SERVICE_DOCUMENT_READY" });
     }
     return;
   }
   const newly = now.visas.coveredTravelerIds.filter((id) => !before.visas.coveredTravelerIds.includes(id));
   if (now.visas.complete && !before.visas.complete) {
-    await notifyRequestCustomer(request, { title: "صدرت التأشيرات", message: `صدرت تأشيرات جميع المعتمرين في طلبك (${describeRequest(request)}). يمكنك تحميلها من «رحلتي إلى الحرمين».`, type: "UMRAH_ALL_VISAS_ISSUED" });
+    await notify(request, { title: "صدرت التأشيرات", message: `صدرت تأشيرات جميع المعتمرين في طلبك (${describeRequest(request)}). يمكنك تحميلها من «رحلتي إلى الحرمين».`, type: "UMRAH_ALL_VISAS_ISSUED" });
   } else {
     const who = newly.length ? newly.map(nameOf).join("، ") : "أحد المعتمرين";
-    await notifyRequestCustomer(request, { title: "صدرت تأشيرة", message: `صدرت تأشيرة ${who} (${describeRequest(request)}). يمكنك تحميلها من «رحلتي إلى الحرمين».`, type: "UMRAH_VISA_ISSUED" });
+    await notify(request, { title: "صدرت تأشيرة", message: `صدرت تأشيرة ${who} (${describeRequest(request)}). يمكنك تحميلها من «رحلتي إلى الحرمين».`, type: "UMRAH_VISA_ISSUED" });
   }
 }
 
 async function announcePublished(request, deliverable, completed) {
   if (isUmrahRequest(request)) {
-    await announceUmrahPublished(request, deliverable);
+    // Its in-app notification was already written with the publish itself.
     sendWhatsAppMessage(
       request.phoneNormalized,
       `أصبح الملف "${deliverable.label}" جاهزًا لطلبك (${describeRequest(request)}).\nيمكنك تحميله من «رحلتي إلى الحرمين».`
