@@ -70,6 +70,7 @@ export function renderLoginScreen({ bodyEl, params = {} }) {
       </label>
       <button type="button" class="link-btn" id="forgotPasswordLink">نسيت كلمة المرور؟</button>
       <button type="submit" class="primary" id="loginSubmit">تسجيل الدخول</button>
+      <button type="button" class="secondary" id="googleLogin" hidden>المتابعة باستخدام Google</button>
       <p class="auth-switch">ليس لديك حساب؟ <button type="button" class="link-btn" id="toRegister">أنشئ حسابًا جديدًا</button></p>
     </form>
   `;
@@ -80,6 +81,15 @@ export function renderLoginScreen({ bodyEl, params = {} }) {
   bodyEl.querySelector("#toRegister").addEventListener("click", () => go("register", {}, { title: "إنشاء حساب" }));
 
   const form = bodyEl.querySelector("#loginForm");
+  const googleButton = bodyEl.querySelector("#googleLogin");
+  auth.googleLoginAvailable().then((enabled) => { if (googleButton.isConnected) googleButton.hidden = !enabled; }).catch(() => {});
+  googleButton.addEventListener("click", async () => {
+    if (googleButton.disabled) return;
+    setLoading(googleButton, true, "جارٍ الدخول…");
+    try { await auth.loginWithGoogle(); onAuthenticated(); }
+    catch (error) { toast(error.message, { tone: "error" }); }
+    finally { setLoading(googleButton, false); }
+  });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     form.querySelectorAll(".field-error").forEach((el) => el.remove());

@@ -472,6 +472,8 @@ model Customer {
   // this is not a second authentication *mechanism* — it's the same one,
   // applied to a different principal (Customer instead of User).
   passwordHash           String?
+  // Stable verified Google identity; never infer ownership from matching email.
+  googleSubject          String?   @unique
   passwordResetCode      String?
   passwordResetExpiresAt DateTime?
   passwordResetAttempts  Int       @default(0)

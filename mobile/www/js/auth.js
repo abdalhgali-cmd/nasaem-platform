@@ -265,6 +265,23 @@ export async function requestPasswordReset(phone) {
   return api("/customer-auth/forgot-password", { method: "POST", body: JSON.stringify({ phone }) });
 }
 
+export async function googleLoginAvailable() {
+  if (!window.Capacitor?.Plugins?.GoogleIdentity) return false;
+  const response = await api("/customer-auth/google/challenge");
+  return Boolean(response.data?.enabled);
+}
+
+export async function loginWithGoogle() {
+  const native = window.Capacitor?.Plugins?.GoogleIdentity;
+  if (!native) throw new ApiError("تسجيل Google يحتاج نسخة Android المدعومة.");
+  const { data } = await api("/customer-auth/google/challenge");
+  if (!data?.enabled) throw new ApiError("تسجيل Google غير متاح حاليًا.");
+  const { credential } = await native.signIn({ clientId: data.clientId, nonce: data.nonce });
+  return startSession(await api("/customer-auth/google", {
+    method: "POST", body: JSON.stringify({ credential }),
+  }));
+}
+
 export async function resetPassword({ phone, code, newPassword }) {
   return api("/customer-auth/reset-password", { method: "POST", body: JSON.stringify({ phone, code, newPassword }) });
 }

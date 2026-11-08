@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // App-local native plugins must be registered before the bridge starts.
         registerPlugin(SecureSessionPlugin.class);
+        registerPlugin(GoogleIdentityPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

@@ -9,7 +9,7 @@ import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 // receipt) → confirmation with the request number and «بانتظار مراجعة
 // التحويل». The receipt never marks the request paid; staff confirm it.
 
-const BACKEND = "http://localhost:5000";
+const BACKEND = process.env.E2E_BACKEND_URL || "http://localhost:5000";
 const FIXTURE = path.join(__dirname, "fixtures", "sample-document.png");
 
 // Issue #99: the three package types, each from the package card to the
@@ -126,6 +126,12 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     for (let i = 0; i < 3; i += 1) {
       await page.locator('label:has-text("اختر ملفًا") input[type="file"]').first().setInputFiles(FIXTURE);
     }
+    await expect(page.locator('[data-testid="draft-doc"][data-status="uploaded"]')).toHaveCount(3);
+    const documentIds = await page.getByTestId("draft-doc").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-document-id")).sort());
+    await page.reload();
+    await page.getByRole("button", { name: "متابعة الطلب", exact: true }).click();
+    await expect(page.locator('[data-testid="draft-doc"][data-status="uploaded"]')).toHaveCount(3);
+    expect(await page.getByTestId("draft-doc").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-document-id")).sort())).toEqual(documentIds);
     await page.getByRole("button", { name: "التالي" }).click();
 
     // Summary with the final price; going back keeps what was entered.
@@ -137,7 +143,8 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     const send = page.getByRole("button", { name: "تأكيد ومتابعة إلى الدفع" });
     await expect(send).toBeDisabled();
     await page.getByTestId("confirm-fixed-total").check();
-    const submitted = page.waitForResponse((r) => r.url().endsWith("/api/contact-requests") && r.request().method() === "POST");
+    // The request is made either from the stored draft (resumable intake) or by the classic one-request post.
+    const submitted = page.waitForResponse((r) => (r.url().endsWith("/api/contact-requests") || r.url().endsWith("/api/intake-drafts/current/submit")) && r.request().method() === "POST");
     await send.dblclick();
     expect((await submitted).status()).toBe(201);
     await expect(page.getByTestId("payment-step")).toBeVisible({ timeout: 15_000 });

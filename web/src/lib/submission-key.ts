@@ -29,6 +29,19 @@ export function loadSubmissionKey(storageKey: string, fingerprint: string, make:
   }
 }
 
+// The key of a submission that was started in this browser and has not been
+// confirmed yet (a reload after a lost answer), whatever the form now holds.
+export function peekSubmissionKey(storageKey: string): string | null {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as Stored;
+    return stored && typeof stored.key === "string" && Date.now() - stored.at < TTL_MS ? stored.key : null;
+  } catch {
+    return null;
+  }
+}
+
 export function clearSubmissionKey(storageKey: string): void {
   try {
     window.localStorage.removeItem(storageKey);

@@ -13,6 +13,7 @@ import {
   resetPassword,
 } from "./customer-auth.controller.js";
 import { requireCustomerAuth } from "./customer-auth.middleware.js";
+import { googleChallenge, googleLogin } from "./google-auth.js";
 
 const router = Router();
 
@@ -37,6 +38,8 @@ const resetLimiter = rateLimit({
 
 router.post("/register", authLimiter, register);
 router.post("/login", authLimiter, login);
+router.get("/google/challenge", authLimiter, googleChallenge);
+router.post("/google", authLimiter, googleLogin);
 router.post("/logout", requireCustomerAuth, logout);
 router.post("/forgot-password", resetLimiter, forgotPassword);
 router.post("/reset-password", resetLimiter, resetPassword);

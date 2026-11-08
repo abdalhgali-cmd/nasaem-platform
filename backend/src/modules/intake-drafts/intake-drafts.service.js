@@ -73,6 +73,8 @@ const DRAFT_PUBLIC_SELECT = {
   notes: true,
   answers: true,
   travelers: true,
+  // document id -> index of the traveler it belongs to (the wizard restores slots from it)
+  documentTravelerRefs: true,
   submittedContactRequestId: true,
   expiresAt: true,
   updatedAt: true,
@@ -392,6 +394,11 @@ export async function submitDraft(token, { submissionKey, message, acceptedTotal
     const travel = resolveUmrahTravel(service?.category, service?.features, preferredTravelDate);
     if (travel.error) return travel;
     umrahTravel = travel.travel;
+    // Wizard bookkeeping keys ("__travelDate") are not answers to the checklist.
+    if (answers && typeof answers === "object") {
+      const cleaned = Object.fromEntries(Object.entries(answers).filter(([key]) => !key.startsWith("__")));
+      answers = Object.keys(cleaned).length ? cleaned : null;
+    }
     umrahPackage = buildUmrahPackageSnapshot(service?.category, draft.serviceId, service?.features);
   }
 

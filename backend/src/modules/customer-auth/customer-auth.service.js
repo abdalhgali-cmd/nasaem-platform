@@ -29,7 +29,7 @@ export const CUSTOMER_PROFILE_SELECT = {
 
 function sanitizeCustomer(customer) {
   if (!customer) return null;
-  const { passwordHash, passwordResetCode, passwordResetExpiresAt, passwordResetAttempts, sessionVersion, ...safe } = customer;
+  const { passwordHash, googleSubject, passwordResetCode, passwordResetExpiresAt, passwordResetAttempts, sessionVersion, ...safe } = customer;
   return safe;
 }
 
@@ -51,7 +51,7 @@ async function isEmailTakenByAnotherAccount(email, excludeCustomerId) {
   const existing = await prisma.customer.findFirst({
     where: {
       email,
-      passwordHash: { not: null },
+      OR: [{ passwordHash: { not: null } }, { googleSubject: { not: null } }],
       ...(excludeCustomerId ? { id: { not: excludeCustomerId } } : {}),
     },
     select: { id: true },

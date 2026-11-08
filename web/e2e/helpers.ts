@@ -2,7 +2,7 @@ import type { BrowserContext, Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = process.env.E2E_BACKEND_URL || "http://localhost:5000";
 const BACKEND_DIR = path.resolve(__dirname, "../../backend");
 
 // Reads the real, currently-valid /track OTP for a phone number directly

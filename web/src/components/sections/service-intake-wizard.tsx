@@ -1,7 +1,8 @@
 "use client";
 
 import { draftAuth, draftUrl } from "@/lib/draft-api";
-import { clearSubmissionKey, loadSubmissionKey, submissionFingerprint } from "@/lib/submission-key";
+import { clearSubmissionKey, loadSubmissionKey, peekSubmissionKey, submissionFingerprint } from "@/lib/submission-key";
+import { RESUMABLE_INTAKE, deleteDraftDocument, dropEntry, entriesFromDraft, patchEntry, upsertEntry, uploadDraftDocument, type DraftDocEntry, type DraftDocMap } from "@/lib/draft-documents";
 import * as React from "react";
 
 import Link from "next/link";
@@ -125,6 +126,11 @@ type DocumentSlot = {
   requirement: PublicRequirement;
   travelerIndex: number | null;
   files: File[];
+  // Resumable mode only: the slot is identified by the traveler's position in
+  // the whole list (stable when another traveler is named or removed) and its
+  // documents live on the server draft.
+  fullIndex?: number | null;
+  entries?: DraftDocEntry[];
 };
 
 const TRAVELER_ORDINALS = [
@@ -318,6 +324,16 @@ export function ServiceIntakeWizard({
     () => travelers.filter((t) => t.fullName.trim().length > 0),
     [travelers]
   );
+  // Resumable Umrah submission (T03): documents are stored on the server draft
+  // when chosen and the request is made from that draft, nothing re-sent.
+  const resumable = RESUMABLE_INTAKE && (service === "umrah" || service === "package");
+  const fullIndexOfFilled = React.useMemo(
+    () => travelers.map((t, i) => (t.fullName.trim().length > 0 ? i : -1)).filter((i) => i >= 0),
+    [travelers]
+  );
+  const [draftDocs, setDraftDocs] = React.useState<DraftDocMap>({});
+  const uploadHandles = React.useRef<Map<string, { abort: () => void }>>(new Map());
+  const [documentsNotice, setDocumentsNotice] = React.useState("");
 
   // Documents (step "documents") — the live checklist fetched from the
   // Requirements Engine for whichever service/visa type is selected, and
@@ -549,7 +565,7 @@ export function ServiceIntakeWizard({
           // A draft that expired or was already submitted must not be
           // retried forever — drop the token and let the next save start a
           // fresh one.
-          if (patchRes.status === 404 || patchRes.status === 409) {
+          if (patchRes.status === 404 || patchRes.status === 410) {
             serverDraftTokenRef.current = null;
             try {
               window.localStorage.removeItem(serverDraftKey);
@@ -608,6 +624,63 @@ export function ServiceIntakeWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverDraftKey]);
 
+  // A submission whose answer never arrived: after a reload the same
+  // submissionKey asks the server for the request it already made (and a fresh
+  // payment token). Nothing is sent again and no second request can exist.
+  React.useEffect(() => {
+    if (!resumable || typeof window === "undefined") return;
+    const key = peekSubmissionKey(submissionKeyStorage);
+    let token: string | null = null;
+    try {
+      token = window.localStorage.getItem(serverDraftKey);
+    } catch {
+      return;
+    }
+    if (!key || !token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const draft = (await (await fetch(draftUrl(API_URL), { headers: draftAuth(token) })).json().catch(() => null))?.data;
+        if (!draft?.submittedContactRequestId || cancelled) return;
+        const response = await fetch(draftUrl(API_URL, "/submit"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...draftAuth(token) },
+          body: JSON.stringify({ submissionKey: key }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.data?.id || cancelled) return;
+        const paymentAccess: PaymentAccess | null = payload.data.paymentAccess?.token ? payload.data.paymentAccess : null;
+        if (paymentAccess) savePendingPayment(draftKey, { requestId: payload.data.id, access: paymentAccess });
+        setResumedPayment(true);
+        setResult({ id: payload.data.id, fixed: null, paymentAccess });
+      } catch {
+        // Offline: the next load tries again; the key is kept until it works.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverDraftKey]);
+
+  // Changing the package after documents were stored would attach them to
+  // requirements of another service: they are removed and the customer is told.
+  const draftServiceRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!resumable) return;
+    const current = selectedServiceId || "";
+    const previous = draftServiceRef.current;
+    draftServiceRef.current = current;
+    if (previous === null || previous === current) return;
+    const all = Object.entries(draftDocs).flatMap(([key, list]) => list.map((entry) => ({ key, entry })));
+    if (!all.length) return;
+    (async () => {
+      for (const { key, entry } of all) await removeDraftEntry(key, entry);
+      setDocumentsNotice("غُيّرت الباقة فأُزيلت المستندات المحفوظة لأنها تخص باقة أخرى؛ ارفعها من جديد.");
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedServiceId]);
+
   function resumeDraft() {
     const local = readDraft();
     // The server draft is only ever used when this browser has no local one
@@ -645,6 +718,8 @@ export function ServiceIntakeWizard({
     setStep(Math.max(0, draft.step || 0));
     setDraftAvailable(false);
     setDraftRestored(true);
+    // The documents are not in the browser: they come back from the server draft.
+    if (resumable) void restoreDraftDocuments();
   }
 
   function discardDraft() {
@@ -864,12 +939,17 @@ export function ServiceIntakeWizard({
     .flatMap((requirement): DocumentSlot[] => {
       if (requirement.scope === "TRAVELER" && filledTravelers.length > 0) {
         return filledTravelers.map((_, travelerIndex) => {
-          const key = `${requirement.id}::${travelerIndex}`;
-          return { key, requirement, travelerIndex, files: documentFilesBySlotKey[key] ?? [] };
+          const fullIndex = fullIndexOfFilled[travelerIndex];
+          const key = resumable ? `${requirement.id}::${fullIndex}` : `${requirement.id}::${travelerIndex}`;
+          return resumable
+            ? { key, requirement, travelerIndex, files: [], fullIndex, entries: draftDocs[key] ?? [] }
+            : { key, requirement, travelerIndex, files: documentFilesBySlotKey[key] ?? [] };
         });
       }
       const key = requirement.id;
-      return [{ key, requirement, travelerIndex: null, files: documentFilesBySlotKey[key] ?? [] }];
+      return resumable
+        ? [{ key, requirement, travelerIndex: null, files: [], fullIndex: null, entries: draftDocs[key] ?? [] }]
+        : [{ key, requirement, travelerIndex: null, files: documentFilesBySlotKey[key] ?? [] }];
     });
   const answerSlots: PublicRequirement[] = applicableRequirements.filter((r) => r.type !== "DOCUMENT");
   // Issue #103: the passport photo the traveler form can read. Without an
@@ -880,7 +960,14 @@ export function ServiceIntakeWizard({
     applicableRequirements.find((r) => r.type === "DOCUMENT" && r.ocrEnabled) ??
     null;
 
-  const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slot.files.length, 0);
+  // Documents on the slot: files chosen in this page (classic) or the server
+  // draft's documents that are stored or still being sent (resumable).
+  const slotCount = (slot: DocumentSlot) => (slot.entries ? slot.entries.filter((entry) => entry.status !== "error").length : slot.files.length);
+  const totalAttachedDocuments = documentSlots.reduce((sum, slot) => sum + slotCount(slot), 0);
+  // Stored documents whose traveler slot is no longer on screen (the traveler
+  // was unnamed): shown so they can be removed, never silently re-assigned.
+  const slotKeys = new Set(documentSlots.map((slot) => slot.key));
+  const orphanEntries = resumable ? Object.entries(draftDocs).filter(([key]) => !slotKeys.has(key)).flatMap(([key, list]) => list.map((entry) => ({ key, entry }))) : [];
 
   // Mirrors the checks upload.middleware.js applies server-side (MIME
   // allowlist + size cap, both sourced from this same requirement) so a
@@ -895,7 +982,11 @@ export function ServiceIntakeWizard({
     return null;
   }
 
-  function addDocumentFile(slotKey: string, requirement: PublicRequirement, file: File) {
+  function addDocumentFile(slotKey: string, requirement: PublicRequirement, file: File, slot?: DocumentSlot) {
+    if (resumable && slot) {
+      void startDraftUpload(slot, file);
+      return;
+    }
     const error = validateDocumentFile(requirement, file);
     setDocumentErrorsBySlotKey((prev) => ({ ...prev, [slotKey]: error || "" }));
     if (error) return;
@@ -903,6 +994,86 @@ export function ServiceIntakeWizard({
       ...prev,
       [slotKey]: [...(prev[slotKey] ?? []), file],
     }));
+  }
+
+  // ---- Resumable mode: the document goes to the server draft as soon as it is chosen.
+  async function patchDraftIdentity(token: string) {
+    const res = await fetch(draftUrl(API_URL), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...draftAuth(token) },
+      body: JSON.stringify({ serviceKind: service, serviceId: effectiveServiceId || undefined, visaTypeId: effectiveVisaTypeId || undefined }),
+    });
+    if (!res.ok) throw new Error("تعذّر تجهيز رفع المستند");
+  }
+
+  async function startDraftUpload(slot: DocumentSlot, file: File, retryId?: string) {
+    const error = validateDocumentFile(slot.requirement, file);
+    setDocumentErrorsBySlotKey((prev) => ({ ...prev, [slot.key]: error || "" }));
+    if (error) return;
+    const localId = retryId ?? `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setDraftDocs((prev) => upsertEntry(prev, slot.key, { localId, name: file.name, status: "uploading", progress: 0, file }));
+    try {
+      const token = await ensureServerDraftToken();
+      await patchDraftIdentity(token);
+      const label = slot.travelerIndex !== null ? `${slot.requirement.name} — ${travelerOrdinalLabel(slot.travelerIndex)}` : slot.requirement.name;
+      const handle = uploadDraftDocument({
+        apiUrl: API_URL,
+        token,
+        file,
+        label,
+        requirementId: slot.requirement.id,
+        travelerIndex: slot.fullIndex ?? null,
+        onProgress: (progress) => setDraftDocs((prev) => patchEntry(prev, slot.key, localId, { progress })),
+      });
+      uploadHandles.current.set(localId, handle);
+      const stored = await handle.promise;
+      setDraftDocs((prev) => patchEntry(prev, slot.key, localId, { status: "uploaded", progress: 100, serverId: stored.id, error: undefined, file: undefined }));
+    } catch (e) {
+      setDraftDocs((prev) => patchEntry(prev, slot.key, localId, { status: "error", error: e instanceof Error ? e.message : "تعذّر رفع المستند" }));
+    } finally {
+      uploadHandles.current.delete(localId);
+    }
+  }
+
+  async function removeDraftEntry(key: string, entry: DraftDocEntry): Promise<boolean> {
+    uploadHandles.current.get(entry.localId)?.abort();
+    if (entry.serverId) {
+      try {
+        const token = await ensureServerDraftToken();
+        await deleteDraftDocument(API_URL, token, entry.serverId);
+      } catch (e) {
+        setDraftDocs((prev) => patchEntry(prev, key, entry.localId, { error: e instanceof Error ? e.message : "تعذّر حذف المستند" }));
+        return false;
+      }
+    }
+    setDraftDocs((prev) => dropEntry(prev, key, entry.localId));
+    return true;
+  }
+
+  async function replaceDraftEntry(slot: DocumentSlot, entry: DraftDocEntry, file: File) {
+    // The old file is removed first (the requirement may allow one only); if the
+    // new one then fails, the slot shows the failure with a retry, never a silent gap.
+    if (await removeDraftEntry(slot.key, entry)) await startDraftUpload(slot, file);
+  }
+
+  async function restoreDraftDocuments() {
+    let token: string | null = serverDraftTokenRef.current;
+    try {
+      token = token ?? window.localStorage.getItem(serverDraftKey);
+    } catch {
+      token = null;
+    }
+    if (!token) return;
+    try {
+      const res = await fetch(draftUrl(API_URL), { headers: draftAuth(token) });
+      if (!res.ok) return;
+      const draft = (await res.json())?.data;
+      if (!draft) return;
+      serverDraftTokenRef.current = token;
+      setDraftDocs(entriesFromDraft(draft.documents, draft.documentTravelerRefs));
+    } catch {
+      // Offline: the documents reappear on the next successful load.
+    }
   }
 
   function removeDocumentFile(slotKey: string, index: number) {
@@ -915,7 +1086,7 @@ export function ServiceIntakeWizard({
   function renderDocumentSlot(slot: DocumentSlot) {
     const remainingSlots = Math.max(
       0,
-      Math.min(slot.requirement.maxFiles - slot.files.length, MAX_TOTAL_DOCUMENTS - totalAttachedDocuments)
+      Math.min(slot.requirement.maxFiles - slotCount(slot), MAX_TOTAL_DOCUMENTS - totalAttachedDocuments)
     );
     const accept = slot.requirement.allowedMimeTypes.length
       ? slot.requirement.allowedMimeTypes.join(",")
@@ -943,7 +1114,7 @@ export function ServiceIntakeWizard({
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0] ?? null;
-                  if (file) addDocumentFile(slot.key, slot.requirement, file);
+                  if (file) addDocumentFile(slot.key, slot.requirement, file, slot);
                   e.target.value = "";
                 }}
               />
@@ -955,11 +1126,50 @@ export function ServiceIntakeWizard({
         ) : null}
         {isPassportRequirement(slot.requirement) ? (
           <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground">
-            نصيحة: صوّر صفحة البيانات في الجواز كاملة وبإضاءة جيدة، بحيث تظهر الأركان
-            الأربعة وجميع الكتابة بوضوح دون انعكاس ضوئي أو اهتزاز.
+            نصيحة: صوّر صفحة الجواز كاملة، بوضوح ودون انعكاس.
           </p>
         ) : null}
         {error ? <p className="text-xs font-semibold text-destructive">{error}</p> : null}
+        {slot.entries && slot.entries.length > 0 ? (
+          <ul className="flex flex-col gap-1" data-testid="draft-doc-list">
+            {slot.entries.map((entry) => (
+              <li key={entry.localId} className="flex flex-wrap items-center gap-2 text-xs text-foreground" data-testid="draft-doc" data-status={entry.status} data-document-id={entry.serverId}>
+                {entry.status === "uploaded" ? <CheckCircle2 className="size-3.5 shrink-0 text-success" aria-hidden="true" /> : null}
+                <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                {entry.status === "uploading" ? (
+                  <span role="status" className="font-bold text-muted-foreground">جارٍ الرفع {entry.progress}%</span>
+                ) : null}
+                {entry.status === "uploaded" ? <span className="font-bold text-success">تم الحفظ</span> : null}
+                {entry.status === "error" ? (
+                  <span role="alert" className="font-semibold text-destructive">{entry.error || "تعذّر الرفع"}</span>
+                ) : null}
+                {entry.status === "error" && entry.file ? (
+                  <button type="button" onClick={() => void startDraftUpload(slot, entry.file as File, entry.localId)} className="font-bold text-primary hover:underline dark:text-secondary">
+                    إعادة المحاولة
+                  </button>
+                ) : null}
+                {entry.status === "uploaded" ? (
+                  <label className="cursor-pointer font-bold text-primary hover:underline dark:text-secondary">
+                    استبدال
+                    <input
+                      type="file"
+                      accept={accept}
+                      className="hidden"
+                      onChange={(e) => {
+                        const replacement = e.target.files?.[0] ?? null;
+                        if (replacement) void replaceDraftEntry(slot, entry, replacement);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                ) : null}
+                <button type="button" onClick={() => void removeDraftEntry(slot.key, entry)} className="font-bold text-destructive">
+                  إزالة
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {slot.files.length > 0 ? (
           <ul className="flex flex-col gap-1">
             {slot.files.map((file, index) => (
@@ -1003,8 +1213,22 @@ export function ServiceIntakeWizard({
       ? ["select", "customer", "trip", "details", "documents", "review"]
       : ["select", "customer", "details", "documents", "review"];
 
+  // Documents are tied to a traveler's place in the list; removing that traveler
+  // or clearing the name must not leave a file attached to someone else.
+  function draftDocsForTravelerAtOrAbove(index: number, only = false) {
+    return Object.entries(draftDocs).filter(([key, list]) => {
+      const at = key.includes("::") ? Number(key.split("::")[1]) : null;
+      return at !== null && list.length > 0 && (only ? at === index : at >= index);
+    });
+  }
+
   function updateTravelerCount(count: number) {
     const clamped = Math.max(1, Math.min(20, count));
+    if (resumable && clamped < travelers.length && draftDocsForTravelerAtOrAbove(clamped).length > 0) {
+      setDocumentsNotice("لا يمكن إنقاص عدد المسافرين قبل إزالة مستندات المسافرين الأخيرين من خطوة المستندات.");
+      return;
+    }
+    setDocumentsNotice("");
     setTravelerCount(clamped);
     setTravelers((prev) => {
       const next = [...prev];
@@ -1106,21 +1330,27 @@ export function ServiceIntakeWizard({
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.message || "تعذّرت قراءة الجواز");
 
-      // The draft copy existed only to be read. The request is submitted with
-      // the files attached in the documents step, so remove it rather than
-      // keep a second stored passport image.
       const draftDocumentId = payload?.data?.id;
-      if (draftDocumentId) {
-        void fetch(draftUrl(API_URL, `/documents/${draftDocumentId}`), { method: "DELETE", headers: draftAuth(token) }).catch(() => {});
-      }
-
-      // Offer the same photo as this traveler's passport document, unless the
-      // customer already attached one there.
-      const namedBefore = travelers.slice(0, index).filter((t) => t.fullName.trim()).length;
-      const slotKey =
-        passportScanRequirement.scope === "TRAVELER" ? `${passportScanRequirement.id}::${namedBefore}` : passportScanRequirement.id;
-      if (!(documentFilesBySlotKey[slotKey]?.length) && !validateDocumentFile(passportScanRequirement, file)) {
-        addDocumentFile(slotKey, passportScanRequirement, file);
+      if (resumable && draftDocumentId) {
+        // The uploaded image is already the durable document. Keep its id and
+        // original traveler index even if earlier travelers are unnamed.
+        const key = passportScanRequirement.scope === "TRAVELER"
+          ? `${passportScanRequirement.id}::${index}` : passportScanRequirement.id;
+        setDraftDocs((previous) => upsertEntry(previous, key, {
+          localId: draftDocumentId, serverId: draftDocumentId,
+          name: file.name, status: "uploaded", progress: 100,
+        }));
+      } else {
+        // Classic intake sends its own multipart copy at final submission.
+        if (draftDocumentId) {
+          await deleteDraftDocument(API_URL, token, draftDocumentId);
+        }
+        const namedBefore = travelers.slice(0, index).filter((t) => t.fullName.trim()).length;
+        const slotKey = passportScanRequirement.scope === "TRAVELER"
+          ? `${passportScanRequirement.id}::${namedBefore}` : passportScanRequirement.id;
+        if (!documentFilesBySlotKey[slotKey]?.length && !validateDocumentFile(passportScanRequirement, file)) {
+          addDocumentFile(slotKey, passportScanRequirement, file);
+        }
       }
 
       const ocr = payload?.data?.ocrResult;
@@ -1165,6 +1395,10 @@ export function ServiceIntakeWizard({
   const duplicatePassports = React.useMemo(() => duplicatePassportIndexes(travelers), [travelers]);
 
   function updateTraveler(index: number, patch: Partial<Traveler>) {
+    if (resumable && patch.fullName !== undefined && patch.fullName.trim().length === 0 && draftDocsForTravelerAtOrAbove(index, true).length > 0) {
+      setDocumentsNotice("لهذا المسافر مستندات محفوظة؛ أزلها من خطوة المستندات قبل مسح اسمه.");
+      return;
+    }
     setTravelers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
   }
 
@@ -1192,6 +1426,10 @@ export function ServiceIntakeWizard({
       return !travelers.some((t) => t.ocrPending) && duplicatePassports.size === 0;
     }
 
+    if (current === "documents" && resumable) {
+      return !documentSlots.some((slot) => slot.entries?.some((entry) => entry.status === "uploading"));
+    }
+
     return true;
   }
 
@@ -1204,6 +1442,88 @@ export function ServiceIntakeWizard({
     } catch {
       setCopiedRequestNumber(false);
     }
+  }
+
+  // The part every submission path shares: what the server answered.
+  function finishSubmission(response: Response, payload: { success?: boolean; message?: string; code?: string; details?: { total?: unknown; currency?: unknown }; data: { id: string; paymentAccess?: PaymentAccess } } | null) {
+    if (!response.ok) {
+      if (response.status === 409 && payload?.code === "PRICE_CHANGED" && payload.details && selectedPriceItem) {
+        setServerPrice({
+          itemId: selectedPriceItem.id,
+          total: Number(payload.details.total),
+          currency: String(payload.details.currency),
+        });
+        setPriceConfirmed(false);
+      } else if (response.status === 409 && payload?.code === "PRICING_MODE_CHANGED" && selectedPriceItem) {
+        setQuotedNow(selectedPriceItem.id);
+        setPriceConfirmed(false);
+      }
+      throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
+    }
+    if (!payload) throw new Error("تعذّر إرسال طلبك، حاول مرة أخرى");
+
+    const paymentAccess: PaymentAccess | null =
+      payload.data.paymentAccess?.token && !selectedPriceItem?.paymentAfterDocumentReview ? payload.data.paymentAccess : null;
+    if (paymentAccess) savePendingPayment(draftKey, { requestId: payload.data.id, access: paymentAccess });
+    setResult({
+      id: payload.data.id,
+      fixed:
+        fixedPrice && priceConfirmed
+          ? { ...fixedPrice, afterDocuments: Boolean(selectedPriceItem?.paymentAfterDocumentReview) }
+          : null,
+      paymentAccess,
+    });
+  }
+
+  // Resumable mode: save the latest details on the draft, then turn the draft
+  // into the request. The documents are already stored; none is sent again.
+  async function submitFromDraft() {
+    if (needsGuarantor && !isValidContactPhone(guarantorPhone)) throw new Error("أدخل رقم هاتف الضامن قبل إرسال الطلب.");
+    const inSlots = documentSlots.flatMap((slot) => slot.entries ?? []);
+    if (inSlots.some((entry) => entry.status === "uploading")) throw new Error("انتظر اكتمال رفع المستندات ثم أرسل الطلب.");
+    if (inSlots.some((entry) => entry.status === "error")) throw new Error("لم يكتمل رفع مستند. أعد المحاولة أو أزله ثم أرسل الطلب.");
+    if (orphanEntries.length > 0) throw new Error("توجد مستندات محفوظة لمسافر غير موجود؛ أزلها من خطوة المستندات أولًا.");
+    const token = await ensureServerDraftToken();
+    const firstFilled = travelers.findIndex((t) => t.fullName.trim().length > 0);
+    const saved = await fetch(draftUrl(API_URL), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...draftAuth(token) },
+      body: JSON.stringify({
+        step,
+        serviceKind: service,
+        serviceId: selectedServiceId || undefined,
+        visaTypeId: selectedVisaTypeId || undefined,
+        name,
+        phone,
+        email,
+        travelerCount,
+        notes,
+        answers: { ...answers, ...(travelDate ? { __travelDate: travelDate } : {}) },
+        travelers: travelers.map((t, i) => ({ ...t, isPrimary: i === firstFilled })),
+      }),
+    });
+    if (!saved.ok) {
+      const body = await saved.json().catch(() => null);
+      throw new Error(body?.message || "تعذّر حفظ بيانات الطلب، حاول مرة أخرى");
+    }
+    const response = await fetch(draftUrl(API_URL, "/submit"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...draftAuth(token) },
+      body: JSON.stringify({
+        message: notes.trim() || `طلب ${SERVICE_TITLES[service]} عبر نموذج الحجز الإلكتروني`,
+        submissionKey: submissionKeyRef.current,
+        ...(fixedPrice && priceConfirmed ? { acceptedTotal: fixedPrice.total.toFixed(2), acceptedCurrency: fixedPrice.currency } : {}),
+        ...(needsGuarantor
+          ? {
+              guarantorPhone: guarantorPhone.trim(),
+              preferredTravelDate: travelDate,
+              ...(extraContactPhone.trim() ? { extraContactName: extraContactName.trim(), extraContactPhone: extraContactPhone.trim() } : {}),
+            }
+          : {}),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    return { response, payload };
   }
 
   async function handleSubmit() {
@@ -1221,6 +1541,11 @@ export function ServiceIntakeWizard({
     );
 
     try {
+      if (resumable) {
+        const outcome = await submitFromDraft();
+        finishSubmission(outcome.response, outcome.payload);
+        return;
+      }
       const formData = new FormData();
       formData.append("name", name);
       formData.append("phone", phone);
@@ -1329,33 +1654,7 @@ export function ServiceIntakeWizard({
       });
 
       const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        if (response.status === 409 && payload?.code === "PRICE_CHANGED" && payload.details && selectedPriceItem) {
-          setServerPrice({
-            itemId: selectedPriceItem.id,
-            total: Number(payload.details.total),
-            currency: String(payload.details.currency),
-          });
-          setPriceConfirmed(false);
-        } else if (response.status === 409 && payload?.code === "PRICING_MODE_CHANGED" && selectedPriceItem) {
-          setQuotedNow(selectedPriceItem.id);
-          setPriceConfirmed(false);
-        }
-        throw new Error(payload?.message || "تعذّر إرسال طلبك، حاول مرة أخرى");
-      }
-
-      const paymentAccess: PaymentAccess | null =
-        payload.data.paymentAccess?.token && !selectedPriceItem?.paymentAfterDocumentReview ? payload.data.paymentAccess : null;
-      if (paymentAccess) savePendingPayment(draftKey, { requestId: payload.data.id, access: paymentAccess });
-      setResult({
-        id: payload.data.id,
-        fixed:
-          fixedPrice && priceConfirmed
-            ? { ...fixedPrice, afterDocuments: Boolean(selectedPriceItem?.paymentAfterDocumentReview) }
-            : null,
-        paymentAccess,
-      });
+      finishSubmission(response, payload);
     } catch (error) {
       // A dropped connection keeps the same submissionKey: a retry returns
       // the request the server may already have created, never a second one.
@@ -1512,7 +1811,7 @@ export function ServiceIntakeWizard({
       ) : null}
       {draftRestored ? (
         <div className="mb-6 rounded-2xl border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-          تمت استعادة بياناتك المحفوظة. يرجى إعادة اختيار أي مستندات مرفقة سابقًا، فهي لا تُحفظ تلقائيًا.
+          {resumable ? "تمت استعادة بيانات الطلب؛ راجع المستندات المحفوظة قبل الإرسال." : "تمت استعادة بياناتك. أعد اختيار المستندات للمتابعة."}
         </div>
       ) : null}
       <div className="mb-2 flex items-center gap-2" dir="ltr">
@@ -1529,14 +1828,17 @@ export function ServiceIntakeWizard({
           instead of silently implying their work is safe. */}
       <p className="mb-6 h-4 text-xs text-muted-foreground" aria-live="polite">
         {autosaveState === "saving" ? "جارٍ الحفظ…" : null}
-        {autosaveState === "saved" ? "تم حفظ تقدمك تلقائيًا، يمكنك المتابعة لاحقًا." : null}
+        {autosaveState === "saved" ? "تم حفظ تقدمك." : null}
         {autosaveState === "offline" ? "تعذّر الحفظ على الخادم — تقدمك محفوظ في هذا المتصفح فقط." : null}
       </p>
+
+      {documentsNotice && current !== "documents" ? (
+        <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-2 text-xs font-semibold text-destructive" data-testid="documents-notice-global">{documentsNotice}</p>
+      ) : null}
 
       {current === "select" ? (
         <StepShell
           title={service === "package" ? "اختر الباقة" : "اختر نوع التأشيرة"}
-          description="حدد الخيار المناسب لطلبك."
         >
           <div className="grid gap-3">
             {(service === "package" ? packageServices : visaTypes).map((item) => {
@@ -1691,7 +1993,7 @@ export function ServiceIntakeWizard({
                     className={`${inputClass} text-end`}
                     placeholder="+966 5X XXX XXXX"
                   />
-                  <span className="text-xs text-muted-foreground">مطلوب: صاحب الإقامة التي ترفعها في خطوة المستندات.</span>
+                  <span className="text-xs text-muted-foreground">رقم صاحب الإقامة المرفقة.</span>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label className={labelClass} htmlFor="umrah-extra-name">جهة اتصال إضافية (اختياري)</label>
@@ -1875,6 +2177,27 @@ export function ServiceIntakeWizard({
           description="يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."
         >
           <div className="flex flex-col gap-3">
+            {resumable ? (
+              <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground" data-testid="resumable-note">
+                تُحفظ المستندات على حسابك المؤقت فور اختيارها، فلا تضيع عند إعادة تحميل الصفحة أو انقطاع الاتصال، ولا تُرسل مرة ثانية عند إرسال الطلب.
+              </p>
+            ) : null}
+            {documentsNotice ? (
+              <p role="alert" className="rounded-lg border border-destructive/40 p-2 text-xs font-semibold text-destructive" data-testid="documents-notice">{documentsNotice}</p>
+            ) : null}
+            {orphanEntries.length > 0 ? (
+              <div className="rounded-xl border border-destructive/40 p-3" data-testid="orphan-docs">
+                <p className="text-xs font-bold text-destructive">مستندات محفوظة لمسافر غير ظاهر الآن (الاسم محذوف). أزلها قبل الإرسال حتى لا تُنسب لأحد خطأً:</p>
+                <ul className="mt-1 flex flex-col gap-1">
+                  {orphanEntries.map(({ key, entry }) => (
+                    <li key={entry.localId} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate">{entry.name}</span>
+                      <button type="button" onClick={() => void removeDraftEntry(key, entry)} className="font-bold text-destructive">إزالة</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {!loadingRequirements && answerSlots.length > 0 ? (
               <div className="flex flex-col gap-3 rounded-xl border border-border/70 p-3">
                 {answerSlots.map((requirement) => (
@@ -1983,6 +2306,7 @@ export function ServiceIntakeWizard({
           <StepNav
             onBack={() => setStep((s) => s - 1)}
             onNext={() => setStep((s) => s + 1)}
+            nextDisabled={!canGoNext()}
           />
         </StepShell>
       ) : null}
@@ -2121,7 +2445,7 @@ export function ServiceIntakeWizard({
                       {slot.travelerIndex !== null
                         ? `${slot.requirement.name} — ${travelerOrdinalLabel(slot.travelerIndex)}`
                         : slot.requirement.name}
-                      : {slot.files.length > 0 ? `تم إرفاق ${slot.files.length}` : "لم يُرفق بعد"}
+                      : {slotCount(slot) > 0 ? `تم إرفاق ${slotCount(slot)}` : "لم يُرفق بعد"}
                     </span>
                   ))
                 )}

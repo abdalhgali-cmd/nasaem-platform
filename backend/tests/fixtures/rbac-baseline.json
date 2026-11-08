@@ -1,4 +1,6 @@
 {
+  "GET /api/customer-auth/google/challenge": "PUBLIC",
+  "POST /api/customer-auth/google": "PUBLIC",
   "DELETE /api/airlines/:id": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
   "DELETE /api/airports/:id": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
   "DELETE /api/documents/:id": ["ADMIN", "SUPER_ADMIN"],

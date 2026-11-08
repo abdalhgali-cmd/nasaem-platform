@@ -7,6 +7,7 @@ import { Loader2, LogIn, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { customerApi, CustomerApiError } from "@/lib/customer-api";
 import { saveCustomerToken } from "@/lib/customer-session";
+import { GoogleLoginButton } from "./google-login-button";
 
 const inputClass =
   "h-12 rounded-xl border border-border bg-background px-4 text-end text-sm outline-none transition focus:border-primary";
@@ -98,6 +99,7 @@ export function AccountAuthCard({ mode }: { mode: "login" | "register" }) {
         </div>
       ) : null}
 
+      <GoogleLoginButton />
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         <div className="flex flex-col items-center gap-2 text-center">
           <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary dark:text-secondary">
