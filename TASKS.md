@@ -1,5 +1,15 @@
 # Nasaem Platform — Release Tasks
 
+## Umrah audit P0 draft privacy — 2026-11-08
+
+Owner approved implementation of the audit plan. Branch: `fix/umrah-p0-draft-privacy-20261108`, stacked on audit documentation #171.
+
+- VERIFIED: local isolated PostgreSQL; draftPrivacy + intakeDrafts + intakeDraftIntegrity + intakeDraftPricing: 16 passed, 0 failed. Access logs redact draft bearer URLs and omit queries/Referer; expired reads/submits return 410 without personal data; active drafts remain compatible.
+- NOT TESTED: installed Android, live proxy logs, staging/production. No deployment, merge, live migration or price changes.
+- NEXT: T02 immutable package obligations, with explicit provenance for legacy records; staged token hash/header migration remains separate. See `docs/umrah-audit/P0-implementation.md`.
+
+Historical release evidence below refers to its named branches, not this P0 candidate.
+
 All critical automated suites pass on `claude/release-integration`; release is stopped at the approval gate (merge, staging, deployment).
 
 Single source of truth for release progress. Only results of runs actually executed are recorded here; anything not run is listed as not run.

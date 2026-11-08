@@ -91,11 +91,12 @@ export async function createDraft(data, organizationId = "org_nasaem_default") {
 }
 
 // A draft is only ever reachable by its own token — never by id, and never
-// listed. An expired or already-submitted draft is treated as gone for
-// mutations (see assertMutable below), but still readable so the wizard can
-// show "this was already submitted" instead of a blank error.
+// listed. Submitted drafts remain readable only during their validity;
+// expiry revokes read access as well as mutation access.
 export async function getDraftByToken(token) {
-  return prisma.intakeDraft.findUnique({ where: { token }, select: DRAFT_PUBLIC_SELECT });
+  const draft = await prisma.intakeDraft.findUnique({ where: { token }, select: DRAFT_PUBLIC_SELECT });
+  if (draft && draft.expiresAt <= new Date()) return { error: "EXPIRED" };
+  return draft;
 }
 
 async function findMutableDraft(token) {
@@ -106,7 +107,7 @@ async function findMutableDraft(token) {
 
   if (!draft) return { error: "NOT_FOUND" };
   if (draft.submittedContactRequestId) return { error: "ALREADY_SUBMITTED" };
-  if (draft.expiresAt < new Date()) return { error: "EXPIRED" };
+  if (draft.expiresAt <= new Date()) return { error: "EXPIRED" };
   return { draft };
 }
 
