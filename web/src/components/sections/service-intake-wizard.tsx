@@ -1,6 +1,7 @@
 "use client";
 
 import { draftAuth, draftUrl } from "@/lib/draft-api";
+import { clearSubmissionKey, loadSubmissionKey, submissionFingerprint } from "@/lib/submission-key";
 import * as React from "react";
 
 import Link from "next/link";
@@ -408,6 +409,7 @@ export function ServiceIntakeWizard({
   // The token is the draft's only authorization (see intake-drafts.routes.js),
   // so it is held exactly where the local draft is and never put in a URL.
   const serverDraftKey = `${draftKey}:token`;
+  const submissionKeyStorage = `${draftKey}:submissionKey`;
   const serverDraftTokenRef = React.useRef<string | null>(null);
   const draftTokenRequestRef = React.useRef<Promise<string> | null>(null);
   const [autosaveState, setAutosaveState] = React.useState<"idle" | "saving" | "saved" | "offline">("idle");
@@ -656,6 +658,7 @@ export function ServiceIntakeWizard({
     } catch {
       // ignore
     }
+    clearSubmissionKey(submissionKeyStorage);
     serverDraftTokenRef.current = null;
     setServerDraft(null);
     setDraftAvailable(false);
@@ -671,8 +674,9 @@ export function ServiceIntakeWizard({
     } catch {
       // ignore
     }
+    clearSubmissionKey(submissionKeyStorage);
     serverDraftTokenRef.current = null;
-  }, [result, draftKey, serverDraftKey]);
+  }, [result, draftKey, serverDraftKey, submissionKeyStorage]);
 
   // A refresh during the payment step: back to that step, never the form.
   React.useEffect(() => {
@@ -1208,7 +1212,13 @@ export function ServiceIntakeWizard({
     submittingRef.current = true;
     setSubmitting(true);
     setSubmitError("");
-    if (!submissionKeyRef.current) submissionKeyRef.current = newSubmissionKey();
+    // Durable across a reload (lost response), but tied to this application.
+    submissionKeyRef.current = loadSubmissionKey(
+      submissionKeyStorage,
+      submissionFingerprint([phone, effectiveServiceId, travelerCount, ...travelers.map((t) => t.fullName)]),
+      newSubmissionKey,
+      submissionKeyRef.current
+    );
 
     try {
       const formData = new FormData();
