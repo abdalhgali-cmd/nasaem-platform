@@ -214,6 +214,7 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.match(stage(journey, "VISAS").status, /1 من 3/);
     assert.equal(journey.primaryAction.key, "DOWNLOAD_VISAS");
     assert.ok((await notificationTypes(id)).includes("UMRAH_VISA_ISSUED"));
+    assert.equal((await notificationTypes(id)).filter((type) => type === "UMRAH_VISA_ISSUED").length, 1, "one notification per published visa (written with the publish, not duplicated after it)");
     assert.ok(!(await notificationTypes(id)).includes("UMRAH_ALL_VISAS_ISSUED"));
 
     // secure download: the owner only; a prepared (unpublished) file is not served
