@@ -45,15 +45,26 @@ export class WorkflowRefusal extends Error {
 // scope: extra where-conditions that must hold for the caller to see the
 // request at all (organization for staff, phone for tracking, customer for
 // an account). A request outside the scope reads as not found.
+// Registered once by the contact-requests service: runs after a workflow
+// transaction commits (never for a refusal or a rollback) so derived,
+// rebuildable views of the request (the Umrah queue order) follow it. A failure
+// there must never fail the staff action.
+let afterMutation = null;
+export function setAfterMutationHook(fn) {
+  afterMutation = fn;
+}
+
 export async function withLockedRequest(id, scope, work) {
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw`SELECT id FROM "ContactRequest" WHERE id = ${id} FOR UPDATE`;
       if (locked.length === 0) return { error: "NOT_FOUND" };
       const request = await tx.contactRequest.findFirst({ where: { id, ...(scope || {}) }, include: WORKFLOW_INCLUDE });
       if (!request) return { error: "NOT_FOUND" };
       return work(tx, request);
     });
+    if (afterMutation && !result?.error) Promise.resolve(afterMutation(id)).catch(() => {});
+    return result;
   } catch (error) {
     if (error instanceof WorkflowRefusal) return { refusal: error.refusal };
     throw error;

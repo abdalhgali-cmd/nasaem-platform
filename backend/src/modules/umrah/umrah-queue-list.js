@@ -8,7 +8,7 @@ import { umrahObligations } from "./umrah-packages.js";
 export const UMRAH_QUEUE_SORTS = new Set(["queue", "travel"]);
 export const UMRAH_QUEUE_CAP = 500;
 
-function packageKindOf(row) {
+export function packageKindOf(row) {
   return row.visaType ? "VISA_ONLY" : umrahObligations(row).kind || "UNKNOWN";
 }
 

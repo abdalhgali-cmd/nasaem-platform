@@ -43,7 +43,7 @@ async function main() {
   const { PrismaClient } = (await import("@prisma/client")).default;
   const prisma = new PrismaClient();
   // The list service imports the shared client; point it at the same database.
-  const { listContactRequests } = await import("../modules/contact-requests/contact-requests.service.js");
+  const { listContactRequests, refreshUmrahQueueEntry } = await import("../modules/contact-requests/contact-requests.service.js");
   const organization = (await prisma.contactRequest.findFirst({ select: { organizationId: true } }))?.organizationId || "org_nasaem_default";
 
   const service = await prisma.service.create({ data: { code: `${tag}-SVC`, name: `${tag} package`, category: "UMRAH_PACKAGE", basePrice: 1000, currency: "SAR", features: ["KIND: AIR"] } });
@@ -69,11 +69,18 @@ async function main() {
       data: rows.flatMap((r) => Array.from({ length: travelersEach }, (_, k) => ({ contactRequestId: r.id, label: "passport", fileName: "p.pdf", storagePath: `contact-request-documents/${tag}-${r.id}-${k}.pdf`, mimeType: "application/pdf", sizeBytes: 10, status: k % 2 ? "ACCEPTED" : "PENDING" }))),
     });
 
+    // The queue cache is derived per request, as it is when requests change.
+    const indexStart = performance.now();
+    for (let i = 0; i < rows.length; i += 25) await Promise.all(rows.slice(i, i + 25).map((r) => refreshUmrahQueueEntry(r.id)));
+    const indexMs = Math.round(performance.now() - indexStart);
+
     const scenarios = {
       "default page 1 (limit 20)": { page: 1, limit: 20, skip: 0 },
       "default page 5 (limit 100)": { page: 5, limit: 100, skip: 400 },
       "sort=queue page 1 (limit 20)": { page: 1, limit: 20, skip: 0, sort: "queue" },
       "sort=queue page 3 (limit 100)": { page: 3, limit: 100, skip: 200, sort: "queue" },
+      "sort=queue deep page (limit 100)": { page: Math.max(1, Math.ceil(requests / 100) - 1), limit: 100, skip: Math.max(0, (Math.ceil(requests / 100) - 2) * 100), sort: "queue" },
+      "sort=travel page 1 (limit 20)": { page: 1, limit: 20, skip: 0, sort: "travel" },
       "stage filter (limit 100)": { page: 1, limit: 100, skip: 0, stage: "PAYMENT_REVIEW" },
     };
     const results = [];
@@ -97,10 +104,10 @@ async function main() {
       tag
     );
     const planLines = plan.map((row) => row["QUERY PLAN"]);
-    const out = { requests, travelersEach, results, plan: planLines };
+    const out = { requests, travelersEach, indexBuildMs: indexMs, results, plan: planLines };
     if (asJson) console.log(JSON.stringify(out, null, 2));
     else {
-      console.log(`synthetic requests: ${requests}, pilgrims each: ${travelersEach}`);
+      console.log(`synthetic requests: ${requests}, pilgrims each: ${travelersEach}, queue entries derived in ${indexMs} ms`);
       console.log("\nplan of the default row query:\n" + planLines.join("\n"));
       for (const r of results) console.log(`${r.scenario.padEnd(34)} p50 ${r.p50}ms  p95 ${r.p95}ms  max ${r.max}ms  heap+${r.peakHeapDeltaMB}MB  total ${r.total}${r.truncated ? " (truncated)" : ""}`);
     }
