@@ -126,6 +126,7 @@
   "PATCH /api/airports/:id": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
   "PATCH /api/branches/:id": ["SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/assign": ["ADMIN", "SUPER_ADMIN"],
+  "POST /api/contact-requests/:id/claim": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/travelers/:travelerId/visa-state": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/documents/:documentId/status": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/egypt/flight-details": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],

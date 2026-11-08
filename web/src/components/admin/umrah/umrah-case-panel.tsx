@@ -103,6 +103,30 @@ function DocumentRequestForm({ caseRow }: { caseRow: UmrahCase }) {
 
 export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onOpenTab: (tab: CaseTabKey) => void }) {
   const [now] = React.useState(() => Date.now());
+  // Who is looking, and who owns the request: a regular employee changes an
+  // Umrah request only while it is assigned to them (server rule, T10); an
+  // unassigned one is taken with the explicit claim below.
+  const [me, setMe] = React.useState<{ id: string; role: string } | null>(null);
+  const [assignee, setAssignee] = React.useState<{ id: string; fullName: string } | null>(caseRow.assignedUser ? { id: caseRow.assignedUser.id, fullName: caseRow.assignedUser.fullName } : null);
+  const [claim, setClaim] = React.useState<{ busy: boolean; error: string }>({ busy: false, error: "" });
+  React.useEffect(() => {
+    fetch(`${API_URL}/auth/me`, { credentials: "include" }).then((r) => r.json()).then((p) => { if (p?.success) setMe({ id: p.data.id, role: p.data.role }); }).catch(() => undefined);
+  }, []);
+  async function claimRequest() {
+    setClaim({ busy: true, error: "" });
+    try {
+      const res = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(caseRow.id)}/claim`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.message || "تعذّر استلام الطلب.");
+      if (me) setAssignee({ id: me.id, fullName: "أنت" });
+      setClaim({ busy: false, error: "" });
+    } catch (error) {
+      setClaim({ busy: false, error: error instanceof Error ? error.message : "تعذّر استلام الطلب." });
+    }
+  }
+  const isManager = me ? ["SUPER_ADMIN", "ADMIN"].includes(me.role) : false;
+  const canWork = Boolean(me) && (isManager || (me!.role === "EMPLOYEE" && assignee?.id === me!.id));
+  const canClaim = Boolean(me) && !assignee && ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(me!.role) && caseRow.status !== "CLOSED";
   // The staff next step (umrah-staff-queue.js) is computed for list rows only,
   // so it is read from the request's own row of GET /contact-requests.
   const [queue, setQueue] = React.useState<{ for: string; value: UmrahListRow["umrahQueue"] } | null>(null);
@@ -146,7 +170,15 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
           <div><dt className="text-xs font-bold text-muted-foreground">الدفع</dt><dd className="font-bold" data-testid="umrah-payment">{paymentLabel(caseRow.paymentStatus)}{amount ? <span className="block text-xs font-normal tabular-nums text-muted-foreground" dir="ltr">{amount}</span> : null}</dd></div>
           <div><dt className="text-xs font-bold text-muted-foreground">الإجراء التالي</dt><dd className="font-bold text-[var(--nh-primary-ink)]" data-umrah-next="1">{umrahQueue?.nextAction || (queue?.for === version ? "—" : "…")}</dd></div>
         </dl>
-        <p className="mt-2 text-xs text-muted-foreground">المسؤول: {caseRow.assignedUser?.fullName || "غير مُسند"}{caseRow.dueAt ? ` · موعد الإنجاز ${formatDay(caseRow.dueAt)}` : ""}</p>
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="umrah-assignee">المسؤول: {assignee?.fullName || "غير مُسند"}{caseRow.dueAt ? ` · موعد الإنجاز ${formatDay(caseRow.dueAt)}` : ""}</p>
+        {canClaim ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button type="button" disabled={claim.busy} onClick={claimRequest} className={cx(btn.base, btn.primary, btn.sm)} data-testid="umrah-claim">{claim.busy ? "جارٍ الاستلام…" : "استلام الطلب"}</button>
+            <span className="text-xs text-muted-foreground">الطلب غير مُسند؛ استلمه لتبدأ العمل عليه.</span>
+          </div>
+        ) : null}
+        {me && !canWork && !canClaim && me.role === "EMPLOYEE" && assignee ? <p role="note" className="mt-2 text-xs font-bold text-[var(--nh-warning-ink)]" data-testid="umrah-readonly">هذا الطلب مُسند إلى {assignee.fullName}؛ تعرضه للقراءة فقط. يعيد المدير إسناده إذا لزم.</p> : null}
+        {claim.error ? <p role="alert" className="mt-2 text-xs font-bold text-[var(--nh-danger-ink)]">{claim.error}</p> : null}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -210,7 +242,7 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
                     );
                   })()}
                 </div>
-                {caseRow.status !== "CLOSED" && caseRow.allowedActions?.includes("SET_VISA_STATE") && !covered.has(t.id) ? (
+                {caseRow.status !== "CLOSED" && caseRow.allowedActions?.includes("SET_VISA_STATE") && canWork && !covered.has(t.id) ? (
                   <VisaStateControl requestId={caseRow.id} travelerId={t.id} travelerName={t.fullName || "المعتمر"} initial={{ state: t.visaState ?? null, reason: t.visaStateReason, followUpAt: t.visaFollowUpAt }} />
                 ) : null}
                 {docs.length ? (
