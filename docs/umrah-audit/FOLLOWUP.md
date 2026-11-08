@@ -193,3 +193,9 @@
 ## APK اختبار من #186 — لم يُبنَ بعد (ينتظر موافقة)
 
 التفاصيل في ردّ الجلسة؛ الخلاصة: لا JDK/Android SDK محليًا، وبناء الـAPK يتم عبر `android-apk.yml` (workflow_dispatch على الفرع) ويرفع Artifact على المستودع العام موقّعًا بمفتاح QA التجريبي المعلن؛ والتطبيق يتصل بـstaging (`adaptable-quietude-staging.up.railway.app`) الذي لا يشغّل كود #186 الخلفي. كلاهما يحتاج موافقتك.
+
+## APK QA وفحص نشر staging (2026-11-08، بعد موافقة المالك)
+
+- **APK:** بُني بـ`android-apk.yml` (workflow_dispatch) على فرع #186، تشغيل 42480671641 (commit `c18de82`)، نجح. الملف المحلي: `C:\Users\abdelhag ali\Documents\Codex\2026-11-06\github\umrah-test-apk\Nasaem-AlHaramain-release-apk\Nasaem-AlHaramain-release.apk` (5,146,104 بايت، SHA-256 `8E21D7C85C90C0BF2FE7C80D36FE58F3CA95FAF10A8312FC180E7AE46F768E14`). موقّع بمفتاح QA التجريبي المعلن: **للاختبار فقط، لا يُوزَّع على العملاء**. يتصل بـ`https://adaptable-quietude-staging.up.railway.app/api`. كود التطبيق = `main` (لا تغيير تحت `mobile/`)، ولم يُختبر على جهاز.
+- **نشر #186 على staging: لم يُنفَّذ، لسبب جوهري.** خدمة `adaptable-quietude` (بيئة staging من مشروع `spirited-luck`) تتبع الفرع `fix/railway-recovery-20261102` عند `cb0edc3`، وتاريخه **غير مرتبط** بتاريخ `main` ومكدسي (`git merge-tree`: refusing to merge unrelated histories؛ 807 commit فيه غير موجودة في فرعي، منها حارس DATABASE_URL وإصلاحات Railway). تحويل الخدمة إلى فرعي سيستبدل خط الشيفرة بالكامل وقد يعطّل staging، فلم أغيّر مصدر الخدمة. المشروع فيه بيئة production أيضًا؛ لم ألمسها.
+- **الخيارات:** (أ) أن تعتمد خط staging كأساس للإصدار وأنقل عليه التغييرات المعتمدة (cherry-pick يدوي مع اختبار)؛ (ب) أن يُعتمد main كخط الإصدار وتُعاد staging إليه (قرار أكبر)؛ (ج) تشغيل #186 على staging منفصلة جديدة. التوصية: (أ) ثم نشر فرع تكامل جديد على staging بعد نجاح CI.
