@@ -25,7 +25,7 @@ export async function requestUmrahTickets(id, scope) {
         parentRequestId: parent.id, linkKind: UMRAH_TICKET_LINK,
         intakeData: { linkedFrom: parent.id, mode: booking.mode },
         travelerCount: parent.travelers.length,
-        travelers: { create: parent.travelers.map((t, index) => ({ fullName: t.fullName, isPrimary: index === 0, sortOrder: index })) },
+        travelers: { create: parent.travelers.map((t, index) => ({ fullName: t.fullName, isPrimary: index === 0, sortOrder: index, sourceTraveler: { connect: { id: t.id } } })) },
       },
       select: { id: true },
     });
