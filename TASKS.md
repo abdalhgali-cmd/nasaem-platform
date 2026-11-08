@@ -10,6 +10,8 @@ Owner approved implementation of the audit plan. Branch: `fix/umrah-p0-draft-pri
 
 **T02 (فرع `fix/umrah-t02-package-snapshot-20261108`):** VERIFIED محليًا — لقطة `intakeData.umrahPackage` في المسارين مع provenance `LEGACY_CATALOG` للقديم؛ umrahPackageSnapshot 7/7 ومجموعة الصلة 199/199 على PostgreSQL اصطناعي. NOT TESTED: Android/staging/production. NEXT: token hash/header، ثم T04/T03. التفاصيل: `docs/umrah-audit/FOLLOWUP.md`.
 
+**الدفعات اللاحقة (كلها Draft، مكدّسة):** T04 #174 (تزامن المسودات)، رمز المسودة header+hash #175 (migration إضافية على قاعدة اصطناعية فقط)، T06 #176 (submissionKey دائم). NEXT: T03 (إرسال موحد من المسودة)، T05/T07/T08... ما يحتاج قرار مالك يُسجَّل في F-decisions.
+
 Historical release evidence below refers to its named branches, not this P0 candidate.
 
 All critical automated suites pass on `claude/release-integration`; release is stopped at the approval gate (merge, staging, deployment).
