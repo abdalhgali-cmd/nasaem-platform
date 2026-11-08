@@ -7,7 +7,7 @@ import { pendingConfirmationCreate } from "../customer-messages/customer-message
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from "../egypt-clearance/egypt-clearance-variants.js";
-import { resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
+import { buildUmrahPackageSnapshot, resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
@@ -317,6 +317,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   // Umrah: the guarantor's phone and extra contact (same rule as POST /contact-requests).
   let umrahContacts = null;
   let umrahTravel = null;
+  let umrahPackage = null;
   if (draft.serviceId && !draft.visaTypeId) {
     const service = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { category: true, features: true } });
     const umrah = resolveUmrahContacts(service?.category, { guarantorPhone, extraContactName, extraContactPhone });
@@ -325,6 +326,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
     const travel = resolveUmrahTravel(service?.category, service?.features, preferredTravelDate);
     if (travel.error) return travel;
     umrahTravel = travel.travel;
+    umrahPackage = buildUmrahPackageSnapshot(service?.category, draft.serviceId, service?.features);
   }
 
   // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
@@ -363,6 +365,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
           ...(egyptEntryMode ? { egyptEntryMode } : {}),
           ...(umrahContacts ? { umrahContacts } : {}),
           ...(umrahTravel ? { umrahTravel } : {}),
+          ...(umrahPackage ? { umrahPackage } : {}),
           ...(egyptRoute ? { egyptRoute } : {}),
         },
         requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,

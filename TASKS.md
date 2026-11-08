@@ -8,6 +8,8 @@ Owner approved implementation of the audit plan. Branch: `fix/umrah-p0-draft-pri
 - NOT TESTED: installed Android, live proxy logs, staging/production. No deployment, merge, live migration or price changes.
 - NEXT: T02 immutable package obligations, with explicit provenance for legacy records; staged token hash/header migration remains separate. See `docs/umrah-audit/P0-implementation.md`.
 
+**T02 (فرع `fix/umrah-t02-package-snapshot-20261108`):** VERIFIED محليًا — لقطة `intakeData.umrahPackage` في المسارين مع provenance `LEGACY_CATALOG` للقديم؛ umrahPackageSnapshot 7/7 ومجموعة الصلة 199/199 على PostgreSQL اصطناعي. NOT TESTED: Android/staging/production. NEXT: token hash/header، ثم T04/T03. التفاصيل: `docs/umrah-audit/FOLLOWUP.md`.
+
 Historical release evidence below refers to its named branches, not this P0 candidate.
 
 All critical automated suites pass on `claude/release-integration`; release is stopped at the approval gate (merge, staging, deployment).

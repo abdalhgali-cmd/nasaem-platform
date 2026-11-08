@@ -1,5 +1,5 @@
 import { isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
-import { umrahIncludesTickets, umrahPackageKind } from "./umrah-packages.js";
+import { umrahObligations } from "./umrah-packages.js";
 
 export const UMRAH_TICKET_LINK = "UMRAH_TICKET";
 
@@ -10,7 +10,7 @@ export function umrahTicketBooking(request) {
     available: eligible && !inquiry,
     inquiryId: inquiry?.id || null,
     status: inquiry?.status || null,
-    mode: umrahPackageKind(request.serviceRef?.features) === "SEA" ? "SEA" : "AIR",
+    mode: umrahObligations(request).kind === "SEA" ? "SEA" : "AIR",
   };
 }
 
@@ -35,7 +35,7 @@ export function isUmrahRequest(request) {
 
 // A visa type is the visa alone; only a package (Service) can include services.
 export function umrahServicesRequired(request) {
-  return isUmrahRequest(request) && !request?.visaType && umrahIncludesTickets(request?.serviceRef?.features);
+  return isUmrahRequest(request) && !request?.visaType && umrahObligations(request).includesServices;
 }
 
 function published(request, kinds) {
@@ -92,6 +92,7 @@ export function evaluateUmrahDelivery(request) {
   const missingTravelerIds = [...new Set([...visas.missingTravelerIds, ...(services?.missingTravelerIds || [])])];
   const travelers = request?.travelers || [];
   return {
+    obligationSource: umrahObligations(request).source,
     complete: visas.complete && (!services || services.complete),
     coveredTravelerIds: travelers.map((t) => t.id).filter((id) => !missingTravelerIds.includes(id)),
     missingTravelerIds,

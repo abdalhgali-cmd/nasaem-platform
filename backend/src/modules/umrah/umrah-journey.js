@@ -1,6 +1,6 @@
 import { evaluateReadiness } from "../contact-request-workflow/workflow-policy.js";
 import { evaluateUmrahDelivery, isUmrahRequest, umrahTicketBooking } from "./umrah-delivery.js";
-import { umrahPackageKind } from "./umrah-packages.js";
+import { umrahObligations } from "./umrah-packages.js";
 
 // «رحلتي إلى الحرمين»: everything the customer's Umrah screen shows, derived
 // on the server from the same facts as the progress steps (request-progress.js),
@@ -90,8 +90,8 @@ export function umrahJourney(request, progress) {
   return {
     title: "رحلتي إلى الحرمين",
     reference: request.id,
-    packageKind: request.visaType ? "VISA_ONLY" : umrahPackageKind(request.serviceRef?.features),
-    packageLabel: request.serviceRef?.name || request.visaType?.name || PACKAGE_LABELS[umrahPackageKind(request.serviceRef?.features)] || "العمرة",
+    packageKind: request.visaType ? "VISA_ONLY" : umrahObligations(request).kind,
+    packageLabel: request.serviceRef?.name || request.visaType?.name || PACKAGE_LABELS[umrahObligations(request).kind] || "العمرة",
     pilgrimCount: travelers.length || request.travelerCount || 1,
     status: progress.label,
     updatedAt: request.updatedAt || null,
