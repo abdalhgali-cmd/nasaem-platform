@@ -327,7 +327,7 @@ class DraftChanged extends Error {}
 // Everything runs in one transaction: either the request exists with all
 // its travelers and documents attached, or nothing changed and the
 // customer's draft is still intact to retry.
-export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone, preferredTravelDate, departureCity, arrivalAirport, entryPort } = {}) {
+export async function submitDraft(token, { submissionKey, message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone, preferredTravelDate, departureCity, arrivalAirport, entryPort } = {}) {
   const found = await findMutableDraft(token);
   if (found.error) return found;
 
@@ -337,6 +337,17 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   });
 
   if (!draft.name || !draft.phone) return { error: "INCOMPLETE_DRAFT" };
+
+  // A key already used by a request that is not this draft's must not be
+  // reused (it is unique); nothing is created.
+  if (submissionKey) {
+    const owner = await prisma.contactRequest.findUnique({ where: { submissionKey }, select: { id: true } });
+    if (owner) {
+      // Its own draft's request (a concurrent submit won): a repeat, not a clash.
+      const current = await prisma.intakeDraft.findUnique({ where: { id: draft.id }, select: { submittedContactRequestId: true } });
+      return { error: current?.submittedContactRequestId === owner.id ? "ALREADY_SUBMITTED" : "SUBMISSION_KEY_CONFLICT" };
+    }
+  }
 
   const requirementsSnapshot = draft.visaTypeId
     ? await getPublicChecklist({ visaTypeId: draft.visaTypeId })
@@ -418,6 +429,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
         travelerCount: draft.travelerCount ?? null,
         // The guided intake is always an application for a service.
         requestKind: "SERVICE_APPLICATION",
+        submissionKey: submissionKey || null,
         pricingMode: pricing.mode,
         pricingSnapshot: pricing.snapshot ?? undefined,
         ...(pricing.mode === "FIXED" ? { invoice: { create: pricing.invoice }, paymentStatus: "AWAITING_TRANSFER" } : {}),
@@ -485,6 +497,17 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   await announceNewContactRequest(contactRequest, { documentCount: draft.documents.length });
 
   return { contactRequest };
+}
+
+// The request a draft was submitted as, only when `submissionKey` is the key
+// that submission used: the retry of that very submission. A different or
+// missing key gets nothing, so the token alone never replays a submission.
+export async function findSubmissionByKey(token, submissionKey) {
+  if (!submissionKey) return null;
+  const draft = await prisma.intakeDraft.findFirst({ where: tokenWhere(token), select: { submittedContactRequestId: true } });
+  if (!draft?.submittedContactRequestId) return null;
+  const request = await prisma.contactRequest.findUnique({ where: { id: draft.submittedContactRequestId }, select: { id: true, submissionKey: true } });
+  return request && request.submissionKey === submissionKey ? { id: request.id } : null;
 }
 
 export { findMutableDraft, draftExpiry };
