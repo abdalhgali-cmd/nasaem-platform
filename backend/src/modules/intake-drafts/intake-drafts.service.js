@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import fs from "fs";
 import path from "path";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
@@ -10,6 +11,7 @@ import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from
 import { buildUmrahPackageSnapshot, resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
+import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
 
 // Smart Case Operations — Release B (server-side intake drafts). The
@@ -184,13 +186,9 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
       return { error: "FILE_TOO_LARGE", details: { maxSizeBytes: requirement.maxSizeBytes } };
     }
 
-    const existingCount = await prisma.contactRequestDocument.count({
-      where: { draftId: draft.id, requirementId, supersededAt: null },
-    });
-    if (existingCount >= requirement.maxFiles) {
-      return { error: "MAX_FILES_REACHED", details: { maxFiles: requirement.maxFiles } };
-    }
   }
+
+  const travelerRef = travelerIndex === undefined || travelerIndex === null || travelerIndex === "" ? null : String(travelerIndex);
 
   const ocrResult = await maybeRunPassportOcr(requirement, file);
 
@@ -203,7 +201,28 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
     storagePath = path.join("contact-request-documents", file.filename);
   }
 
-  const document = await prisma.contactRequestDocument.create({
+  // One transaction under a row lock on the draft (U-04/U-05): uploads of the
+  // same draft run one after another, so the file count (per pilgrim for a
+  // per-traveler requirement) and the document→traveler map are read and
+  // written against the same state. A draft submitted or expired while the
+  // file was being received refuses the file instead of losing it.
+  const outcome = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "IntakeDraft" WHERE id = ${draft.id} FOR UPDATE`;
+    const fresh = await tx.intakeDraft.findUnique({ where: { id: draft.id }, select: { submittedContactRequestId: true, expiresAt: true, documentTravelerRefs: true } });
+    if (fresh.submittedContactRequestId) return { error: "ALREADY_SUBMITTED" };
+    if (fresh.expiresAt <= new Date()) return { error: "EXPIRED" };
+    const refs = fresh.documentTravelerRefs || {};
+
+    if (requirement) {
+      const siblings = await tx.contactRequestDocument.findMany({ where: { draftId: draft.id, requirementId, supersededAt: null }, select: { id: true } });
+      const perTraveler = requirement.scope === "TRAVELER";
+      const existingCount = perTraveler ? siblings.filter((doc) => (refs[doc.id] ?? null) === travelerRef).length : siblings.length;
+      if (existingCount >= requirement.maxFiles) {
+        return { error: "MAX_FILES_REACHED", details: { maxFiles: requirement.maxFiles } };
+      }
+    }
+
+    const created = await tx.contactRequestDocument.create({
     data: {
       draftId: draft.id,
       label,
@@ -220,21 +239,24 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
       sizeBytes: file.size,
     },
     select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, requirementId: true, ocrResult: true, createdAt: true },
+    });
+
+    await tx.intakeDraft.update({
+      where: { id: draft.id },
+      data: {
+        ...(travelerRef !== null ? { documentTravelerRefs: { ...refs, [created.id]: travelerRef } } : {}),
+        expiresAt: draftExpiry(),
+      },
+    });
+    return { document: created };
   });
 
-  const travelerRef = travelerIndex === undefined || travelerIndex === null || travelerIndex === "" ? null : String(travelerIndex);
-  const existingRefs = (await prisma.intakeDraft.findUnique({ where: { id: draft.id }, select: { documentTravelerRefs: true } }))
-    ?.documentTravelerRefs;
-
-  await prisma.intakeDraft.update({
-    where: { id: draft.id },
-    data: {
-      ...(travelerRef !== null
-        ? { documentTravelerRefs: { ...(existingRefs || {}), [document.id]: travelerRef } }
-        : {}),
-      expiresAt: draftExpiry(),
-    },
-  });
+  if (outcome.error) {
+    // The file was written before the lock; nothing references it now.
+    discardUnreferencedUpload(storagePath);
+    return outcome;
+  }
+  const document = outcome.document;
 
   logActivity({
     action: "INTAKE_DRAFT_DOCUMENT_UPLOADED",
@@ -244,6 +266,14 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
   });
 
   return { document, travelerRef };
+}
+
+function discardUnreferencedUpload(storagePath) {
+  try {
+    fs.unlinkSync(resolveStoredUploadPath(storagePath));
+  } catch {
+    // Best effort: an orphan file is harmless and found by reconciliation.
+  }
 }
 
 export async function removeDraftDocument(token, documentId) {
@@ -261,6 +291,7 @@ export async function removeDraftDocument(token, documentId) {
 }
 
 class DraftAlreadySubmitted extends Error {}
+class DraftChanged extends Error {}
 
 // DRAFT → SUBMITTED. Creates exactly one ContactRequest from the draft's
 // accumulated state, re-points the already-uploaded documents at it (they
@@ -340,6 +371,14 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   if (pricing.error) return pricing;
 
   const contactRequest = await prisma.$transaction(async (tx) => {
+    // Same row lock as an upload: a file or autosave that landed after the
+    // read above makes this attempt stale. The customer's draft stays intact
+    // and the retry sees the new state (U-04), instead of the file being
+    // left behind on a draft that is already submitted.
+    await tx.$queryRaw`SELECT id FROM "IntakeDraft" WHERE id = ${draft.id} FOR UPDATE`;
+    const current = await tx.intakeDraft.findUnique({ where: { id: draft.id }, select: { updatedAt: true, submittedContactRequestId: true } });
+    if (current.submittedContactRequestId) throw new DraftAlreadySubmitted();
+    if (current.updatedAt.getTime() !== draft.updatedAt.getTime()) throw new DraftChanged();
     const created = await tx.contactRequest.create({
       data: {
         name: draft.name,
@@ -413,8 +452,10 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
     return created;
   }).catch((error) => {
     if (error instanceof DraftAlreadySubmitted) return null;
+    if (error instanceof DraftChanged) return "CHANGED";
     throw error;
   });
+  if (contactRequest === "CHANGED") return { error: "DRAFT_CHANGED" };
   if (!contactRequest) return { error: "ALREADY_SUBMITTED" };
 
   await announceNewContactRequest(contactRequest, { documentCount: draft.documents.length });
