@@ -117,6 +117,25 @@ export async function createContactRequestDocument(contactRequestId, { label, fi
     const refusal = checkAction(ACTIONS.UPLOAD_DOCUMENT, locked);
     if (refusal) refuseWith(refusal);
     if (requirementId) {
+      // The capacity was checked before the OCR above, outside any lock: two
+      // uploads could both have passed it. Counted again here, under the
+      // request's row lock, so uploads of one request are decided one by one
+      // and maxFiles holds. Nothing has been written yet when this refuses.
+      const limits = await tx.visaRequirement.findUnique({ where: { id: requirementId }, select: { scope: true, maxFiles: true } });
+      if (limits) {
+        const current = await tx.contactRequestDocument.count({
+          where: {
+            contactRequestId,
+            requirementId,
+            ...(limits.scope === "TRAVELER" ? { travelerId: travelerId || null } : {}),
+            supersededAt: null,
+            status: { not: "REJECTED" },
+          },
+        });
+        if (current >= limits.maxFiles) {
+          return { error: "MAX_FILES_REACHED", details: { code: "MAX_FILES_REACHED", maxFiles: limits.maxFiles } };
+        }
+      }
       await tx.contactRequestDocument.updateMany({
         where: { contactRequestId, requirementId, travelerId: travelerId || null, status: "REJECTED", supersededAt: null },
         data: { supersededAt: new Date() },
