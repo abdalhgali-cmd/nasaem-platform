@@ -253,9 +253,19 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     const done = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
     expect(done.status).toBe("CLOSED");
     expect(done.outcome).toBe("COMPLETED");
-    // Booking is optional and follows the visas; it never gates completion.
     await page.reload();
     const booking = page.getByTestId("umrah-ticket-booking");
+    if (type.kind !== "VISA_ONLY") {
+      // A flight or sea package already delivered its tickets as services:
+      // never offer to book (and price) them a second time.
+      await expect(page.getByTestId("umrah-journey")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("umrah-status")).toBeVisible();
+      await expect(booking).toHaveCount(0);
+      const parent = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
+      expect(parent.linkedRequests.filter((r: { linkKind: string }) => r.linkKind === "UMRAH_TICKET")).toHaveLength(0);
+      return;
+    }
+    // Visa only: booking is optional and follows the visas; it never gates completion.
     await expect(booking).toBeVisible();
     await booking.getByRole("button", { name: /طلب حجز تذاكر/ }).click();
     await expect(booking).toContainText("أُرسل طلب الحجز إلى الوكالة");
