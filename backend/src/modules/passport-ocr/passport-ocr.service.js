@@ -101,6 +101,25 @@ function formatResult(parsed) {
   };
 }
 
+// Positions of a TD3 line 2 that are digits (check digits and dates) and
+// letters (nationality). OCR confuses look-alike characters; inside a field
+// whose type is known, the confusion can be undone, and the result is still
+// accepted only if every MRZ check digit then verifies, so a repair can never
+// turn a wrong reading into a confident one.
+const LETTER_TO_DIGIT = { O: "0", Q: "0", D: "0", I: "1", L: "1", Z: "2", S: "5", G: "6", B: "8" };
+const DIGIT_TO_LETTER = { 0: "O", 1: "I", 2: "Z", 5: "S", 6: "G", 8: "B" };
+const LINE2_DIGIT_POSITIONS = new Set([9, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 42, 43]);
+const LINE2_LETTER_POSITIONS = new Set([10, 11, 12]);
+
+export function repairMrzLines(line1, line2) {
+  const fixed2 = [...line2]
+    .map((char, i) => (LINE2_DIGIT_POSITIONS.has(i) ? LETTER_TO_DIGIT[char] ?? char : LINE2_LETTER_POSITIONS.has(i) ? DIGIT_TO_LETTER[char] ?? char : char))
+    .join("");
+  // A name can never contain a digit: only digits are rewritten there.
+  const fixed1 = [...line1].map((char, i) => (i >= 2 && DIGIT_TO_LETTER[char] ? DIGIT_TO_LETTER[char] : char)).join("");
+  return [fixed1, fixed2];
+}
+
 // Tries every adjacent pair of MRZ-looking lines found in the OCR output and
 // returns the first one that parses as a fully checksum-valid passport
 // (TD3) MRZ. Deliberately strict, not best-effort: an MRZ's check digits
@@ -115,15 +134,17 @@ export function parsePassportMrzText(rawText) {
     const line1 = lines[i].padEnd(44, "<").slice(0, 44);
     const line2 = lines[i + 1].padEnd(44, "<").slice(0, 44);
 
-    let parsed;
-    try {
-      parsed = parseMrz([line1, line2], { autocorrect: true });
-    } catch {
-      continue;
-    }
-
-    if (parsed.format === "TD3" && parsed.valid) {
-      return formatResult(parsed);
+    // As read first; then with look-alike characters repaired per field.
+    for (const pair of [[line1, line2], repairMrzLines(line1, line2)]) {
+      let parsed;
+      try {
+        parsed = parseMrz(pair, { autocorrect: true });
+      } catch {
+        continue;
+      }
+      if (parsed.format === "TD3" && parsed.valid) {
+        return formatResult(parsed);
+      }
     }
   }
 
