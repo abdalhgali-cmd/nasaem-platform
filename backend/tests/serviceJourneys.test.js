@@ -159,6 +159,11 @@ describe("service journeys: request -> documents -> quote -> payment -> executio
       assert.equal(created.status, 201, JSON.stringify(created.body));
       const id = created.body.data.id;
 
+      if (journey.kind === "UMRAH") {
+        const claimed = await employee.post(`/api/contact-requests/${id}/claim`).send({});
+        assert.equal(claimed.status, 200, JSON.stringify(claimed.body));
+      }
+
       let detail = (await employee.get(`/api/contact-requests/${id}`)).body.data;
       assert.equal(detail.travelers.length, 2);
       assert.equal(detail.documents.length, labels.length, "every required document arrived");

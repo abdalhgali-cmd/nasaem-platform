@@ -16,6 +16,9 @@ const STAGING_ONLY_ROUTES = new Set(["POST /api/admin/staging/attest", "POST /ap
 const PUBLIC_ROUTES = new Set([
   "POST /api/customer-auth/register",
   "POST /api/customer-auth/login",
+  // Public login entry points; credentials are verified inside Google login.
+  "GET /api/customer-auth/google/challenge",
+  "POST /api/customer-auth/google",
   "POST /api/customer-auth/logout",
   "POST /api/customer-auth/forgot-password",
   "POST /api/customer-auth/reset-password",
