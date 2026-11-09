@@ -1,5 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
+import { resolvePublicContactLimit } from "../contact-requests/public-contact-limit.js";
 
 import { uploadContactRequestDocument } from "../../middleware/upload.middleware.js";
 import {
@@ -68,7 +69,7 @@ const autosaveLimiter = rateLimit({
 
 const submitDraftLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 5,
+  limit: resolvePublicContactLimit(),
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: "Too many requests. Please try again later." },
