@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 
@@ -127,11 +128,22 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     // recover that exact document rather than asking for another upload.
     let lostUploadResponse = false;
     await page.route("**/api/intake-drafts/current/documents", async (route) => {
-      const response = await route.fetch();
       if (!lostUploadResponse && route.request().method() === "POST") {
         lostUploadResponse = true;
+        // Chromium interception omits file bytes from the multipart replay.
+        // Keep its text fields, supply the real fixture, and prove the server
+        // accepted the upload before simulating a lost browser response.
+        const original = route.request();
+        const fields = await new Request(original.url(), { method: "POST", headers: original.headers(),
+          body: new Uint8Array(original.postDataBuffer()!) }).formData();
+        const multipart = Object.fromEntries([...fields.entries()].filter(([key]) => key !== "file"));
+        const stored = await page.request.post(original.url(), {
+          headers: { "X-Draft-Token": original.headers()["x-draft-token"] },
+          multipart: { ...multipart, file: { name: path.basename(FIXTURE), mimeType: "image/png", buffer: readFileSync(FIXTURE) } },
+        });
+        expect(stored.status(), await stored.text()).toBe(201);
         await route.abort("connectionreset");
-      } else await route.fulfill({ response });
+      } else await route.continue();
     });
     for (let i = 0; i < 3; i += 1) {
       await page.locator('label:has-text("اختر ملفًا") input[type="file"]').first().setInputFiles(FIXTURE);

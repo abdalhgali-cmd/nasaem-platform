@@ -81,6 +81,15 @@ test("Google is disabled without a configured client id", async () => {
   } finally { if (old !== undefined) process.env.GOOGLE_CLIENT_ID = old; }
 });
 
+test("loading Google configuration does not exhaust password login attempts", async () => {
+  for (let i = 0; i < 12; i++) {
+    assert.equal((await request(app).get("/api/customer-auth/google/challenge")).status, 200);
+  }
+  const password = await request(app).post("/api/customer-auth/login")
+    .send({ identifier: "synthetic-absent@example.invalid", password: "incorrect-synthetic" });
+  assert.equal(password.status, 401, "wrong credentials are checked, not blocked by configuration reads");
+});
+
 test("matching email never grants a Google identity access to an existing account", async (t) => {
   const old = process.env.GOOGLE_CLIENT_ID;
   process.env.GOOGLE_CLIENT_ID = "synthetic.apps.googleusercontent.com";
