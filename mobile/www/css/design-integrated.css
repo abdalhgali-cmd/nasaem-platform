@@ -367,5 +367,8 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus {outline:none;}
 .umrah-badge {display:inline-flex;gap:4px;align-items:center;border-radius:999px;padding:3px 10px;font-size:.75rem;font-weight:700;background:var(--bg);color:var(--text-muted);}
 .umrah-badge-issued, .umrah-badge-delivered {background:var(--success-bg);color:var(--success);}
 .umrah-badge-in_progress, .umrah-badge-preparing {background:var(--warn-bg);color:var(--warn-text);}
+.umrah-badge-delayed {background:var(--warn-bg);color:var(--warn-text);}
+.umrah-badge-rejected {background:var(--danger);color:#fff;}
+.umrah-visa-reason {margin:6px 0 0;font-size:.85rem;line-height:1.6;}
 .umrah-files {display:grid;gap:6px;}
 .umrah-files-empty {margin:6px 0 0;color:var(--text-faint);font-size:.8rem;}

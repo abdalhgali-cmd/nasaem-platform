@@ -1,6 +1,6 @@
 import { evaluateReadiness } from "../contact-request-workflow/workflow-policy.js";
 import { evaluateUmrahDelivery, isUmrahRequest, umrahTicketBooking } from "./umrah-delivery.js";
-import { umrahPackageKind } from "./umrah-packages.js";
+import { umrahObligations } from "./umrah-packages.js";
 
 // «رحلتي إلى الحرمين»: everything the customer's Umrah screen shows, derived
 // on the server from the same facts as the progress steps (request-progress.js),
@@ -69,7 +69,12 @@ export function umrahJourney(request, progress) {
   const pilgrims = travelers.map((traveler, index) => ({
     id: traveler.id,
     name: traveler.fullName || `المعتمر ${index + 1}`,
-    visa: visaCovered.has(traveler.id) ? "ISSUED" : started ? "IN_PROGRESS" : "PENDING",
+    // ISSUED only from a published file covering this pilgrim; otherwise the
+    // staff-set state (rejected / delayed carry a reason and follow-up date).
+    visa: visaCovered.has(traveler.id) ? "ISSUED" : traveler.visaState && traveler.visaState !== "PENDING" ? traveler.visaState : started ? "IN_PROGRESS" : "PENDING",
+    ...(!visaCovered.has(traveler.id) && (traveler.visaState === "REJECTED" || traveler.visaState === "DELAYED")
+      ? { visaReason: traveler.visaStateReason || null, visaFollowUpAt: traveler.visaFollowUpAt || null }
+      : {}),
     visaFiles: filesFor(delivery.visas.files, traveler.id),
     ...(delivery.services
       ? { services: servicesCovered.has(traveler.id) ? "DELIVERED" : started ? "PREPARING" : "PENDING", serviceFiles: filesFor(delivery.services.files, traveler.id) }
@@ -90,8 +95,8 @@ export function umrahJourney(request, progress) {
   return {
     title: "رحلتي إلى الحرمين",
     reference: request.id,
-    packageKind: request.visaType ? "VISA_ONLY" : umrahPackageKind(request.serviceRef?.features),
-    packageLabel: request.serviceRef?.name || request.visaType?.name || PACKAGE_LABELS[umrahPackageKind(request.serviceRef?.features)] || "العمرة",
+    packageKind: request.visaType ? "VISA_ONLY" : umrahObligations(request).kind,
+    packageLabel: request.serviceRef?.name || request.visaType?.name || PACKAGE_LABELS[umrahObligations(request).kind] || "العمرة",
     pilgrimCount: travelers.length || request.travelerCount || 1,
     status: progress.label,
     updatedAt: request.updatedAt || null,

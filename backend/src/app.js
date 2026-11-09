@@ -6,7 +6,7 @@ import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import cookieParser from "cookie-parser";
-import morgan from "morgan";
+import { createAccessLogger } from "./middleware/accessLog.js";
 
 import apiRouter from "./routes/index.js";
 import notFoundMiddleware from "./middleware/notFound.middleware.js";
@@ -72,7 +72,7 @@ app.use(
 );
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
+app.use(createAccessLogger());
 
 // Static back-office pages are served same-origin so the cookie-based auth
 // session works without any CORS configuration. They are public shells:

@@ -22,6 +22,7 @@ const SESSION_SELECT = {
   city: true,
   address: true,
   passwordHash: true,
+  googleSubject: true,
   sessionVersion: true,
   createdAt: true,
   organizationId: true,
@@ -73,7 +74,7 @@ export async function resolveCustomerSession(token) {
   // passwordHash === null means this Customer row was never turned into an
   // account (or had its account removed); an inactive organization is
   // suspended. Either way the signed token no longer grants access.
-  if (!customer || !customer.passwordHash || !customer.organization.active) {
+  if (!customer || (!customer.passwordHash && !customer.googleSubject) || !customer.organization.active) {
     throw new SessionRejected(SESSION_ERROR.SESSION_REVOKED);
   }
 
@@ -90,7 +91,7 @@ export async function resolveCustomerSession(token) {
     if (revoked) throw new SessionRejected(SESSION_ERROR.SESSION_REVOKED);
   }
 
-  const { passwordHash, sessionVersion, organization, ...safeCustomer } = customer;
+  const { passwordHash, googleSubject, sessionVersion, organization, ...safeCustomer } = customer;
   return { customer: safeCustomer, payload, sessionVersion };
 }
 

@@ -1,4 +1,6 @@
 {
+  "GET /api/customer-auth/google/challenge": "PUBLIC",
+  "POST /api/customer-auth/google": "PUBLIC",
   "DELETE /api/airlines/:id": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
   "DELETE /api/airports/:id": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
   "DELETE /api/documents/:id": ["ADMIN", "SUPER_ADMIN"],
@@ -57,6 +59,7 @@
   "GET /api/dashboard/operations": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/dashboard/stats": ["ADMIN", "SUPER_ADMIN"],
   "GET /api/dashboard/summary": ["ADMIN", "SUPER_ADMIN"],
+  "GET /api/dashboard/umrah-report": ["ACCOUNTANT", "ADMIN", "SUPER_ADMIN"],
   "GET /api/documents": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/documents/:id": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/feature-flags": ["ADMIN", "SUPER_ADMIN"],
@@ -125,6 +128,8 @@
   "PATCH /api/airports/:id": ["ADMIN", "CONTENT_MANAGER", "SUPER_ADMIN"],
   "PATCH /api/branches/:id": ["SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/assign": ["ADMIN", "SUPER_ADMIN"],
+  "POST /api/contact-requests/:id/claim": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "PATCH /api/contact-requests/:id/travelers/:travelerId/visa-state": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/documents/:documentId/status": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/egypt/flight-details": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "PATCH /api/contact-requests/:id/egypt/travel-date": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],

@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import fs from "fs";
 import path from "path";
 import prisma from "../../config/database.js";
 import { logActivity } from "../../utils/activityLog.js";
@@ -7,9 +8,10 @@ import { pendingConfirmationCreate } from "../customer-messages/customer-message
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from "../egypt-clearance/egypt-clearance-variants.js";
-import { resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
+import { buildUmrahPackageSnapshot, resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
 import { CONTACT_REQUEST_DOCUMENT_DIR, generateUniqueFilename, saveBufferToDirectory } from "../../middleware/upload.middleware.js";
+import { resolveStoredUploadPath } from "../../config/uploadRoot.js";
 import { resolveSubmissionPricing } from "../contact-request-pricing/fixed-price.js";
 
 // Smart Case Operations — Release B (server-side intake drafts). The
@@ -28,6 +30,27 @@ const DRAFT_TTL_DAYS = 30;
 // row identity/time, which an attacker could enumerate or predict.
 function generateDraftToken() {
   return crypto.randomBytes(32).toString("base64url");
+}
+
+// Only a hash of the token is stored for new drafts, so a database read
+// (backup, SQL console) cannot be replayed as a draft credential. The token
+// is high-entropy random, so an unsalted SHA-256 is sufficient.
+export function hashDraftToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+// Matches a hashed draft, or a legacy one still holding its plaintext token.
+function tokenWhere(token) {
+  if (typeof token !== "string" || !token || token.length > 200) return { id: "__invalid__" };
+  return { OR: [{ tokenHash: hashDraftToken(token) }, { token }] };
+}
+
+// A legacy draft found by plaintext gets its hash recorded (best effort);
+// the plaintext stays until an approved cleanup clears it.
+function backfillHash(draft, token) {
+  if (draft && draft.tokenHash === null) {
+    prisma.intakeDraft.updateMany({ where: { id: draft.id, tokenHash: null }, data: { tokenHash: hashDraftToken(token) } }).catch(() => {});
+  }
 }
 
 function draftExpiry() {
@@ -50,6 +73,8 @@ const DRAFT_PUBLIC_SELECT = {
   notes: true,
   answers: true,
   travelers: true,
+  // document id -> index of the traveler it belongs to (the wizard restores slots from it)
+  documentTravelerRefs: true,
   submittedContactRequestId: true,
   expiresAt: true,
   updatedAt: true,
@@ -75,7 +100,7 @@ export async function createDraft(data, organizationId = "org_nasaem_default") {
 
   const draft = await prisma.intakeDraft.create({
     data: {
-      token,
+      tokenHash: hashDraftToken(token),
       organizationId,
       serviceKind: data.serviceKind || null,
       serviceId: data.serviceId || null,
@@ -91,22 +116,26 @@ export async function createDraft(data, organizationId = "org_nasaem_default") {
 }
 
 // A draft is only ever reachable by its own token — never by id, and never
-// listed. An expired or already-submitted draft is treated as gone for
-// mutations (see assertMutable below), but still readable so the wizard can
-// show "this was already submitted" instead of a blank error.
+// listed. Submitted drafts remain readable only during their validity;
+// expiry revokes read access as well as mutation access.
 export async function getDraftByToken(token) {
-  return prisma.intakeDraft.findUnique({ where: { token }, select: DRAFT_PUBLIC_SELECT });
+  const draft = await prisma.intakeDraft.findFirst({ where: tokenWhere(token), select: { ...DRAFT_PUBLIC_SELECT, tokenHash: true } });
+  if (draft) backfillHash(draft, token);
+  if (draft) delete draft.tokenHash;
+  if (draft && draft.expiresAt <= new Date()) return { error: "EXPIRED" };
+  return draft;
 }
 
 async function findMutableDraft(token) {
-  const draft = await prisma.intakeDraft.findUnique({
-    where: { token },
-    select: { id: true, organizationId: true, submittedContactRequestId: true, expiresAt: true, serviceId: true, visaTypeId: true },
+  const draft = await prisma.intakeDraft.findFirst({
+    where: tokenWhere(token),
+    select: { tokenHash: true, id: true, organizationId: true, submittedContactRequestId: true, expiresAt: true, serviceId: true, visaTypeId: true },
   });
 
   if (!draft) return { error: "NOT_FOUND" };
+  backfillHash(draft, token);
   if (draft.submittedContactRequestId) return { error: "ALREADY_SUBMITTED" };
-  if (draft.expiresAt < new Date()) return { error: "EXPIRED" };
+  if (draft.expiresAt <= new Date()) return { error: "EXPIRED" };
   return { draft };
 }
 
@@ -183,13 +212,9 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
       return { error: "FILE_TOO_LARGE", details: { maxSizeBytes: requirement.maxSizeBytes } };
     }
 
-    const existingCount = await prisma.contactRequestDocument.count({
-      where: { draftId: draft.id, requirementId, supersededAt: null },
-    });
-    if (existingCount >= requirement.maxFiles) {
-      return { error: "MAX_FILES_REACHED", details: { maxFiles: requirement.maxFiles } };
-    }
   }
+
+  const travelerRef = travelerIndex === undefined || travelerIndex === null || travelerIndex === "" ? null : String(travelerIndex);
 
   const ocrResult = await maybeRunPassportOcr(requirement, file);
 
@@ -202,7 +227,28 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
     storagePath = path.join("contact-request-documents", file.filename);
   }
 
-  const document = await prisma.contactRequestDocument.create({
+  // One transaction under a row lock on the draft (U-04/U-05): uploads of the
+  // same draft run one after another, so the file count (per pilgrim for a
+  // per-traveler requirement) and the document→traveler map are read and
+  // written against the same state. A draft submitted or expired while the
+  // file was being received refuses the file instead of losing it.
+  const outcome = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "IntakeDraft" WHERE id = ${draft.id} FOR UPDATE`;
+    const fresh = await tx.intakeDraft.findUnique({ where: { id: draft.id }, select: { submittedContactRequestId: true, expiresAt: true, documentTravelerRefs: true } });
+    if (fresh.submittedContactRequestId) return { error: "ALREADY_SUBMITTED" };
+    if (fresh.expiresAt <= new Date()) return { error: "EXPIRED" };
+    const refs = fresh.documentTravelerRefs || {};
+
+    if (requirement) {
+      const siblings = await tx.contactRequestDocument.findMany({ where: { draftId: draft.id, requirementId, supersededAt: null }, select: { id: true } });
+      const perTraveler = requirement.scope === "TRAVELER";
+      const existingCount = perTraveler ? siblings.filter((doc) => (refs[doc.id] ?? null) === travelerRef).length : siblings.length;
+      if (existingCount >= requirement.maxFiles) {
+        return { error: "MAX_FILES_REACHED", details: { maxFiles: requirement.maxFiles } };
+      }
+    }
+
+    const created = await tx.contactRequestDocument.create({
     data: {
       draftId: draft.id,
       label,
@@ -219,21 +265,24 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
       sizeBytes: file.size,
     },
     select: { id: true, label: true, fileName: true, mimeType: true, sizeBytes: true, requirementId: true, ocrResult: true, createdAt: true },
+    });
+
+    await tx.intakeDraft.update({
+      where: { id: draft.id },
+      data: {
+        ...(travelerRef !== null ? { documentTravelerRefs: { ...refs, [created.id]: travelerRef } } : {}),
+        expiresAt: draftExpiry(),
+      },
+    });
+    return { document: created };
   });
 
-  const travelerRef = travelerIndex === undefined || travelerIndex === null || travelerIndex === "" ? null : String(travelerIndex);
-  const existingRefs = (await prisma.intakeDraft.findUnique({ where: { id: draft.id }, select: { documentTravelerRefs: true } }))
-    ?.documentTravelerRefs;
-
-  await prisma.intakeDraft.update({
-    where: { id: draft.id },
-    data: {
-      ...(travelerRef !== null
-        ? { documentTravelerRefs: { ...(existingRefs || {}), [document.id]: travelerRef } }
-        : {}),
-      expiresAt: draftExpiry(),
-    },
-  });
+  if (outcome.error) {
+    // The file was written before the lock; nothing references it now.
+    discardUnreferencedUpload(storagePath);
+    return outcome;
+  }
+  const document = outcome.document;
 
   logActivity({
     action: "INTAKE_DRAFT_DOCUMENT_UPLOADED",
@@ -243,6 +292,14 @@ export async function addDraftDocument(token, { label, file, requirementId, trav
   });
 
   return { document, travelerRef };
+}
+
+function discardUnreferencedUpload(storagePath) {
+  try {
+    fs.unlinkSync(resolveStoredUploadPath(storagePath));
+  } catch {
+    // Best effort: an orphan file is harmless and found by reconciliation.
+  }
 }
 
 export async function removeDraftDocument(token, documentId) {
@@ -260,6 +317,7 @@ export async function removeDraftDocument(token, documentId) {
 }
 
 class DraftAlreadySubmitted extends Error {}
+class DraftChanged extends Error {}
 
 // DRAFT → SUBMITTED. Creates exactly one ContactRequest from the draft's
 // accumulated state, re-points the already-uploaded documents at it (they
@@ -271,7 +329,7 @@ class DraftAlreadySubmitted extends Error {}
 // Everything runs in one transaction: either the request exists with all
 // its travelers and documents attached, or nothing changed and the
 // customer's draft is still intact to retry.
-export async function submitDraft(token, { message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone, preferredTravelDate, departureCity, arrivalAirport, entryPort } = {}) {
+export async function submitDraft(token, { submissionKey, message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone, preferredTravelDate, departureCity, arrivalAirport, entryPort } = {}) {
   const found = await findMutableDraft(token);
   if (found.error) return found;
 
@@ -281,6 +339,17 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   });
 
   if (!draft.name || !draft.phone) return { error: "INCOMPLETE_DRAFT" };
+
+  // A key already used by a request that is not this draft's must not be
+  // reused (it is unique); nothing is created.
+  if (submissionKey) {
+    const owner = await prisma.contactRequest.findUnique({ where: { submissionKey }, select: { id: true } });
+    if (owner) {
+      // Its own draft's request (a concurrent submit won): a repeat, not a clash.
+      const current = await prisma.intakeDraft.findUnique({ where: { id: draft.id }, select: { submittedContactRequestId: true } });
+      return { error: current?.submittedContactRequestId === owner.id ? "ALREADY_SUBMITTED" : "SUBMISSION_KEY_CONFLICT" };
+    }
+  }
 
   const requirementsSnapshot = draft.visaTypeId
     ? await getPublicChecklist({ visaTypeId: draft.visaTypeId })
@@ -316,6 +385,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   // Umrah: the guarantor's phone and extra contact (same rule as POST /contact-requests).
   let umrahContacts = null;
   let umrahTravel = null;
+  let umrahPackage = null;
   if (draft.serviceId && !draft.visaTypeId) {
     const service = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { category: true, features: true } });
     const umrah = resolveUmrahContacts(service?.category, { guarantorPhone, extraContactName, extraContactPhone });
@@ -324,6 +394,12 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
     const travel = resolveUmrahTravel(service?.category, service?.features, preferredTravelDate);
     if (travel.error) return travel;
     umrahTravel = travel.travel;
+    // Wizard bookkeeping keys ("__travelDate") are not answers to the checklist.
+    if (answers && typeof answers === "object") {
+      const cleaned = Object.fromEntries(Object.entries(answers).filter(([key]) => !key.startsWith("__")));
+      answers = Object.keys(cleaned).length ? cleaned : null;
+    }
+    umrahPackage = buildUmrahPackageSnapshot(service?.category, draft.serviceId, service?.features);
   }
 
   // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
@@ -337,6 +413,14 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
   if (pricing.error) return pricing;
 
   const contactRequest = await prisma.$transaction(async (tx) => {
+    // Same row lock as an upload: a file or autosave that landed after the
+    // read above makes this attempt stale. The customer's draft stays intact
+    // and the retry sees the new state (U-04), instead of the file being
+    // left behind on a draft that is already submitted.
+    await tx.$queryRaw`SELECT id FROM "IntakeDraft" WHERE id = ${draft.id} FOR UPDATE`;
+    const current = await tx.intakeDraft.findUnique({ where: { id: draft.id }, select: { updatedAt: true, submittedContactRequestId: true } });
+    if (current.submittedContactRequestId) throw new DraftAlreadySubmitted();
+    if (current.updatedAt.getTime() !== draft.updatedAt.getTime()) throw new DraftChanged();
     const created = await tx.contactRequest.create({
       data: {
         name: draft.name,
@@ -352,6 +436,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
         travelerCount: draft.travelerCount ?? null,
         // The guided intake is always an application for a service.
         requestKind: "SERVICE_APPLICATION",
+        submissionKey: submissionKey || null,
         pricingMode: pricing.mode,
         pricingSnapshot: pricing.snapshot ?? undefined,
         ...(pricing.mode === "FIXED" ? { invoice: { create: pricing.invoice }, paymentStatus: "AWAITING_TRANSFER" } : {}),
@@ -362,6 +447,7 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
           ...(egyptEntryMode ? { egyptEntryMode } : {}),
           ...(umrahContacts ? { umrahContacts } : {}),
           ...(umrahTravel ? { umrahTravel } : {}),
+          ...(umrahPackage ? { umrahPackage } : {}),
           ...(egyptRoute ? { egyptRoute } : {}),
         },
         requirementsSnapshot: requirementsSnapshot && requirementsSnapshot.length ? requirementsSnapshot : undefined,
@@ -409,13 +495,26 @@ export async function submitDraft(token, { message, acceptedTotal, acceptedCurre
     return created;
   }).catch((error) => {
     if (error instanceof DraftAlreadySubmitted) return null;
+    if (error instanceof DraftChanged) return "CHANGED";
     throw error;
   });
+  if (contactRequest === "CHANGED") return { error: "DRAFT_CHANGED" };
   if (!contactRequest) return { error: "ALREADY_SUBMITTED" };
 
   await announceNewContactRequest(contactRequest, { documentCount: draft.documents.length });
 
   return { contactRequest };
+}
+
+// The request a draft was submitted as, only when `submissionKey` is the key
+// that submission used: the retry of that very submission. A different or
+// missing key gets nothing, so the token alone never replays a submission.
+export async function findSubmissionByKey(token, submissionKey) {
+  if (!submissionKey) return null;
+  const draft = await prisma.intakeDraft.findFirst({ where: tokenWhere(token), select: { submittedContactRequestId: true } });
+  if (!draft?.submittedContactRequestId) return null;
+  const request = await prisma.contactRequest.findUnique({ where: { id: draft.submittedContactRequestId }, select: { id: true, submissionKey: true } });
+  return request && request.submissionKey === submissionKey ? { id: request.id } : null;
 }
 
 export { findMutableDraft, draftExpiry };

@@ -472,6 +472,8 @@ model Customer {
   // this is not a second authentication *mechanism* — it's the same one,
   // applied to a different principal (Customer instead of User).
   passwordHash           String?
+  // Stable verified Google identity; never infer ownership from matching email.
+  googleSubject          String?   @unique
   passwordResetCode      String?
   passwordResetExpiresAt DateTime?
   passwordResetAttempts  Int       @default(0)
@@ -1263,7 +1265,30 @@ enum ContactRequestPaymentStatus {
   CONFIRMED
 }
 
+// Derived, rebuildable ordering state of an Umrah request for the staff queue
+// (umrah-queue-index.js). It is a cache of values computed from the request's
+// own facts - never a source of truth: the list re-derives the rows it shows,
+// repairs a row that disagrees, and `rebuild-umrah-queue.js` recreates all of
+// it from scratch. Deleting the whole table loses nothing.
+model UmrahQueueEntry {
+  contactRequestId    String         @id
+  organizationId      String
+  rank                Int
+  stage               String
+  packageKind         String
+  preferredTravelDate String?
+  requestCreatedAt    DateTime
+  derivedAt           DateTime       @default(now())
+  contactRequest      ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, rank, preferredTravelDate, requestCreatedAt])
+  @@index([organizationId, preferredTravelDate, rank, requestCreatedAt])
+  @@index([organizationId, stage])
+  @@index([derivedAt])
+}
+
 model ContactRequest {
+  umrahQueueEntry UmrahQueueEntry?
   id                       String                      @id @default(cuid())
   // Client-generated key for one submission (the mobile app keeps it across
   // retries): a retried POST returns the request already created instead of
@@ -1415,13 +1440,38 @@ model Traveler {
   // other traveler is "لشخص آخر"/"لعدة أشخاص".
   isPrimary        Boolean   @default(false)
   sortOrder        Int       @default(0)
+  // The traveler in the original request this one was copied from (the
+  // optional Umrah ticket inquiry's pilgrims). Null for every traveler that
+  // is not such a copy, and for inquiries opened before this link existed:
+  // those are never matched to a pilgrim by name or order.
+  sourceTravelerId String?
+  // Umrah only: where this pilgrim's visa stands while it is being processed
+  // (staff-set; null = never set, shown as pending / in progress by the
+  // request's own execution state). "Issued" is never stored: it is derived
+  // from the published visa file that covers this traveler. A reason is shown
+  // to the customer; DELAYED needs a follow-up date.
+  visaState          UmrahVisaState?
+  visaStateReason    String?
+  visaFollowUpAt     DateTime?
+  visaStateChangedAt DateTime?
+  visaStateChangedBy String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  contactRequest ContactRequest           @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
-  documents      ContactRequestDocument[]
+  contactRequest   ContactRequest           @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+  documents        ContactRequestDocument[]
+  sourceTraveler   Traveler?                @relation("TravelerSource", fields: [sourceTravelerId], references: [id], onDelete: SetNull)
+  derivedTravelers Traveler[]               @relation("TravelerSource")
 
   @@index([contactRequestId])
+  @@index([sourceTravelerId])
+}
+
+enum UmrahVisaState {
+  PENDING
+  IN_PROGRESS
+  DELAYED
+  REJECTED
 }
 
 enum ContactRequestDocumentStatus {
@@ -1461,7 +1511,10 @@ enum DocumentClassification {
 // anything guessable (see intake-drafts.service.js).
 model IntakeDraft {
   id                        String   @id @default(cuid())
-  token                     String   @unique
+  // Drafts created before token hashing keep their plaintext token here
+  // until they are migrated; new drafts store only tokenHash (SHA-256 hex).
+  token                     String?  @unique
+  tokenHash                 String?  @unique
   organizationId            String   @default("org_nasaem_default")
   // Set once the customer types a phone — lets an OTP-verified customer
   // recover a draft whose token they no longer have (cleared browser).

@@ -6,6 +6,8 @@
 // from the requirements screen afterwards.
 export const UMRAH_SERVICE_CATEGORIES = Object.freeze(["umrah", "UMRAH_PACKAGE", "umrah_package"]);
 export const GUARANTOR_RESIDENCE_NAME = "إقامة الضامن";
+// The requirement's identity; its display name may be edited by an admin.
+export const GUARANTOR_ATTACHMENT_TYPE = "guarantor_residence";
 
 export function isUmrahServiceCategory(category) {
   return UMRAH_SERVICE_CATEGORIES.includes(String(category || ""));
@@ -15,7 +17,7 @@ export function isUmrahServiceCategory(category) {
 // requirement (active or not: a deliberately deactivated one stays off).
 export async function ensureUmrahGuarantorRequirement(db, serviceId) {
   const existing = await db.visaRequirement.findFirst({
-    where: { serviceId, name: { contains: GUARANTOR_RESIDENCE_NAME } },
+    where: { serviceId, OR: [{ attachmentType: GUARANTOR_ATTACHMENT_TYPE }, { name: { contains: GUARANTOR_RESIDENCE_NAME } }] },
     select: { id: true },
   });
   if (existing) return null;
@@ -25,7 +27,7 @@ export async function ensureUmrahGuarantorRequirement(db, serviceId) {
       name: GUARANTOR_RESIDENCE_NAME,
       description: "صورة واضحة لإقامة الضامن في السعودية (صورة أو PDF).",
       required: true,
-      attachmentType: "guarantor_residence",
+      attachmentType: GUARANTOR_ATTACHMENT_TYPE,
       maxFiles: 1,
       allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
       maxSizeBytes: 10 * 1024 * 1024,

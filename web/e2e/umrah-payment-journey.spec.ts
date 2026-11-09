@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 
@@ -9,7 +10,7 @@ import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 // receipt) → confirmation with the request number and «بانتظار مراجعة
 // التحويل». The receipt never marks the request paid; staff confirm it.
 
-const BACKEND = "http://localhost:5000";
+const BACKEND = process.env.E2E_BACKEND_URL || "http://localhost:5000";
 const FIXTURE = path.join(__dirname, "fixtures", "sample-document.png");
 
 // Issue #99: the three package types, each from the package card to the
@@ -123,9 +124,43 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     await expect(page.getByText("إقامة الضامن").first()).toBeVisible();
     await expect(page.getByText("الصورة الشخصية")).toHaveCount(0);
     // each pilgrim's passport + the guarantor's residence
+    // Lose the first upload's response after the server stored it. Reload must
+    // recover that exact document rather than asking for another upload.
+    let lostUploadResponse = false;
+    await page.route("**/api/intake-drafts/current/documents", async (route) => {
+      if (!lostUploadResponse && route.request().method() === "POST") {
+        lostUploadResponse = true;
+        // Chromium interception omits file bytes from the multipart replay.
+        // Keep its text fields, supply the real fixture, and prove the server
+        // accepted the upload before simulating a lost browser response.
+        const original = route.request();
+        const fields = await new Request(original.url(), { method: "POST", headers: original.headers(),
+          body: new Uint8Array(original.postDataBuffer()!) }).formData();
+        const multipart = Object.fromEntries([...fields.entries()].filter(([key]) => key !== "file"));
+        const stored = await page.request.post(original.url(), {
+          headers: { "X-Draft-Token": original.headers()["x-draft-token"] },
+          multipart: { ...multipart, file: { name: path.basename(FIXTURE), mimeType: "image/png", buffer: readFileSync(FIXTURE) } },
+        });
+        expect(stored.status(), await stored.text()).toBe(201);
+        await route.abort("connectionreset");
+      } else await route.continue();
+    });
     for (let i = 0; i < 3; i += 1) {
       await page.locator('label:has-text("اختر ملفًا") input[type="file"]').first().setInputFiles(FIXTURE);
+      if (i === 0) {
+        await expect(page.locator('[data-testid="draft-doc"][data-status="error"]')).toHaveCount(1);
+        await page.unroute("**/api/intake-drafts/current/documents");
+        await page.reload();
+        await page.getByRole("button", { name: "متابعة الطلب", exact: true }).click();
+        await expect(page.locator('[data-testid="draft-doc"][data-status="uploaded"]')).toHaveCount(1);
+      }
     }
+    await expect(page.locator('[data-testid="draft-doc"][data-status="uploaded"]')).toHaveCount(3);
+    const documentIds = await page.getByTestId("draft-doc").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-document-id")).sort());
+    await page.reload();
+    await page.getByRole("button", { name: "متابعة الطلب", exact: true }).click();
+    await expect(page.locator('[data-testid="draft-doc"][data-status="uploaded"]')).toHaveCount(3);
+    expect(await page.getByTestId("draft-doc").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-document-id")).sort())).toEqual(documentIds);
     await page.getByRole("button", { name: "التالي" }).click();
 
     // Summary with the final price; going back keeps what was entered.
@@ -137,7 +172,8 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     const send = page.getByRole("button", { name: "تأكيد ومتابعة إلى الدفع" });
     await expect(send).toBeDisabled();
     await page.getByTestId("confirm-fixed-total").check();
-    const submitted = page.waitForResponse((r) => r.url().endsWith("/api/contact-requests") && r.request().method() === "POST");
+    // The request is made either from the stored draft (resumable intake) or by the classic one-request post.
+    const submitted = page.waitForResponse((r) => (r.url().endsWith("/api/contact-requests") || r.url().endsWith("/api/intake-drafts/current/submit")) && r.request().method() === "POST");
     await send.dblclick();
     expect((await submitted).status()).toBe(201);
     await expect(page.getByTestId("payment-step")).toBeVisible({ timeout: 15_000 });
@@ -253,9 +289,19 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     const done = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
     expect(done.status).toBe("CLOSED");
     expect(done.outcome).toBe("COMPLETED");
-    // Booking is optional and follows the visas; it never gates completion.
     await page.reload();
     const booking = page.getByTestId("umrah-ticket-booking");
+    if (type.kind !== "VISA_ONLY") {
+      // A flight or sea package already delivered its tickets as services:
+      // never offer to book (and price) them a second time.
+      await expect(page.getByTestId("umrah-journey")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("umrah-status")).toBeVisible();
+      await expect(booking).toHaveCount(0);
+      const parent = (await (await admin.get(`${BACKEND}/api/contact-requests/${id}`)).json()).data;
+      expect(parent.linkedRequests.filter((r: { linkKind: string }) => r.linkKind === "UMRAH_TICKET")).toHaveLength(0);
+      return;
+    }
+    // Visa only: booking is optional and follows the visas; it never gates completion.
     await expect(booking).toBeVisible();
     await booking.getByRole("button", { name: /طلب حجز تذاكر/ }).click();
     await expect(booking).toContainText("أُرسل طلب الحجز إلى الوكالة");

@@ -7,6 +7,7 @@ import {
 import {
   addDraftDocument,
   createDraft,
+  findSubmissionByKey,
   getDraftByToken,
   removeDraftDocument,
   submitDraft,
@@ -24,6 +25,8 @@ const DRAFT_ERROR_RESPONSES = {
   NOT_FOUND: { status: 404, message: "الطلب غير موجود" },
   EXPIRED: { status: 410, message: "انتهت صلاحية هذا الطلب، يرجى بدء طلب جديد" },
   ALREADY_SUBMITTED: { status: 409, message: "تم إرسال هذا الطلب بالفعل" },
+  SUBMISSION_KEY_CONFLICT: { status: 409, message: "مفتاح الإرسال مستخدم لطلب آخر" },
+  DRAFT_CHANGED: { status: 409, message: "تغيّرت بيانات الطلب أثناء الإرسال. راجعها ثم أعد المحاولة" },
   INCOMPLETE_DRAFT: { status: 400, message: "الاسم ورقم الهاتف مطلوبان قبل إرسال الطلب" },
   EGYPT_CLEARANCE_INCOMPLETE: {
     status: 400,
@@ -83,8 +86,10 @@ export async function storeDraft(req, res, next) {
 
 export async function getDraft(req, res, next) {
   try {
+    res.set("Cache-Control", "no-store");
     const draft = await getDraftByToken(req.params.token);
     if (!draft) return res.status(404).json({ success: false, message: "Draft not found" });
+    if (draft.error) return respondToDraftError(res, draft);
     return res.status(200).json({ success: true, data: draft });
   } catch (error) {
     next(error);
@@ -154,6 +159,16 @@ export async function destroyDraftDocument(req, res, next) {
   }
 }
 
+// A retry of the same submission (same submissionKey) gets the request the
+// first attempt created, with a fresh payment token (the first response may
+// never have arrived). Returns null when it is not such a retry.
+async function replayIfSameSubmission(res, token, submissionKey) {
+  const existing = await findSubmissionByKey(token, submissionKey);
+  if (!existing) return null;
+  const paymentAccess = await issuePaymentAccess(existing.id);
+  return res.status(200).json({ success: true, data: { id: existing.id, duplicate: true, ...(paymentAccess ? { paymentAccess } : {}) } });
+}
+
 export async function submitDraftController(req, res, next) {
   try {
     const parsed = submitDraftSchema.safeParse(req.body);
@@ -166,11 +181,15 @@ export async function submitDraftController(req, res, next) {
     // UI-required attributes alone are not a security/business-rule boundary.
     const draft = await getDraftByToken(req.params.token);
     if (!draft) return res.status(404).json({ success: false, message: "Draft not found" });
+    if (draft.error) return respondToDraftError(res, draft);
     // A repeat of a submission that already succeeded (a retry after a lost
     // response, a double click, a second tab) says so. Checked before the
     // Egypt rules: the submitted draft's passport now belongs to the request,
     // so they would wrongly ask the customer to upload it again.
-    if (draft.submittedContactRequestId) return respondToDraftError(res, { error: "ALREADY_SUBMITTED" });
+    if (draft.submittedContactRequestId) {
+      const replay = await replayIfSameSubmission(res, req.params.token, parsed.data.submissionKey);
+      return replay || respondToDraftError(res, { error: "ALREADY_SUBMITTED" });
+    }
     // The service is checked again at submission: a draft started before the
     // scope changed (or patched to another service) cannot become a request.
     if (await newApplicationRefusal(draft)) {
@@ -183,6 +202,10 @@ export async function submitDraftController(req, res, next) {
     }
 
     const result = await submitDraft(req.params.token, parsed.data);
+    if (result.error === "ALREADY_SUBMITTED") {
+      const replay = await replayIfSameSubmission(res, req.params.token, parsed.data.submissionKey);
+      if (replay) return replay;
+    }
     const errorResponse = respondToDraftError(res, result);
     if (errorResponse) return errorResponse;
 

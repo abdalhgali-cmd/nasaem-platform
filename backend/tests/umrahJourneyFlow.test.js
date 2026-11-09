@@ -114,6 +114,7 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     const created = await submit(pkg, { phone, pilgrims: 3, submissionKey, agent: account });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const { id } = created.body.data;
+    assert.equal((await employee.post(`/api/contact-requests/${id}/claim`).send({})).status, 200, "the employee takes the unassigned request first");
     // network loss: the same submission sent again is the same request
     const again = await submit(pkg, { phone, pilgrims: 3, submissionKey, agent: account });
     assert.equal(again.status, 200, JSON.stringify(again.body));
@@ -214,6 +215,7 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.match(stage(journey, "VISAS").status, /1 من 3/);
     assert.equal(journey.primaryAction.key, "DOWNLOAD_VISAS");
     assert.ok((await notificationTypes(id)).includes("UMRAH_VISA_ISSUED"));
+    assert.equal((await notificationTypes(id)).filter((type) => type === "UMRAH_VISA_ISSUED").length, 1, "one notification per published visa (written with the publish, not duplicated after it)");
     assert.ok(!(await notificationTypes(id)).includes("UMRAH_ALL_VISAS_ISSUED"));
 
     // secure download: the owner only; a prepared (unpublished) file is not served
@@ -255,6 +257,15 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.equal(journey.primaryAction.key, "VIEW_FILES");
     assert.equal(journey.now.actionRequired, false);
     assert.equal((await customer.get(`/api/tracking/requests/${id}/deliverables/${services.body.data.id}/file`)).status, 200);
+
+    // The package's tickets are its services: no separate optional booking.
+    assert.equal(journey.ticketBooking.available, false);
+    assert.equal(journey.ticketBooking.ticketsIncluded, true);
+    const duplicate = await customer.post(`/api/tracking/requests/${id}/umrah/tickets`).send({});
+    assert.equal(duplicate.status, 409, JSON.stringify(duplicate.body));
+    assert.equal(duplicate.body.code, "TICKETS_INCLUDED");
+    assert.equal(await prisma.contactRequest.count({ where: { parentRequestId: id, linkKind: "UMRAH_TICKET" } }), 0, "no second booking of included tickets");
+    assert.equal(await prisma.activityLog.count({ where: { entityId: id, action: "UMRAH_TICKET_INQUIRY_OPENED" } }), 0);
   });
 
   test("VISA_ONLY, one pilgrim: no services stage, a service document is refused, the visa completes it", async () => {
@@ -264,6 +275,7 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     const created = await submit(pkg, { phone, pilgrims: 1, agent: account });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const { id } = created.body.data;
+    assert.equal((await employee.post(`/api/contact-requests/${id}/claim`).send({})).status, 200, "the employee takes the unassigned request first");
     const customer = trackingClient(phone);
     let journey = await journeyOf(customer, id);
     assert.equal(journey.packageKind, "VISA_ONLY");
@@ -296,6 +308,26 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.equal(journey.primaryAction.key, "VIEW_FILES");
     assert.ok((await notificationTypes(id)).includes("UMRAH_ALL_VISAS_ISSUED"));
     assert.equal(journey.ticketBooking.available, true, "optional booking is offered after completion");
+
+    // The flight booking service switched off: not offered, and refused.
+    const flight = await prisma.service.findUnique({ where: { code: "SVC-FLIGHT" }, select: { id: true, active: true } });
+    await prisma.service.update({ where: { id: flight.id }, data: { active: false } });
+    try {
+      assert.equal((await journeyOf(customer, id)).ticketBooking.available, false, "phone tracking hides it");
+      const viaAccount = (await account.get(`/api/customer/requests/${id}`)).body.data.progress.umrah.ticketBooking;
+      assert.equal(viaAccount.available, false, "the account hides it");
+      assert.equal(viaAccount.serviceAvailable, false);
+      const off = await customer.post(`/api/tracking/requests/${id}/umrah/tickets`).send({});
+      assert.equal(off.status, 409, JSON.stringify(off.body));
+      assert.equal(off.body.code, "BOOKING_SERVICE_UNAVAILABLE");
+      assert.equal(await prisma.contactRequest.count({ where: { parentRequestId: id, linkKind: "UMRAH_TICKET" } }), 0);
+    } finally {
+      await prisma.service.update({ where: { id: flight.id }, data: { active: flight.active } });
+    }
+    assert.equal((await journeyOf(customer, id)).ticketBooking.available, true, "offered again once the service is back");
+    const tracked = (await customer.get("/api/tracking/requests")).body.data.find((r) => r.id === id);
+    assert.equal(tracked.umrahTicketServices, undefined, "the lookup is not sent to the customer");
+
     const stranger = trackingClient(testPhone());
     assert.equal((await stranger.post(`/api/tracking/requests/${id}/umrah/tickets`).send({})).status, 404);
     const { agent: otherAccount } = await registerCustomer();
@@ -312,8 +344,15 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.equal(inquiries[0].invoice, null, "no unapproved fare is invented");
     assert.equal(inquiries[0].customerId, owner.id);
     assert.equal(inquiries[0].travelers.length, 1);
+    // The copy points at the exact pilgrim it came from (by id, not by name or order).
+    const parentTravelers = await prisma.traveler.findMany({ where: { contactRequestId: id }, orderBy: { sortOrder: "asc" } });
+    assert.deepEqual(inquiries[0].travelers.map((t) => t.sourceTravelerId), parentTravelers.map((t) => t.id));
     assert.equal((await prisma.contactRequest.findUnique({ where: { id } })).outcome, "COMPLETED", "booking does not reopen or block the visa case");
     assert.equal(await prisma.activityLog.count({ where: { entityId: id, action: "UMRAH_TICKET_INQUIRY_OPENED" } }), 1);
+    // The customer's own confirmation of the booking request, exactly once.
+    const confirmations = await prisma.customerMessageDelivery.findMany({ where: { contactRequestId: inquiries[0].id, kind: "REQUEST_CONFIRMATION", channel: "WHATSAPP" } });
+    assert.equal(confirmations.length, 1);
+    assert.equal(confirmations[0].recipient, inquiries[0].phoneNormalized);
     journey = await journeyOf(customer, id);
     assert.equal(journey.ticketBooking.available, false);
     assert.equal(journey.ticketBooking.inquiryId, inquiries[0].id);

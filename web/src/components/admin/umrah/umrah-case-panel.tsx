@@ -6,6 +6,8 @@ import { AlertTriangle, CheckCircle2, Circle, CircleDot, FileText, ShieldCheck, 
 import { API_URL } from "@/lib/api-url";
 import { formatAmount, formatDay, paymentLabel } from "@/components/admin/operations/ops-model";
 import { SignalBadge, btn, cx } from "@/components/admin/operations/ops-ui";
+import { isGuarantorResidenceDocument } from "./guarantor";
+import { VisaStateControl, type VisaStateValue } from "./visa-state-control";
 import { DOCUMENT_STATUS_AR, GUARANTOR_RESIDENCE, packageKind, stageLabel, umrahRowSignal, type UmrahListRow } from "./umrah-model";
 
 // The Umrah view of a case, inside /admin/cases (tab «العمرة»). Read-only
@@ -15,9 +17,9 @@ import { DOCUMENT_STATUS_AR, GUARANTOR_RESIDENCE, packageKind, stageLabel, umrah
 // (documents review, workflow: execution, final files, closing). No action
 // or rule is added here; payment decisions stay on «مراجعة الدفعات».
 
-type Doc = { id: string; label: string; status: string; travelerId: string | null; supersededAt: string | null; classification?: string; reviewNote?: string | null };
-type SnapshotRequirement = { id: string; name?: string; type?: string; scope?: string; required?: boolean };
-export type UmrahCase = Omit<UmrahListRow, "travelers"> & { documents: Doc[]; travelers: { id: string; fullName: string | null; passportNo?: string | null }[]; requirementsSnapshot?: SnapshotRequirement[] | null };
+type Doc = { id: string; requirementId?: string | null; label: string; status: string; travelerId: string | null; supersededAt: string | null; classification?: string; reviewNote?: string | null };
+type SnapshotRequirement = { id: string; attachmentType?: string | null; name?: string; type?: string; scope?: string; required?: boolean };
+export type UmrahCase = Omit<UmrahListRow, "travelers"> & { documents: Doc[]; travelers: { id: string; fullName: string | null; passportNo?: string | null; visaState?: VisaStateValue | null; visaStateReason?: string | null; visaFollowUpAt?: string | null }[]; allowedActions?: string[]; requirementsSnapshot?: SnapshotRequirement[] | null };
 export type CaseTabKey = "documents" | "workflow" | "travelers" | "activity" | "overview";
 
 function StatusChip({ status }: { status: string }) {
@@ -101,6 +103,30 @@ function DocumentRequestForm({ caseRow }: { caseRow: UmrahCase }) {
 
 export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onOpenTab: (tab: CaseTabKey) => void }) {
   const [now] = React.useState(() => Date.now());
+  // Who is looking, and who owns the request: a regular employee changes an
+  // Umrah request only while it is assigned to them (server rule, T10); an
+  // unassigned one is taken with the explicit claim below.
+  const [me, setMe] = React.useState<{ id: string; role: string } | null>(null);
+  const [assignee, setAssignee] = React.useState<{ id: string; fullName: string } | null>(caseRow.assignedUser ? { id: caseRow.assignedUser.id, fullName: caseRow.assignedUser.fullName } : null);
+  const [claim, setClaim] = React.useState<{ busy: boolean; error: string }>({ busy: false, error: "" });
+  React.useEffect(() => {
+    fetch(`${API_URL}/auth/me`, { credentials: "include" }).then((r) => r.json()).then((p) => { if (p?.success) setMe({ id: p.data.id, role: p.data.role }); }).catch(() => undefined);
+  }, []);
+  async function claimRequest() {
+    setClaim({ busy: true, error: "" });
+    try {
+      const res = await fetch(`${API_URL}/contact-requests/${encodeURIComponent(caseRow.id)}/claim`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.message || "تعذّر استلام الطلب.");
+      if (me) setAssignee({ id: me.id, fullName: "أنت" });
+      setClaim({ busy: false, error: "" });
+    } catch (error) {
+      setClaim({ busy: false, error: error instanceof Error ? error.message : "تعذّر استلام الطلب." });
+    }
+  }
+  const isManager = me ? ["SUPER_ADMIN", "ADMIN"].includes(me.role) : false;
+  const canWork = Boolean(me) && (isManager || (me!.role === "EMPLOYEE" && assignee?.id === me!.id));
+  const canClaim = Boolean(me) && !assignee && ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(me!.role) && caseRow.status !== "CLOSED";
   // The staff next step (umrah-staff-queue.js) is computed for list rows only,
   // so it is read from the request's own row of GET /contact-requests.
   const [queue, setQueue] = React.useState<{ for: string; value: UmrahListRow["umrahQueue"] } | null>(null);
@@ -124,7 +150,7 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
   const contacts = caseRow.intakeData?.umrahContacts || {};
   const travel = caseRow.intakeData?.umrahTravel || {};
   const current = caseRow.documents.filter((d) => !d.supersededAt);
-  const residence = current.filter((d) => d.label.includes(GUARANTOR_RESIDENCE));
+  const residence = current.filter((d) => isGuarantorResidenceDocument(d, caseRow.requirementsSnapshot));
   const covered = new Set(progress.delivery?.coveredTravelerIds || []);
   // «رحلتي إلى الحرمين» per pilgrim (server: progress.umrah).
   const umrahJourney = (progress as { umrah?: { pilgrims?: { id: string; visa: string; services?: string }[] } | null }).umrah;
@@ -144,7 +170,15 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
           <div><dt className="text-xs font-bold text-muted-foreground">الدفع</dt><dd className="font-bold" data-testid="umrah-payment">{paymentLabel(caseRow.paymentStatus)}{amount ? <span className="block text-xs font-normal tabular-nums text-muted-foreground" dir="ltr">{amount}</span> : null}</dd></div>
           <div><dt className="text-xs font-bold text-muted-foreground">الإجراء التالي</dt><dd className="font-bold text-[var(--nh-primary-ink)]" data-umrah-next="1">{umrahQueue?.nextAction || (queue?.for === version ? "—" : "…")}</dd></div>
         </dl>
-        <p className="mt-2 text-xs text-muted-foreground">المسؤول: {caseRow.assignedUser?.fullName || "غير مُسند"}{caseRow.dueAt ? ` · موعد الإنجاز ${formatDay(caseRow.dueAt)}` : ""}</p>
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="umrah-assignee">المسؤول: {assignee?.fullName || "غير مُسند"}{caseRow.dueAt ? ` · موعد الإنجاز ${formatDay(caseRow.dueAt)}` : ""}</p>
+        {canClaim ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button type="button" disabled={claim.busy} onClick={claimRequest} className={cx(btn.base, btn.primary, btn.sm)} data-testid="umrah-claim">{claim.busy ? "جارٍ الاستلام…" : "استلام الطلب"}</button>
+            <span className="text-xs text-muted-foreground">الطلب غير مُسند؛ استلمه لتبدأ العمل عليه.</span>
+          </div>
+        ) : null}
+        {me && !canWork && !canClaim && me.role === "EMPLOYEE" && assignee ? <p role="note" className="mt-2 text-xs font-bold text-[var(--nh-warning-ink)]" data-testid="umrah-readonly">هذا الطلب مُسند إلى {assignee.fullName}؛ تعرضه للقراءة فقط. يعيد المدير إسناده إذا لزم.</p> : null}
+        {claim.error ? <p role="alert" className="mt-2 text-xs font-bold text-[var(--nh-danger-ink)]">{claim.error}</p> : null}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -202,12 +236,15 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
                     const idle = "bg-muted text-muted-foreground";
                     return (
                       <span className="flex flex-wrap gap-1">
-                        <span data-visa-state={journeyPilgrim.visa} className={cx("rounded-md px-2 text-xs font-bold", journeyPilgrim.visa === "ISSUED" ? ok : idle)}>{journeyPilgrim.visa === "ISSUED" ? "التأشيرة منشورة" : "لا تأشيرة بعد"}</span>
+                        <span data-visa-state={journeyPilgrim.visa} className={cx("rounded-md px-2 text-xs font-bold", journeyPilgrim.visa === "ISSUED" ? ok : journeyPilgrim.visa === "REJECTED" || journeyPilgrim.visa === "DELAYED" ? "bg-[var(--nh-warning-soft)] text-[var(--nh-warning-ink)]" : idle)}>{journeyPilgrim.visa === "ISSUED" ? "التأشيرة منشورة" : journeyPilgrim.visa === "REJECTED" ? "تأشيرة مرفوضة" : journeyPilgrim.visa === "DELAYED" ? "تأشيرة متأخرة" : "لا تأشيرة بعد"}</span>
                         {journeyPilgrim.services ? <span data-services-state={journeyPilgrim.services} className={cx("rounded-md px-2 text-xs font-bold", journeyPilgrim.services === "DELIVERED" ? ok : idle)}>{journeyPilgrim.services === "DELIVERED" ? "الخدمات مسلّمة" : "الخدمات لم تُسلّم"}</span> : null}
                       </span>
                     );
                   })()}
                 </div>
+                {caseRow.status !== "CLOSED" && caseRow.allowedActions?.includes("SET_VISA_STATE") && canWork && !covered.has(t.id) ? (
+                  <VisaStateControl requestId={caseRow.id} travelerId={t.id} travelerName={t.fullName || "المعتمر"} initial={{ state: t.visaState ?? null, reason: t.visaStateReason, followUpAt: t.visaFollowUpAt }} />
+                ) : null}
                 {docs.length ? (
                   <ul className="mt-2 space-y-1">{docs.map((d) => <li key={d.id} className="flex flex-wrap items-center gap-2 text-xs"><FileText className="size-3.5 text-muted-foreground" aria-hidden="true" /><a href={fileUrl(d.id)} target="_blank" rel="noopener" className="hover:underline">{d.label}</a><StatusChip status={d.status} /></li>)}</ul>
                 ) : <p className="mt-1 text-xs text-[var(--nh-warning-ink)]">لا مستندات مرفوعة لهذا المعتمر.</p>}

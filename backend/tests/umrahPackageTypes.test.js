@@ -268,6 +268,7 @@ describe("Umrah package types and contacts", () => {
       const { res: created, documentCount } = await submit(service, { phone, submissionKey, extra: { name: "قريب المعتمر", phone: "0912345678" } });
       assert.equal(created.status, 201, JSON.stringify(created.body));
       const { id } = created.body.data;
+      assert.equal((await employee.post(`/api/contact-requests/${id}/claim`).send({})).status, 200, "the employee takes the unassigned request first");
       assert.ok(created.body.data.paymentAccess?.token, "fixed price: straight to payment");
 
       // a retry of the same submission returns the same request (with a fresh

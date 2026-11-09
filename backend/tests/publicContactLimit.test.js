@@ -17,13 +17,13 @@ const backendDir = fileURLToPath(new URL("..", import.meta.url));
 // Starts the real app in a separate process with the given environment and
 // sends `count` submissions from one client. The body is invalid on purpose
 // (nothing is written): the limiter counts the attempt before validation.
-function statusesUnder(env, count) {
+function statusesUnder(env, count, endpoint = "/api/contact-requests") {
   const script = `
     const { default: app } = await import("./src/app.js");
     const { default: request } = await import("supertest");
     const statuses = [];
     for (let i = 0; i < ${count}; i += 1) {
-      const res = await request(app).post("/api/contact-requests").set("X-Requested-With", "XMLHttpRequest").send({});
+      const res = await request(app).post(${JSON.stringify(endpoint)}).set("X-Requested-With", "XMLHttpRequest").send({});
       statuses.push(res.status);
     }
     console.log(JSON.stringify(statuses));
@@ -68,5 +68,17 @@ describe("public contact submission limiter", () => {
   test("an invalid override in a test process falls back to 5", () => {
     const statuses = statusesUnder({ NODE_ENV: "test", PUBLIC_CONTACT_RATE_LIMIT: "lots" }, 6);
     assert.equal(statuses[5], 429, JSON.stringify(statuses));
+  });
+
+  test("draft submission keeps the production ceiling even with the E2E override", () => {
+    const statuses = statusesUnder({ NODE_ENV: "production", PUBLIC_CONTACT_RATE_LIMIT: "80" }, 6, "/api/intake-drafts/current/submit");
+    assert.ok(statuses.slice(0, 5).every((s) => s !== 429), JSON.stringify(statuses));
+    assert.equal(statuses[5], 429, JSON.stringify(statuses));
+  });
+
+  test("draft submission honours the development-only E2E override", () => {
+    const statuses = statusesUnder({ NODE_ENV: "development", PUBLIC_CONTACT_RATE_LIMIT: "8" }, 9, "/api/intake-drafts/current/submit");
+    assert.ok(statuses.slice(0, 8).every((s) => s !== 429), JSON.stringify(statuses));
+    assert.equal(statuses[8], 429, JSON.stringify(statuses));
   });
 });

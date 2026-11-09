@@ -6,6 +6,7 @@ import "./env.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
+import { hashDraftToken } from "../src/modules/intake-drafts/intake-drafts.service.js";
 import prisma from "../src/config/database.js";
 
 let service;
@@ -62,7 +63,7 @@ describe("one draft, one request (G-09)", () => {
     const results = await Promise.all([1, 2].map(() => request(app).post(`/api/intake-drafts/${token}/submit`).send({})));
     assert.deepEqual(results.map((r) => r.status).sort(), [201, 409], JSON.stringify(results.map((r) => r.body)));
     assert.equal(await prisma.contactRequest.count(), before + 1);
-    const draft = await prisma.intakeDraft.findUnique({ where: { token } });
+    const draft = await prisma.intakeDraft.findUnique({ where: { tokenHash: hashDraftToken(token) } });
     const winner = results.find((r) => r.status === 201).body.data.id;
     assert.equal(draft.submittedContactRequestId, winner);
     const documents = await prisma.contactRequestDocument.findMany({ where: { contactRequestId: winner } });

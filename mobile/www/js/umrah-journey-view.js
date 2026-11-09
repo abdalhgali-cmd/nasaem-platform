@@ -3,7 +3,7 @@
 // no stage, status or action is inferred on the device, so the app, the
 // website and the staff dashboard always agree.
 
-const VISA_STATE = { ISSUED: "صدرت التأشيرة", IN_PROGRESS: "قيد الإجراءات", PENDING: "لم تبدأ بعد" };
+const VISA_STATE = { ISSUED: "صدرت التأشيرة", IN_PROGRESS: "قيد الإجراءات", PENDING: "لم تبدأ بعد", DELAYED: "تأشيرة متأخرة", REJECTED: "تأشيرة مرفوضة" };
 const SERVICE_STATE = { DELIVERED: "سُلّمت الخدمات", PREPARING: "قيد التجهيز", PENDING: "لم تبدأ بعد" };
 const ACTOR = { CUSTOMER: "مطلوب منك", AGENCY: "الوكالة", NONE: "—" };
 const STAGE_STATE = { done: "مكتملة", current: "الآن", upcoming: "لاحقًا", not_included: "غير مشمولة" };
@@ -90,7 +90,7 @@ export function umrahJourneyHtml(journey, esc, icon, { detailsHtml = "" } = {}) 
                 <span class="umrah-badge umrah-badge-${esc(pilgrim.visa.toLowerCase())}">${icon("visa", { size: 14 })} ${esc(VISA_STATE[pilgrim.visa] || pilgrim.visa)}</span>
                 ${pilgrim.services ? `<span class="umrah-badge umrah-badge-${esc(pilgrim.services.toLowerCase())}">${icon("package", { size: 14 })} ${esc(SERVICE_STATE[pilgrim.services] || pilgrim.services)}</span>` : ""}
               </div>
-              ${pilgrim.visaFiles?.length || pilgrim.serviceFiles?.length ? `<div class="umrah-files">${fileButtons(pilgrim.visaFiles || [], esc, icon)}${fileButtons(pilgrim.serviceFiles || [], esc, icon)}</div>` : ""}
+              ${pilgrim.visa === "DELAYED" || pilgrim.visa === "REJECTED" ? `<p class="umrah-visa-reason" role="status">${pilgrim.visaReason ? `${esc(pilgrim.visaReason)}. ` : ""}${pilgrim.visa === "DELAYED" && pilgrim.visaFollowUpAt ? `المتابعة القادمة: <bdi>${esc(String(pilgrim.visaFollowUpAt).slice(0, 10))}</bdi>. ` : ""}ستتواصل معك الوكالة بالقرار؛ لا يُغلق الطلب قبل ذلك.</p>` : ""}${pilgrim.visaFiles?.length || pilgrim.serviceFiles?.length ? `<div class="umrah-files">${fileButtons(pilgrim.visaFiles || [], esc, icon)}${fileButtons(pilgrim.serviceFiles || [], esc, icon)}</div>` : ""}
             </li>`).join("")}
         </ul>
         ${files ? "" : `<p class="umrah-files-empty">تظهر هنا التأشيرات ومستندات الخدمات فور نشرها.</p>`}

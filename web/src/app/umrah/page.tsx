@@ -11,7 +11,7 @@ export const metadata: Metadata = buildPageMetadata({
 
 export default function UmrahPage() {
   return (
-    <main id="book" className="scroll-mt-24 bg-gradient-to-b from-primary/8 via-background to-background py-10 sm:py-14">
+    <section id="book" aria-label="طلب العمرة" className="scroll-mt-24 bg-gradient-to-b from-primary/8 via-background to-background py-10 sm:py-14">
       <Container>
         <div className="mx-auto mb-8 max-w-2xl text-center">
           <p className="text-sm font-black text-primary dark:text-secondary">العمرة</p>
@@ -21,6 +21,6 @@ export default function UmrahPage() {
         </div>
         <UmrahBookingSection />
       </Container>
-    </main>
+    </section>
   );
 }
