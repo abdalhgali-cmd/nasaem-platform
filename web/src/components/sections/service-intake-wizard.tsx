@@ -342,6 +342,7 @@ export function ServiceIntakeWizard({
   // drops files that no longer apply instead of silently keeping them
   // under a stale label).
   const [requirements, setRequirements] = React.useState<PublicRequirement[]>([]);
+  const [requirementsError, setRequirementsError] = React.useState("");
   const [loadingRequirements, setLoadingRequirements] = React.useState(false);
   const [documentFilesBySlotKey, setDocumentFilesBySlotKey] = React.useState<
     Record<string, File[]>
@@ -901,16 +902,18 @@ export function ServiceIntakeWizard({
     }
 
     setLoadingRequirements(true);
+    setRequirementsError("");
+    setRequirements([]);
     setDocumentFilesBySlotKey({});
 
     fetch(`${API_URL}/${requirementsEndpoint}/requirements/public`)
-      .then((res) => res.json())
+      .then((res) => { if (!res.ok) throw new Error("requirements unavailable"); return res.json(); })
       .then((payload) => {
         if (ignore) return;
         setRequirements(Array.isArray(payload?.data) ? payload.data : []);
       })
       .catch(() => {
-        if (!ignore) setRequirements([]);
+        if (!ignore) { setRequirements([]); setRequirementsError("تعذّر تحميل المستندات المطلوبة. أعد تحميل الصفحة للمحاولة مجددًا؛ طلبك محفوظ."); }
       })
       .finally(() => {
         if (!ignore) setLoadingRequirements(false);
@@ -1406,6 +1409,15 @@ export function ServiceIntakeWizard({
     setPriceConfirmed(false);
   }, [fixedPrice?.total, fixedPrice?.currency]);
 
+  function umrahDocumentsReady() {
+    const passports = documentSlots.filter(slot => slot.requirement.scope === "TRAVELER" && PASSPORT_KEYWORD_PATTERN.test(`${slot.requirement.attachmentType || ""} ${slot.requirement.name}`));
+    return !loadingRequirements && !requirementsError && passports.length === filledTravelers.length && passports.length > 0 &&
+      documentSlots.filter(slot => slot.requirement.required).every(slot => resumable
+        ? slot.entries?.some(entry => entry.status === "uploaded")
+        : slot.files.length > 0) &&
+      !documentSlots.some(slot => slot.entries?.some(entry => entry.status === "uploading" || entry.status === "error"));
+  }
+
   function canGoNext() {
     const current = steps[step];
 
@@ -1423,7 +1435,12 @@ export function ServiceIntakeWizard({
     }
 
     if (current === "details") {
-      return !travelers.some((t) => t.ocrPending) && duplicatePassports.size === 0;
+      return !travelers.some((t) => t.ocrPending) && duplicatePassports.size === 0 &&
+        (!needsGuarantor || travelers.every(t => t.fullName.trim().length > 0));
+    }
+
+    if (current === "documents" && needsGuarantor) {
+      return umrahDocumentsReady();
     }
 
     if (current === "documents" && resumable) {
@@ -1479,6 +1496,7 @@ export function ServiceIntakeWizard({
   // into the request. The documents are already stored; none is sent again.
   async function submitFromDraft() {
     if (needsGuarantor && !isValidContactPhone(guarantorPhone)) throw new Error("أدخل رقم هاتف الضامن قبل إرسال الطلب.");
+    if (needsGuarantor && !umrahDocumentsReady()) throw new Error("ارفع جواز كل معتمر والمستندات المطلوبة قبل إرسال الطلب.");
     const inSlots = documentSlots.flatMap((slot) => slot.entries ?? []);
     if (inSlots.some((entry) => entry.status === "uploading")) throw new Error("انتظر اكتمال رفع المستندات ثم أرسل الطلب.");
     if (inSlots.some((entry) => entry.status === "error")) throw new Error("لم يكتمل رفع مستند. أعد المحاولة أو أزله ثم أرسل الطلب.");
@@ -1981,7 +1999,7 @@ export function ServiceIntakeWizard({
             {needsGuarantor ? (
               <>
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
-                  <label className={labelClass} htmlFor="umrah-guarantor-phone">رقم هاتف الضامن</label>
+                  <label className={labelClass} htmlFor="umrah-guarantor-phone">رقم هاتف الضامن (إلزامي)</label>
                   <input
                     id="umrah-guarantor-phone"
                     data-testid="umrah-guarantor-phone"
@@ -2174,7 +2192,7 @@ export function ServiceIntakeWizard({
       {current === "documents" ? (
         <StepShell
           title="المستندات المطلوبة"
-          description="يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."
+          description={needsGuarantor ? "ارفع جواز سفر لكل معتمر وإقامة الضامن قبل إرسال الطلب." : "يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."}
         >
           <div className="flex flex-col gap-3">
             {resumable ? (
@@ -2257,6 +2275,7 @@ export function ServiceIntakeWizard({
                 ))}
               </div>
             ) : null}
+            {requirementsError ? <p role="alert" className="text-sm text-destructive">{requirementsError}</p> : null}
             {loadingRequirements ? (
               <div className="flex justify-center py-6">
                 <Loader2 className="size-6 animate-spin text-primary" />

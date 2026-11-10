@@ -3,7 +3,7 @@ import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
-import { testPhone } from "./helpers/workflow.js";
+import { testPhone, PDF } from "./helpers/workflow.js";
 import { buildUmrahPackageSnapshot, umrahObligations } from "../src/modules/umrah/umrah-packages.js";
 import { evaluateUmrahDelivery, umrahTicketBooking } from "../src/modules/umrah/umrah-delivery.js";
 import { WORKFLOW_INCLUDE } from "../src/modules/contact-request-workflow/workflow-lock.js";
@@ -98,6 +98,7 @@ describe("Umrah package snapshot (both submission paths)", () => {
 
   test("multipart POST /contact-requests stores the snapshot; editing the package afterwards does not change the obligation", async () => {
     const service = await packageOf("AIR");
+    const passport = await prisma.visaRequirement.findFirst({ where: { serviceId: service.id, attachmentType: "umrah_passport" } });
     const res = await request(app)
       .post("/api/contact-requests")
       .field("name", "TEST-SNAP مقدم")
@@ -110,7 +111,12 @@ describe("Umrah package snapshot (both submission paths)", () => {
       .field("acceptedTotal", "2000")
       .field("acceptedCurrency", "SAR")
       .field("guarantorPhone", "+966 50 123 4567")
-      .field("preferredTravelDate", DATE);
+      .field("preferredTravelDate", DATE)
+      .field("documentLabels", JSON.stringify(["جواز الأول", "جواز الثاني"]))
+      .field("documentRequirementIds", JSON.stringify([passport.id, passport.id]))
+      .field("documentTravelerIndexes", JSON.stringify(["0", "1"]))
+      .attach("documents", PDF(), { filename: "passport-1.pdf", contentType: "application/pdf" })
+      .attach("documents", PDF(), { filename: "passport-2.pdf", contentType: "application/pdf" });
     assert.equal(res.status, 201, JSON.stringify(res.body));
     const stored = await prisma.contactRequest.findUnique({ where: { id: res.body.data.id }, select: { intakeData: true } });
     assert.equal(stored.intakeData.umrahPackage.kind, "AIR");
@@ -135,6 +141,13 @@ describe("Umrah package snapshot (both submission paths)", () => {
       .patch(`/api/intake-drafts/${token}`)
       .send({ name: "TEST-SNAP draft", phone: testPhone(), travelerCount: 2, travelers: [{ fullName: "A" }, { fullName: "B" }] });
     assert.equal(patch.status, 200, JSON.stringify(patch.body));
+    const passport = await prisma.visaRequirement.findFirst({ where: { serviceId: service.id, attachmentType: "umrah_passport" } });
+    for (const index of [0, 1]) {
+      const upload = await request(app).post(`/api/intake-drafts/${token}/documents`)
+        .field("label", "جواز المعتمر").field("requirementId", passport.id).field("travelerIndex", String(index))
+        .attach("file", PDF(), { filename: `passport-${index}.pdf`, contentType: "application/pdf" });
+      assert.equal(upload.status, 201, JSON.stringify(upload.body));
+    }
     const submitted = await request(app)
       .post(`/api/intake-drafts/${token}/submit`)
       .send({ acceptedTotal: "2000", acceptedCurrency: "SAR", guarantorPhone: "+966 50 123 4567", preferredTravelDate: DATE });

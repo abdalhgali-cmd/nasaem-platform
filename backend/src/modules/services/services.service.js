@@ -3,6 +3,7 @@ import { buildPaginationMeta } from "../../utils/pagination.js";
 import { pricingConfigError } from "../contact-request-pricing/fixed-price.js";
 import { getCurrencyRates } from "../flights/flights.service.js";
 import { ensureUmrahGuarantorRequirement, isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
+import { ensureUmrahPassportRequirement } from "../requirements/umrah-passport.js";
 
 async function withSdgEquivalent(items) {
   const rates = await getCurrencyRates();
@@ -131,7 +132,10 @@ export async function createService(data) {
   // same transaction (requirements/umrah-guarantor.js).
   return prisma.$transaction(async (tx) => {
     const created = await tx.service.create({ data: serviceCreateData(data) });
-    if (isUmrahServiceCategory(created.category)) await ensureUmrahGuarantorRequirement(tx, created.id);
+    if (isUmrahServiceCategory(created.category)) {
+      await ensureUmrahGuarantorRequirement(tx, created.id);
+      await ensureUmrahPassportRequirement(tx, created.id);
+    }
     return created;
   });
 }
@@ -190,6 +194,7 @@ export async function updateService(id, data) {
     // Moved into an Umrah category: inherit the guarantor residence too.
     if (isUmrahServiceCategory(updated.category) && !isUmrahServiceCategory(existing.category)) {
       await ensureUmrahGuarantorRequirement(tx, id);
+      await ensureUmrahPassportRequirement(tx, id);
     }
     return updated;
   });

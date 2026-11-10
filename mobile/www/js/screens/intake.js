@@ -401,7 +401,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         <section class="form-section" id="${needsGuarantor ? "umrahContactsSection" : "sharedDocsSection"}">
           <h3>${needsGuarantor ? "الضامن" : "مستندات الطلب"}</h3>
           ${shared.map((slot) => slotRow(slot)).join("")}
-          ${needsGuarantor ? `<label class="field"><span>رقم هاتف الضامن *</span><input name="guarantorPhone" inputmode="tel" dir="ltr" value="${esc(v.guarantorPhone || "")}" autocomplete="off"></label>` : ""}
+          ${needsGuarantor ? `<label class="field"><span>رقم هاتف الضامن (إلزامي)</span><input name="guarantorPhone" type="tel" required inputmode="tel" dir="ltr" value="${esc(v.guarantorPhone || "")}" autocomplete="off"></label>` : ""}
         </section>` : ""}
       ${needsGuarantor ? `
         <section class="form-section" id="umrahTravelSection">

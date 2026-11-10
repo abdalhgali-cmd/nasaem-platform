@@ -1,6 +1,8 @@
 import path from "path";
 import prismaPackage from "@prisma/client";
 import { withMaskedTravelers } from "../../utils/passportMask.js";
+import { validateUmrahPassports } from "../requirements/umrah-passport.js";
+import { isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
 import { publicOrganizationId } from "../../utils/publicOrganization.js";
 import { pendingConfirmationCreate, sendRequestConfirmations } from "../customer-messages/customer-messages.service.js";
 import prisma from "../../config/database.js";
@@ -146,6 +148,7 @@ async function createContactRequestOnce(data, req, files) {
   let umrahPackage = null;
   if (data.serviceId) {
     const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true, features: true } });
+    if (data.visaTypeId && isUmrahServiceCategory(service?.category)) return { error: "UMRAH_PACKAGE_SELECTION_INVALID" };
     const flagKey = service ? SERVICE_CATEGORY_FEATURE_FLAGS[service.category] : null;
     if (flagKey && !(await isFeatureEnabled(flagKey))) {
       return { error: "FEATURE_DISABLED" };
@@ -264,6 +267,13 @@ async function createContactRequestOnce(data, req, files) {
   // the total the customer confirmed; a mismatch creates nothing (409).
   const pricing = await resolveSubmissionPricing(data, { travelers: travelers.length });
   if (pricing.error) return pricing;
+
+  const passportError = validateUmrahPassports(umrahContacts ? "UMRAH_PACKAGE" : null, {
+    travelers, travelerCount: data.travelerCount, requirements: requirementsSnapshot,
+    documents: files.map((_, i) => ({ requirementId: documentRequirementIds[i],
+      travelerIndex: documentTravelerIndexes[i] == null || documentTravelerIndexes[i] === "" ? null : Number(documentTravelerIndexes[i]) })),
+  });
+  if (passportError) return passportError;
 
   const baseData = {
     name: data.name,

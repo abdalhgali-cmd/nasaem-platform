@@ -46,6 +46,7 @@ test.describe.serial("Umrah visa state", () => {
     packageId = (await pkg.json()).data.id;
     const requirements = (await (await admin.request.get(`${BACKEND}/api/services/${packageId}/requirements/public`)).json()).data as Array<{ id: string; name: string }>;
     const residence = requirements.find((r) => r.name.includes("إقامة الضامن"))!;
+    const passport = requirements.find((r) => /جواز|passport/i.test(r.name))!;
     const account = await admin.request.post(`${BACKEND}/api/payment-accounts`, { headers, data: { name: `E2E VISA ${stamp}`, bankName: "بنك اختبار", accountName: "حساب اختبار", accountNumber: `VSTAT${stamp}`, currency: "SAR" } });
     expect(account.ok(), await account.text()).toBeTruthy();
     accountId = (await account.json()).data.id;
@@ -55,9 +56,11 @@ test.describe.serial("Umrah visa state", () => {
       name: `عميل حالة التأشيرة ${stamp}`, phone, message: "اختبار حالة التأشيرة", serviceId: packageId, acceptedTotal: "800", acceptedCurrency: "SAR",
       guarantorPhone: "+966 50 111 2222",
       travelers: JSON.stringify([{ fullName: `معتمر أول ${stamp}`, isPrimary: true }, { fullName: `معتمر ثان ${stamp}` }]),
-      documentLabels: JSON.stringify(["إقامة الضامن"]), documentRequirementIds: JSON.stringify([residence.id]), documentTravelerIndexes: JSON.stringify([""]),
+      documentLabels: JSON.stringify(["إقامة الضامن", "جواز المعتمر الأول", "جواز المعتمر الثاني"]), documentRequirementIds: JSON.stringify([residence.id, passport.id, passport.id]), documentTravelerIndexes: JSON.stringify(["", "0", "1"]),
     })) form.append(key, value);
     form.append("documents", new Blob([PNG], { type: "image/png" }), "residence.png");
+    form.append("documents", new Blob([PNG], { type: "image/png" }), "passport-0.png");
+    form.append("documents", new Blob([PNG], { type: "image/png" }), "passport-1.png");
     const created = await admin.request.post(`${BACKEND}/api/contact-requests`, { headers, multipart: form });
     expect(created.status(), await created.text()).toBe(201);
     const body = (await created.json()).data;

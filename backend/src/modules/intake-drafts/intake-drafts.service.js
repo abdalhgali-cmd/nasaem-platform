@@ -7,6 +7,8 @@ import { normalizePhone } from "../../utils/phone.js";
 import { pendingConfirmationCreate } from "../customer-messages/customer-messages.service.js";
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
+import { validateUmrahPassports } from "../requirements/umrah-passport.js";
+import { isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
 import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from "../egypt-clearance/egypt-clearance-variants.js";
 import { buildUmrahPackageSnapshot, resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { announceNewContactRequest } from "../contact-requests/contact-requests.service.js";
@@ -357,6 +359,11 @@ export async function submitDraft(token, { submissionKey, message, acceptedTotal
       ? await getPublicChecklist({ serviceId: draft.serviceId })
       : null;
 
+  if (draft.serviceId && draft.visaTypeId) {
+    const selectedService = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { category: true } });
+    if (isUmrahServiceCategory(selectedService?.category)) return { error: "UMRAH_PACKAGE_SELECTION_INVALID" };
+  }
+
   const travelers = Array.isArray(draft.travelers) ? draft.travelers : [];
   const travelerRefs = draft.documentTravelerRefs || {};
   // Only named travelers are created; keep each one's index in the
@@ -411,6 +418,13 @@ export async function submitDraft(token, { submissionKey, message, acceptedTotal
     { travelers: namedTravelers.length }
   );
   if (pricing.error) return pricing;
+
+  const passportError = validateUmrahPassports(umrahContacts ? "UMRAH_PACKAGE" : null, {
+    travelers, travelerCount: draft.travelerCount, requirements: requirementsSnapshot,
+    documents: draft.documents.map(d => ({ requirementId: d.requirementId,
+      travelerIndex: travelerRefs[d.id] == null || travelerRefs[d.id] === "" ? null : Number(travelerRefs[d.id]) })),
+  });
+  if (passportError) return passportError;
 
   const contactRequest = await prisma.$transaction(async (tx) => {
     // Same row lock as an upload: a file or autosave that landed after the

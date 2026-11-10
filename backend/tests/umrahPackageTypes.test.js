@@ -102,6 +102,14 @@ async function submit(service, { phone, guarantorPhone = GUARANTOR, extra, accep
 
 const requestsFor = (phone) => prisma.contactRequest.count({ where: { phone } });
 
+async function uploadDraftPassport(service, token) {
+  const passport = (await checklist(service)).find(r => r.scope === "TRAVELER" && /جواز|passport/i.test(`${r.name} ${r.attachmentType}`));
+  const uploaded = await request(app).post(`/api/intake-drafts/${token}/documents`)
+    .field("label", "جواز المعتمر").field("requirementId", passport.id).field("travelerIndex", "0")
+    .attach("file", PDF(), { filename: "passport.pdf", contentType: "application/pdf" });
+  assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
+}
+
 describe("Umrah package types and contacts", () => {
   test("the seed sets the three types; the new flight and sea packages stay unpublished with no price", async () => {
     const rows = await prisma.service.findMany({ where: { code: { in: ["SVC-UMRAH-VISA", "SVC-UMRAH-AIR", "SVC-UMRAH-SEA"] } } });
@@ -123,8 +131,8 @@ describe("Umrah package types and contacts", () => {
     assert.ok(!publicList.body.data.some((row) => row.code === "SVC-UMRAH-AIR" || row.code === "SVC-UMRAH-SEA"), "unpublished packages are not offered");
   });
 
-  test("contact rules: guarantor phone for Umrah only (missing = flagged for an older app, invalid = refused); extra contact optional but must be a phone", () => {
-    assert.deepEqual(resolveUmrahContacts("UMRAH_PACKAGE", {}), { contacts: { guarantorPhoneMissing: true } });
+  test("contact rules: guarantor phone is mandatory for every new Umrah request; extra contact optional", () => {
+    assert.deepEqual(resolveUmrahContacts("UMRAH_PACKAGE", {}), { error: "GUARANTOR_PHONE_REQUIRED" });
     assert.deepEqual(resolveUmrahContacts("UMRAH_PACKAGE", { guarantorPhone: "abc" }), { error: "GUARANTOR_PHONE_INVALID" });
     assert.deepEqual(resolveUmrahContacts("UMRAH_PACKAGE", { guarantorPhone: GUARANTOR }), { contacts: { guarantorPhone: GUARANTOR } });
     assert.deepEqual(resolveUmrahContacts("UMRAH_PACKAGE", { guarantorPhone: GUARANTOR, extraContactName: "أحمد" }), { error: "EXTRA_CONTACT_PHONE_INVALID" });
@@ -134,16 +142,13 @@ describe("Umrah package types and contacts", () => {
     assert.deepEqual(resolveUmrahContacts("flight", {}), { contacts: null });
   });
 
-  test("an older app without the guarantor field still submits; the request is flagged for staff", async () => {
+  test("an older app without the mandatory guarantor field creates no request", async () => {
     const service = await umrahPackage("VISA_ONLY");
     const phone = testPhone();
     const old = await submit(service, { phone, guarantorPhone: null });
-    assert.equal(old.res.status, 201, JSON.stringify(old.res.body));
-    assert.ok(old.res.body.data.paymentAccess?.token, "payment still opens straight away");
-    const stored = await prisma.contactRequest.findUnique({ where: { id: old.res.body.data.id }, select: { intakeData: true, pricingMode: true, paymentStatus: true } });
-    assert.equal(stored.pricingMode, "FIXED");
-    assert.equal(stored.paymentStatus, "AWAITING_TRANSFER");
-    assert.deepEqual(stored.intakeData.umrahContacts, { guarantorPhoneMissing: true });
+    assert.equal(old.res.status, 400, JSON.stringify(old.res.body));
+    assert.equal(old.res.body.code, "GUARANTOR_PHONE_REQUIRED");
+    assert.equal(await requestsFor(phone), 0);
   });
 
   test("an invalid guarantor phone, a bad extra contact or a changed price create nothing", async () => {
@@ -221,6 +226,7 @@ describe("Umrah package types and contacts", () => {
     const token = created.body.data.token;
     const patched = await request(app).patch(`/api/intake-drafts/${token}`).send({ name: "TEST-WF مسودة عمرة بحرية", phone: testPhone(), travelerCount: 1, travelers: [{ fullName: "A" }] });
     assert.equal(patched.status, 200, JSON.stringify(patched.body));
+    await uploadDraftPassport(service, token);
     const refused = await request(app).post(`/api/intake-drafts/${token}/submit`).send({ acceptedTotal: PRICE, acceptedCurrency: "SAR", guarantorPhone: GUARANTOR, preferredTravelDate: "" });
     assert.equal(refused.status, 400, JSON.stringify(refused.body));
     assert.equal(refused.body.code, "TRAVEL_DATE_REQUIRED");
@@ -239,6 +245,7 @@ describe("Umrah package types and contacts", () => {
     const phone = testPhone();
     const patched = await request(app).patch(`/api/intake-drafts/${token}`).send({ name: "TEST-WF مسودة عمرة", phone, travelerCount: 1, travelers: [{ fullName: "A" }] });
     assert.equal(patched.status, 200, JSON.stringify(patched.body));
+    await uploadDraftPassport(service, token);
     const refused = await request(app).post(`/api/intake-drafts/${token}/submit`).send({ acceptedTotal: PRICE, acceptedCurrency: "SAR", guarantorPhone: "abc" });
     assert.equal(refused.status, 400, JSON.stringify(refused.body));
     assert.equal(refused.body.code, "GUARANTOR_PHONE_INVALID");
