@@ -2192,7 +2192,7 @@ export function ServiceIntakeWizard({
       {current === "documents" ? (
         <StepShell
           title="المستندات المطلوبة"
-          description="يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."
+          description={needsGuarantor ? "ارفع جواز سفر لكل معتمر وإقامة الضامن قبل إرسال الطلب." : "يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."}
         >
           <div className="flex flex-col gap-3">
             {resumable ? (
