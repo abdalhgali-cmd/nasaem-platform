@@ -1,3 +1,5 @@
+import { apiProxyTarget } from "./api-proxy.mjs";
+
 const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
 
 const PRODUCTION_API_HOST = "nasaem-platform-production.up.railway.app";
@@ -37,13 +39,14 @@ function pointsAtProductionApi(value: string, base = "http://localhost") {
  */
 function resolveApiUrl() {
   if (typeof window === "undefined") {
-    if (process.env.VERCEL_ENV === "preview" && pointsAtProductionApi(configuredApiUrl)) {
+    const serverApiUrl = apiProxyTarget(process.env) || configuredApiUrl;
+    if (process.env.VERCEL_ENV === "preview" && pointsAtProductionApi(serverApiUrl)) {
       throw new Error(
         "Unsafe Vercel Preview configuration: NEXT_PUBLIC_API_URL points at the Production API. Configure Preview to use the Staging API before rendering.",
       );
     }
 
-    return configuredApiUrl;
+    return serverApiUrl;
   }
 
   if (

@@ -3,8 +3,8 @@
 // to point a release build at a different backend — nothing else in the
 // app hardcodes a host.
 export const CONFIG = {
-  apiBaseUrl: "https://adaptable-quietude-staging.up.railway.app/api",
-  environment: "staging",
+  apiBaseUrl: "https://qa-backend-qa-ae86.up.railway.app/api",
+  environment: "qa",
   appVersion: "0.3.0",
   supportPhone: "",
 };
