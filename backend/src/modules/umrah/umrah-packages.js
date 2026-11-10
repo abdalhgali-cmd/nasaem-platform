@@ -71,14 +71,12 @@ function cleanPhone(value) {
 // other service ignores these fields. Returns { contacts } to store in
 // intakeData.umrahContacts, or { error } and nothing is created.
 //
-// The current website and app require the guarantor's phone before they
-// submit. An app installed before that cannot send it, so a request without
-// one is still accepted and flagged (guarantorPhoneMissing) for staff to ask
-// the customer; a phone that is sent must be valid.
+// Mandatory for every new submission, including older installed clients.
 export function resolveUmrahContacts(serviceCategory, { guarantorPhone, extraContactName, extraContactPhone } = {}) {
   if (!isUmrahServiceCategory(serviceCategory)) return { contacts: null };
 
   const rawGuarantor = typeof guarantorPhone === "string" ? guarantorPhone.trim() : "";
+  if (!rawGuarantor) return { error: "GUARANTOR_PHONE_REQUIRED" };
   const guarantor = cleanPhone(rawGuarantor);
   if (rawGuarantor && !guarantor) return { error: "GUARANTOR_PHONE_INVALID" };
 
@@ -90,7 +88,7 @@ export function resolveUmrahContacts(serviceCategory, { guarantorPhone, extraCon
 
   return {
     contacts: {
-      ...(guarantor ? { guarantorPhone: guarantor } : { guarantorPhoneMissing: true }),
+      guarantorPhone: guarantor,
       ...(extraPhone ? { extraContact: { ...(name ? { name } : {}), phone: extraPhone } } : {}),
     },
   };

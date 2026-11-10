@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 import { createStaffUser, staffClient } from "./helpers/staff.js";
 import { testPhone } from "./helpers/workflow.js";
+import { withUmrahPassports } from "./helpers/umrah-intake.js";
 import { buildUmrahReport } from "../src/modules/umrah/umrah-report.js";
 
 const snap = (kind) => ({ intakeData: { umrahPackage: { kind, includesServices: kind !== "VISA_ONLY", source: "SNAPSHOT" } } });
@@ -58,7 +59,7 @@ describe("GET /dashboard/umrah-report", () => {
     assert.equal(created.status, 201, JSON.stringify(created.body));
     service = created.body.data;
     for (let i = 0; i < 2; i++) {
-      const res = await request(app)
+      const res = await withUmrahPassports(request(app)
         .post("/api/contact-requests")
         .field("name", `TEST-REP عميل ${i}`)
         .field("phone", testPhone())
@@ -69,7 +70,7 @@ describe("GET /dashboard/umrah-report", () => {
         .field("travelers", JSON.stringify([{ fullName: "أ", isPrimary: true }, { fullName: "ب" }]))
         .field("acceptedTotal", "2000")
         .field("acceptedCurrency", "SAR")
-        .field("guarantorPhone", "+966 50 123 4567");
+        .field("guarantorPhone", "+966 50 123 4567"), service.id, 2);
       assert.equal(res.status, 201, JSON.stringify(res.body));
     }
   });

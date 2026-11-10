@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
 import { app, request, uniqueSuffix } from "./helpers/api.js";
 import { createOrganization, createStaffUser, staffClient } from "./helpers/staff.js";
-import { testPhone } from "./helpers/workflow.js";
+import { testPhone, PDF } from "./helpers/workflow.js";
 
 let admin;
 let adminUser;
@@ -34,6 +34,7 @@ before(async () => {
 });
 
 async function umrahRequest() {
+  const passport = await prisma.visaRequirement.findFirst({ where: { serviceId: umrahService.id, attachmentType: "umrah_passport" } });
   const res = await request(app)
     .post("/api/contact-requests")
     .field("name", "TEST-ASG عميل")
@@ -45,7 +46,11 @@ async function umrahRequest() {
     .field("travelers", JSON.stringify([{ fullName: "معتمر", isPrimary: true }]))
     .field("acceptedTotal", "100")
     .field("acceptedCurrency", "SAR")
-    .field("guarantorPhone", "+966 50 333 4444");
+    .field("guarantorPhone", "+966 50 333 4444")
+    .field("documentLabels", JSON.stringify(["جواز المعتمر"]))
+    .field("documentRequirementIds", JSON.stringify([passport.id]))
+    .field("documentTravelerIndexes", JSON.stringify(["0"]))
+    .attach("documents", PDF(), { filename: "passport.pdf", contentType: "application/pdf" });
   assert.equal(res.status, 201, JSON.stringify(res.body));
   return res.body.data.id;
 }

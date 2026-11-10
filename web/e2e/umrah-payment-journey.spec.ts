@@ -64,9 +64,9 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
   expect(pkg.ok(), await pkg.text()).toBeTruthy();
   const packageId = (await pkg.json()).data.id as string;
   created.services.push(packageId);
-  // A new Umrah package inherits «إقامة الضامن» on its own; only the passport is added here.
+  // Both mandatory requirements come from the service, without manual setup.
   const inherited = (await (await admin.get(`${BACKEND}/api/services/${packageId}/requirements/public`)).json()).data as Array<{ name: string }>;
-  expect(inherited.map((r) => r.name)).toEqual(["إقامة الضامن"]);
+  expect(inherited.map((r) => r.name)).toEqual(["جواز سفر المعتمر", "إقامة الضامن"]);
   const passport = await admin.post(`${BACKEND}/api/services/${packageId}/requirements`, { data: { name: "صورة الجواز ساري المفعول", scope: "TRAVELER", type: "DOCUMENT", required: true } });
   expect(passport.ok(), await passport.text()).toBeTruthy();
   const account = await admin.post(`${BACKEND}/api/payment-accounts`, {
@@ -123,6 +123,7 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     // Documents from the admin checklist: passport + guarantor residence, no personal photo.
     await expect(page.getByText("إقامة الضامن").first()).toBeVisible();
     await expect(page.getByText("الصورة الشخصية")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "التالي" })).toBeDisabled();
     // each pilgrim's passport + the guarantor's residence
     // Lose the first upload's response after the server stored it. Reload must
     // recover that exact document rather than asking for another upload.
@@ -154,6 +155,7 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
         await page.getByRole("button", { name: "متابعة الطلب", exact: true }).click();
         await expect(page.locator('[data-testid="draft-doc"][data-status="uploaded"]')).toHaveCount(1);
       }
+      if (i < 2) await expect(page.getByRole("button", { name: "التالي" })).toBeDisabled();
     }
     await expect(page.locator('[data-testid="draft-doc"][data-status="uploaded"]')).toHaveCount(3);
     const documentIds = await page.getByTestId("draft-doc").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-document-id")).sort());

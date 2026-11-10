@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import prisma from "../src/config/database.js";
 import { ensureUmrahGuarantorRequirement } from "../src/modules/requirements/umrah-guarantor.js";
+import { ensureUmrahPassportRequirement } from "../src/modules/requirements/umrah-passport.js";
 import { umrahPackageKind } from "../src/modules/umrah/umrah-packages.js";
 
 // The three Umrah package types (umrah/umrah-packages.js): visa only, with
@@ -48,6 +49,7 @@ export async function ensureUmrahPackageTypes(db = prisma, { quiet = false } = {
   for (const type of UMRAH_PACKAGE_TYPES) {
     const existing = type.code === VISA_ONLY_CODE ? visaOnly : await db.service.findUnique({ where: { code: type.code } });
     if (existing) {
+      await ensureUmrahPassportRequirement(db, existing.id);
       const features = Array.isArray(existing.features) ? existing.features : [];
       if (umrahPackageKind(features)) continue;
       const kind = type.features.filter((feature) => feature.startsWith("KIND:"));
@@ -77,6 +79,7 @@ export async function ensureUmrahPackageTypes(db = prisma, { quiet = false } = {
       await db.visaRequirement.create({ data: { ...fields, serviceId: service.id } });
     }
     await ensureUmrahGuarantorRequirement(db, service.id);
+    await ensureUmrahPassportRequirement(db, service.id);
     changed.push(`${type.code} (created inactive)`);
   }
 

@@ -1,4 +1,6 @@
 import prisma from "../../config/database.js";
+import { ensureUmrahPassportRequirement, isPassportRequirement, UMRAH_PASSPORT_TYPE } from "./umrah-passport.js";
+import { isUmrahServiceCategory } from "./umrah-guarantor.js";
 
 // Shared checklist engine (Platform 3.0 Phase 5, generalized in Phase 8)
 // backing both VisaType and Service requirements. `scope` is always
@@ -22,6 +24,15 @@ async function parentExists(scope) {
 
 export async function createRequirement(scope, data) {
   if (!(await parentExists(scope))) return null;
+  if (scope.serviceId && isPassportRequirement(data)) {
+    const parent = await prisma.service.findUnique({ where: { id: scope.serviceId }, select: { category: true } });
+    if (isUmrahServiceCategory(parent?.category)) {
+      const passport = await ensureUmrahPassportRequirement(prisma, scope.serviceId);
+      return prisma.visaRequirement.update({ where: { id: passport.id }, data: { ...data,
+        required: true, active: true, type: "DOCUMENT", scope: "TRAVELER", attachmentType: UMRAH_PASSPORT_TYPE,
+        conditionRequirementId: null, conditionOperator: null, conditionValue: null } });
+    }
+  }
 
   return prisma.visaRequirement.create({
     data: {
@@ -50,14 +61,24 @@ export async function createRequirement(scope, data) {
 }
 
 export async function updateRequirement(id, data) {
-  const existing = await prisma.visaRequirement.findUnique({ where: { id } });
+  const existing = await prisma.visaRequirement.findUnique({ where: { id }, include: { service: { select: { category: true } } } });
   if (!existing) return null;
+  if (isUmrahServiceCategory(existing.service?.category) && isPassportRequirement(existing)) {
+    const invalid = data.required === false || data.active === false ||
+      (data.scope !== undefined && data.scope !== "TRAVELER") || (data.type !== undefined && data.type !== "DOCUMENT") ||
+      (data.attachmentType !== undefined && data.attachmentType !== UMRAH_PASSPORT_TYPE) ||
+      data.conditionRequirementId || data.conditionOperator || data.conditionValue;
+    if (invalid) throw Object.assign(new Error("جواز كل معتمر متطلب إلزامي لا يمكن تعطيله أو جعله عامًا للطلب."), { status: 400, code: "UMRAH_PASSPORT_REQUIRED" });
+  }
   return prisma.visaRequirement.update({ where: { id }, data });
 }
 
 export async function deleteRequirement(id) {
-  const existing = await prisma.visaRequirement.findUnique({ where: { id } });
+  const existing = await prisma.visaRequirement.findUnique({ where: { id }, include: { service: { select: { category: true } } } });
   if (!existing) return null;
+  if (isUmrahServiceCategory(existing.service?.category) && isPassportRequirement(existing)) {
+    throw Object.assign(new Error("لا يمكن حذف متطلب جواز سفر المعتمر."), { status: 400, code: "UMRAH_PASSPORT_REQUIRED" });
+  }
   await prisma.visaRequirement.delete({ where: { id } });
   return existing;
 }

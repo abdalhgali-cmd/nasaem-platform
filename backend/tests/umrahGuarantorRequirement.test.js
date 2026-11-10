@@ -58,10 +58,10 @@ describe("new Umrah packages inherit the guarantor residence", () => {
     const created = await admin.post("/api/services").send({ code: `TEST-WF-UMRAH-NEW-${uniqueSuffix()}`, name: "TEST-WF باقة عمرة جديدة", category: "UMRAH_PACKAGE", basePrice: 0, currency: "SAR" });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const rows = await prisma.visaRequirement.findMany({ where: { serviceId: created.body.data.id } });
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].name, "إقامة الضامن");
-    assert.equal(rows[0].scope, "CASE");
-    assert.equal(rows[0].active, true);
+    assert.equal(rows.length, 2);
+    assert.equal(rows.find(r => r.name === "إقامة الضامن").scope, "CASE");
+    assert.equal(rows.find(r => r.attachmentType === "umrah_passport").scope, "TRAVELER");
+    assert.ok(rows.every(r => r.required && r.active));
     assert.ok((await publicChecklist(`services/${created.body.data.id}`)).includes("إقامة الضامن"));
 
     const other = await admin.post("/api/services").send({ code: `TEST-WF-PKG-NEW-${uniqueSuffix()}`, name: "TEST-WF باقة عامة", category: "package", basePrice: 0, currency: "SAR" });
@@ -78,9 +78,9 @@ describe("new Umrah packages inherit the guarantor residence", () => {
   test("a deliberately deactivated guarantor requirement is not re-added on edit", async () => {
     const created = await admin.post("/api/services").send({ code: `TEST-WF-UMRAH-OFF-${uniqueSuffix()}`, name: "TEST-WF باقة بلا ضامن", category: "UMRAH_PACKAGE", basePrice: 0, currency: "SAR" });
     const id = created.body.data.id;
-    await prisma.visaRequirement.updateMany({ where: { serviceId: id }, data: { active: false } });
+    await prisma.visaRequirement.updateMany({ where: { serviceId: id, attachmentType: "guarantor_residence" }, data: { active: false } });
     await admin.patch(`/api/services/${id}`).send({ category: "UMRAH_PACKAGE", name: "TEST-WF تعديل" });
-    assert.equal(await prisma.visaRequirement.count({ where: { serviceId: id } }), 1);
-    assert.equal(await prisma.visaRequirement.count({ where: { serviceId: id, active: true } }), 0);
+    assert.equal(await prisma.visaRequirement.count({ where: { serviceId: id } }), 2);
+    assert.equal(await prisma.visaRequirement.count({ where: { serviceId: id, active: true, attachmentType: "guarantor_residence" } }), 0);
   });
 });
