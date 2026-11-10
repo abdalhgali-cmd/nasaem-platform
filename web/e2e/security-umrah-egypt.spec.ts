@@ -39,12 +39,15 @@ test.describe.serial("security — Umrah and Egypt", () => {
     const pkg = await admin.request.post(`${BACKEND}/api/services`, { headers: H, data: { code: `E2E-SEC-${stamp}`, name: `باقة اختبار الأمان ${stamp}`, category: "UMRAH_PACKAGE", basePrice: 900, currency: "SAR", active: true, pricingMode: "FIXED", priceUnit: "PER_TRAVELER", features: ["KIND: VISA_ONLY"] } });
     expect(pkg.ok(), await pkg.text()).toBeTruthy();
     packageId = (await pkg.json()).data.id;
-    const residence = ((await (await admin.request.get(`${BACKEND}/api/services/${packageId}/requirements/public`)).json()).data as Array<{ id: string; name: string }>).find((r) => r.name.includes("إقامة"))!;
+    const requirements = (await (await admin.request.get(`${BACKEND}/api/services/${packageId}/requirements/public`)).json()).data as Array<{ id: string; name: string }>;
+    const residence = requirements.find((r) => r.name.includes("إقامة"))!;
+    const passport = requirements.find((r) => /جواز|passport/i.test(r.name))!;
     const account = await admin.request.post(`${BACKEND}/api/payment-accounts`, { headers: H, data: { name: `E2E SEC ${stamp}`, bankName: "بنك اختبار", accountName: "حساب اختبار", accountNumber: `SEC${stamp}`, currency: "SAR" } });
     accountId = (await account.json()).data.id;
     const form = new FormData();
-    for (const [k, v] of Object.entries({ name: `عميل اختبار الأمان ${stamp}`, phone: `0917${stamp.slice(-6)}`, message: "طلب لاختبار الأمان", serviceId: packageId, acceptedTotal: "900", acceptedCurrency: "SAR", guarantorPhone: "+966500000000", travelers: JSON.stringify([{ fullName: "معتمر اختبار الأمان", passportNo: "P9988776", isPrimary: true }]), documentLabels: JSON.stringify(["إقامة الضامن"]), documentRequirementIds: JSON.stringify([residence.id]), documentTravelerIndexes: JSON.stringify([""]) })) form.append(k, v);
+    for (const [k, v] of Object.entries({ name: `عميل اختبار الأمان ${stamp}`, phone: `0917${stamp.slice(-6)}`, message: "طلب لاختبار الأمان", serviceId: packageId, acceptedTotal: "900", acceptedCurrency: "SAR", guarantorPhone: "+966500000000", travelers: JSON.stringify([{ fullName: "معتمر اختبار الأمان", passportNo: "P9988776", isPrimary: true }]), documentLabels: JSON.stringify(["إقامة الضامن", "جواز المعتمر"]), documentRequirementIds: JSON.stringify([residence.id, passport.id]), documentTravelerIndexes: JSON.stringify(["", "0"]) })) form.append(k, v);
     form.append("documents", new Blob([PNG], { type: "image/png" }), "residence.png");
+    form.append("documents", new Blob([PNG], { type: "image/png" }), "passport-0.png");
     const created = await admin.request.post(`${BACKEND}/api/contact-requests`, { headers: H, multipart: form });
     expect(created.status(), await created.text()).toBe(201);
     const body = (await created.json()).data;
