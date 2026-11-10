@@ -110,6 +110,8 @@ test.describe.serial("Egypt security approval: customer app and back-office", ()
     await expect(app.locator('[name="arrivalAirport"]')).toHaveValue("القاهرة");
     await expect(app.locator('[name="entryPort"]')).toHaveCount(0);
     await app.fill('[name="t_name_0"]', "مسافر اختبار مصر");
+    await app.fill('[name="t_passport_0"]', "SYNTH-E2E-AIR");
+    await app.fill('[name="t_birth_0"]', "1990-01-01");
 
     // Passport: a tiny camera photo is accepted with clear Arabic hints…
     const slot = app.locator(".passport-slot").first();
@@ -259,6 +261,8 @@ test.describe.serial("Egypt security approval: customer app and back-office", ()
     await expect(app.locator('[name="entryPort"]')).toBeVisible();
     await expect(app.locator('[name="departureCity"], [name="flightChoice"]')).toHaveCount(0);
     await app.fill('[name="t_name_0"]', "مسافر بري");
+    await app.fill('[name="t_passport_0"]', "SYNTH-E2E-LAND");
+    await app.fill('[name="t_birth_0"]', "1990-01-01");
     await app.fill('[name="entryPort"]', "أرقين");
     await app.locator(".passport-slot").first().locator('input[data-capture="UPLOAD"]').setInputFiles({ name: "passport.pdf", mimeType: "application/pdf", buffer: PDF });
     await expect(app.locator(".passport-slot.slot-ok")).toHaveCount(1, { timeout: 15_000 });

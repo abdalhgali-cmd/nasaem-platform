@@ -355,6 +355,8 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
     if (phone.trim().length < 6) return "رقم الهاتف مطلوب";
     if (!passportNo.trim()) return "رقم الجواز مطلوب";
     if (!birthDate) return "تاريخ الميلاد مطلوب";
+    const birth = new Date(`${birthDate}T00:00:00Z`);
+    if (!Number.isFinite(birth.getTime()) || birth.toISOString().slice(0, 10) !== birthDate || birthDate > new Date().toISOString().slice(0, 10)) return "أدخل تاريخ ميلاد صحيحًا كما في الجواز";
     if (!entryMode) return "اختر طريقة الدخول إلى مصر";
     if (fixedEntryMode === "AIR" && (!departureCity.trim() || !arrivalAirport.trim())) return "أدخل جهة القدوم ومطار الوصول";
     if (fixedEntryMode === "BORDER" && !entryPort.trim()) return "أدخل منفذ الدخول";
@@ -487,7 +489,7 @@ export function EgyptClearanceIntake({ visaTypeId, serviceId, requirements, fixe
         </label>
         <label className="flex flex-col gap-2">
           <span className="text-sm font-bold text-foreground">تاريخ الميلاد *</span>
-          <input value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} type="date" />
+          <input value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} type="date" max={new Date().toISOString().slice(0, 10)} />
         </label>
         <label className="flex flex-col gap-2 sm:col-span-2">
           <span className="flex items-center gap-2 text-sm font-bold text-foreground"><Mail className="size-4" /> البريد الإلكتروني <span className="font-normal text-muted-foreground">(اختياري)</span></span>

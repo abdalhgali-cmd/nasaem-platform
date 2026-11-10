@@ -13,7 +13,7 @@ import {
   submitDraft,
   updateDraft,
 } from "./intake-drafts.service.js";
-import { validateEgyptClearanceDraft } from "./egypt-clearance-draft.js";
+
 import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
 import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-scope/intake-scope.js";
 
@@ -28,9 +28,10 @@ const DRAFT_ERROR_RESPONSES = {
   SUBMISSION_KEY_CONFLICT: { status: 409, message: "مفتاح الإرسال مستخدم لطلب آخر" },
   DRAFT_CHANGED: { status: 409, message: "تغيّرت بيانات الطلب أثناء الإرسال. راجعها ثم أعد المحاولة" },
   INCOMPLETE_DRAFT: { status: 400, message: "الاسم ورقم الهاتف مطلوبان قبل إرسال الطلب" },
+  EGYPT_VARIANT_REQUIRED: { status: 400, message: "اختر نوع الموافقة وطريقة الدخول قبل إرسال الطلب." },
   EGYPT_CLEARANCE_INCOMPLETE: {
     status: 400,
-    message: "يرجى إكمال بيانات الموافقة الأساسية ورفع صورة الجواز قبل إرسال الطلب",
+    message: "أكمل بيانات كل مسافر وارفع جوازه قبل إرسال طلب الموافقة.",
   },
   EGYPT_VARIANT_UNAVAILABLE: { status: 409, message: "هذا النوع من الموافقة غير متاح للحجز حاليًا." },
   FIXED_TOTAL_REQUIRED: { status: 400, message: "أكّد الإجمالي النهائي قبل إرسال الطلب." },
@@ -199,12 +200,6 @@ export async function submitDraftController(req, res, next) {
     if (await newApplicationRefusal(draft)) {
       return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
     }
-    const egyptValidation = await validateEgyptClearanceDraft(draft);
-    if (egyptValidation) {
-      const errorResponse = respondToDraftError(res, egyptValidation);
-      if (errorResponse) return errorResponse;
-    }
-
     const result = await submitDraft(req.params.token, parsed.data);
     if (result.error === "ALREADY_SUBMITTED") {
       const replay = await replayIfSameSubmission(res, req.params.token, parsed.data.submissionKey);
