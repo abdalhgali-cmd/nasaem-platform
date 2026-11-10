@@ -4,7 +4,7 @@
 // app hardcodes a host.
 export const CONFIG = {
   apiBaseUrl: "https://qa-backend-qa-ae86.up.railway.app/api",
-  environment: "qa",
+  environment: "staging",
   appVersion: "0.3.0",
   supportPhone: "",
 };
