@@ -1,5 +1,22 @@
 # Nasaem Platform — Release Tasks
 
+## All-services readiness — verification and fixes (2026-11-11, branch `feat/all-services-readiness-20261110`, draft PR #195; dependency upgrade in draft PR #196)
+
+Stack (all Draft, nothing merged, nothing deployed): #191 → #192 → #193 → #194 → #195 → #196.
+
+- VERIFIED (GitHub Actions on `1998b6f`, PR #195): Backend tests, Frontend typecheck + build, Playwright E2E, build-apk, PostgreSQL backup + restore drill — all success. The previous head `71a235a` had Backend failing (9 tests) and Playwright skipped.
+- VERIFIED (GitHub Actions on `30da4c5`, PR #196): Backend, Frontend typecheck + build, Playwright E2E, backup drill — all success with `next` 16.4.6.
+- Fixed on #195:
+  - `service-scope/intake-scope.js`: the catalog availability guard no longer pre-empts the established answers — an unknown id keeps its 409 and a disabled Egypt variant keeps `EGYPT_VARIANT_UNAVAILABLE`; any other disabled catalog item is still refused under every scope, `ALL` included.
+  - `mobile/www/js/screens/home.js`: home threw a ReferenceError (`visaCount`, `serviceCountText` undefined) once the visas hub tile returned to the bento, so home showed «تعذر تحميل الخدمات».
+  - Browser tests aligned with the owner's 2026-11-10 scope; the Egypt journey fills passport number and birth date per traveler; passport files are picked one at a time; a service-only Egypt request is refused when new and kept as a historical fixture for follow-up.
+- Owner decisions 2026-11-11: (1) do not merge the stack into `main` yet; (2) hotels stay postponed in the app (not on home, not in the services list). NOT DECIDED: whether hotels are also removed from the website home/footer and from `APPROVED_INTAKE_SCOPE`.
+- NOT TESTED: real Android device, real Google sign-in, staging/production. `npm audit` still reports `xlsx` (no fix available), `zod` (major upgrade) and `deepmerge-ts` in the backend.
+- Known, not code: the `Vercel` commit status fails on every commit including `main` («Account is blocked»). Railway project `reasonable-connection` (old staging) has failed every `main` deployment since 2026-10-30.
+- Production (Railway `spirited-luck` / `nasaem-platform`) is still on `eb8eaa36` (2026-11-06); the #190 merge of 2026-11-09 produced no production deployment. `main` is 6 migrations ahead of production and this stack adds 1.
+- BLOCKED before any merge into `main`: a real production PostgreSQL + uploads backup with a successful restore.
+- NEXT: owner — production backup/restore, then merge order #191 → #196; decide the hotel scope on the website; resolve the Vercel integration.
+
 ## Umrah audit P0 draft privacy — 2026-11-08
 
 Owner approved implementation of the audit plan. Branch: `fix/umrah-p0-draft-privacy-20261108`, stacked on audit documentation #171.
