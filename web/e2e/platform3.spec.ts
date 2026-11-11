@@ -1,7 +1,7 @@
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
+import { createHistoricalServiceRequest, loginAsSeededAdmin, readTrackingLoginCode } from "./helpers";
 
 const BACKEND_URL = "http://localhost:5000";
 
@@ -83,10 +83,10 @@ test.describe("Homepage — admin change reflects publicly", () => {
     }
   });
 
-  // Owner decision (PR #151): the public catalog lists only Umrah and Egypt.
-  // An admin-created service is kept and reachable on its own page, but is not
-  // listed in the catalog.
-  test("an admin-created service gets its own public page but is not listed in the catalog (approved scope)", async ({ page }) => {
+  // Owner decision 2026-11-10 (docs/platform-readiness/ALL-SERVICES.md): the
+  // public catalog lists every published service. An active admin-created
+  // service gets its own page and its card in the catalog.
+  test("an admin-created service gets its own public page and is listed in the catalog", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
     const code = `E2E-SERVICE-${Date.now()}`;
@@ -106,7 +106,8 @@ test.describe("Homepage — admin change reflects publicly", () => {
       await page.goto("/services", { waitUntil: "domcontentloaded" });
       const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
       await expect(section.locator("a").first()).toBeVisible();
-      await expect(section.locator("a").filter({ hasText: name })).toHaveCount(0);
+      await expect(section.locator("a").filter({ hasText: name })).toHaveCount(1);
+      await expect(section.locator("a").filter({ hasText: name })).toHaveAttribute("href", `/services/${code.toLowerCase()}`);
     } finally {
       await page.request.delete(`${BACKEND_URL}/api/services/${created.id}`);
     }
@@ -594,19 +595,23 @@ test.describe("Security approvals — full lifecycle through the real customer-f
     const service = (await servicesRes.json()).data.services.find((s: { code: string }) => s.code === "SVC-EGYPT-CLEARANCE");
     expect(service, "SVC-EGYPT-CLEARANCE must be seeded (backend/prisma/seed.js)").toBeTruthy();
 
-    // 1. Request — a real, unauthenticated public submission, exactly the
-    // POST /api/contact-requests path web/'s /contact page's form uses.
-    const createRes = await page.request.post(`${BACKEND_URL}/api/contact-requests`, {
-      data: {
-        name: "E2E Security Approval Customer",
-        phone,
-        service: "الموافقة الأمنية لمصر",
-        serviceId: service.id,
-        message: "طلب موافقة أمنية اختباري E2E",
-      },
+    // 1. Request — a historical one. A new application for this service must
+    // now choose its approval type and carry every traveler's passport, so the
+    // public form refuses the service on its own…
+    const refused = await page.request.post(`${BACKEND_URL}/api/contact-requests`, {
+      data: { name: "E2E Security Approval Customer", phone, service: "الموافقة الأمنية لمصر", serviceId: service.id, message: "طلب موافقة أمنية اختباري E2E" },
     });
-    expect(createRes.ok(), await createRes.text()).toBeTruthy();
-    const contactRequest = (await createRes.json()).data;
+    expect(refused.status(), await refused.text()).toBe(400);
+    expect((await refused.json()).code).toBe("EGYPT_VARIANT_REQUIRED");
+    // …while a customer whose request predates that rule still follows it to
+    // the end, which is what the rest of this test walks through.
+    const contactRequest = createHistoricalServiceRequest({
+      name: "E2E Security Approval Customer",
+      phone,
+      service: "الموافقة الأمنية لمصر",
+      serviceId: service.id,
+      message: "طلب موافقة أمنية اختباري E2E",
+    });
 
     try {
       // Log into /track as this real customer (real browser, real OTP
@@ -796,17 +801,18 @@ test.describe("Direct service routing — no intermediate catalog browsing", () 
     await expect(page.locator("h1")).toContainText("الموافقة الأمنية");
   });
 
-  // Owner decision (PR #151): the website offers only Umrah and Egypt security
-  // approval. Other services are no longer listed in the catalog, but their
-  // pages and backend are kept (not deleted) and still open directly.
-  test("Services catalog lists only the approved services; hidden services' pages still open directly", async ({ page }) => {
+  // Owner decision 2026-11-10 (docs/platform-readiness/ALL-SERVICES.md): the
+  // catalog lists every published service, each card going straight to that
+  // service's own page (never a generic catalog step).
+  test("Services catalog lists the published services, each linked to its own page", async ({ page }) => {
     await page.goto("/services", { waitUntil: "domcontentloaded" });
     const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
     await expect(section.locator("a").first()).toBeVisible();
     const hrefs = await section.locator("a").evaluateAll((els) => els.map((el) => el.getAttribute("href")));
     expect(hrefs.length).toBeGreaterThan(0);
-    for (const href of hrefs) expect(["/umrah", "/visas/egypt-security-approval"], `catalog link ${href}`).toContain(href);
-    await expect(section.locator("a").filter({ hasText: "الزيارة العائلية" })).toHaveCount(0);
+    for (const href of ["/umrah", "/visas/egypt-security-approval"]) expect(hrefs, `catalog link ${href}`).toContain(href);
+    for (const href of hrefs) expect(href, `catalog link ${href}`).toMatch(/^\/(umrah|flights|ferries|hotels|visas\/[a-z0-9-]+|services\/[a-z0-9-]+)$/);
+    expect(new Set(hrefs).size, "no service is listed twice").toBe(hrefs.length);
     await page.goto("/visas/saudi-family-visit", { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1")).toContainText("الزيارة العائلية");
   });
@@ -1044,14 +1050,14 @@ test.describe("Every named service opens its own page — no generic-catalog dea
     await expect(page.getByRole("link", { name: "العمرة", exact: true }).first()).toHaveAttribute("href", "/umrah");
   });
 
-  test("International Visa, Work Visa and Tasheel are out of the catalog (approved scope) but keep their own pages", async ({ page }) => {
+  test("International Visa, Work Visa and Tasheel are listed in the catalog and keep their own pages", async ({ page }) => {
     await page.goto("/services", { waitUntil: "domcontentloaded" });
     const section = page.locator("section", { has: page.getByText("كل ما تحتاجه لرحلتك في مكان واحد") });
     await expect(section.locator("a").first()).toBeVisible();
     for (const name of ["التأشيرات الدولية", "تأشيرة العمل", "حجز مواعيد تساهيل"]) {
-      await expect(section.locator("a").filter({ hasText: name }), name).toHaveCount(0);
+      await expect(section.locator("a").filter({ hasText: name }), name).toHaveCount(1);
     }
-    // Their routes are kept (nothing deleted): each still renders its own page.
+    // Each renders its own page.
     for (const slug of ["intl-visa", "work-visa", "tasheel"]) {
       const res = await page.goto(`/services/${slug}`, { waitUntil: "domcontentloaded" });
       expect(res?.status(), slug).toBe(200);

@@ -28,6 +28,24 @@ export function readTrackingLoginCode(phoneNormalized: string): string {
   return output.trim();
 }
 
+// A request recorded before the Egypt approval intake rules (2026-11-10): the
+// service alone, no variant and no initial passport. New applications of that
+// shape are refused (EGYPT_VARIANT_REQUIRED), so this historical record is
+// written directly, the way the backend tests keep their legacy fixtures, to
+// prove that customers who already have such a request can still follow it.
+export function createHistoricalServiceRequest({ name, phone, service, serviceId, message }: { name: string; phone: string; service: string; serviceId: string; message: string }): { id: string } {
+  const script = `
+    Promise.all([import("./src/config/database.js"), import("./src/utils/phone.js"), import("./src/utils/publicOrganization.js")]).then(async ([{ default: prisma }, { normalizePhone }, { publicOrganizationId }]) => {
+      const input = ${JSON.stringify({ name, phone, service, serviceId, message })};
+      const row = await prisma.contactRequest.create({ data: { ...input, organizationId: publicOrganizationId(), phoneNormalized: normalizePhone(input.phone), requestKind: "SERVICE_APPLICATION" } });
+      process.stdout.write(row.id);
+      await prisma.$disconnect();
+    });
+  `;
+  const output = execFileSync("node", ["-e", script], { cwd: BACKEND_DIR, encoding: "utf8" });
+  return { id: output.trim() };
+}
+
 // Logs in against the backend directly and reuses the resulting cookie in
 // the browser context — the backend-served back-office and web/ run on different ports but the same
 // "site" (only the port differs), so a SameSite=Lax auth cookie set via one

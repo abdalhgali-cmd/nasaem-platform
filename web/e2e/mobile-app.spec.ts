@@ -65,7 +65,12 @@ async function fillData(page: Page, { name, phone, travelers }: { name: string; 
 async function uploadAllSlots(page: Page) {
   // An Egypt passport slot has two inputs (camera, gallery): one file each.
   const keys = [...new Set(await page.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || "")))];
-  for (const key of keys) await page.locator(`[data-slot-input="${key}"]`).last().setInputFiles(file(`doc-${key.slice(-6)}.png`));
+  // One file at a time, as a customer picks them: an accepted file re-draws
+  // the form, so the next input is only chosen once the previous one is in.
+  for (const [index, key] of keys.entries()) {
+    await page.locator(`[data-slot-input="${key}"]`).last().setInputFiles(file(`doc-${key.slice(-6)}.png`));
+    await expect(page.locator(".slot.slot-ok")).toHaveCount(index + 1, { timeout: 15_000 });
+  }
   await expect(page.locator(".slot.slot-ok")).toHaveCount(await page.locator(".slot").count(), { timeout: 15_000 });
   return keys;
 }
@@ -129,10 +134,12 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await expect(page.locator("#homeBento")).not.toContainText("فنادق");
     const text = await page.locator("body").innerText();
     expect(text).not.toMatch(/lorem|placeholder|undefined|NaN|\[object/i);
-    // Hotels are postponed: not on home, not in the services list.
+    // Owner decision 2026-11-10 (docs/platform-readiness/ALL-SERVICES.md): the
+    // directory lists every published service. Hotels stay off the home
+    // shortcuts but are listed once, like any other published service.
     await page.locator('#bottomNav [data-tab="services"]').click();
     await expect(page.locator(".svc-card").first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(".svc-card", { hasText: "الفنادق" })).toHaveCount(0);
+    await expect(page.locator(".svc-card", { hasText: "الفنادق" })).toHaveCount(1);
     // The guest choice is remembered: a restart opens home directly.
     await page.reload();
     await expect(page.locator(".hc-top")).toBeVisible({ timeout: 15_000 });
