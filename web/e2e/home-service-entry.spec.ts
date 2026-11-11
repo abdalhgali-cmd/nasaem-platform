@@ -86,17 +86,17 @@ test.describe("Homepage — primary service entry", () => {
     await expect(emblem.getByRole("img", { name: "نسائم الحرمين للسفر والسياحة" })).toBeVisible();
     await expect(emblem.locator("img")).toHaveAttribute("src", /logo-dark\.png|site-assets\/logo-dark/);
 
-    await page.getByRole("link", { name: "استعرض الخدمتين" }).click();
+    await page.getByRole("link", { name: "استعرض الخدمات" }).click();
     await expect(page).toHaveURL(/#services$/);
     const cards = page.getByTestId("home-service-card");
     await expect(cards.first()).toBeVisible();
 
     // Every published card goes to one of the two first-release services.
     const hrefs = await cards.evaluateAll((els) => Object.fromEntries(els.map((el) => [el.getAttribute("data-service"), el.getAttribute("href")])));
-    for (const [key, href] of Object.entries({ umrah: "/umrah", egypt: "/visas/egypt-security-approval" })) {
+    for (const [key, href] of Object.entries({ umrah: "/umrah", egypt: "/visas/egypt-security-approval", visas: "/visas", flights: "/flights", ferries: "/ferries", hotels: "/hotels" })) {
       if (hrefs[key] !== undefined) expect(hrefs[key]).toBe(href);
     }
-    for (const key of ["visas", "flights", "ferries", "hotels", "packages"]) expect(hrefs[key]).toBeUndefined();
+    expect(hrefs.packages).toBeUndefined();
     // No prices on the homepage cards (each page shows the agency's own).
     await expect(page.getByTestId("home-services")).not.toContainText(/SAR|USD|SDG/);
   });

@@ -14,9 +14,9 @@ const catalog = {
   ],
 };
 
-test("first-release shortcuts expose only Umrah and Egypt, with VISA code winning over SVC", () => {
+test("published shortcuts expose available services, with VISA code winning over SVC", () => {
   const keys = resolveShortcuts(catalog).map((s) => s.key);
-  assert.deepEqual(keys, ["umrah", "egypt"]);
+  assert.deepEqual(keys, ["umrah", "egypt", "flights", "ferries"]);
   assert.equal(resolveShortcuts(catalog).find((s) => s.key === "umrah").item.id, "v2");
   assert.deepEqual(resolveShortcuts({ services: [], visaTypes: [] }), []);
 });
@@ -36,13 +36,13 @@ test("featured services are the priced ones only", () => {
   assert.equal(featuredServices(catalog, 1).length, 1);
 });
 
-test("service directory exposes only the two first-release journeys", () => {
+test("service directory exposes published journeys without duplicate Umrah records", () => {
   const items = serviceDirectoryItems(catalog);
-  assert.deepEqual(items.map((item) => item.id), ["s3", "v1"]);
-  assert.deepEqual(serviceDirectoryItems({ services: catalog.services, visaTypes: [] }).map((item) => item.id), ["s3"]);
+  assert.deepEqual(items.map((item) => item.id), ["s1", "s2", "s3", "v1"]);
+  assert.deepEqual(serviceDirectoryItems({ services: catalog.services, visaTypes: [] }).map((item) => item.id), ["s1", "s2", "s3"]);
   const hotel = { id: "hotel", code: "SVC-HOTEL", name: "فنادق", basePrice: "150", currency: "USD" };
   const withHotel = { ...catalog, services: [...catalog.services, hotel] };
-  assert.ok(!serviceDirectoryItems(withHotel).some((item) => item.code === "SVC-HOTEL"), "hotel discovery is postponed");
+  assert.ok(serviceDirectoryItems(withHotel).some((item) => item.code === "SVC-HOTEL"), "published hotels are now available");
   assert.ok(!homeFeaturedServices(withHotel).some((item) => item.code === "SVC-HOTEL"), "no home hotel offers");
 });
 
@@ -81,7 +81,7 @@ test("Umrah is its own section: never listed among the visas", async () => {
       { id: "v2", code: "VISA-EGYPT-CLEARANCE", category: "OTHER" },
     ],
   };
-  assert.deepEqual(hubVisaTypes(catalog).map((visa) => visa.id), ["v2"]);
+  assert.deepEqual(hubVisaTypes(catalog).map((visa) => visa.id), []);
   assert.deepEqual(
     serviceDirectoryItems({ services: [], visaTypes: [catalog.visaTypes[0]] }).map((item) => item.id),
     ["v1"],
@@ -90,7 +90,7 @@ test("Umrah is its own section: never listed among the visas", async () => {
   assert.equal(resolveShortcuts({ services: [], visaTypes: [catalog.visaTypes[0]] }).some((shortcut) => shortcut.key === "visas"), false);
 });
 
-test("approved mobile service directory groups only Umrah and Egypt", () => {
+test("published mobile directory groups travel, visas and other services", () => {
   const example = {
     services: [
       { id: "um", code: "SVC-UMRAH", name: "العمرة" },
@@ -102,21 +102,21 @@ test("approved mobile service directory groups only Umrah and Egypt", () => {
     visaTypes: [{ id: "eg", code: "VISA-EGYPT-CLEARANCE", category: "VISA" }],
   };
   const grouped = groupServiceDirectory(example);
-  assert.deepEqual(grouped.map((g) => g.key), ["umrah", "egypt"]);
+  assert.deepEqual(grouped.map((g) => g.key), ["umrah", "egypt", "travel", "other"]);
   assert.deepEqual(grouped.flatMap((g) => g.items.map((x) => x.code)), [
-    "SVC-UMRAH", "VISA-EGYPT-CLEARANCE",
+    "SVC-UMRAH", "VISA-EGYPT-CLEARANCE", "SVC-FLIGHT", "SVC-FERRY", "SVC-HOTEL", "SVC-OTHER",
   ]);
   assert.equal(groupServiceDirectory({ services: [], visaTypes: [] }).length, 0);
 });
 
-test("home bento shows Egypt beside the dedicated Umrah feature only", async () => {
+test("home bento keeps primary journeys compact and shows published travel services", async () => {
   const { homeBentoTiles } = await import("../www/js/service-view.js");
   const withHotel = { ...catalog, services: [...catalog.services, { id: "h", code: "SVC-HOTEL", name: "فنادق" }] };
-  assert.deepEqual(homeBentoTiles(withHotel).map((t) => t.key), ["egypt"]);
+  assert.deepEqual(homeBentoTiles(withHotel).map((t) => t.key), ["egypt", "flights", "ferries"]);
   assert.deepEqual(homeBentoTiles({ services: [], visaTypes: [] }), []);
 });
 
-test("service count reports only published first-release journeys", async () => {
+test("service count reports all distinct published journeys", async () => {
   const { publishedServiceCount } = await import("../www/js/service-view.js");
   const cat = {
     services: [
@@ -129,7 +129,7 @@ test("service count reports only published first-release journeys", async () => 
       { id: "v3", code: "VISA-INTERNATIONAL", category: "INTERNATIONAL", serviceId: null },
     ],
   };
-  assert.equal(publishedServiceCount(cat), 2, "Umrah and Egypt only");
+  assert.equal(publishedServiceCount(cat), 5, "four services plus an unlinked international visa");
   assert.equal(publishedServiceCount({ services: [], visaTypes: [] }), 0);
   assert.equal(publishedServiceCount({ services: [], visaTypes: [{ id: "u", code: "VISA-UMRAH", category: "UMRAH" }] }), 1,
     "Umrah published only as a visa type is still one service");
@@ -144,6 +144,21 @@ test("service count text follows Arabic number agreement", async () => {
   assert.equal(serviceCountText(4), "4 خدمات");
   assert.equal(serviceCountText(11), "11 خدمة");
   assert.equal(serviceCountText(0), "0 خدمة");
+});
+
+test("a visa-backed service uses its own visa checklist once; inactive services and Umrah tiers are excluded", () => {
+  const catalog = {
+    services: [
+      { id: "work-service", code: "SVC-WORK-VISA", category: "work_visa" },
+      { id: "off", code: "SVC-HOTEL", active: false },
+      { id: "tier", code: "SVC-UMRAH-AIR", category: "UMRAH_PACKAGE" },
+    ],
+    visaTypes: [{ id: "work-visa", code: "VISA-WORK", serviceId: "work-service", isVisaType: true }],
+  };
+  const entries = serviceDirectoryItems(catalog);
+  assert.deepEqual(entries.map(item => item.id), ["work-visa"]);
+  assert.equal(entries[0].isVisaType, true, "requirements are fetched from visa-types, never the empty parent service");
+  assert.equal(groupServiceDirectory(catalog)[0].key, "visas");
 });
 
 test("a fixed-price service never shows quote copy: its own steps and note", async () => {

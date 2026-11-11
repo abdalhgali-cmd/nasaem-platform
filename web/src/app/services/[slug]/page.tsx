@@ -55,6 +55,9 @@ function resolveItemFromCatalog(
     // A service promoted to a dedicated page must not also render here —
     // keeps this template and DEDICATED_ROUTES from ever disagreeing.
     if (resolveServiceHref(service) !== `/services/${slug}`) return null;
+    // A visa service's passport checklist and price belong to its VisaType.
+    const linked = catalog.visaTypes.filter(item => item.serviceId === service.id);
+    if (linked.length === 1) return { kind: "visaType", ...linked[0] };
     return { kind: "service", ...service };
   }
 
@@ -199,7 +202,7 @@ export default async function GenericServicePage({ params }: { params: Promise<{
         <Container>
           <SectionHeading eyebrow="ابدأ الآن" title={`قدّم طلب ${item.name}`} />
           <div className="mt-12">
-            <ServiceIntakeWizard service={item.kind === "service" ? "package" : "visa"} initialServiceCode={item.code} />
+            <ServiceIntakeWizard service={item.kind === "service" ? "package" : "visa"} serviceCatalog="services" initialServiceCode={item.code} />
           </div>
         </Container>
       </section>

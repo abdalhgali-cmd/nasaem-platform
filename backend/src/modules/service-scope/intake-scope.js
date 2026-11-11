@@ -16,10 +16,12 @@
 import prisma from "../../config/database.js";
 import { deriveServiceKind } from "../contact-request-progress/request-progress.js";
 
-export const APPROVED_INTAKE_SCOPE = Object.freeze(["UMRAH", "EGYPT_CLEARANCE"]);
+// Owner expanded the scope on 2026-11-10. An explicit environment list can
+// still restrict a staged rollout; inactive catalog records stay inactive.
+export const APPROVED_INTAKE_SCOPE = Object.freeze(["UMRAH", "EGYPT_CLEARANCE", "FLIGHT", "FERRY", "HOTEL", "FAMILY_VISIT", "VISA", "GENERAL"]);
 
 export const SERVICE_NOT_OFFERED_MESSAGE =
-  "هذه الخدمة غير متاحة للطلب حاليًا. نستقبل حاليًا طلبات العمرة والموافقة الأمنية لمصر فقط.";
+  "هذه الخدمة غير متاحة للطلب حاليًا. اختر خدمة متاحة من القائمة أو تواصل مع الوكالة.";
 
 /** The kinds open to new applications, or null when every service is open. */
 export function intakeScope(env = process.env) {
@@ -41,13 +43,14 @@ export function kindOpenForIntake(kind, env = process.env) {
  */
 export async function newApplicationRefusal({ serviceId = null, visaTypeId = null } = {}, { db = prisma, env = process.env } = {}) {
   if (!serviceId && !visaTypeId) return null;
-  if (!intakeScope(env)) return null;
   const [visaType, serviceRef] = await Promise.all([
-    visaTypeId ? db.visaType.findUnique({ where: { id: visaTypeId }, select: { code: true, category: true } }) : null,
-    serviceId ? db.service.findUnique({ where: { id: serviceId }, select: { code: true, category: true } }) : null,
+    visaTypeId ? db.visaType.findUnique({ where: { id: visaTypeId }, select: { code: true, category: true, active: true } }) : null,
+    serviceId ? db.service.findUnique({ where: { id: serviceId }, select: { code: true, category: true, active: true } }) : null,
   ]);
-  // Unknown ids are left to the existing validation (not found / unavailable).
-  if (!visaType && !serviceRef) return null;
+  // Broad rollout is never permission to book a disabled or nonexistent item.
+  // Check availability even with PUBLIC_INTAKE_SCOPE=ALL and before creating data.
+  if ((visaTypeId && (!visaType || visaType.active === false)) || (serviceId && (!serviceRef || serviceRef.active === false))) return { error: "SERVICE_NOT_OFFERED" };
+  if (!intakeScope(env)) return null;
   const kind = deriveServiceKind({ visaType, serviceRef });
   return kindOpenForIntake(kind, env) ? null : { error: "SERVICE_NOT_OFFERED", details: { kind } };
 }

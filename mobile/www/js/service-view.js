@@ -3,13 +3,17 @@ import { fixedPricing } from "./pricing-view.js";
 // Presentation rules for services (home shortcuts, services list, service
 // details). Pure functions, no DOM: unit-tested in tests/service-view.test.mjs.
 // Everything shown comes from the catalog the agency publishes (prices, text,
-// durations). The first release intentionally exposes only Umrah and Egypt
-// security approval; the remaining catalog records stay available to old
-// requests and direct legacy routes, but are not customer entry points.
+// durations). The owner expanded the directory on 2026-11-10: published
+// services have their own routes and linked visa checklists.
 
 export const SHORTCUTS = Object.freeze([
   { key: "umrah", label: "عمرة", icon: "umrah", codes: ["VISA-UMRAH", "SVC-UMRAH"] },
   { key: "egypt", label: "موافقة أمنية لمصر", icon: "shield-check", codes: ["VISA-EGYPT-CLEARANCE", "SVC-EGYPT-CLEARANCE"] },
+  { key: "flights", label: "تذاكر الطيران", icon: "plane", codes: ["SVC-FLIGHT"] },
+  { key: "ferries", label: "حجز العبارات", icon: "ship", codes: ["SVC-FERRY"] },
+  { key: "hotels", label: "الفنادق", icon: "hotel", codes: ["SVC-HOTEL"] },
+  { key: "visas", label: "التأشيرات", icon: "visa", hub: true },
+  { key: "tasheel", label: "مواعيد تساهيل", icon: "calendar", codes: ["SVC-TASHEEL"] },
 ]);
 
 function allItems(catalog) {
@@ -32,12 +36,12 @@ export const VISAS_HUB_ITEM = Object.freeze({
 // The visa types listed under «التأشيرات». Umrah is its own section (the
 // Umrah shortcut and screen), never a visa in this list.
 export function hubVisaTypes(catalog) {
-  return (catalog?.visaTypes || []).filter((visaType) => String(visaType.category || "").toUpperCase() !== "UMRAH");
+  return (catalog?.visaTypes || []).filter(visaType => visaType.active !== false && !isUmrahReleaseItem(visaType) && !isEgyptReleaseItem(visaType) && String(visaType.category || "").toUpperCase() !== "UMRAH");
 }
 
 // Hotel discovery is postponed by agency decision; existing cases and
 // backend routes remain readable and untouched.
-export const isPostponedHotel = (item) => String(item?.code || "").toUpperCase() === "SVC-HOTEL";
+export const isPostponedHotel = (item) => item?.active === false && String(item?.code || "").toUpperCase() === "SVC-HOTEL";
 
 const isUmrahReleaseItem = (item) => {
   const code = String(item?.code || "").toUpperCase();
@@ -49,34 +53,38 @@ const isEgyptReleaseItem = (item) => {
   return code.startsWith("VISA-EGYPT-CLEARANCE") || code === "SVC-EGYPT-CLEARANCE";
 };
 
-function firstReleaseEntries(catalog) {
-  const items = allItems(catalog);
-  const umrah = items.find((item) => String(item?.code || "").toUpperCase() === "SVC-UMRAH")
-    || items.find(isUmrahReleaseItem);
-  const egypt = items.find((item) => String(item?.code || "").toUpperCase() === "VISA-EGYPT-CLEARANCE")
-    || items.find((item) => String(item?.code || "").toUpperCase() === "SVC-EGYPT-CLEARANCE")
-    || items.find(isEgyptReleaseItem);
-  return [umrah, egypt].filter(Boolean);
+// One published customer journey per service. A VisaType supplies its own
+// requirements rather than incorrectly fetching the parent Service checklist.
+function publishedEntries(catalog) {
+  const services = (catalog?.services || []).filter(item => item.active !== false && !["PACKAGE", "UMRAH_PACKAGE"].includes(String(item.category || "").toUpperCase()) && !String(item.code || "").startsWith("SVC-UMRAH-"));
+  const visas = (catalog?.visaTypes || []).filter(item => item.active !== false && !/^VISA-EGYPT-CLEARANCE-(AIR|BORDER)$/.test(item.code || ""));
+  const out = services.map(service => {
+    if (isUmrahReleaseItem(service)) return service;
+    return visas.find(visa => visa.serviceId === service.id || visa.code === String(service.code || "").replace(/^SVC-/, "VISA-")) || service;
+  });
+  for (const visa of visas) {
+    if (out.some(item => item.id === visa.id || (visa.serviceId && item.id === visa.serviceId) || (isUmrahReleaseItem(item) && isUmrahReleaseItem(visa)) || (isEgyptReleaseItem(item) && isEgyptReleaseItem(visa)))) continue;
+    out.push(visa);
+  }
+  return [...new Map(out.map(item => [item.id || item.code, item])).values()];
 }
 
-export function serviceDirectoryItems(catalog) {
-  return firstReleaseEntries(catalog);
-}
+export function serviceDirectoryItems(catalog) { return publishedEntries(catalog); }
 
-// A compact, catalog-backed directory. Categories are presentation only: the
-// same item ids go through the existing service router and priced intake.
 export function groupServiceDirectory(catalog) {
-  const items = serviceDirectoryItems(catalog);
   const groups = [
     { key: "umrah", title: "العمرة", items: [] },
     { key: "egypt", title: "الموافقة الأمنية لمصر", items: [] },
+    { key: "travel", title: "السفر والإقامة", items: [] },
+    { key: "visas", title: "التأشيرات والمواعيد", items: [] },
+    { key: "other", title: "خدمات أخرى", items: [] },
   ];
-  for (const item of items) {
-    const code = String(item?.code || "").toUpperCase();
-    if (code.includes("UMRAH")) groups[0].items.push(item);
-    else groups[1].items.push(item);
+  for (const item of publishedEntries(catalog)) {
+    const code = String(item.code || "").toUpperCase();
+    const at = isUmrahReleaseItem(item) ? 0 : isEgyptReleaseItem(item) ? 1 : /FLIGHT|FERRY|HOTEL/.test(code) ? 2 : /VISA|TASHEEL/.test(code) ? 3 : 4;
+    groups[at].items.push(item);
   }
-  return groups.filter((group) => group.items.length > 0);
+  return groups.filter(group => group.items.length > 0);
 }
 
 // Only shortcuts whose service is actually published are returned: a shortcut
@@ -102,7 +110,7 @@ export function resolveShortcuts(catalog) {
 // same journey and is not counted twice. Umrah visa types belong to Umrah:
 // they add one journey only when no Umrah Service is published.
 export function publishedServiceCount(catalog) {
-  return firstReleaseEntries(catalog).length;
+  return publishedEntries(catalog).length;
 }
 
 // "خدمة واحدة" / "خدمتان" / "3 خدمات" / "11 خدمة" — Arabic number agreement.
@@ -116,7 +124,7 @@ export function serviceCountText(count) {
 
 // Home bento, in priority order after the Umrah feature tile. Only published
 // services appear (resolveShortcuts); hotels are not offered.
-export const HOME_BENTO_KEYS = Object.freeze(["egypt"]);
+export const HOME_BENTO_KEYS = Object.freeze(["egypt", "flights", "ferries", "visas"]);
 
 export function homeBentoTiles(catalog) {
   const shortcuts = resolveShortcuts(catalog);

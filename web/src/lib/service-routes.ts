@@ -32,6 +32,7 @@ export type RoutableItem = {
 // different call sites resolve one or the other for what is conceptually
 // the same destination.
 const DEDICATED_ROUTES: Record<string, string> = {
+  "SVC-UMRAH": "/umrah",
   "SVC-EGYPT-CLEARANCE": "/visas/egypt-security-approval",
   "VISA-EGYPT-CLEARANCE": "/visas/egypt-security-approval",
   // Its entry-method variants (air / border crossing) are chosen on that page.
@@ -65,7 +66,7 @@ export function resolveServiceHref(item: RoutableItem): string {
   if (category.includes("ferry")) return "/ferries";
   if (category.includes("flight")) return "/flights";
   if (category.includes("hotel")) return "/hotels";
-  if (category.includes("package") || category === "umrah") {
+  if (category === "umrah_package" || category === "umrah" || item.code.startsWith("SVC-UMRAH-")) {
     return `/umrah?package=${encodeURIComponent(item.code)}#book`;
   }
 
