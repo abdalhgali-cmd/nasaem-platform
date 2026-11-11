@@ -122,7 +122,7 @@ describe("service journeys: request -> documents -> quote -> payment -> executio
       const requirements = requirementsRes.body.data.filter((r) => r.required && !r.conditionRequirementId);
 
       // 1) service selection + two travelers + each required document per traveler
-      const travelers = [{ fullName: "المسافر الأول", isPrimary: true }, { fullName: "المسافر الثاني" }];
+      const travelers = [{ fullName: "المسافر الأول", isPrimary: true }, { fullName: "المسافر الثاني" }].map((traveler, index) => ({ ...traveler, ...(journey.kind === "EGYPT_CLEARANCE" ? { passportNo: `SYNTH-JOURNEY-${index}`, birthDate: "1990-01-01" } : {}) }));
       const labels = [];
       const requirementIds = [];
       const travelerIndexes = [];
