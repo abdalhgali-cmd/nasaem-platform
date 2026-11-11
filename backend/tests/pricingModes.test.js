@@ -269,15 +269,13 @@ describe("Egypt travel tasks by stable key", () => {
   test("completion is blocked by a keyed task whatever its title, never by a title alone", async () => {
     const egypt = await prisma.visaType.findUnique({ where: { code: "VISA-EGYPT-CLEARANCE" } });
     assert.ok(egypt, "seeded Egypt clearance visa type");
-    const created = await request(app).post("/api/contact-requests").send({
-      name: "TEST-WF مصر",
-      phone: testPhone(),
-      message: "TEST-WF",
-      visaTypeId: egypt.id,
+    // A historical request may have no initial passports; its keyed tasks
+    // must still prevent closure after the new intake rules are deployed.
+    const created = await prisma.contactRequest.create({ data: {
+      name: "TEST-WF مصر", phone: testPhone(), message: "TEST-WF legacy", visaTypeId: egypt.id,
       intakeData: { egyptTravel: { entryMode: "AIR", bookingStatus: "NEEDS_NASAEM", entryDate: "2031-01-01" } },
-    });
-    assert.equal(created.status, 201, JSON.stringify(created.body));
-    const id = created.body.data.id;
+    } });
+    const id = created.id;
     await prisma.caseTask.create({ data: { contactRequestId: id, type: "OTHER", source: "SYSTEM", title: "مهمة عامة عن مصر" } });
     const codes = async () => (await staffDetail(employee, id)).progress.completionBlockers.map((r) => r.code);
     assert.ok(!(await codes()).includes("TRAVEL_TASKS_OPEN"), "a title mentioning مصر is not a travel task");

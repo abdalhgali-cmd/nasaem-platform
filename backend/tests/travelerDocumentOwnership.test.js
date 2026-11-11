@@ -3,7 +3,24 @@ import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { registerCustomer, uniqueSuffix } from "./helpers/api.js";
 import prisma from "../src/config/database.js";
+import { getPublicChecklist } from "../src/modules/requirements/requirements.service.js";
+import { normalizePhone } from "../src/utils/phone.js";
 import { terminateOcrWorker } from "../src/modules/passport-ocr/passport-ocr.service.js";
+
+// Explicit historical fixture: new applications require every passport.
+// Existing customers must still be able to complete missing documents safely.
+async function legacyEgyptRequest(customer, label, names = [label + " One", label + " Two"]) {
+  const visa = await prisma.visaType.findUnique({ where: { code: "VISA-EGYPT-CLEARANCE" } });
+  const checklist = await getPublicChecklist({ visaTypeId: visa.id });
+  const entry = checklist.find(r => r.attachmentType === "egypt_entry_mode");
+  return prisma.contactRequest.create({ data: {
+    customerId: customer.id, organizationId: customer.organizationId || "org_nasaem_default",
+    name: label, phone: customer.phone, phoneNormalized: normalizePhone(customer.phone),
+    message: "TEST historical Egypt intake", visaTypeId: visa.id,
+    requirementsSnapshot: checklist, intakeData: { answers: { [entry.id]: "AIR" }, egyptEntryMode: "AIR" },
+    travelers: { create: names.map((fullName, index) => ({ fullName, isPrimary: index === 0, sortOrder: index })) },
+  }, include: { travelers: { orderBy: { sortOrder: "asc" } } } });
+}
 
 const PNG = () => Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
 
@@ -28,26 +45,11 @@ describe("documents are always tied to the correct traveler", () => {
     });
   });
 
-  async function submitTwoTravelerRequest(agent, label) {
-    const res = await agent
-      .post("/api/contact-requests")
-      .field("name", label)
-      .field("phone", `092${uniqueSuffix()}`)
-      .field("message", "موافقة أمنية لمسافرين")
-      .field("visaTypeId", visaType.id)
-      .field(
-        "travelers",
-        JSON.stringify([
-          { fullName: `${label} One`, passportNo: `A${uniqueSuffix()}`, nationality: "Sudan", isPrimary: true },
-          { fullName: `${label} Two`, passportNo: `B${uniqueSuffix()}`, nationality: "Sudan" },
-        ])
-      )
-      .field("answers", JSON.stringify({ [entryModeRequirement.id]: "AIR" }));
-    assert.equal(res.status, 201, JSON.stringify(res.body));
-    const detail = await agent.get(`/api/customer/requests/${res.body.data.id}`);
+  async function submitTwoTravelerRequest(agent, customer, label) {
+    const row = await legacyEgyptRequest(customer, label);
+    const detail = await agent.get(`/api/customer/requests/${row.id}`);
     assert.equal(detail.status, 200, JSON.stringify(detail.body));
-    const travelers = await prisma.traveler.findMany({ where: { contactRequestId: res.body.data.id }, orderBy: { sortOrder: "asc" } });
-    return { id: res.body.data.id, travelers };
+    return row;
   }
 
   const upload = (agent, requestId, fields) => {
@@ -57,8 +59,8 @@ describe("documents are always tied to the correct traveler", () => {
   };
 
   test("a traveler-scoped document without a traveler is refused; with the right traveler it is stored on that traveler", async () => {
-    const { agent } = await registerCustomer();
-    const own = await submitTwoTravelerRequest(agent, "Own");
+    const { agent, customer } = await registerCustomer();
+    const own = await submitTwoTravelerRequest(agent, customer, "Own");
 
     const missing = await upload(agent, own.id, {});
     assert.equal(missing.status, 400, JSON.stringify(missing.body));
@@ -70,10 +72,10 @@ describe("documents are always tied to the correct traveler", () => {
   });
 
   test("a traveler of another customer's request cannot be used", async () => {
-    const { agent: a } = await registerCustomer();
-    const { agent: b } = await registerCustomer();
-    const requestA = await submitTwoTravelerRequest(a, "Alice");
-    const requestB = await submitTwoTravelerRequest(b, "Bob");
+    const { agent: a, customer: customerA } = await registerCustomer();
+    const { agent: b, customer: customerB } = await registerCustomer();
+    const requestA = await submitTwoTravelerRequest(a, customerA, "Alice");
+    const requestB = await submitTwoTravelerRequest(b, customerB, "Bob");
 
     const stolen = await upload(a, requestA.id, { travelerId: requestB.travelers[0].id });
     assert.equal(stolen.status, 400, JSON.stringify(stolen.body));
@@ -90,18 +92,8 @@ describe("the customer's checklist tells them exactly which document is still mi
     const visaType = await prisma.visaType.findUnique({ where: { code: "VISA-EGYPT-CLEARANCE" } });
     const passportRequirement = await prisma.visaRequirement.findFirst({ where: { visaTypeId: visaType.id, attachmentType: "passport_copy", active: true } });
     const entryModeRequirement = await prisma.visaRequirement.findFirst({ where: { visaTypeId: visaType.id, attachmentType: "egypt_entry_mode", active: true } });
-    const { agent } = await registerCustomer();
-    const res = await agent
-      .post("/api/contact-requests")
-      .field("name", "Checklist")
-      .field("phone", `092${uniqueSuffix()}`)
-      .field("message", "موافقة أمنية لمسافرين")
-      .field("visaTypeId", visaType.id)
-      .field("travelers", JSON.stringify([{ fullName: "أول", isPrimary: true }, { fullName: "ثان" }]))
-      .field("answers", JSON.stringify({ [entryModeRequirement.id]: "AIR" }));
-    assert.equal(res.status, 201, JSON.stringify(res.body));
-    const id = res.body.data.id;
-    const travelers = await prisma.traveler.findMany({ where: { contactRequestId: id }, orderBy: { sortOrder: "asc" } });
+    const { agent, customer } = await registerCustomer();
+    const { id, travelers } = await legacyEgyptRequest(customer, "Checklist", ["أول", "ثان"]);
 
     const before = (await agent.get(`/api/customer/requests/${id}`)).body.data;
     const passports = before.checklist.filter((item) => item.requirementId === passportRequirement.id);
