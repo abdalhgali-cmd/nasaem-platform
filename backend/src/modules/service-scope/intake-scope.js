@@ -20,7 +20,8 @@ import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variant
 
 // Owner expanded the scope on 2026-11-10. An explicit environment list can
 // still restrict a staged rollout; inactive catalog records stay inactive.
-export const APPROVED_INTAKE_SCOPE = Object.freeze(["UMRAH", "EGYPT_CLEARANCE", "FLIGHT", "FERRY", "HOTEL", "FAMILY_VISIT", "VISA", "GENERAL"]);
+// Hotels stay postponed (owner decision 2026-11-11): HOTEL is not in the default.
+export const APPROVED_INTAKE_SCOPE = Object.freeze(["UMRAH", "EGYPT_CLEARANCE", "FLIGHT", "FERRY", "FAMILY_VISIT", "VISA", "GENERAL"]);
 
 export const SERVICE_NOT_OFFERED_MESSAGE =
   "هذه الخدمة غير متاحة للطلب حاليًا. اختر خدمة متاحة من القائمة أو تواصل مع الوكالة.";

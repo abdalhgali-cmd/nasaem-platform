@@ -4,9 +4,11 @@ const API = process.env.E2E_API_URL || "http://localhost:5000/api";
 const APP = process.env.E2E_APP_URL || "http://localhost:8081";
 test("the website directory opens each published service through its own route", async ({ page }) => {
   await page.goto("/services");
-  for (const href of ["/umrah", "/visas/egypt-security-approval", "/flights", "/ferries", "/hotels", "/services/work-visa", "/services/tasheel"]) {
+  for (const href of ["/umrah", "/visas/egypt-security-approval", "/flights", "/ferries", "/services/work-visa", "/services/tasheel"]) {
     await expect(page.locator(`#services a[href="${href}"]`)).toHaveCount(1);
   }
+  // Hotels are postponed (owner decision 2026-11-11): published, but not listed.
+  await expect(page.locator('#services a[href="/hotels"]')).toHaveCount(0);
   const hrefs = await page.locator("#services a").evaluateAll(nodes => nodes.map(node => node.getAttribute("href")));
   expect(new Set(hrefs).size).toBe(hrefs.length);
 });

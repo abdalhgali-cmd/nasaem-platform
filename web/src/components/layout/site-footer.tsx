@@ -18,7 +18,6 @@ const serviceLinks = [
   { label: "تأشيرات الزيارة والعمل", href: "/visas" },
   { label: "حجز تذاكر الطيران", href: "/flights" },
   { label: "حجز العبارات", href: "/ferries" },
-  { label: "حجز الفنادق", href: "/hotels" },
   { label: "كل الخدمات", href: "/services" },
 ];
 

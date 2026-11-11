@@ -38,7 +38,7 @@ describe("release readiness check", () => {
     }
     assert.equal(report.environment.WHATSAPP_API_TOKEN, "present");
     assert.equal(report.environment.JWT_SECRET, "present (40 chars)");
-    assert.equal(report.environment.PUBLIC_INTAKE_SCOPE, "UMRAH,EGYPT_CLEARANCE,FLIGHT,FERRY,HOTEL,FAMILY_VISIT,VISA,GENERAL");
+    assert.equal(report.environment.PUBLIC_INTAKE_SCOPE, "UMRAH,EGYPT_CLEARANCE,FLIGHT,FERRY,FAMILY_VISIT,VISA,GENERAL");
   });
 
   test("missing WhatsApp, unwritable uploads in production and unpriced services are blockers", async () => {

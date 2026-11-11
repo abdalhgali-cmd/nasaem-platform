@@ -13,9 +13,11 @@ test.describe("Site header — service start CTA", () => {
     const footerServices = page.getByRole("navigation", { name: "خدماتنا" });
     await expect(footerServices.getByRole("link", { name: "باقات العمرة" })).toHaveAttribute("href", "/umrah");
     await expect(footerServices.getByRole("link", { name: "الموافقة الأمنية لمصر" })).toHaveAttribute("href", "/visas/egypt-security-approval");
-    for (const [label, href] of [["تأشيرات الزيارة والعمل", "/visas"], ["حجز تذاكر الطيران", "/flights"], ["حجز الفنادق", "/hotels"], ["حجز العبارات", "/ferries"]]) {
+    for (const [label, href] of [["تأشيرات الزيارة والعمل", "/visas"], ["حجز تذاكر الطيران", "/flights"], ["حجز العبارات", "/ferries"]]) {
       await expect(footerServices.getByRole("link", { name: label })).toHaveAttribute("href", href);
     }
+    // Hotels are postponed: no footer entry.
+    await expect(footerServices.getByRole("link", { name: "حجز الفنادق" })).toHaveCount(0);
     await expect(footerServices.getByRole("link", { name: "باقات السفر الشاملة" })).toHaveCount(0);
   });
 

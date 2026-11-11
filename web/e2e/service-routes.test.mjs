@@ -10,6 +10,7 @@ test("ordinary travel packages never enter the Umrah booking flow", () => {
 });
 
 test("all published service destinations are allowed, while unrelated and external paths are refused", () => {
-  for (const href of ["/umrah?package=x#book", "/flights", "/ferries", "/hotels", "/visas", "/services/work-visa", "/services/tasheel"]) assert.equal(isActiveServiceRoute(href), true, href);
-  for (const href of ["/admin", "/services/../admin", "//example.com", "https://example.com", "/unknown"]) assert.equal(isActiveServiceRoute(href), false, href);
+  for (const href of ["/umrah?package=x#book", "/flights", "/ferries", "/visas", "/services/work-visa", "/services/tasheel"]) assert.equal(isActiveServiceRoute(href), true, href);
+  // Hotels are postponed: the page exists but is not an offered destination.
+  for (const href of ["/hotels", "/admin", "/services/../admin", "//example.com", "https://example.com", "/unknown"]) assert.equal(isActiveServiceRoute(href), false, href);
 });
