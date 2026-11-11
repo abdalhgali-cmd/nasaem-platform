@@ -5,7 +5,7 @@ import { getCustomer, isAccountUnlocked } from "../auth.js";
 import { loadCatalog, loadPackages } from "../catalog.js";
 import { go, goToTab } from "../router.js";
 import { openServiceById, openServiceItem, VISAS_HUB_CODE } from "./services.js";
-import { homeBentoTiles } from "../service-view.js";
+import { homeBentoTiles, hubVisaTypes, serviceCountText } from "../service-view.js";
 import { firstName, greeting, readPendingPayment } from "../experience-core.js";
 import { stagger, tapFeedback } from "../motion.js";
 import { loadAgency, whatsappLink } from "../agency.js";
@@ -224,6 +224,7 @@ async function loadCatalogSection(bodyEl) {
     // the catalog. Hotels are postponed and never shown.
     const umrah = publishedUmrah(catalog);
     const shortcuts = homeBentoTiles(catalog);
+    const visaCount = hubVisaTypes(catalog).length;
     // Egypt approval: its own card with both entry methods' fixed prices
     // (USD + the server's SDG) when the agency published them.
     const egyptOptions = egyptVariantOptions(catalog);
