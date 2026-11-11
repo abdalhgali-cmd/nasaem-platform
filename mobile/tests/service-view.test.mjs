@@ -42,7 +42,7 @@ test("service directory exposes published journeys without duplicate Umrah recor
   assert.deepEqual(serviceDirectoryItems({ services: catalog.services, visaTypes: [] }).map((item) => item.id), ["s1", "s2", "s3"]);
   const hotel = { id: "hotel", code: "SVC-HOTEL", name: "فنادق", basePrice: "150", currency: "USD" };
   const withHotel = { ...catalog, services: [...catalog.services, hotel] };
-  assert.ok(serviceDirectoryItems(withHotel).some((item) => item.code === "SVC-HOTEL"), "published hotels are now available");
+  assert.ok(!serviceDirectoryItems(withHotel).some((item) => item.code === "SVC-HOTEL"), "hotel discovery is postponed");
   assert.ok(!homeFeaturedServices(withHotel).some((item) => item.code === "SVC-HOTEL"), "no home hotel offers");
 });
 
@@ -104,8 +104,8 @@ test("published mobile directory groups travel, visas and other services", () =>
   const grouped = groupServiceDirectory(example);
   assert.deepEqual(grouped.map((g) => g.key), ["umrah", "egypt", "travel", "other"]);
   assert.deepEqual(grouped.flatMap((g) => g.items.map((x) => x.code)), [
-    "SVC-UMRAH", "VISA-EGYPT-CLEARANCE", "SVC-FLIGHT", "SVC-FERRY", "SVC-HOTEL", "SVC-OTHER",
-  ]);
+    "SVC-UMRAH", "VISA-EGYPT-CLEARANCE", "SVC-FLIGHT", "SVC-FERRY", "SVC-OTHER",
+  ], "a published hotel service stays out of the directory (postponed)");
   assert.equal(groupServiceDirectory({ services: [], visaTypes: [] }).length, 0);
 });
 
@@ -129,7 +129,7 @@ test("service count reports all distinct published journeys", async () => {
       { id: "v3", code: "VISA-INTERNATIONAL", category: "INTERNATIONAL", serviceId: null },
     ],
   };
-  assert.equal(publishedServiceCount(cat), 5, "four services plus an unlinked international visa");
+  assert.equal(publishedServiceCount(cat), 4, "three offered services (hotels are postponed) plus an unlinked international visa");
   assert.equal(publishedServiceCount({ services: [], visaTypes: [] }), 0);
   assert.equal(publishedServiceCount({ services: [], visaTypes: [{ id: "u", code: "VISA-UMRAH", category: "UMRAH" }] }), 1,
     "Umrah published only as a visa type is still one service");

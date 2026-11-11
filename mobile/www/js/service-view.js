@@ -11,7 +11,6 @@ export const SHORTCUTS = Object.freeze([
   { key: "egypt", label: "موافقة أمنية لمصر", icon: "shield-check", codes: ["VISA-EGYPT-CLEARANCE", "SVC-EGYPT-CLEARANCE"] },
   { key: "flights", label: "تذاكر الطيران", icon: "plane", codes: ["SVC-FLIGHT"] },
   { key: "ferries", label: "حجز العبارات", icon: "ship", codes: ["SVC-FERRY"] },
-  { key: "hotels", label: "الفنادق", icon: "hotel", codes: ["SVC-HOTEL"] },
   { key: "visas", label: "التأشيرات", icon: "visa", hub: true },
   { key: "tasheel", label: "مواعيد تساهيل", icon: "calendar", codes: ["SVC-TASHEEL"] },
 ]);
@@ -41,7 +40,8 @@ export function hubVisaTypes(catalog) {
 
 // Hotel discovery is postponed by agency decision; existing cases and
 // backend routes remain readable and untouched.
-export const isPostponedHotel = (item) => item?.active === false && String(item?.code || "").toUpperCase() === "SVC-HOTEL";
+// (Owner decision 2026-11-11: still postponed after the directory was widened.)
+export const isPostponedHotel = (item) => String(item?.code || "").toUpperCase() === "SVC-HOTEL";
 
 const isUmrahReleaseItem = (item) => {
   const code = String(item?.code || "").toUpperCase();
@@ -56,7 +56,7 @@ const isEgyptReleaseItem = (item) => {
 // One published customer journey per service. A VisaType supplies its own
 // requirements rather than incorrectly fetching the parent Service checklist.
 function publishedEntries(catalog) {
-  const services = (catalog?.services || []).filter(item => item.active !== false && !["PACKAGE", "UMRAH_PACKAGE"].includes(String(item.category || "").toUpperCase()) && !String(item.code || "").startsWith("SVC-UMRAH-"));
+  const services = (catalog?.services || []).filter(item => item.active !== false && !isPostponedHotel(item) && !["PACKAGE", "UMRAH_PACKAGE"].includes(String(item.category || "").toUpperCase()) && !String(item.code || "").startsWith("SVC-UMRAH-"));
   const visas = (catalog?.visaTypes || []).filter(item => item.active !== false && !/^VISA-EGYPT-CLEARANCE-(AIR|BORDER)$/.test(item.code || ""));
   const out = services.map(service => {
     if (isUmrahReleaseItem(service)) return service;
