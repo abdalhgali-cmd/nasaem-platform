@@ -134,12 +134,11 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     await expect(page.locator("#homeBento")).not.toContainText("فنادق");
     const text = await page.locator("body").innerText();
     expect(text).not.toMatch(/lorem|placeholder|undefined|NaN|\[object/i);
-    // Owner decision 2026-11-10 (docs/platform-readiness/ALL-SERVICES.md): the
-    // directory lists every published service. Hotels stay off the home
-    // shortcuts but are listed once, like any other published service.
+    // Hotels are postponed (owner decision, confirmed 2026-11-11 after the
+    // directory was widened): not on home, not in the services list.
     await page.locator('#bottomNav [data-tab="services"]').click();
     await expect(page.locator(".svc-card").first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(".svc-card", { hasText: "الفنادق" })).toHaveCount(1);
+    await expect(page.locator(".svc-card", { hasText: "الفنادق" })).toHaveCount(0);
     // The guest choice is remembered: a restart opens home directly.
     await page.reload();
     await expect(page.locator(".hc-top")).toBeVisible({ timeout: 15_000 });
