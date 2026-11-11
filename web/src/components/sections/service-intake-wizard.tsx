@@ -269,11 +269,14 @@ function StepNav({
 export function ServiceIntakeWizard({
   service,
   initialServiceCode,
+  serviceCatalog = "packages",
   visaCategory,
 }: {
   service: IntakeServiceKind;
   /** Deep-link into a specific package/visa type by its Service/VisaType code (e.g. from a package card's CTA). */
   initialServiceCode?: string;
+  /** A dedicated non-visa service uses the Service catalog, not Umrah packages. */
+  serviceCatalog?: "packages" | "services";
   /**
    * Restricts the "اختر نوع التأشيرة" step to one VisaType.category
    * (INTERNATIONAL/UMRAH/FAMILY_VISIT/OTHER — see backend/src/utils/enums.js).
@@ -766,7 +769,7 @@ export function ServiceIntakeWizard({
     let ignore = false;
 
     const query = visaCategory ? `?visaCategory=${encodeURIComponent(visaCategory)}` : "";
-    const catalogUrl = service === "package"
+    const catalogUrl = service === "package" && serviceCatalog === "packages"
       ? `${API_URL}/services/public/packages`
       : `${API_URL}/services/public${query}`;
 
@@ -780,7 +783,7 @@ export function ServiceIntakeWizard({
       .then((payload) => {
         if (ignore) return;
         if (service === "package") {
-          setServices(Array.isArray(payload?.data) ? payload.data : []);
+          setServices(Array.isArray(payload?.data) ? payload.data : payload?.data?.services ?? []);
           setVisaTypes([]);
         } else {
           setServices(payload?.data?.services ?? []);
@@ -800,11 +803,11 @@ export function ServiceIntakeWizard({
     return () => {
       ignore = true;
     };
-  }, [service, visaCategory]);
+  }, [service, visaCategory, serviceCatalog]);
 
   const packageServices = React.useMemo(
-    () => services.filter((s) => s.category === "UMRAH_PACKAGE"),
-    [services]
+    () => serviceCatalog === "services" ? services.filter(s => s.code === initialServiceCode) : services.filter(s => s.category === "UMRAH_PACKAGE"),
+    [services, serviceCatalog, initialServiceCode]
   );
   const umrahService = React.useMemo(
     () => services.find((s) => s.category === "umrah"),
@@ -1856,7 +1859,7 @@ export function ServiceIntakeWizard({
 
       {current === "select" ? (
         <StepShell
-          title={service === "package" ? "اختر الباقة" : "اختر نوع التأشيرة"}
+          title={service === "package" ? serviceCatalog === "services" ? "الخدمة المختارة" : "اختر الباقة" : "اختر نوع التأشيرة"}
         >
           <div className="grid gap-3">
             {(service === "package" ? packageServices : visaTypes).map((item) => {
@@ -2516,7 +2519,10 @@ export function ServiceIntakeWizard({
 // "from" figure for a quoted one), the SDG equivalent only from the agency's
 // active exchange rate, and short lists of what is and is not included.
 function PackageOptionDetails({ item }: { item: PublicService }) {
-  const { kind, included, excluded } = umrahPackageDetails(item.features);
+  const details = umrahPackageDetails(item.features);
+  const umrah = ["UMRAH_PACKAGE", "umrah", "umrah_package"].includes(item.category);
+  const { included, excluded } = details;
+  const kind = umrah ? details.kind : null;
   const price = Number(item.basePrice);
   const fixed = item.pricingMode === "FIXED" && price > 0;
   const perTraveler = item.priceUnit === "PER_TRAVELER";
@@ -2530,7 +2536,7 @@ function PackageOptionDetails({ item }: { item: PublicService }) {
       {fixed ? (
         <span className="font-bold text-foreground" data-testid="package-price">
           السعر: <span dir="ltr">{price.toLocaleString("en-US")} {item.currency}</span>
-          {perTraveler ? " للمعتمر" : " للطلب"}
+          {perTraveler ? umrah ? " للمعتمر" : " للمسافر" : " للطلب"}
         </span>
       ) : price > 0 ? (
         <span className="text-muted-foreground">

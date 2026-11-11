@@ -6,6 +6,11 @@ const routes = [
   // Approved customer scope only (see lib/active-services.ts).
   "/umrah",
   "/visas/egypt-security-approval",
+  "/services",
+  "/flights",
+  "/ferries",
+  "/visas",
+  "/visas/saudi-family-visit",
   "/about",
   "/contact",
   "/track",

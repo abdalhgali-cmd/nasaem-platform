@@ -82,7 +82,7 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
             <Button asChild variant="outline" size="lg" className="border-white/30 text-white hover:border-white/60 hover:bg-white/10">
               <Link href="#services">
                 <LayoutGrid className="size-4" aria-hidden="true" />
-                استعرض الخدمتين
+                استعرض الخدمات
               </Link>
             </Button>
             <Button asChild variant="ghost" className="text-white/85 hover:bg-white/10 hover:text-white">

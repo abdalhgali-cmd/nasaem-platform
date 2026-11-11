@@ -27,6 +27,9 @@ export function showcaseServices(catalog: PublicCatalog): ShowcaseService[] {
       href: "/visas/egypt-security-approval",
       count: visaTypes.filter(isEgypt).length,
     },
+    { key: "flights", title: "تذاكر الطيران", description: "حدّد خط الرحلة والمسافرين، ثم راجع العرض قبل اعتماد الحجز.", href: "/flights", count: services.filter(item => item.category === "flight").length },
+    { key: "ferries", title: "حجز العبارات", description: "اختر المسار والتاريخ وعدد المسافرين لمراجعة التوفر.", href: "/ferries", count: services.filter(item => item.category === "ferry").length },
+    { key: "visas", title: "التأشيرات والخدمات القنصلية", description: "الزيارة والعمل والتأشيرات الدولية ومتطلبات كل نوع.", href: "/visas", count: visaTypes.filter(item => !isEgypt(item) && item.category !== "UMRAH").length },
   ];
   return cards.filter((card) => card.count > 0);
 }
@@ -39,12 +42,12 @@ export async function HomeServicesShowcase() {
     <section id="services" className="scroll-mt-24 py-20 sm:py-24" aria-labelledby="home-services-title">
       <Container>
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-extrabold text-primary dark:text-secondary">خدمات الإصدار الأول</p>
+          <p className="text-sm font-extrabold text-primary dark:text-secondary">خدمات نسائم الحرمين</p>
           <h2 id="home-services-title" className="mt-2 text-3xl font-black tracking-tight text-foreground sm:text-4xl">
-            خدمتان واضحتان من الطلب حتى المتابعة
+            اختر خدمتك وابدأ من المكان الصحيح
           </h2>
           <p className="mt-3 text-sm leading-7 text-muted-foreground sm:text-base">
-            اختر العمرة أو الموافقة الأمنية لمصر، ثم أكمل الطلب وتابع حالته دون إنشاء حساب.
+            بيانات ومتطلبات واضحة، ومراجعة السعر قبل الدفع، ومتابعة من نفس الطلب.
           </p>
         </div>
         <ServiceShowcaseCards cards={cards} />

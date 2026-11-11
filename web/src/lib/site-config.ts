@@ -24,6 +24,7 @@ export type NavItem = {
 
 export const mainNav: NavItem[] = [
   { label: "الرئيسية", href: "/" },
+  { label: "كل الخدمات", href: "/services" },
   { label: "العمرة", href: "/umrah" },
   { label: "الموافقة الأمنية لمصر", href: "/visas/egypt-security-approval" },
   { label: "تتبع الطلب", href: "/track" },

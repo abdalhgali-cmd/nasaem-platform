@@ -200,7 +200,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Resumable document state regression
-        run: node --experimental-strip-types --test e2e/draft-document-state.test.mjs e2e/api-proxy.test.mjs
+        run: node --experimental-strip-types --test e2e/draft-document-state.test.mjs e2e/api-proxy.test.mjs e2e/service-routes.test.mjs
       - name: Lint
         run: npm run lint
       - name: Production build
