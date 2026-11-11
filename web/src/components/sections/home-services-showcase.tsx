@@ -29,7 +29,6 @@ export function showcaseServices(catalog: PublicCatalog): ShowcaseService[] {
     },
     { key: "flights", title: "تذاكر الطيران", description: "حدّد خط الرحلة والمسافرين، ثم راجع العرض قبل اعتماد الحجز.", href: "/flights", count: services.filter(item => item.category === "flight").length },
     { key: "ferries", title: "حجز العبارات", description: "اختر المسار والتاريخ وعدد المسافرين لمراجعة التوفر.", href: "/ferries", count: services.filter(item => item.category === "ferry").length },
-    { key: "hotels", title: "حجز الفنادق", description: "الوجهة والتواريخ والغرف، ثم عرض معتمد حسب التوفر.", href: "/hotels", count: services.filter(item => item.category === "hotel").length },
     { key: "visas", title: "التأشيرات والخدمات القنصلية", description: "الزيارة والعمل والتأشيرات الدولية ومتطلبات كل نوع.", href: "/visas", count: visaTypes.filter(item => !isEgypt(item) && item.category !== "UMRAH").length },
   ];
   return cards.filter((card) => card.count > 0);

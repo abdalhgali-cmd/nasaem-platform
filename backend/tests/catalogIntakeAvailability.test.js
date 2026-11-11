@@ -19,4 +19,8 @@ test("active published services use the approved default while explicit rollout 
   assert.equal(await newApplicationRefusal({ serviceId: "flight" }, options), null);
   assert.equal((await newApplicationRefusal({ serviceId: "flight" }, { ...options, env: { PUBLIC_INTAKE_SCOPE: "UMRAH,EGYPT_CLEARANCE" } })).error, "SERVICE_NOT_OFFERED");
   assert.equal(await newApplicationRefusal({}, { db: db(null), env: {} }), null, "general inquiries remain available");
+  // Hotels stay postponed: published and active, yet outside the default scope.
+  const hotel = { db: db({ code: "SVC-HOTEL", category: "hotel", active: true }), env: {} };
+  assert.equal((await newApplicationRefusal({ serviceId: "hotel" }, hotel)).error, "SERVICE_NOT_OFFERED");
+  assert.equal(await newApplicationRefusal({ serviceId: "hotel" }, { ...hotel, env: { PUBLIC_INTAKE_SCOPE: "UMRAH,HOTEL" } }), null, "enabled again by an explicit scope");
 });

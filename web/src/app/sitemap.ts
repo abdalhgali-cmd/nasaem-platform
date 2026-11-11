@@ -9,7 +9,6 @@ const routes = [
   "/services",
   "/flights",
   "/ferries",
-  "/hotels",
   "/visas",
   "/visas/saudi-family-visit",
   "/about",

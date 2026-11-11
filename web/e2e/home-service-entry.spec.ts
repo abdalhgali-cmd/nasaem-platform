@@ -93,9 +93,11 @@ test.describe("Homepage — primary service entry", () => {
 
     // Every published card goes to one of the two first-release services.
     const hrefs = await cards.evaluateAll((els) => Object.fromEntries(els.map((el) => [el.getAttribute("data-service"), el.getAttribute("href")])));
-    for (const [key, href] of Object.entries({ umrah: "/umrah", egypt: "/visas/egypt-security-approval", visas: "/visas", flights: "/flights", ferries: "/ferries", hotels: "/hotels" })) {
+    for (const [key, href] of Object.entries({ umrah: "/umrah", egypt: "/visas/egypt-security-approval", visas: "/visas", flights: "/flights", ferries: "/ferries" })) {
       if (hrefs[key] !== undefined) expect(hrefs[key]).toBe(href);
     }
+    // Hotels are postponed: no homepage card.
+    expect(hrefs.hotels).toBeUndefined();
     expect(hrefs.packages).toBeUndefined();
     // No prices on the homepage cards (each page shows the agency's own).
     await expect(page.getByTestId("home-services")).not.toContainText(/SAR|USD|SDG/);
