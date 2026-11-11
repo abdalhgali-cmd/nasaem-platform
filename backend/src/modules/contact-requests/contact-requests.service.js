@@ -1,6 +1,7 @@
 import path from "path";
 import prismaPackage from "@prisma/client";
 import { withMaskedTravelers } from "../../utils/passportMask.js";
+import { validateEgyptIntake } from "../egypt-clearance/egypt-intake-validation.js";
 import { validateUmrahPassports } from "../requirements/umrah-passport.js";
 import { isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
 import { publicOrganizationId } from "../../utils/publicOrganization.js";
@@ -153,6 +154,10 @@ async function createContactRequestOnce(data, req, files) {
     if (flagKey && !(await isFeatureEnabled(flagKey))) {
       return { error: "FEATURE_DISABLED" };
     }
+    if (service?.category === "egypt_clearance") {
+      const visa = data.visaTypeId ? await prisma.visaType.findUnique({ where: { id: data.visaTypeId }, select: { code: true } }) : null;
+      if (!isEgyptClearanceCode(visa?.code)) return { error: "EGYPT_VARIANT_REQUIRED" };
+    }
     // Umrah package (not a visa type): the guarantor's phone and an optional
     // extra contact (an invalid one is refused before anything is created).
     const umrah = resolveUmrahContacts(data.visaTypeId ? null : service?.category, data);
@@ -274,6 +279,13 @@ async function createContactRequestOnce(data, req, files) {
       travelerIndex: documentTravelerIndexes[i] == null || documentTravelerIndexes[i] === "" ? null : Number(documentTravelerIndexes[i]) })),
   });
   if (passportError) return passportError;
+
+  if (ocrSignalOnly) {
+    const egyptError = validateEgyptIntake({ ...data, travelers, requirements: requirementsSnapshot,
+      documents: files.map((_, i) => ({ requirementId: documentRequirementIds[i], travelerIndex: documentTravelerIndexes[i] == null || documentTravelerIndexes[i] === "" ? null : Number(documentTravelerIndexes[i]) })) });
+    if (egyptError) return egyptError;
+    if (!egyptEntryMode) return { error: "EGYPT_CLEARANCE_INCOMPLETE", details: { fields: ["entryMode"] } };
+  }
 
   const baseData = {
     name: data.name,

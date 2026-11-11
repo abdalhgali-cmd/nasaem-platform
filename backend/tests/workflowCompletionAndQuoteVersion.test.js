@@ -133,7 +133,7 @@ describe("Egypt clearance completion needs its travel plan", () => {
       .field("phone", phone)
       .field("message", "TEST-WF موافقة أمنية")
       .field("visaTypeId", egypt.id)
-      .field("travelers", JSON.stringify([{ fullName: "TEST-WF مسافر مصر", isPrimary: true }]))
+      .field("travelers", JSON.stringify([{ fullName: "TEST-WF مسافر مصر", passportNo: "SYNTH-WF-EGYPT", birthDate: "1990-01-01", isPrimary: true }]))
       .field("answers", JSON.stringify({ [entryRequirement.id]: typeof option === "string" ? option : option.value }))
       .field("documentLabels", JSON.stringify(["جواز"]))
       .field("documentRequirementIds", JSON.stringify([passportRequirement.id]))

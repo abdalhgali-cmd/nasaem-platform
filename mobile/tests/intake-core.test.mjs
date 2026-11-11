@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildDocumentSlots, buildUploadParts, validateSlots, validateFile, validateTravelers, validateContact,
+  buildDocumentSlots, buildUploadParts, validateSlots, validateFile, validateTravelers, validateEgyptTravelers, validateContact,
   collectAnswers, missingAnswers, requirementApplies, serializeDraft, parseDraft, draftKey, MAX_DOCUMENTS,
 } from "../www/js/intake-core.js";
 
@@ -9,6 +9,15 @@ const passport = { id: "r-pass", name: "صورة الجواز", type: "DOCUMENT"
 const invite = { id: "r-inv", name: "مستند الدعوة", type: "DOCUMENT", scope: "CASE", required: true };
 const photo = { id: "r-photo", name: "الصورة الشخصية", type: "DOCUMENT", scope: "TRAVELER", required: false };
 const travelers = [{ fullName: "أحمد" }, { fullName: "سارة" }, { fullName: "" }];
+test("Egypt checks passport facts for every traveler and rejects impossible or future birthdays", () => {
+  const valid = [{ fullName: "أحمد", passportNo: "SYNTH1", birthDate: "1990-01-01" }];
+  assert.deepEqual(validateEgyptTravelers(valid, "2026-11-10"), []);
+  const missing = validateEgyptTravelers([...valid, { fullName: "سارة" }], "2026-11-10");
+  assert.deepEqual(missing.map(p => [p.index, p.field]), [[1, "passportNo"], [1, "birthDate"]]);
+  for (const birthDate of ["1990-02-30", "2999-01-01", "", "not-a-date"]) {
+    assert.equal(validateEgyptTravelers([{ ...valid[0], birthDate }], "2026-11-10")[0].field, "birthDate");
+  }
+});
 const file = (name, type = "image/jpeg", size = 1000) => ({ name, type, size });
 
 test("a traveler-scoped document gets one slot per traveler, a case-scoped one gets a single slot", () => {

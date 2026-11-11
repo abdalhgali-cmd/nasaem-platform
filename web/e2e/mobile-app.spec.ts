@@ -46,7 +46,13 @@ async function answerAgencyQuestions(page: Page) {
 async function fillData(page: Page, { name, phone, travelers }: { name: string; phone: string; travelers: string[] }) {
   await page.locator('[name="t_name_0"]').waitFor({ timeout: 15_000 });
   for (let index = 1; index < travelers.length; index += 1) await page.locator("#addTravelerBtn").click();
-  for (const [index, traveler] of travelers.entries()) await page.fill(`[name="t_name_${index}"]`, traveler);
+  for (const [index, traveler] of travelers.entries()) {
+    await page.fill(`[name="t_name_${index}"]`, traveler);
+    if (await page.locator(`[name="t_passport_${index}"]`).count()) {
+      await page.fill(`[name="t_passport_${index}"]`, `SYNTH${index + 1}`);
+      await page.fill(`[name="t_birth_${index}"]`, "1990-01-01");
+    }
+  }
   await page.fill('[name="name"]', name);
   await page.fill('[name="phone"]', phone);
   // Umrah asks for the guarantor's phone (required).

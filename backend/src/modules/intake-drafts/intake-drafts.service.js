@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { validateEgyptClearanceDraft } from "./egypt-clearance-draft.js";
 import fs from "fs";
 import path from "path";
 import prisma from "../../config/database.js";
@@ -341,6 +342,8 @@ export async function submitDraft(token, { submissionKey, message, acceptedTotal
   });
 
   if (!draft.name || !draft.phone) return { error: "INCOMPLETE_DRAFT" };
+  const egyptValidation = await validateEgyptClearanceDraft(draft);
+  if (egyptValidation) return egyptValidation;
 
   // A key already used by a request that is not this draft's must not be
   // reused (it is unique); nothing is created.

@@ -2200,6 +2200,11 @@ export function ServiceIntakeWizard({
                 تُحفظ المستندات على حسابك المؤقت فور اختيارها، فلا تضيع عند إعادة تحميل الصفحة أو انقطاع الاتصال، ولا تُرسل مرة ثانية عند إرسال الطلب.
               </p>
             ) : null}
+            {needsGuarantor && !loadingRequirements && !requirementsError ? (
+              <p role="status" aria-live="polite" className="text-sm font-semibold text-foreground" data-testid="required-documents-progress">
+                المستندات المطلوبة: {documentSlots.filter(slot => slot.requirement.required && (resumable ? slot.entries?.some(entry => entry.status === "uploaded") : slot.files.length > 0)).length} من {documentSlots.filter(slot => slot.requirement.required).length} مكتملة
+              </p>
+            ) : null}
             {documentsNotice ? (
               <p role="alert" className="rounded-lg border border-destructive/40 p-2 text-xs font-semibold text-destructive" data-testid="documents-notice">{documentsNotice}</p>
             ) : null}

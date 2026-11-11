@@ -3,6 +3,7 @@ import "./helpers/journeyLimits.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
+import { normalizePhone } from "../src/utils/phone.js";
 import { app, request } from "./helpers/api.js";
 import { createStaffUser, staffClient } from "./helpers/staff.js";
 import { PDF, deliverable, staffDetail, testPhone, trackingClient, uploadReceipt } from "./helpers/workflow.js";
@@ -270,10 +271,11 @@ describe("Egypt clearance variants: route and a single entry-method choice", () 
   test("the original item still needs the entry method in its travel plan", async () => {
     const base = await prisma.visaType.findUnique({ where: { code: "VISA-EGYPT-CLEARANCE" } });
     const phone = testPhone();
-    const created = await request(app).post("/api/contact-requests").field("name", "TEST-EG عميل").field("phone", phone).field("message", "TEST-EG").field("visaTypeId", base.id);
-    assert.equal(created.status, 201, JSON.stringify(created.body));
+    // Historical requests may predate the new mandatory intake contract.
+    // Keep this legacy fixture to prove their travel follow-up still works.
+    const created = await prisma.contactRequest.create({ data: { name: "TEST-EG عميل قديم", phone, phoneNormalized: normalizePhone(phone), message: "TEST-EG legacy", visaTypeId: base.id } });
     const entryDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
-    const missing = await trackingClient(phone).post(`/api/tracking/requests/${created.body.data.id}/egypt-travel-plan`).field("bookingStatus", "NEEDS_NASAEM").field("entryDate", entryDate);
+    const missing = await trackingClient(phone).post(`/api/tracking/requests/${created.id}/egypt-travel-plan`).field("bookingStatus", "NEEDS_NASAEM").field("entryDate", entryDate);
     assert.equal(missing.status, 400, JSON.stringify(missing.body));
     assert.equal(missing.body.code, "ENTRY_MODE_REQUIRED");
   });
