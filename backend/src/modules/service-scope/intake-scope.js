@@ -1,5 +1,6 @@
 // Which services accept NEW customer applications (owner decision, PR #151:
-// customers are offered only Umrah and Egypt security approval).
+// Umrah and Egypt security approval only; widened by the owner on 2026-11-10
+// to the published services listed in APPROVED_INTAKE_SCOPE below).
 //
 // Enforced on the server for every public way to start an application:
 // POST /contact-requests, POST /intake-drafts/:token/submit,
@@ -15,6 +16,7 @@
 // environment needs no code change.
 import prisma from "../../config/database.js";
 import { deriveServiceKind } from "../contact-request-progress/request-progress.js";
+import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
 
 // Owner expanded the scope on 2026-11-10. An explicit environment list can
 // still restrict a staged rollout; inactive catalog records stay inactive.
@@ -47,9 +49,15 @@ export async function newApplicationRefusal({ serviceId = null, visaTypeId = nul
     visaTypeId ? db.visaType.findUnique({ where: { id: visaTypeId }, select: { code: true, category: true, active: true } }) : null,
     serviceId ? db.service.findUnique({ where: { id: serviceId }, select: { code: true, category: true, active: true } }) : null,
   ]);
-  // Broad rollout is never permission to book a disabled or nonexistent item.
-  // Check availability even with PUBLIC_INTAKE_SCOPE=ALL and before creating data.
-  if ((visaTypeId && (!visaType || visaType.active === false)) || (serviceId && (!serviceRef || serviceRef.active === false))) return { error: "SERVICE_NOT_OFFERED" };
+  // Unknown ids are left to the existing validation (not found / unavailable),
+  // which already answers them without creating anything.
+  if (!visaType && !serviceRef) return null;
+  // Broad rollout is never permission to book a disabled item: checked even
+  // with PUBLIC_INTAKE_SCOPE=ALL and before creating data. A disabled Egypt
+  // approval variant keeps its own answer (EGYPT_VARIANT_UNAVAILABLE) from
+  // the submission services, which installed clients already understand.
+  const disabledVisa = visaType?.active === false && !isEgyptClearanceCode(visaType.code);
+  if (disabledVisa || serviceRef?.active === false) return { error: "SERVICE_NOT_OFFERED" };
   if (!intakeScope(env)) return null;
   const kind = deriveServiceKind({ visaType, serviceRef });
   return kindOpenForIntake(kind, env) ? null : { error: "SERVICE_NOT_OFFERED", details: { kind } };
