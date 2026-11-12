@@ -80,11 +80,14 @@ test.describe("Homepage — primary service entry", () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("redesigned hero: the agency logo, a services shortcut, and only first-release service cards", async ({ page }) => {
+  test("redesigned hero: the agency logo in the header, a services shortcut, and only published service cards", async ({ page }) => {
     await page.goto("/");
-    const emblem = page.getByTestId("hero-emblem");
-    await expect(emblem.getByRole("img", { name: "نسائم الحرمين للسفر والسياحة" })).toBeVisible();
-    await expect(emblem.locator("img")).toHaveAttribute("src", /logo-dark\.png|site-assets\/logo-dark/);
+    // The hero no longer repeats the logo: the header carries it, cropped to
+    // the artwork so it is readable (bundled file or the admin's upload).
+    const logo = page.locator("header").getByRole("img", { name: "نسائم الحرمين للسفر والسياحة" }).first();
+    await expect(logo).toBeVisible();
+    await expect(logo).toHaveAttribute("src", /logo-wide|site-assets\/logo/);
+    expect((await logo.boundingBox())!.width).toBeGreaterThan(90);
 
     await page.getByRole("link", { name: "استعرض الخدمات" }).click();
     await expect(page).toHaveURL(/#services$/);
@@ -110,7 +113,8 @@ test.describe("Homepage — primary service entry", () => {
     await page.locator("#services").scrollIntoViewIfNeeded();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
-    const ringAnimation = await page.getByTestId("hero-emblem").locator("div").first().evaluate((el) => getComputedStyle(el).animationName);
-    expect(ringAnimation).toBe("none");
+    // The gold sweep on the headline is the hero's only looping animation.
+    const sweep = await page.locator("h1 .text-gold-shimmer").evaluate((el) => getComputedStyle(el).animationName);
+    expect(sweep).toBe("none");
   });
 });

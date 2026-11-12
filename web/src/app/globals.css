@@ -4,12 +4,22 @@
 
 :root {
   --color-background: #ffffff;
-  --color-section: #f5f7fa;
-  --color-foreground: #1f2937;
+  --color-section: #f4f6fb;
+  --color-foreground: #101828;
   --color-muted: #667085;
-  --color-muted-foreground: #4b5563;
-  --color-border: #e5e7eb;
+  --color-muted-foreground: #475467;
+  --color-border: #e4e7ee;
   --color-card: #ffffff;
+
+  /* Deep navy for the hero, page headers and the footer: the brand blue
+     (--color-primary) taken darker, so large surfaces read calm and the gold
+     accent keeps its contrast. Not admin-themable on purpose. */
+  --color-navy: #071f4f;
+  --color-navy-soft: #0a2c6b;
+
+  /* One elevation scale for cards (tinted with the brand navy, not grey). */
+  --shadow-card: 0 1px 2px rgb(7 31 79 / 0.05), 0 8px 24px -12px rgb(7 31 79 / 0.12);
+  --shadow-card-hover: 0 2px 4px rgb(7 31 79 / 0.06), 0 22px 44px -18px rgb(7 31 79 / 0.24);
 
   --color-primary: #0b3d91;
   --color-primary-foreground: #ffffff;
@@ -29,6 +39,11 @@
 }
 
 .dark {
+  --color-navy: #050c1d;
+  --color-navy-soft: #0b1a3a;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.5);
+  --shadow-card-hover: 0 2px 4px rgb(0 0 0 / 0.45), 0 22px 44px -18px rgb(0 0 0 / 0.7);
+
   --color-background: #060a16;
   --color-section: #0d1424;
   --color-foreground: #eef1f8;
@@ -70,6 +85,11 @@
   --color-button-foreground: var(--color-button-foreground);
   --color-success: var(--color-success);
   --color-ring: var(--color-ring);
+  --color-navy: var(--color-navy);
+  --color-navy-soft: var(--color-navy-soft);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-card-hover: var(--shadow-card-hover);
 
   /* --font-cairo / --font-inter are injected at runtime by next/font/google
      on the <html> element (see app/layout.tsx); `inline` keeps this a
@@ -195,6 +215,15 @@
     background: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-cairo), var(--font-inter), system-ui, sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Arabic headings: Cairo is wide, so headings sit a little tighter in
+     line-height than body text and never use synthetic letter-spacing. */
+  h1,
+  h2,
+  h3 {
+    letter-spacing: 0;
   }
 
   ::selection {
@@ -212,6 +241,43 @@
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* The navy surface shared by the hero, page headers and the footer: a deep
+     vertical gradient, one soft blue light and one soft gold light. */
+  .bg-brand-navy {
+    background:
+      radial-gradient(60rem 30rem at 85% -10%, rgb(30 136 229 / 0.28), transparent 60%),
+      radial-gradient(40rem 26rem at 5% 110%, rgb(212 175 55 / 0.14), transparent 60%),
+      linear-gradient(180deg, var(--color-navy) 0%, var(--color-navy-soft) 100%);
+  }
+
+  /* A fine dot grid for navy surfaces; fades out toward the bottom. */
+  .bg-brand-dots {
+    background-image: radial-gradient(rgb(255 255 255 / 0.09) 1px, transparent 1px);
+    background-size: 22px 22px;
+    mask-image: linear-gradient(to bottom, black, transparent 85%);
+    -webkit-mask-image: linear-gradient(to bottom, black, transparent 85%);
+  }
+
+  /* Small label above a section title. */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 800;
+    color: var(--color-primary);
+  }
+  .eyebrow::before {
+    content: "";
+    width: 1.5rem;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--color-accent);
+  }
+  .dark .eyebrow {
+    color: var(--color-secondary);
   }
 
   .bg-glass {
@@ -238,5 +304,12 @@
     -webkit-background-clip: text;
     color: transparent;
     -webkit-text-fill-color: transparent;
+  }
+
+  /* Visitors who ask for reduced motion get the gold text without the sweep. */
+  @media (prefers-reduced-motion: reduce) {
+    .text-gold-shimmer {
+      animation: none;
+    }
   }
 }

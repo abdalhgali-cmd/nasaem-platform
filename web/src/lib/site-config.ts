@@ -3,7 +3,7 @@ export const siteConfig = {
   nameEn: "Nasaem Al-Haramain Travel & Tourism",
   shortName: "نسائم الحرمين",
   description:
-    "ابدأ طلب العمرة أو الموافقة الأمنية لمصر، وتابع حالة طلبك مباشرة مع نسائم الحرمين دون إنشاء حساب.",
+    "اطلب العمرة، الموافقة الأمنية لمصر، التأشيرات وخدمات السفر، وتابع حالة طلبك مباشرة مع نسائم الحرمين دون إنشاء حساب.",
   url: "https://nasaem-alharamain.com",
   phone: "+249 91 103 4372",
   whatsapp: "249911034372",

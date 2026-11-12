@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { Container } from "@/components/container";
-import { GradientBackdrop } from "@/components/decorative/gradient-backdrop";
 import { FadeIn } from "@/components/motion/fade-in";
 
 export function PageHero({
@@ -30,7 +29,7 @@ export function PageHero({
   const mobileImage = mobileImageUrl || desktopImage;
 
   return (
-    <section className="relative isolate overflow-hidden bg-gradient-to-b from-primary to-[#0a2f70] py-20 text-white sm:py-28">
+    <section className="bg-brand-navy relative isolate overflow-hidden py-14 text-white sm:py-20">
       {mobileImage ? (
         <div
           aria-hidden
@@ -46,7 +45,7 @@ export function PageHero({
         />
       ) : null}
       {desktopImage ? (
-        <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-primary/80 to-[#0a2f70]/90" />
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-navy/85 to-navy-soft/90" />
       ) : null}
       {motionEnabled && motionVideoUrl ? (
         <video
@@ -59,22 +58,24 @@ export function PageHero({
           src={motionVideoUrl}
         />
       ) : null}
-      <GradientBackdrop variant="dark" />
-      <Container className="relative text-center">
+      <div aria-hidden className="bg-brand-dots absolute inset-0" />
+      <div aria-hidden className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-l from-transparent via-accent/50 to-transparent" />
+      <Container className="relative">
         <FadeIn>
-          <nav aria-label="مسار التصفح" className="flex items-center justify-center gap-1.5 text-xs text-white/60">
+          <nav aria-label="مسار التصفح" className="flex items-center gap-1.5 text-xs font-semibold text-white/60">
             <Link href="/" className="hover:text-white">الرئيسية</Link>
             <ChevronLeft className="size-3.5" />
             <span className="text-white/90">{breadcrumb}</span>
           </nav>
 
-          <span className="mt-6 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-white/5 px-4 py-1.5 text-xs font-bold text-accent backdrop-blur-sm">
+          <p className="mt-7 inline-flex items-center gap-2.5 text-[0.8125rem] font-extrabold text-accent">
+            <span aria-hidden className="h-0.5 w-7 rounded-full bg-accent" />
             {eyebrow}
-          </span>
-          <h1 className="mx-auto mt-4 max-w-2xl text-balance text-3xl font-extrabold leading-tight sm:text-4xl lg:text-5xl">
+          </p>
+          <h1 className="mt-3 max-w-3xl text-balance text-3xl font-extrabold leading-snug sm:text-4xl lg:text-[2.75rem]">
             {title}
           </h1>
-          <p className="mx-auto mt-4 max-w-xl text-balance text-sm leading-relaxed text-white/75 sm:text-base">
+          <p className="mt-4 max-w-2xl text-sm leading-8 text-white/75 sm:text-base">
             {description}
           </p>
         </FadeIn>

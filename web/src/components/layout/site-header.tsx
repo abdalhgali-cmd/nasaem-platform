@@ -39,13 +39,13 @@ export function SiteHeader({
   return (
     <header
       className={cn(
-        "sticky top-0 z-40 w-full transition-all duration-300",
+        "sticky top-0 z-40 w-full border-b transition-[box-shadow,border-color,background-color] duration-300",
         scrolled
-          ? "bg-glass border-b border-border/70 shadow-sm"
-          : "border-b border-transparent bg-background/0"
+          ? "bg-glass border-border/80 shadow-[0_6px_24px_-16px_rgb(7_31_79/0.35)]"
+          : "border-border/60 bg-background"
       )}
     >
-      <div className="mx-auto flex h-20 w-full max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-10">
+      <div className="mx-auto flex h-[4.5rem] w-full max-w-7xl items-center justify-between gap-4 px-5 sm:px-8 lg:px-10">
         <Logo urls={logoUrls} />
 
         <nav
@@ -60,15 +60,16 @@ export function SiteHeader({
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "relative rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+                  "relative rounded-full px-3.5 py-2 text-sm font-bold transition-colors",
                   active
-                    ? "text-primary dark:text-secondary"
-                    : "text-foreground/80 hover:text-primary dark:hover:text-secondary"
+                    ? "bg-primary/[0.07] text-primary dark:bg-secondary/10 dark:text-secondary"
+                    : "text-foreground/75 hover:bg-foreground/[0.04] hover:text-foreground"
                 )}
+                aria-current={active ? "page" : undefined}
               >
                 {item.label}
                 {active ? (
-                  <span className="absolute inset-x-4 -bottom-0.5 h-0.5 rounded-full bg-accent" />
+                  <span className="absolute inset-x-4 -bottom-[1.15rem] h-0.5 rounded-full bg-accent" />
                 ) : null}
               </Link>
             );
@@ -78,9 +79,9 @@ export function SiteHeader({
         <div className="hidden items-center gap-2 xl:flex">
           <a
             href={`tel:${(contactPhone ?? siteConfig.phone).replace(/\s/g, "")}`}
-            className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-foreground/80 transition hover:text-primary"
+            className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-bold text-foreground/75 transition hover:text-primary"
           >
-            <Phone className="size-4" />
+            <Phone className="size-4 text-accent" />
             <span dir="ltr">{contactPhone ?? siteConfig.phone}</span>
           </a>
           <ThemeToggle />

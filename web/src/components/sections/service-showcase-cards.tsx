@@ -54,8 +54,8 @@ function SpotlightCard({ card, index }: { card: ShowcaseService; index: number }
         onPointerMove={onPointerMove}
         data-testid="home-service-card"
         data-service={card.key}
-        className={`group relative flex h-full min-h-44 flex-col overflow-hidden rounded-3xl border p-6 shadow-sm outline-none transition duration-300 hover:-translate-y-1 hover:border-accent/60 hover:shadow-xl hover:shadow-primary/10 focus-visible:-translate-y-1 focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40 motion-reduce:transition-none motion-reduce:hover:translate-y-0 ${
-          featured ? "border-primary/40 bg-gradient-to-bl from-[#082b6b] via-primary to-[#0a2f70] text-white" : "border-border bg-card"
+        className={`group relative flex h-full min-h-48 flex-col overflow-hidden rounded-3xl border p-6 shadow-card outline-none transition duration-300 hover:-translate-y-1 hover:border-accent/60 hover:shadow-card-hover focus-visible:-translate-y-1 focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40 motion-reduce:transition-none motion-reduce:hover:translate-y-0 sm:p-7 ${
+          featured ? "bg-brand-navy border-white/10 text-white" : "border-border bg-card"
         }`}
       >
         <span
@@ -79,7 +79,7 @@ function SpotlightCard({ card, index }: { card: ShowcaseService; index: number }
 export function ServiceShowcaseCards({ cards }: { cards: ShowcaseService[] }) {
   return (
     <MotionConfig reducedMotion="user">
-      <ul className="mt-12 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-testid="home-services">
+      <ul className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="home-services">
         {cards.map((card, index) => (
           <SpotlightCard key={card.key} card={card} index={index} />
         ))}

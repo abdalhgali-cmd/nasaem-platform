@@ -795,7 +795,7 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
 test.describe("Direct service routing — no intermediate catalog browsing", () => {
   test("Services catalog: Egypt Security Approval card goes straight to its dedicated page", async ({ page }) => {
     await page.goto("/services", { waitUntil: "domcontentloaded" });
-    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج NASAEM").scrollIntoViewIfNeeded();
+    await page.getByText("استعرض الخدمات المتاحة حاليًا من كتالوج نسائم الحرمين").scrollIntoViewIfNeeded();
     await page.locator("a").filter({ hasText: "الموافقة الأمنية لمصر" }).first().click();
     await expect(page).toHaveURL(/\/visas\/egypt-security-approval$/);
     await expect(page.locator("h1")).toContainText("الموافقة الأمنية");
@@ -913,7 +913,7 @@ test.describe("Service media — admin-controlled icon and safe fallbacks", () =
   });
 
 
-  test("a service with neither icon nor image falls back to the default catalog icon, never a broken image", async ({ page }) => {
+  test("a service with neither icon nor image falls back to its category's default icon, never a broken image", async ({ page }) => {
     test.setTimeout(180_000);
     await loginAsSeededAdmin(page);
     const egypt = await egyptCatalogService(page);
@@ -921,11 +921,11 @@ test.describe("Service media — admin-controlled icon and safe fallbacks", () =
     const set = await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: null } });
     expect(set.ok(), await set.text()).toBeTruthy();
     try {
-      const card = await egyptCatalogCard(page, "svg.lucide-package");
+      const card = await egyptCatalogCard(page, "svg.lucide-stamp");
       await expect(card.locator("img")).toHaveCount(0);
-      // The default Package icon specifically — the card's "اعرف المزيد"
-      // arrow icon is also an <svg>, so plain `svg` would match both.
-      await expect(card.locator("svg.lucide-package")).toBeVisible();
+      // The Egypt category's default (Stamp) specifically — the card's
+      // "اعرف المزيد" arrow icon is also an <svg>, so plain `svg` would match both.
+      await expect(card.locator("svg.lucide-stamp")).toBeVisible();
     } finally {
       await page.request.patch(`${BACKEND_URL}/api/services/${egypt.id}`, { data: { iconKey: egypt.iconKey ?? null } });
     }

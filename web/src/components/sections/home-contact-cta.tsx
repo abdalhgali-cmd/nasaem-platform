@@ -10,21 +10,25 @@ export async function HomeContactCta() {
   const whatsappHref = `https://wa.me/${settings.phone.replace(/\D/g, "")}`;
 
   return (
-    <section className="py-16">
+    <section className="py-16 sm:py-20">
       <Container>
-        <div className="overflow-hidden rounded-[2rem] border border-primary/15 bg-gradient-to-l from-primary/10 via-card to-accent/10 p-7 shadow-sm sm:p-10">
-          <div className="flex flex-col items-start justify-between gap-7 lg:flex-row lg:items-center">
+        <div className="bg-brand-navy relative isolate overflow-hidden rounded-[2rem] p-7 text-white shadow-card-hover sm:p-12">
+          <div aria-hidden className="bg-brand-dots absolute inset-0 -z-10" />
+          <div className="flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-center">
             <div className="max-w-2xl">
-              <p className="text-sm font-extrabold text-primary dark:text-secondary">تحتاج مساعدة؟</p>
-              <h2 className="mt-2 text-2xl font-black text-foreground sm:text-3xl">فريقنا جاهز لمساعدتك في اختيار الخدمة</h2>
-              <p className="mt-3 flex items-start gap-2 text-sm leading-7 text-muted-foreground">
-                <MapPin className="mt-1 size-4 shrink-0 text-primary" aria-hidden="true" />
+              <p className="inline-flex items-center gap-2.5 text-[0.8125rem] font-extrabold text-accent">
+                <span aria-hidden className="h-0.5 w-7 rounded-full bg-accent" />
+                تحتاج مساعدة؟
+              </p>
+              <h2 className="mt-3 text-2xl font-extrabold leading-snug sm:text-3xl">فريقنا جاهز لمساعدتك في اختيار الخدمة</h2>
+              <p className="mt-4 flex items-start gap-2 text-sm leading-7 text-white/75">
+                <MapPin className="mt-1 size-4 shrink-0 text-accent" aria-hidden="true" />
                 {settings.address}
               </p>
             </div>
 
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-              <Button asChild variant="outline" size="lg">
+              <Button asChild variant="outline" size="lg" className="border-white/25 text-white hover:border-white/60 hover:bg-white/10">
                 <a href={phoneHref}>
                   <Phone className="size-4" aria-hidden="true" />
                   اتصل بنا
@@ -36,7 +40,7 @@ export async function HomeContactCta() {
                   واتساب
                 </a>
               </Button>
-              <Button asChild size="lg">
+              <Button asChild variant="gold" size="lg">
                 <Link href="/contact">صفحة التواصل</Link>
               </Button>
             </div>

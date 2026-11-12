@@ -1,5 +1,4 @@
 import { Container } from "@/components/container";
-import { GradientBackdrop } from "@/components/decorative/gradient-backdrop";
 import { HeroContent } from "@/components/sections/hero-content";
 import { siteConfig } from "@/lib/site-config";
 import { getPublicHomepage } from "@/lib/homepage";
@@ -13,28 +12,18 @@ export async function Hero() {
     getPublicCatalog(),
   ]);
   const heroImageUrl = assetUrls["hero-image"];
-  // The agency's own logo for dark surfaces (same source as the header's).
-  const logoUrl = assetUrls["logo-dark"] || "/logo-dark.png";
 
   return (
-    <section className="relative isolate overflow-hidden bg-gradient-to-b from-[#082b6b] via-primary to-[#0a2f70] pb-24 pt-12 text-white sm:pt-20">
+    <section className="bg-brand-navy relative isolate overflow-hidden pb-16 pt-10 text-white sm:pb-20 sm:pt-14 lg:pb-24 lg:pt-20">
       {heroImageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- backend-hosted, admin-replaceable, not in next.config's remotePatterns (same reasoning as logo.tsx).
-        <img src={heroImageUrl} alt="" className="absolute inset-0 size-full object-cover opacity-25" />
-      ) : (
-        <GradientBackdrop variant="dark" />
-      )}
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(circle_at_15%_10%,rgba(212,175,55,0.18),transparent_45%),radial-gradient(circle_at_85%_30%,rgba(30,136,229,0.25),transparent_50%)]"
-      />
-      {/* A faint grid, fading out toward the bottom — texture without imagery. */}
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:56px_56px] [mask-image:linear-gradient(to_bottom,black,transparent_75%)]"
-      />
+        <img src={heroImageUrl} alt="" className="absolute inset-0 -z-10 size-full object-cover opacity-20" />
+      ) : null}
+      <div aria-hidden className="bg-brand-dots absolute inset-0 -z-10" />
+      {/* A single gold hairline closes the hero instead of a hard colour edge. */}
+      <div aria-hidden className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-l from-transparent via-accent/50 to-transparent" />
 
-      <Container className="relative flex flex-col items-center">
+      <Container className="relative">
         <HeroContent
           title={hero.title ?? undefined}
           description={hero.description ?? undefined}
@@ -42,14 +31,13 @@ export async function Hero() {
           ctaTarget={hero.ctaTarget ?? undefined}
           whatsapp={siteConfig.whatsapp}
           catalog={catalog}
-          logoUrl={logoUrl}
           defaultTitleNode={
             <>
-              خدمتك أوضح من البداية —{" "}
-              <span className="text-gold-shimmer">العمرة والموافقة الأمنية لمصر</span>
+              رحلتك تبدأ بطلب واضح،{" "}
+              <span className="text-gold-shimmer">ونتابعها معك خطوة بخطوة</span>
             </>
           }
-          defaultDescription={`${siteConfig.name} تتيح في الإصدار الأول طلب العمرة أو الموافقة الأمنية لمصر، مع المستندات والدفع والمتابعة في مسار واضح.`}
+          defaultDescription={`${siteConfig.name}: اختر خدمتك، أرسل بياناتك ومستنداتك مرة واحدة، وراجع السعر قبل الدفع، ثم تابع حالة طلبك من هاتفك.`}
         />
       </Container>
     </section>

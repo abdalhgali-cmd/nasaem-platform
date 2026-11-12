@@ -106,13 +106,13 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
   const requirements = requirementResult.key === requirementKey ? requirementResult.items : [];
 
   return (
-    <div id="start-request" className="bg-glass w-full max-w-5xl scroll-mt-24 rounded-[2rem] border border-white/20 p-3 text-right shadow-2xl shadow-primary/20 sm:p-5">
-      <div className="px-2 pb-4 sm:px-3">
-        <p className="text-lg font-extrabold text-foreground">ابدأ بإحدى خدمتي الإصدار الأول</p>
-        <p className="mt-1 text-sm text-muted-foreground">الأسعار والمستندات تأتي من كتالوج نسائم الحرمين مباشرة.</p>
+    <div id="start-request" className="w-full scroll-mt-28 rounded-[1.75rem] border border-white/10 bg-card p-5 text-start text-foreground shadow-[0_30px_80px_-30px_rgb(0_0_0/0.65)] sm:p-7">
+      <div className="pb-5">
+        <p className="text-xl font-extrabold text-foreground">ابدأ طلبك الآن</p>
+        <p className="mt-1.5 text-sm leading-6 text-muted-foreground">الأسعار والمستندات تأتي من كتالوج نسائم الحرمين مباشرة.</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="اختيار مسار الخدمة">
+      <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-section p-1.5" role="tablist" aria-label="اختيار مسار الخدمة">
         {paths.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -122,10 +122,10 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
             aria-controls="service-selection-panel"
             onClick={() => { setPath(key); setSelectedCode(""); }}
             className={cn(
-              "flex min-h-14 items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-sm font-bold transition",
+              "flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition",
               path === key
-                ? "border-primary bg-primary text-primary-foreground shadow-md"
-                : "border-border bg-background text-foreground hover:border-primary/40 hover:bg-primary/5"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-foreground/70 hover:bg-card hover:text-foreground"
             )}
           >
             <Icon className="size-4 shrink-0" aria-hidden="true" />
@@ -141,7 +141,7 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: reduceMotion ? 0 : 0.2 }}
-        className="mt-3 rounded-3xl border border-border bg-card p-4 sm:p-6"
+        className="mt-5"
       >
         {!selected ? (
           <div className="py-8 text-center">
@@ -149,7 +149,7 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
             <p className="mt-2 text-sm text-muted-foreground">ستظهر هنا فور تفعيلها من كتالوج الإدارة.</p>
           </div>
         ) : (
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(15rem,0.65fr)] lg:items-start">
+          <div className="grid gap-5">
             <div>
               {choices.length > 1 ? (
                 <label className="block">
@@ -157,7 +157,7 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
                   <select
                     value={selected.code}
                     onChange={(event) => setSelectedCode(event.target.value)}
-                    className="h-12 w-full rounded-xl border border-border bg-background px-3 font-bold text-foreground outline-none focus:border-primary"
+                    className="h-12 w-full rounded-xl border border-border bg-background px-3 text-sm font-bold text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
                   >
                     {choices.map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}
                   </select>
@@ -166,10 +166,10 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
 
               <div className={cn("flex items-start justify-between gap-4", choices.length > 1 && "mt-5")}>
                 <div>
-                  <h2 className="text-xl font-extrabold text-foreground">{selected.name}</h2>
+                  <h2 className="text-lg font-extrabold leading-7 text-foreground">{selected.name}</h2>
                   {selected.description ? <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">{selected.description}</p> : null}
                 </div>
-                <div className="shrink-0 rounded-2xl bg-primary/5 px-3 py-2 text-left">
+                <div className="shrink-0 rounded-2xl border border-primary/10 bg-primary/[0.04] px-3.5 py-2 text-left">
                   <span className="block text-[11px] font-bold text-muted-foreground">السعر</span>
                   <strong className={cn("mt-0.5 block text-sm", fixedPriceUnavailable ? "text-destructive" : "text-primary dark:text-secondary")} dir="ltr">
                     {selected.pricingMode === "FIXED"
@@ -182,7 +182,7 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
                 </div>
               </div>
 
-              <Button asChild={!fixedPriceUnavailable} disabled={fixedPriceUnavailable} variant="gold" size="lg" className="mt-6 w-full sm:w-auto">
+              <Button asChild={!fixedPriceUnavailable} disabled={fixedPriceUnavailable} variant="gold" size="lg" className="mt-6 w-full">
                 {fixedPriceUnavailable ? (
                   <span>غير متاح للحجز</span>
                 ) : (
@@ -192,10 +192,10 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
                   </Link>
                 )}
               </Button>
-              <p className="mt-2 text-xs text-muted-foreground">يمكنك بدء الطلب كزائر دون إنشاء حساب.</p>
+              <p className="mt-2.5 text-center text-xs text-muted-foreground">يمكنك بدء الطلب كزائر دون إنشاء حساب.</p>
             </div>
 
-            <div className="rounded-2xl bg-section p-4" aria-live="polite">
+            <div className="rounded-2xl border border-border bg-section/70 p-4" aria-live="polite">
               <p className="text-sm font-extrabold text-foreground">المستندات الأساسية</p>
               {loadingRequirements ? (
                 <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" /> جارٍ التحديث…</p>
