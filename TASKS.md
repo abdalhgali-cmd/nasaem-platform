@@ -1,5 +1,19 @@
 # Nasaem Platform — Release Tasks
 
+## Production release — 2026-11-12 (owner-approved, all production data is test data per owner)
+
+- MERGED: PR #197 (`chore/security-deps-20261111` → `main`, merge commit `8795547a3ef364820bbe1f887161ec7585689ee1`) carrying #191–#196. Its tree equals the CI-verified head `739c8f5` (Backend, Frontend build, Playwright E2E, build-apk, backup drill all green). #192–#196 remain open only because their bases were intermediate branches.
+- DEPLOYED API: Railway `spirited-luck` / production / `nasaem-platform`, deployment `c17f8125-e31a-4e27-ba5c-13aa431bbad1`. Built from `backend/Dockerfile`; `prisma migrate deploy` applied the 7 pending migrations (73 total) without error. Redeployed as `ac00c8d7-6732-4ecd-be4a-781e219713ff` after the owner added the website origin to `CORS_ORIGIN` ("No pending migrations to apply"). VERIFIED by the owner: `/api/health` → `database: connected`, `environment: production`, `pricesAreTestData: true`.
+- DEPLOYED WEBSITE: new service `nasaem-website` (production), root `/web`, `next` 16.4.6, deployment `7bc9933b-b6a9-40a9-9942-418d309fa77d`, domain `https://nasaem-website-production.up.railway.app`, health check `/healthz`. Variables: `NEXT_PUBLIC_API_URL` = production API, `NEXT_PUBLIC_PRODUCTION_WEB_HOSTS` = the Railway domain, `NODE_ENV=production`, `NEXT_TELEMETRY_DISABLED=1`, `PORT=8080`. VERIFIED by the owner: staff login to the admin panel works from the website.
+- Deploy mechanism: production does NOT auto-deploy from `main` (the #190 merge of 2026-11-09 produced no deployment). Both services are PINNED to commit `8795547` (Railway source `commitSha`). To release a newer commit, re-pin the source to that commit after its CI is green. Unpinning makes the service follow `main` again.
+- Rejected design: same-origin `/api` proxy for production. With `trust proxy` = 1 hop every customer would share the website's egress IP, so per-IP rate limits (login, public contact, tracking codes) would apply to all customers together. The production website calls the API directly; the API allows its origin through `CORS_ORIGIN`.
+- NOT DONE / NEXT:
+  1. Owner: attach `nasaem-alharamain.com` (and `www` if used) as a custom domain on `nasaem-website`, create the DNS records Railway shows, then remove the domain from Vercel. Both hosts are already production hosts in `web/src/lib/api-url.ts`; `https://nasaem-alharamain.com` is already in the API's `CORS_ORIGIN`, `www` is not.
+  2. Owner, admin panel: Egypt approval variants (air / land) and their fixed prices, Umrah package prices, payment accounts, exchange rates; then `PRICES_APPROVED=true` on the API when prices are final.
+  3. Not configured in production: WhatsApp (tracking codes are not delivered), `GOOGLE_CLIENT_ID` (Google login hidden), API health check path on Railway.
+  4. Android: real-device test, agency release key, `android-release.yml` with `MOBILE_API_BASE_URL` = production API.
+  5. Uploads volume backup and an off-platform copy of `prod-20261111T175746Z.pgcustom` (backup service `prod-db-backup`).
+
 ## All-services readiness — verification and fixes (2026-11-11, branch `feat/all-services-readiness-20261110`, draft PR #195; dependency upgrade in draft PR #196)
 
 Stack (all Draft, nothing merged, nothing deployed): #191 → #192 → #193 → #194 → #195 → #196.
