@@ -5,6 +5,7 @@ import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { app, request, loginAsSuperAdmin, uniqueSuffix } from "./helpers/api.js";
 import { testPhone } from "./helpers/workflow.js";
+import { withUmrahPassports } from "./helpers/umrah-intake.js";
 import prisma from "../src/config/database.js";
 import { arrangeUmrahQueue } from "../src/modules/umrah/umrah-queue-list.js";
 
@@ -55,7 +56,7 @@ describe("GET /contact-requests?serviceKind=UMRAH&sort=queue", () => {
     assert.equal(created.status, 201, JSON.stringify(created.body));
     service = created.body.data;
     for (let i = 0; i < 3; i++) {
-      const res = await request(app)
+      const res = await withUmrahPassports(request(app)
         .post("/api/contact-requests")
         .field("name", `TEST-QUEUE-${tag} عميل ${i}`)
         .field("phone", testPhone())
@@ -66,7 +67,7 @@ describe("GET /contact-requests?serviceKind=UMRAH&sort=queue", () => {
         .field("travelers", JSON.stringify([{ fullName: "معتمر", isPrimary: true }]))
         .field("acceptedTotal", "1000")
         .field("acceptedCurrency", "SAR")
-        .field("guarantorPhone", "+966 50 123 4567");
+        .field("guarantorPhone", "+966 50 123 4567"), service.id, 1);
       assert.equal(res.status, 201, JSON.stringify(res.body));
       ids.push(res.body.data.id);
       await new Promise((r) => setTimeout(r, 15));

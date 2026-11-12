@@ -184,6 +184,7 @@ describe("service intake — extended contact request creation", () => {
 
   test("multipart submission creates the request and its documents atomically", async () => {
     const phone = `099${uniqueSuffix()}`;
+    const passport = (await request(app).get(`/api/services/${umrahServiceId}/requirements/public`)).body.data.find(r => r.scope === "TRAVELER" && /جواز|passport/i.test(r.name));
 
     const res = await request(app)
       .post("/api/contact-requests")
@@ -193,6 +194,10 @@ describe("service intake — extended contact request creation", () => {
       .field("message", "طلب عمرة عبر المعالج مع مستندات")
       .field("serviceId", umrahServiceId)
       .field("travelerCount", "1")
+      .field("guarantorPhone", "+966501234567")
+      .field("travelers", JSON.stringify([{ fullName: "TEST معتمر" }]))
+      .field("documentRequirementIds", JSON.stringify([passport.id, ""]))
+      .field("documentTravelerIndexes", JSON.stringify(["0", ""]))
       .field("documentLabels", JSON.stringify(["صورة الجواز", "الصورة الشخصية"]))
       .attach("documents", Buffer.from([0x89, 0x50, 0x4e, 0x47]), {
         filename: "passport.png",

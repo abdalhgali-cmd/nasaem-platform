@@ -238,7 +238,14 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   async function submitIntake(travelers: string[]) {
     await app.locator('[name="t_name_0"]').waitFor({ timeout: 15_000 });
     for (let index = 1; index < travelers.length; index += 1) await app.locator("#addTravelerBtn").click();
-    for (const [index, traveler] of travelers.entries()) await app.fill(`[name="t_name_${index}"]`, traveler);
+    for (const [index, traveler] of travelers.entries()) {
+      await app.fill(`[name="t_name_${index}"]`, traveler);
+      // Egypt approval asks for each traveler's passport number and birth date.
+      if (await app.locator(`[name="t_passport_${index}"]`).count()) {
+        await app.fill(`[name="t_passport_${index}"]`, `SYNTHJ${index}${unique().slice(-5)}`);
+        await app.fill(`[name="t_birth_${index}"]`, "1990-01-01");
+      }
+    }
     await app.fill('[name="name"]', travelers[0]);
     await app.fill('[name="phone"]', phone);
     // Umrah asks for the guarantor's phone (required).
@@ -250,7 +257,12 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     await answerAgencyQuestions();
     // An Egypt passport slot has two inputs (camera, gallery): one file each.
     const keys = [...new Set(await app.locator("[data-slot-input]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.slotInput || "")))];
-    for (const key of keys) await app.locator(`[data-slot-input="${key}"]`).last().setInputFiles(png(`doc-${key.slice(-6)}.png`));
+    // One file at a time, as a customer picks them: an accepted file re-draws
+    // the form, so the next input is only chosen once the previous one is in.
+    for (const [index, key] of keys.entries()) {
+      await app.locator(`[data-slot-input="${key}"]`).last().setInputFiles(png(`doc-${key.slice(-6)}.png`));
+      await expect(app.locator(".slot.slot-ok")).toHaveCount(index + 1, { timeout: 15_000 });
+    }
     // Passport photos are checked on the device first; wait until all are in.
     await expect(app.locator(".slot.slot-ok")).toHaveCount(await app.locator(".slot").count(), { timeout: 15_000 });
     // A fixed price is confirmed once, here, beside the send button.

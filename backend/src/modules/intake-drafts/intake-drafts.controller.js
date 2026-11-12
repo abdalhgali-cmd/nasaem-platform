@@ -13,7 +13,7 @@ import {
   submitDraft,
   updateDraft,
 } from "./intake-drafts.service.js";
-import { validateEgyptClearanceDraft } from "./egypt-clearance-draft.js";
+
 import { issuePaymentAccess } from "../contact-request-payment-access/payment-access.service.js";
 import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-scope/intake-scope.js";
 
@@ -28,15 +28,20 @@ const DRAFT_ERROR_RESPONSES = {
   SUBMISSION_KEY_CONFLICT: { status: 409, message: "مفتاح الإرسال مستخدم لطلب آخر" },
   DRAFT_CHANGED: { status: 409, message: "تغيّرت بيانات الطلب أثناء الإرسال. راجعها ثم أعد المحاولة" },
   INCOMPLETE_DRAFT: { status: 400, message: "الاسم ورقم الهاتف مطلوبان قبل إرسال الطلب" },
+  EGYPT_VARIANT_REQUIRED: { status: 400, message: "اختر نوع الموافقة وطريقة الدخول قبل إرسال الطلب." },
   EGYPT_CLEARANCE_INCOMPLETE: {
     status: 400,
-    message: "يرجى إكمال بيانات الموافقة الأساسية ورفع صورة الجواز قبل إرسال الطلب",
+    message: "أكمل بيانات كل مسافر وارفع جوازه قبل إرسال طلب الموافقة.",
   },
   EGYPT_VARIANT_UNAVAILABLE: { status: 409, message: "هذا النوع من الموافقة غير متاح للحجز حاليًا." },
   FIXED_TOTAL_REQUIRED: { status: 400, message: "أكّد الإجمالي النهائي قبل إرسال الطلب." },
   ENTRY_MODE_MISMATCH: { status: 400, message: "طريقة الدخول المرسلة لا تطابق نوع الموافقة المختار. اختر النوع الصحيح ثم أعد الإرسال." },
   ENTRY_MODE_INVALID: { status: 400, message: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر." },
   GUARANTOR_PHONE_INVALID: { status: 400, message: "رقم هاتف الضامن غير صحيح." },
+  GUARANTOR_PHONE_REQUIRED: { status: 400, message: "رقم هاتف الضامن إلزامي لإرسال طلب العمرة." },
+  UMRAH_PACKAGE_SELECTION_INVALID: { status: 400, message: "طلب باقة العمرة لا يقبل نوع تأشيرة منفصلًا. اختر باقة العمرة وأعد المحاولة." },
+  UMRAH_PASSPORT_REQUIRED: { status: 400, message: "ارفع جواز سفر لكل معتمر قبل إرسال الطلب." },
+  UMRAH_TRAVELERS_REQUIRED: { status: 400, message: "أكمل اسم كل معتمر وفق العدد المحدد للطلب." },
   EXTRA_CONTACT_PHONE_INVALID: { status: 400, message: "رقم هاتف جهة الاتصال الإضافية غير صحيح." },
   TRAVEL_DATE_REQUIRED: { status: 400, message: "حدّد تاريخ السفر المفضل لهذه الباقة (تاريخ مبدئي وليس حجزًا مؤكدًا)." },
   TRAVEL_DATE_INVALID: { status: 400, message: "تاريخ السفر المفضل غير صحيح." },
@@ -195,12 +200,6 @@ export async function submitDraftController(req, res, next) {
     if (await newApplicationRefusal(draft)) {
       return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
     }
-    const egyptValidation = await validateEgyptClearanceDraft(draft);
-    if (egyptValidation) {
-      const errorResponse = respondToDraftError(res, egyptValidation);
-      if (errorResponse) return errorResponse;
-    }
-
     const result = await submitDraft(req.params.token, parsed.data);
     if (result.error === "ALREADY_SUBMITTED") {
       const replay = await replayIfSameSubmission(res, req.params.token, parsed.data.submissionKey);

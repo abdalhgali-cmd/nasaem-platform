@@ -1,5 +1,27 @@
 # Nasaem Platform — Release Tasks
 
+## All-services readiness — verification and fixes (2026-11-11, branch `feat/all-services-readiness-20261110`, draft PR #195; dependency upgrade in draft PR #196)
+
+Stack (all Draft, nothing merged, nothing deployed): #191 → #192 → #193 → #194 → #195 → #196.
+
+- VERIFIED (GitHub Actions on `1998b6f`, PR #195): Backend tests, Frontend typecheck + build, Playwright E2E, build-apk, PostgreSQL backup + restore drill — all success. The previous head `71a235a` had Backend failing (9 tests) and Playwright skipped.
+- VERIFIED (GitHub Actions on `30da4c5`, PR #196): Backend, Frontend typecheck + build, Playwright E2E, backup drill — all success with `next` 16.4.6.
+- Fixed on #195:
+  - `service-scope/intake-scope.js`: the catalog availability guard no longer pre-empts the established answers — an unknown id keeps its 409 and a disabled Egypt variant keeps `EGYPT_VARIANT_UNAVAILABLE`; any other disabled catalog item is still refused under every scope, `ALL` included.
+  - `mobile/www/js/screens/home.js`: home threw a ReferenceError (`visaCount`, `serviceCountText` undefined) once the visas hub tile returned to the bento, so home showed «تعذر تحميل الخدمات».
+  - Browser tests aligned with the owner's 2026-11-10 scope; the Egypt journey fills passport number and birth date per traveler; passport files are picked one at a time; a service-only Egypt request is refused when new and kept as a historical fixture for follow-up.
+- Owner decisions 2026-11-11: (1) do not merge the stack into `main` yet; (2) hotels stay postponed in the app (not on home, not in the services list). NOT DECIDED: whether hotels are also removed from the website home/footer and from `APPROVED_INTAKE_SCOPE`.
+- NOT TESTED: real Android device, real Google sign-in, staging/production. `npm audit` still reports `xlsx` (no fix available), `zod` (major upgrade) and `deepmerge-ts` in the backend.
+- Known, not code: the `Vercel` commit status fails on every commit including `main` («Account is blocked»). Railway project `reasonable-connection` (old staging) has failed every `main` deployment since 2026-10-30.
+- Production (Railway `spirited-luck` / `nasaem-platform`) is still on `eb8eaa36` (2026-11-06); the #190 merge of 2026-11-09 produced no production deployment. `main` is 6 migrations ahead of production and this stack adds 1.
+- VERIFIED 2026-11-11 (owner-approved, Railway `spirited-luck` / production, new service `prod-db-backup` on its own volume `prod-db-backups`, read-only connection, no public database port):
+  - Backup: `pg_dump` custom format of the production database (PostgreSQL 18.6), file `prod-20261111T175746Z.pgcustom`, 200,581 bytes, sha256 `212c725b2d7e5f0e371e58b6478be18d5615c376340d429fd5bced96e01709a4`. Deployment `92861608-dd84-4236-966b-27f39dc554b4`.
+  - Restore: the dump restored into a throwaway server inside the backup container; all 56 tables match the source row counts (139 rows). Production has 66 migrations applied (latest `20261102120000_umrah_visa_service_deliverables`).
+  - Migration drill on that restored copy (deployment `75b2137a-2623-4f79-afd3-72a5908ebc4e`, no connection to production): the 7 pending migration files applied in order without error. Only changes: new empty table `UmrahQueueEntry`, `VisaRequirement` 4 → 5 (the required Umrah passport). Payments 0 and invoices 0 before and after.
+  - Limits: the drill ran the migration SQL files with `psql`, not `prisma migrate deploy`, and did not run `release:rollback-check`. NOT DONE: uploads volume backup (attached to the API service; owner takes a manual Railway volume backup) and an off-platform copy of the dump.
+- BLOCKED before a production deploy: uploads volume backup and an off-platform copy of the dump (owner).
+- NEXT: owner — production backup/restore, then merge order #191 → #196; decide the hotel scope on the website; resolve the Vercel integration.
+
 ## Umrah audit P0 draft privacy — 2026-11-08
 
 Owner approved implementation of the audit plan. Branch: `fix/umrah-p0-draft-privacy-20261108`, stacked on audit documentation #171.

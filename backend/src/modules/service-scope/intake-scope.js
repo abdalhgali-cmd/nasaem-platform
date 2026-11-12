@@ -1,5 +1,6 @@
 // Which services accept NEW customer applications (owner decision, PR #151:
-// customers are offered only Umrah and Egypt security approval).
+// Umrah and Egypt security approval only; widened by the owner on 2026-11-10
+// to the published services listed in APPROVED_INTAKE_SCOPE below).
 //
 // Enforced on the server for every public way to start an application:
 // POST /contact-requests, POST /intake-drafts/:token/submit,
@@ -15,11 +16,15 @@
 // environment needs no code change.
 import prisma from "../../config/database.js";
 import { deriveServiceKind } from "../contact-request-progress/request-progress.js";
+import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
 
-export const APPROVED_INTAKE_SCOPE = Object.freeze(["UMRAH", "EGYPT_CLEARANCE"]);
+// Owner expanded the scope on 2026-11-10. An explicit environment list can
+// still restrict a staged rollout; inactive catalog records stay inactive.
+// Hotels stay postponed (owner decision 2026-11-11): HOTEL is not in the default.
+export const APPROVED_INTAKE_SCOPE = Object.freeze(["UMRAH", "EGYPT_CLEARANCE", "FLIGHT", "FERRY", "FAMILY_VISIT", "VISA", "GENERAL"]);
 
 export const SERVICE_NOT_OFFERED_MESSAGE =
-  "هذه الخدمة غير متاحة للطلب حاليًا. نستقبل حاليًا طلبات العمرة والموافقة الأمنية لمصر فقط.";
+  "هذه الخدمة غير متاحة للطلب حاليًا. اختر خدمة متاحة من القائمة أو تواصل مع الوكالة.";
 
 /** The kinds open to new applications, or null when every service is open. */
 export function intakeScope(env = process.env) {
@@ -41,13 +46,20 @@ export function kindOpenForIntake(kind, env = process.env) {
  */
 export async function newApplicationRefusal({ serviceId = null, visaTypeId = null } = {}, { db = prisma, env = process.env } = {}) {
   if (!serviceId && !visaTypeId) return null;
-  if (!intakeScope(env)) return null;
   const [visaType, serviceRef] = await Promise.all([
-    visaTypeId ? db.visaType.findUnique({ where: { id: visaTypeId }, select: { code: true, category: true } }) : null,
-    serviceId ? db.service.findUnique({ where: { id: serviceId }, select: { code: true, category: true } }) : null,
+    visaTypeId ? db.visaType.findUnique({ where: { id: visaTypeId }, select: { code: true, category: true, active: true } }) : null,
+    serviceId ? db.service.findUnique({ where: { id: serviceId }, select: { code: true, category: true, active: true } }) : null,
   ]);
-  // Unknown ids are left to the existing validation (not found / unavailable).
+  // Unknown ids are left to the existing validation (not found / unavailable),
+  // which already answers them without creating anything.
   if (!visaType && !serviceRef) return null;
+  // Broad rollout is never permission to book a disabled item: checked even
+  // with PUBLIC_INTAKE_SCOPE=ALL and before creating data. A disabled Egypt
+  // approval variant keeps its own answer (EGYPT_VARIANT_UNAVAILABLE) from
+  // the submission services, which installed clients already understand.
+  const disabledVisa = visaType?.active === false && !isEgyptClearanceCode(visaType.code);
+  if (disabledVisa || serviceRef?.active === false) return { error: "SERVICE_NOT_OFFERED" };
+  if (!intakeScope(env)) return null;
   const kind = deriveServiceKind({ visaType, serviceRef });
   return kindOpenForIntake(kind, env) ? null : { error: "SERVICE_NOT_OFFERED", details: { kind } };
 }

@@ -7,6 +7,7 @@ import "./helpers/journeyLimits.js";
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
+import { withUmrahPassports } from "./helpers/umrah-intake.js";
 import { registerCustomer, uniqueSuffix } from "./helpers/api.js";
 import { createOrganization, createStaffUser, staffClient } from "./helpers/staff.js";
 import { PDF, trackingClient } from "./helpers/workflow.js";
@@ -36,7 +37,7 @@ async function pkg() {
 async function requestToExecution({ start = true } = {}) {
   const service = await pkg();
   const { agent, customer: owner } = await registerCustomer();
-  const res = await agent
+  const res = await withUmrahPassports(agent
     .post("/api/contact-requests")
     .set("X-Requested-With", "XMLHttpRequest")
     .field("name", "TEST-VS مقدم")
@@ -48,14 +49,14 @@ async function requestToExecution({ start = true } = {}) {
     .field("travelers", JSON.stringify([1, 2, 3].map((i) => ({ fullName: `المعتمر ${i}`, passportNo: `P3000${i}`, isPrimary: i === 1 }))))
     .field("acceptedTotal", String(PRICE * 3))
     .field("acceptedCurrency", "SAR")
-    .field("guarantorPhone", "+966 55 000 2222");
+    .field("guarantorPhone", "+966 55 000 2222"), service.id, 3);
   assert.equal(res.status, 201, JSON.stringify(res.body));
   const id = res.body.data.id;
   assert.equal((await employee.post(`/api/contact-requests/${id}/claim`).send({})).status, 200);
   const customer = trackingClient(owner.phone);
   // The package asks for the guarantor's residence permit: the customer sends it, staff accept it.
   const checklist = (await request(app).get(`/api/services/${service.id}/requirements/public`)).body.data.filter((r) => r.type === "DOCUMENT" && r.required);
-  for (const requirement of checklist) {
+  for (const requirement of checklist.filter(r => r.scope !== "TRAVELER")) {
     const sent = await customer.post(`/api/tracking/requests/${id}/documents`).field("label", requirement.name).field("requirementId", requirement.id).attach("file", PDF(), { filename: "doc.pdf", contentType: "application/pdf" });
     assert.equal(sent.status, 201, JSON.stringify(sent.body));
   }

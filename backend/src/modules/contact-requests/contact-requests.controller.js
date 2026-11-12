@@ -53,11 +53,17 @@ import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-s
 // createContactRequest instead when a Service Intake submission's
 // documentRequirementIds fail their requirement's own rules.
 const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
+  EGYPT_VARIANT_REQUIRED: "اختر نوع الموافقة وطريقة الدخول قبل إرسال الطلب.",
+  EGYPT_CLEARANCE_INCOMPLETE: "أكمل بيانات كل مسافر وارفع جوازه قبل إرسال طلب الموافقة.",
   EGYPT_VARIANT_UNAVAILABLE: "هذا النوع من الموافقة غير متاح للحجز حاليًا.",
   FIXED_TOTAL_REQUIRED: "أكّد الإجمالي النهائي قبل إرسال الطلب.",
   ENTRY_MODE_MISMATCH: "طريقة الدخول المرسلة لا تطابق نوع الموافقة المختار. اختر النوع الصحيح ثم أعد الإرسال.",
   ENTRY_MODE_INVALID: "طريقة الدخول غير صحيحة. اختر الطيران أو المعبر.",
   GUARANTOR_PHONE_INVALID: "رقم هاتف الضامن غير صحيح.",
+  GUARANTOR_PHONE_REQUIRED: "رقم هاتف الضامن إلزامي لإرسال طلب العمرة.",
+  UMRAH_PASSPORT_REQUIRED: "ارفع جواز سفر لكل معتمر قبل إرسال الطلب.",
+  UMRAH_TRAVELERS_REQUIRED: "أكمل اسم كل معتمر وفق العدد المحدد للطلب.",
+  UMRAH_PACKAGE_SELECTION_INVALID: "طلب باقة العمرة لا يقبل نوع تأشيرة منفصلًا. اختر باقة العمرة وأعد المحاولة.",
   EXTRA_CONTACT_PHONE_INVALID: "رقم هاتف جهة الاتصال الإضافية غير صحيح.",
   TRAVEL_DATE_REQUIRED: "حدّد تاريخ السفر المفضل لهذه الباقة (تاريخ مبدئي وليس حجزًا مؤكدًا).",
   TRAVEL_DATE_INVALID: "تاريخ السفر المفضل غير صحيح.",

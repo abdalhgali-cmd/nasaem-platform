@@ -21,18 +21,20 @@ const byCode = async (model, code) => prisma[model].findFirst({ where: { code },
 describe("public intake scope (approved: Umrah + Egypt security approval)", () => {
   before(() => {
     saved = process.env.PUBLIC_INTAKE_SCOPE;
-    delete process.env.PUBLIC_INTAKE_SCOPE; // the production default
+    process.env.PUBLIC_INTAKE_SCOPE = "UMRAH,EGYPT_CLEARANCE"; // explicit restricted rollout remains enforceable
   });
   after(() => {
     if (saved === undefined) delete process.env.PUBLIC_INTAKE_SCOPE;
     else process.env.PUBLIC_INTAKE_SCOPE = saved;
   });
 
-  test("configuration: unset → Umrah + Egypt; ALL → everything; an explicit list is honoured", () => {
+  test("configuration: approved services by default; ALL and explicit restrictions are honoured", () => {
     assert.deepEqual(intakeScope({}), [...APPROVED_INTAKE_SCOPE]);
     assert.equal(intakeScope({ PUBLIC_INTAKE_SCOPE: "all" }), null);
     assert.deepEqual(intakeScope({ PUBLIC_INTAKE_SCOPE: "umrah, egypt_clearance ,FLIGHT" }), ["UMRAH", "EGYPT_CLEARANCE", "FLIGHT"]);
-    assert.equal(kindOpenForIntake("FLIGHT", {}), false);
+    assert.equal(kindOpenForIntake("FLIGHT", {}), true);
+    assert.equal(kindOpenForIntake("FLIGHT", { PUBLIC_INTAKE_SCOPE: "UMRAH,EGYPT_CLEARANCE" }), false);
+    assert.equal(kindOpenForIntake("UNKNOWN_KIND", {}), false);
     assert.equal(kindOpenForIntake("FLIGHT", { PUBLIC_INTAKE_SCOPE: "ALL" }), true);
   });
 
@@ -44,7 +46,7 @@ describe("public intake scope (approved: Umrah + Egypt security approval)", () =
       const res = await request(app).post("/api/contact-requests").send({ name: "عميل نطاق", phone: phone(), message: "طلب خارج النطاق المعتمد", [field]: target.id });
       assert.equal(res.status, 403, `${code}: ${JSON.stringify(res.body)}`);
       assert.equal(res.body.code, "SERVICE_NOT_OFFERED");
-      assert.match(res.body.message, /العمرة والموافقة الأمنية لمصر/);
+      assert.match(res.body.message, /غير متاحة للطلب حاليًا/);
       assert.equal(await prisma.contactRequest.count(), before, `${code}: nothing created`);
     }
   });

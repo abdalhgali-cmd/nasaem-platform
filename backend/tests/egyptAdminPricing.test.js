@@ -92,7 +92,7 @@ async function submitAir(acceptedTotal) {
     .field("phone", `091${String(Date.now()).slice(-7)}`)
     .field("message", "TEST-EGP")
     .field("visaTypeId", visa.id)
-    .field("travelers", JSON.stringify([{ fullName: "TEST-EGP مسافر", isPrimary: true }, { fullName: "TEST-EGP مرافق" }]))
+    .field("travelers", JSON.stringify([{ fullName: "TEST-EGP مسافر", passportNo: "SYNTH-EGP1", birthDate: "1990-01-01", isPrimary: true }, { fullName: "TEST-EGP مرافق", passportNo: "SYNTH-EGP2", birthDate: "1992-01-01" }]))
     .field("travelerCount", "2")
     .field("acceptedTotal", String(acceptedTotal))
     .field("acceptedCurrency", "USD");

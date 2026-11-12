@@ -269,11 +269,14 @@ function StepNav({
 export function ServiceIntakeWizard({
   service,
   initialServiceCode,
+  serviceCatalog = "packages",
   visaCategory,
 }: {
   service: IntakeServiceKind;
   /** Deep-link into a specific package/visa type by its Service/VisaType code (e.g. from a package card's CTA). */
   initialServiceCode?: string;
+  /** A dedicated non-visa service uses the Service catalog, not Umrah packages. */
+  serviceCatalog?: "packages" | "services";
   /**
    * Restricts the "اختر نوع التأشيرة" step to one VisaType.category
    * (INTERNATIONAL/UMRAH/FAMILY_VISIT/OTHER — see backend/src/utils/enums.js).
@@ -342,6 +345,7 @@ export function ServiceIntakeWizard({
   // drops files that no longer apply instead of silently keeping them
   // under a stale label).
   const [requirements, setRequirements] = React.useState<PublicRequirement[]>([]);
+  const [requirementsError, setRequirementsError] = React.useState("");
   const [loadingRequirements, setLoadingRequirements] = React.useState(false);
   const [documentFilesBySlotKey, setDocumentFilesBySlotKey] = React.useState<
     Record<string, File[]>
@@ -765,7 +769,7 @@ export function ServiceIntakeWizard({
     let ignore = false;
 
     const query = visaCategory ? `?visaCategory=${encodeURIComponent(visaCategory)}` : "";
-    const catalogUrl = service === "package"
+    const catalogUrl = service === "package" && serviceCatalog === "packages"
       ? `${API_URL}/services/public/packages`
       : `${API_URL}/services/public${query}`;
 
@@ -779,7 +783,7 @@ export function ServiceIntakeWizard({
       .then((payload) => {
         if (ignore) return;
         if (service === "package") {
-          setServices(Array.isArray(payload?.data) ? payload.data : []);
+          setServices(Array.isArray(payload?.data) ? payload.data : payload?.data?.services ?? []);
           setVisaTypes([]);
         } else {
           setServices(payload?.data?.services ?? []);
@@ -799,11 +803,11 @@ export function ServiceIntakeWizard({
     return () => {
       ignore = true;
     };
-  }, [service, visaCategory]);
+  }, [service, visaCategory, serviceCatalog]);
 
   const packageServices = React.useMemo(
-    () => services.filter((s) => s.category === "UMRAH_PACKAGE"),
-    [services]
+    () => serviceCatalog === "services" ? services.filter(s => s.code === initialServiceCode) : services.filter(s => s.category === "UMRAH_PACKAGE"),
+    [services, serviceCatalog, initialServiceCode]
   );
   const umrahService = React.useMemo(
     () => services.find((s) => s.category === "umrah"),
@@ -901,16 +905,18 @@ export function ServiceIntakeWizard({
     }
 
     setLoadingRequirements(true);
+    setRequirementsError("");
+    setRequirements([]);
     setDocumentFilesBySlotKey({});
 
     fetch(`${API_URL}/${requirementsEndpoint}/requirements/public`)
-      .then((res) => res.json())
+      .then((res) => { if (!res.ok) throw new Error("requirements unavailable"); return res.json(); })
       .then((payload) => {
         if (ignore) return;
         setRequirements(Array.isArray(payload?.data) ? payload.data : []);
       })
       .catch(() => {
-        if (!ignore) setRequirements([]);
+        if (!ignore) { setRequirements([]); setRequirementsError("تعذّر تحميل المستندات المطلوبة. أعد تحميل الصفحة للمحاولة مجددًا؛ طلبك محفوظ."); }
       })
       .finally(() => {
         if (!ignore) setLoadingRequirements(false);
@@ -1406,6 +1412,15 @@ export function ServiceIntakeWizard({
     setPriceConfirmed(false);
   }, [fixedPrice?.total, fixedPrice?.currency]);
 
+  function umrahDocumentsReady() {
+    const passports = documentSlots.filter(slot => slot.requirement.scope === "TRAVELER" && PASSPORT_KEYWORD_PATTERN.test(`${slot.requirement.attachmentType || ""} ${slot.requirement.name}`));
+    return !loadingRequirements && !requirementsError && passports.length === filledTravelers.length && passports.length > 0 &&
+      documentSlots.filter(slot => slot.requirement.required).every(slot => resumable
+        ? slot.entries?.some(entry => entry.status === "uploaded")
+        : slot.files.length > 0) &&
+      !documentSlots.some(slot => slot.entries?.some(entry => entry.status === "uploading" || entry.status === "error"));
+  }
+
   function canGoNext() {
     const current = steps[step];
 
@@ -1423,7 +1438,12 @@ export function ServiceIntakeWizard({
     }
 
     if (current === "details") {
-      return !travelers.some((t) => t.ocrPending) && duplicatePassports.size === 0;
+      return !travelers.some((t) => t.ocrPending) && duplicatePassports.size === 0 &&
+        (!needsGuarantor || travelers.every(t => t.fullName.trim().length > 0));
+    }
+
+    if (current === "documents" && needsGuarantor) {
+      return umrahDocumentsReady();
     }
 
     if (current === "documents" && resumable) {
@@ -1479,6 +1499,7 @@ export function ServiceIntakeWizard({
   // into the request. The documents are already stored; none is sent again.
   async function submitFromDraft() {
     if (needsGuarantor && !isValidContactPhone(guarantorPhone)) throw new Error("أدخل رقم هاتف الضامن قبل إرسال الطلب.");
+    if (needsGuarantor && !umrahDocumentsReady()) throw new Error("ارفع جواز كل معتمر والمستندات المطلوبة قبل إرسال الطلب.");
     const inSlots = documentSlots.flatMap((slot) => slot.entries ?? []);
     if (inSlots.some((entry) => entry.status === "uploading")) throw new Error("انتظر اكتمال رفع المستندات ثم أرسل الطلب.");
     if (inSlots.some((entry) => entry.status === "error")) throw new Error("لم يكتمل رفع مستند. أعد المحاولة أو أزله ثم أرسل الطلب.");
@@ -1838,7 +1859,7 @@ export function ServiceIntakeWizard({
 
       {current === "select" ? (
         <StepShell
-          title={service === "package" ? "اختر الباقة" : "اختر نوع التأشيرة"}
+          title={service === "package" ? serviceCatalog === "services" ? "الخدمة المختارة" : "اختر الباقة" : "اختر نوع التأشيرة"}
         >
           <div className="grid gap-3">
             {(service === "package" ? packageServices : visaTypes).map((item) => {
@@ -1981,7 +2002,7 @@ export function ServiceIntakeWizard({
             {needsGuarantor ? (
               <>
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
-                  <label className={labelClass} htmlFor="umrah-guarantor-phone">رقم هاتف الضامن</label>
+                  <label className={labelClass} htmlFor="umrah-guarantor-phone">رقم هاتف الضامن (إلزامي)</label>
                   <input
                     id="umrah-guarantor-phone"
                     data-testid="umrah-guarantor-phone"
@@ -2174,12 +2195,17 @@ export function ServiceIntakeWizard({
       {current === "documents" ? (
         <StepShell
           title="المستندات المطلوبة"
-          description="يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."
+          description={needsGuarantor ? "ارفع جواز سفر لكل معتمر وإقامة الضامن قبل إرسال الطلب." : "يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."}
         >
           <div className="flex flex-col gap-3">
             {resumable ? (
               <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground" data-testid="resumable-note">
                 تُحفظ المستندات على حسابك المؤقت فور اختيارها، فلا تضيع عند إعادة تحميل الصفحة أو انقطاع الاتصال، ولا تُرسل مرة ثانية عند إرسال الطلب.
+              </p>
+            ) : null}
+            {needsGuarantor && !loadingRequirements && !requirementsError ? (
+              <p role="status" aria-live="polite" className="text-sm font-semibold text-foreground" data-testid="required-documents-progress">
+                المستندات المطلوبة: {documentSlots.filter(slot => slot.requirement.required && (resumable ? slot.entries?.some(entry => entry.status === "uploaded") : slot.files.length > 0)).length} من {documentSlots.filter(slot => slot.requirement.required).length} مكتملة
               </p>
             ) : null}
             {documentsNotice ? (
@@ -2257,6 +2283,7 @@ export function ServiceIntakeWizard({
                 ))}
               </div>
             ) : null}
+            {requirementsError ? <p role="alert" className="text-sm text-destructive">{requirementsError}</p> : null}
             {loadingRequirements ? (
               <div className="flex justify-center py-6">
                 <Loader2 className="size-6 animate-spin text-primary" />
@@ -2492,7 +2519,10 @@ export function ServiceIntakeWizard({
 // "from" figure for a quoted one), the SDG equivalent only from the agency's
 // active exchange rate, and short lists of what is and is not included.
 function PackageOptionDetails({ item }: { item: PublicService }) {
-  const { kind, included, excluded } = umrahPackageDetails(item.features);
+  const details = umrahPackageDetails(item.features);
+  const umrah = ["UMRAH_PACKAGE", "umrah", "umrah_package"].includes(item.category);
+  const { included, excluded } = details;
+  const kind = umrah ? details.kind : null;
   const price = Number(item.basePrice);
   const fixed = item.pricingMode === "FIXED" && price > 0;
   const perTraveler = item.priceUnit === "PER_TRAVELER";
@@ -2506,7 +2536,7 @@ function PackageOptionDetails({ item }: { item: PublicService }) {
       {fixed ? (
         <span className="font-bold text-foreground" data-testid="package-price">
           السعر: <span dir="ltr">{price.toLocaleString("en-US")} {item.currency}</span>
-          {perTraveler ? " للمعتمر" : " للطلب"}
+          {perTraveler ? umrah ? " للمعتمر" : " للمسافر" : " للطلب"}
         </span>
       ) : price > 0 ? (
         <span className="text-muted-foreground">

@@ -96,6 +96,19 @@ export function validateTravelers(travelers = []) {
   return errors;
 }
 
+export function validateEgyptTravelers(travelers = [], today = new Date().toISOString().slice(0, 10)) {
+  const problems = [];
+  travelers.forEach((t, index) => {
+    if (!String(t.passportNo || "").trim()) problems.push({ index, field: "passportNo", message: `اكتب رقم جواز المسافر ${index + 1}` });
+    const day = t.birthDate || "";
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(day + "T00:00:00Z") : null;
+    if (!date || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day || day > today) {
+      problems.push({ index, field: "birthDate", message: `أدخل تاريخ ميلاد صحيحًا للمسافر ${index + 1}` });
+    }
+  });
+  return problems;
+}
+
 // Missing required documents and unusable files, per slot. `files` maps slot
 // key -> File. Nothing is "complete" while a required slot is empty.
 export function validateSlots(slots, files) {

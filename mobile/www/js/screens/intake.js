@@ -7,7 +7,7 @@ import { newSubmissionKey, submitRequestForm, submitFailureMessage, showSubmitte
 import { confirmationNotice, parseRequirementsResponse } from "../experience-core.js";
 import {
   MAX_TRAVELERS, requirementApplies, buildDocumentSlots, validateFile, validateContact, removeTravelerFiles,
-  validateTravelers, validateSlots, buildUploadParts, collectAnswers, missingAnswers, draftKey, serializeDraft, parseDraft,
+  validateTravelers, validateEgyptTravelers, validateSlots, buildUploadParts, collectAnswers, missingAnswers, draftKey, serializeDraft, parseDraft,
 } from "../intake-core.js";
 import { setTrackingPrefill } from "../tracking.js";
 import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-view.js";
@@ -266,6 +266,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     if (egyptMode && stepBody.querySelector('[name="email"]')) state.values.email = read("email").trim();
     state.values.travelers = state.values.travelers.map((traveler, index) => ({
       ...traveler,
+      ...(egyptMode ? { passportNo: read(`t_passport_${index}`).trim().toUpperCase(), birthDate: read(`t_birth_${index}`) } : {}),
       fullName: stepBody.querySelector(`[name="t_name_${index}"]`) ? read(`t_name_${index}`).trim() : traveler.fullName || "",
     }));
     if (stepBody.querySelector('[name="notes"]')) state.values.notes = read("notes");
@@ -339,6 +340,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
           <span>الاسم كما في جواز السفر *</span>
           <input name="t_name_${index}" value="${esc(traveler.fullName || "")}" autocomplete="off">
         </label>
+        ${egyptMode ? `<label class="field"><span>رقم الجواز *</span><input name="t_passport_${index}" value="${esc(traveler.passportNo || "")}" dir="ltr" autocapitalize="characters" autocomplete="off" maxlength="40" required></label><label class="field"><span>تاريخ الميلاد *</span><input name="t_birth_${index}" type="date" max="${new Date().toISOString().slice(0,10)}" value="${esc(traveler.birthDate || "")}" required></label><p class="field-hint">راجع البيانات كما تظهر في جواز السفر.</p>` : ""}
         ${own.map((slot) => slotRow(slot)).join("")}
       </fieldset>`;
   }
@@ -372,6 +374,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       <section class="form-section" id="travelersSection">
         <h3>${needsGuarantor ? "المعتمرون وجوازاتهم" : "المسافرون"}</h3>
         <p class="document-privacy-note">${icon("shield-check", { size: 16 })}<span>تُستخدم بيانات الجواز والمستندات لتنفيذ هذا الطلب، ويقتصر الوصول عليها على الموظفين المخولين.</span></p>
+        ${(needsGuarantor || egyptMode) ? `<p class="field-hint" role="status" aria-live="polite">المستندات المطلوبة: ${list.filter(s => s.requirement.required && state.files.has(s.key)).length} من ${list.filter(s => s.requirement.required).length} مكتملة</p>` : ""}
         <div id="travelersBox">${v.travelers.map((traveler, index) => travelerCard(traveler, index, list)).join("")}</div>
         ${v.travelers.length < maxTravelers ? `<button type="button" class="secondary add-traveler" id="addTravelerBtn">${icon("plus", { size: 18 })} أضف ${travelerWord === "المعتمر" ? "معتمرًا" : "مسافرًا"}</button>` : ""}
       </section>
@@ -401,7 +404,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         <section class="form-section" id="${needsGuarantor ? "umrahContactsSection" : "sharedDocsSection"}">
           <h3>${needsGuarantor ? "الضامن" : "مستندات الطلب"}</h3>
           ${shared.map((slot) => slotRow(slot)).join("")}
-          ${needsGuarantor ? `<label class="field"><span>رقم هاتف الضامن *</span><input name="guarantorPhone" inputmode="tel" dir="ltr" value="${esc(v.guarantorPhone || "")}" autocomplete="off"></label>` : ""}
+          ${needsGuarantor ? `<label class="field"><span>رقم هاتف الضامن (إلزامي)</span><input name="guarantorPhone" type="tel" required inputmode="tel" dir="ltr" value="${esc(v.guarantorPhone || "")}" autocomplete="off"></label>` : ""}
         </section>` : ""}
       ${needsGuarantor ? `
         <section class="form-section" id="umrahTravelSection">
@@ -550,6 +553,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     syncData();
     return [
       ...Object.values(validateTravelers(state.values.travelers)),
+      ...(egyptMode ? validateEgyptTravelers(state.values.travelers).map(p => p.message) : []),
       ...validateEgyptRoute(egyptMode, state.values),
       ...(egyptMode && state.values.email && !EMAIL_PATTERN.test(state.values.email) ? ["البريد الإلكتروني غير صالح؛ صحّحه أو اتركه فارغًا."] : []),
       ...validateSlots(slots(), state.files).map((problem) => problem.message),
@@ -579,7 +583,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     const submitBtn = stepActions.querySelector("#nextStepBtn");
     setLoading(submitBtn, true, "جارٍ الإرسال…");
 
-    const travelers = v.travelers.map((traveler, index) => ({ fullName: traveler.fullName, passportNo: traveler.passportNo || "", nationality: traveler.nationality || "", isPrimary: index === 0 }));
+    const travelers = v.travelers.map((traveler, index) => ({ fullName: traveler.fullName, passportNo: traveler.passportNo || "", ...(egyptMode ? { birthDate: traveler.birthDate } : {}), nationality: traveler.nationality || "", isPrimary: index === 0 }));
     const payload = new FormData();
     payload.set("name", v.name);
     payload.set("phone", v.phone);

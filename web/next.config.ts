@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { apiProxyTarget } from "./src/lib/api-proxy.mjs";
 
 // On Railway the website is built per service and NEXT_PUBLIC_API_URL is baked
 // in at build time. Without it the build would silently ship the local
@@ -9,7 +10,12 @@ if (process.env.RAILWAY_ENVIRONMENT_NAME && !String(process.env.NEXT_PUBLIC_API_
 }
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Opt-in proxy keeps the Google nonce and session cookies first-party.
+  // The destination is fixed by server configuration, never a request input.
+  async rewrites() {
+    const target = apiProxyTarget(process.env);
+    return target ? [{ source: "/api/:path*", destination: `${target}/:path*` }] : [];
+  },
 };
 
 export default nextConfig;
