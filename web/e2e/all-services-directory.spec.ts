@@ -20,6 +20,28 @@ test("Tasheel is found in the service catalog rather than the Umrah packages", a
   await expect(page.getByTestId("intake-option-name")).toContainText("تساهيل");
   await page.getByRole("button", { name: "التالي", exact: true }).click();
   await expect(page.getByPlaceholder("اسمك الكامل")).toBeVisible();
+  await page.getByPlaceholder("اسمك الكامل").fill("TEST موعد تجريبي");
+  await page.locator('input[type="tel"]').first().fill("0900000001");
+  await page.getByRole("button", { name: "التالي", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "بيانات المتقدمين", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "التالي", exact: true })).toBeDisabled();
+  await page.locator('input[type="number"]').fill("2");
+  await page.getByPlaceholder("اسم المسافر 1", { exact: true }).fill("TEST متقدم أول");
+  await page.getByPlaceholder("اسم المسافر 2", { exact: true }).fill("TEST متقدم ثان");
+  await page.getByRole("button", { name: "التالي", exact: true }).click();
+  const catalog = (await (await page.request.get(`${API}/services/public`)).json()).data;
+  const service = catalog.services.find((item: { code: string }) => item.code === "SVC-TASHEEL");
+  const requirements = (await (await page.request.get(`${API}/services/${service.id}/requirements/public`)).json()).data;
+  await expect(page.getByRole("button", { name: "التالي", exact: true })).toBeDisabled();
+  for (const requirement of requirements.filter((r: { attachmentType: string; required: boolean }) => r.required && r.attachmentType?.startsWith("tasheel_"))) {
+    const input = page.locator(`#answer-${requirement.id}`);
+    if (requirement.type === "SELECT") await input.selectOption("FAMILY_VISIT");
+    else await input.fill(requirement.attachmentType === "tasheel_center_city" ? "TEST القاهرة" : "TEST مصر");
+  }
+  await expect(page.getByRole("button", { name: "التالي", exact: true })).toBeEnabled();
+  // A preferred date is optional and does not confirm an appointment.
+  await page.getByRole("button", { name: "التالي", exact: true }).click();
+  await expect(page.getByText("TEST متقدم ثان", { exact: false }).first()).toBeVisible();
 });
 
 test("a work-visa service page loads the linked VisaType checklist", async ({ page }) => {

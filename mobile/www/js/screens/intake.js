@@ -81,7 +81,7 @@ function answerInput(requirement, value) {
   return `
     <label class="field" data-req="${esc(requirement.id)}">
       <span>${label}</span>
-      <input name="${name}" type="${type}" value="${esc(value ?? "")}">
+      <input name="${name}" type="${type}"${requirement.attachmentType === "tasheel_preferred_date" ? ` min="${new Date().toISOString().slice(0, 10)}"` : ""} value="${esc(value ?? "")}">
       ${hint}
     </label>`;
 }
@@ -370,7 +370,14 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     const list = slots();
     const shared = list.filter((slot) => slot.travelerIndex === null);
     const fixed = Boolean(pricing());
+    const questionsFirst = !needsGuarantor && !egyptMode;
+    const questionsHtml = answerRequirements().length ? `
+        <section class="form-section" id="answersSection">
+          <h3>معلومات يطلبها فريق الوكالة</h3>
+          ${answerRequirements().map((requirement) => answerInput(requirement, v.answers[requirement.id])).join("")}
+        </section>` : "";
     stepBody.innerHTML = `
+      ${questionsFirst ? questionsHtml : ""}
       <section class="form-section" id="travelersSection">
         <h3>${needsGuarantor ? "المعتمرون وجوازاتهم" : "المسافرون"}</h3>
         <p class="document-privacy-note">${icon("shield-check", { size: 16 })}<span>تُستخدم بيانات الجواز والمستندات لتنفيذ هذا الطلب، ويقتصر الوصول عليها على الموظفين المخولين.</span></p>
@@ -420,11 +427,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         ${egyptMode ? `<label class="field"><span>البريد الإلكتروني (لإرسال إيصال السداد)</span><input name="email" type="email" inputmode="email" dir="ltr" autocomplete="email" maxlength="200" value="${esc(v.email || "")}"></label>
         <p class="field-hint">اختياري. يصلك إيصال السداد عليه بعد تأكيد الدفع، ويبقى متاحًا في صفحة الطلب.</p>` : ""}
       </section>
-      ${answerRequirements().length ? `
-        <section class="form-section" id="answersSection">
-          <h3>معلومات يطلبها فريق الوكالة</h3>
-          ${answerRequirements().map((requirement) => answerInput(requirement, v.answers[requirement.id])).join("")}
-        </section>` : ""}
+      ${questionsFirst ? "" : questionsHtml}
       ${fixed ? "" : `
         <section class="form-section">
           <label class="field"><span>ملاحظات (اختياري)</span><textarea name="notes" rows="3">${esc(v.notes)}</textarea></label>

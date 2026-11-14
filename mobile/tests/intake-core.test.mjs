@@ -76,6 +76,8 @@ test("conditional requirements and typed answers", () => {
   const reqs = [{ id: "n", type: "NUMBER" }, { id: "y", type: "YES_NO" }, { id: "t", type: "TEXT", required: true }, passport];
   assert.deepEqual(collectAnswers(reqs, { n: "5", y: "false", t: "" }), { n: 5, y: false });
   assert.deepEqual(missingAnswers(reqs, { n: 5 }).map((m) => m.key), ["t"]);
+  for (const value of [null, "", "   "]) assert.deepEqual(missingAnswers(reqs, { t: value }).map(m => m.key), ["t"]);
+  assert.deepEqual(missingAnswers([{ id: "y", type: "YES_NO", required: true }, { id: "n", type: "NUMBER", required: true }], { y: false, n: 0 }), []);
 });
 
 test("drafts keep typed values only, expire, and survive garbage", () => {
