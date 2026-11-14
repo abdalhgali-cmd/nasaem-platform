@@ -53,6 +53,7 @@ import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-s
 // createContactRequest instead when a Service Intake submission's
 // documentRequirementIds fail their requirement's own rules.
 const UPLOAD_REQUIREMENT_ERROR_MESSAGES = {
+  SERVICE_INTAKE_INCOMPLETE: "أكمل معلومات الخدمة المطلوبة وبيانات المتقدمين قبل إرسال الطلب.",
   EGYPT_VARIANT_REQUIRED: "اختر نوع الموافقة وطريقة الدخول قبل إرسال الطلب.",
   EGYPT_CLEARANCE_INCOMPLETE: "أكمل بيانات كل مسافر وارفع جوازه قبل إرسال طلب الموافقة.",
   EGYPT_VARIANT_UNAVAILABLE: "هذا النوع من الموافقة غير متاح للحجز حاليًا.",

@@ -834,6 +834,7 @@ export function ServiceIntakeWizard({
       : "");
 
   const selectedPackage = packageServices.find((p) => p.id === effectiveServiceId);
+  const isAppointment = selectedPackage?.category === "tasheel";
   const selectedVisaType = visaTypes.find((v) => v.id === effectiveVisaTypeId);
   // Same rule as the server: an Umrah service or package request (an Umrah
   // visa type is not affected).
@@ -1216,7 +1217,7 @@ export function ServiceIntakeWizard({
   const steps = service === "umrah"
     ? ["customer", "details", "documents", "review"]
     : service === "package"
-      ? ["select", "customer", "trip", "details", "documents", "review"]
+      ? isAppointment ? ["select", "customer", "details", "documents", "review"] : ["select", "customer", "trip", "details", "documents", "review"]
       : ["select", "customer", "details", "documents", "review"];
 
   // Documents are tied to a traveler's place in the list; removing that traveler
@@ -1421,6 +1422,10 @@ export function ServiceIntakeWizard({
       !documentSlots.some(slot => slot.entries?.some(entry => entry.status === "uploading" || entry.status === "error"));
   }
 
+  function requiredAnswersComplete() {
+    return !loadingRequirements && !requirementsError && answerSlots.every(requirement => !requirement.required || Boolean(answers[requirement.id]?.trim()));
+  }
+
   function canGoNext() {
     const current = steps[step];
 
@@ -1439,8 +1444,10 @@ export function ServiceIntakeWizard({
 
     if (current === "details") {
       return !travelers.some((t) => t.ocrPending) && duplicatePassports.size === 0 &&
-        (!needsGuarantor || travelers.every(t => t.fullName.trim().length > 0));
+        (!(needsGuarantor || isAppointment) || travelers.every(t => t.fullName.trim().length > 0));
     }
+
+    if (current === "documents" && !requiredAnswersComplete()) return false;
 
     if (current === "documents" && needsGuarantor) {
       return umrahDocumentsReady();
@@ -1562,6 +1569,7 @@ export function ServiceIntakeWizard({
     );
 
     try {
+      if (!requiredAnswersComplete()) throw new Error("أكمل معلومات الخدمة المطلوبة، وتأكد من تحميل المتطلبات قبل إرسال الطلب.");
       if (resumable) {
         const outcome = await submitFromDraft();
         finishSubmission(outcome.response, outcome.payload);
@@ -1913,7 +1921,7 @@ export function ServiceIntakeWizard({
 
       {current === "trip" ? (
         <StepShell
-          title="متى ترغب في أداء العمرة؟"
+          title={needsGuarantor ? "متى ترغب في أداء العمرة؟" : "تفاصيل الرحلة"}
           description={
             needsGuarantor
               ? "حدد عدد المعتمرين وتاريخ السفر المفضل. التاريخ مبدئي وليس حجزًا مؤكدًا؛ تؤكد الوكالة الموعد لاحقًا."
@@ -2059,10 +2067,10 @@ export function ServiceIntakeWizard({
       ) : null}
 
       {current === "details" ? (
-        <StepShell title="بيانات الخدمة" description="أخبرنا بتفاصيل رحلتك.">
+        <StepShell title={isAppointment ? "بيانات المتقدمين" : "بيانات الخدمة"} description={isAppointment ? "أدخل الأسماء كما تظهر في جوازات السفر." : "أخبرنا بتفاصيل رحلتك."}>
           <div className="flex flex-col gap-4">
-            {service !== "package" ? <div className="flex flex-col gap-1.5">
-              <label className={labelClass}>عدد المسافرين</label>
+            {service !== "package" || isAppointment ? <div className="flex flex-col gap-1.5">
+              <label className={labelClass}>{isAppointment ? "عدد المتقدمين" : "عدد المسافرين"}</label>
               <input
                 type="number"
                 min={1}
@@ -2226,6 +2234,7 @@ export function ServiceIntakeWizard({
             ) : null}
             {!loadingRequirements && answerSlots.length > 0 ? (
               <div className="flex flex-col gap-3 rounded-xl border border-border/70 p-3">
+                <p className="text-xs text-muted-foreground">أكمل المعلومات المميزة بالنجمة للمتابعة.</p>
                 {answerSlots.map((requirement) => (
                   <div key={requirement.id} className="flex flex-col gap-1.5">
                     <label className="text-sm font-semibold text-foreground" htmlFor={`answer-${requirement.id}`}>
@@ -2274,6 +2283,7 @@ export function ServiceIntakeWizard({
                       <input
                         id={`answer-${requirement.id}`}
                         type={requirement.type === "NUMBER" ? "number" : requirement.type === "DATE" ? "date" : "text"}
+                        min={requirement.attachmentType === "tasheel_preferred_date" ? new Date().toISOString().slice(0, 10) : undefined}
                         value={answers[requirement.id] ?? ""}
                         onChange={(e) => setAnswers((prev) => ({ ...prev, [requirement.id]: e.target.value }))}
                         className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm outline-none transition focus:border-primary"

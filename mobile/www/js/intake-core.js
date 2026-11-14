@@ -157,7 +157,7 @@ export function collectAnswers(requirements, rawValues) {
 export function missingAnswers(requirements, answers) {
   return requirements
     .filter((requirement) => requirement.type !== "DOCUMENT" && requirement.required && requirementApplies(requirement, answers))
-    .filter((requirement) => answers[requirement.id] === undefined)
+    .filter((requirement) => answers?.[requirement.id] == null || (typeof answers[requirement.id] === "string" && !answers[requirement.id].trim()))
     .map((requirement) => ({ key: requirement.id, message: `أكمل: ${requirement.name}` }));
 }
 

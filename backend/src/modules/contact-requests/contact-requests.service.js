@@ -3,6 +3,7 @@ import prismaPackage from "@prisma/client";
 import { withMaskedTravelers } from "../../utils/passportMask.js";
 import { validateEgyptIntake } from "../egypt-clearance/egypt-intake-validation.js";
 import { validateUmrahPassports } from "../requirements/umrah-passport.js";
+import { validateServiceIntakeProfile } from "../requirements/service-intake-profiles.js";
 import { isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
 import { publicOrganizationId } from "../../utils/publicOrganization.js";
 import { pendingConfirmationCreate, sendRequestConfirmations } from "../customer-messages/customer-messages.service.js";
@@ -145,10 +146,12 @@ async function createContactRequestOnce(data, req, files) {
   // SERVICE_CATEGORY_FEATURE_FLAGS's own comment for this disclosed
   // boundary.
   let umrahContacts = null;
+  let intakeCode = null;
   let umrahTravel = null;
   let umrahPackage = null;
   if (data.serviceId) {
-    const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { category: true, features: true } });
+    const service = await prisma.service.findUnique({ where: { id: data.serviceId }, select: { code: true, category: true, features: true } });
+    intakeCode = service?.code;
     if (data.visaTypeId && isUmrahServiceCategory(service?.category)) return { error: "UMRAH_PACKAGE_SELECTION_INVALID" };
     const flagKey = service ? SERVICE_CATEGORY_FEATURE_FLAGS[service.category] : null;
     if (flagKey && !(await isFeatureEnabled(flagKey))) {
@@ -253,6 +256,7 @@ async function createContactRequestOnce(data, req, files) {
   let egyptRoute = null;
   if (data.visaTypeId) {
     const visaType = await prisma.visaType.findUnique({ where: { id: data.visaTypeId }, select: { code: true, active: true, pricingMode: true, basePrice: true, currency: true } });
+    intakeCode = visaType?.code;
     const unavailable = egyptVariantBookingError(visaType, { acceptedTotal: data.acceptedTotal });
     if (unavailable) return unavailable;
     const egypt = applyEgyptEntryMode(visaType?.code, requirementsSnapshot, data.answers);
@@ -286,6 +290,9 @@ async function createContactRequestOnce(data, req, files) {
     if (egyptError) return egyptError;
     if (!egyptEntryMode) return { error: "EGYPT_CLEARANCE_INCOMPLETE", details: { fields: ["entryMode"] } };
   }
+
+  const profileError = validateServiceIntakeProfile(intakeCode, { ...data, travelers, requirements: requirementsSnapshot });
+  if (profileError) return profileError;
 
   const baseData = {
     name: data.name,

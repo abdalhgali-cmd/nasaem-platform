@@ -5,6 +5,7 @@ import { FEATURE_FLAG_DESCRIPTIONS, FEATURE_FLAG_KEYS } from "../src/modules/fea
 import { reconcileEgyptClearanceRequirements } from "./seed-egypt-clearance.js";
 import { ensureEgyptClearanceVariants } from "./setup-egypt-clearance-variants.js";
 import { ensureUmrahPackageTypes } from "./setup-umrah-packages.js";
+import { ensureServiceIntakeProfiles } from "./setup-service-intake.js";
 
 const SERVICE_CATEGORIES = [
   { code: "SVC-FLIGHT", name: "تذاكر الطيران", category: "flight" },
@@ -539,6 +540,7 @@ async function main() {
   await reconcileEgyptClearanceRequirements();
   await ensureEgyptClearanceVariants();
   await ensureUmrahPackageTypes();
+  await ensureServiceIntakeProfiles(prisma);
 }
 
 main()

@@ -22,6 +22,7 @@ import { newApplicationRefusal, SERVICE_NOT_OFFERED_MESSAGE } from "../service-s
 // tracking/contact-request controllers already short-circuit their own
 // service error codes.
 const DRAFT_ERROR_RESPONSES = {
+  SERVICE_INTAKE_INCOMPLETE: { status: 400, message: "أكمل معلومات الخدمة المطلوبة وبيانات المتقدمين قبل إرسال الطلب." },
   NOT_FOUND: { status: 404, message: "الطلب غير موجود" },
   EXPIRED: { status: 410, message: "انتهت صلاحية هذا الطلب، يرجى بدء طلب جديد" },
   ALREADY_SUBMITTED: { status: 409, message: "تم إرسال هذا الطلب بالفعل" },

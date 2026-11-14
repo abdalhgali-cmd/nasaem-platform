@@ -9,6 +9,7 @@ import { pendingConfirmationCreate } from "../customer-messages/customer-message
 import { maybeRunPassportOcr } from "../passport-ocr/passport-ocr.service.js";
 import { getPublicChecklist } from "../requirements/requirements.service.js";
 import { validateUmrahPassports } from "../requirements/umrah-passport.js";
+import { validateServiceIntakeProfile } from "../requirements/service-intake-profiles.js";
 import { isUmrahServiceCategory } from "../requirements/umrah-guarantor.js";
 import { applyEgyptEntryMode, egyptVariantBookingError, resolveEgyptRoute } from "../egypt-clearance/egypt-clearance-variants.js";
 import { buildUmrahPackageSnapshot, resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
@@ -379,8 +380,10 @@ export async function submitDraft(token, { submissionKey, message, acceptedTotal
   let answers = draft.answers;
   let egyptEntryMode = null;
   let egyptRoute = null;
+  let intakeCode = null;
   if (draft.visaTypeId) {
     const visaType = await prisma.visaType.findUnique({ where: { id: draft.visaTypeId }, select: { code: true, active: true, pricingMode: true, basePrice: true, currency: true } });
+    intakeCode = visaType?.code;
     const unavailable = egyptVariantBookingError(visaType, { acceptedTotal });
     if (unavailable) return unavailable;
     const egypt = applyEgyptEntryMode(visaType?.code, requirementsSnapshot, answers);
@@ -397,7 +400,8 @@ export async function submitDraft(token, { submissionKey, message, acceptedTotal
   let umrahTravel = null;
   let umrahPackage = null;
   if (draft.serviceId && !draft.visaTypeId) {
-    const service = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { category: true, features: true } });
+    const service = await prisma.service.findUnique({ where: { id: draft.serviceId }, select: { code: true, category: true, features: true } });
+    intakeCode = service?.code;
     const umrah = resolveUmrahContacts(service?.category, { guarantorPhone, extraContactName, extraContactPhone });
     if (umrah.error) return umrah;
     umrahContacts = umrah.contacts;
@@ -411,6 +415,9 @@ export async function submitDraft(token, { submissionKey, message, acceptedTotal
     }
     umrahPackage = buildUmrahPackageSnapshot(service?.category, draft.serviceId, service?.features);
   }
+
+  const profileError = validateServiceIntakeProfile(intakeCode, { ...draft, travelers, answers, requirements: requirementsSnapshot });
+  if (profileError) return profileError;
 
   // Same server-side pricing as the app (contact-request-pricing/fixed-price.js):
   // a fixed-price item is recorded as FIXED only when the customer confirmed
