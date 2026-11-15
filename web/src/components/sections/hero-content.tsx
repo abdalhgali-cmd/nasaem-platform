@@ -166,6 +166,9 @@ function HeroEmblem({ logoUrl }: { logoUrl: string }) {
         {/* eslint-disable-next-line @next/next/no-img-element -- admin-replaceable backend asset or the bundled logo; same reasoning as logo.tsx. */}
         <img
           src={logoUrl}
+          // The bundled logo ships as small WebP copies (the 1536px PNG is
+          // ~670 KB); an admin-uploaded logo is served as uploaded.
+          {...(logoUrl === "/logo-dark.png" ? { srcSet: "/logo-dark-384.webp 384w, /logo-dark-768.webp 768w", sizes: "(min-width: 1024px) 330px, (min-width: 640px) 200px, 140px" } : {})}
           alt="نسائم الحرمين للسفر والسياحة"
           width={1536}
           height={1024}

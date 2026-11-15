@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { getTestDataFlag } from "@/lib/test-data-flag";
 import { Cairo, Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -75,7 +76,7 @@ export const viewport: Viewport = {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const [assetUrls, theme, publicSettings] = await Promise.all([getSiteAssetUrls(), getPublicTheme(), getPublicSiteSettings()]);
+  const [assetUrls, theme, publicSettings, testData] = await Promise.all([getSiteAssetUrls(), getPublicTheme(), getPublicSiteSettings(), getTestDataFlag()]);
   const logoUrls = { light: assetUrls.logo || undefined, dark: assetUrls["logo-dark"] || undefined };
   const themeOverrideCss = buildThemeOverrideCss(theme);
 
@@ -93,7 +94,7 @@ export default async function RootLayout({
             validated as #RRGGBB server-side and re-checked in theme.ts. */}
         {themeOverrideCss && <style dangerouslySetInnerHTML={{ __html: themeOverrideCss }} />}
         <ThemeProvider>
-          <SiteChrome logoUrls={logoUrls} publicSettings={publicSettings}>{children}</SiteChrome>
+          <SiteChrome logoUrls={logoUrls} publicSettings={publicSettings} testData={testData}>{children}</SiteChrome>
         </ThemeProvider>
       </body>
     </html>
