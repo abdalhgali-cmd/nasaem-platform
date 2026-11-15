@@ -1,6 +1,5 @@
-name: Production CORS read-only probe
-# One-off, read-only: which candidate origins does the production API allow?
-# GET only, public endpoint, no credentials, no secrets.
+name: Production deploy read-only probe
+# One-off, read-only: is the new website build live? GET only, no secrets.
 on:
   push:
     branches: [probe/production-cors-readonly-20261115]
@@ -10,15 +9,27 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     env:
-      API: https://nasaem-platform-production.up.railway.app/api
+      SITE: https://nasaem-website-production.up.railway.app
     steps:
-      - name: Allowed origins among candidates
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: New build markers
         run: |
-          for O in https://nasaem-website-production.up.railway.app https://nasaem-alharamain.com https://www.nasaem-alharamain.com http://nasaem-alharamain.com \
-            https://nasaem-platform-production.up.railway.app https://nasaem-website-staging-staging.up.railway.app https://adaptable-quietude-staging.up.railway.app \
-            https://nasaem-platform.vercel.app https://nasaem-alharamain.vercel.app https://nasaem.vercel.app https://nasaem-website.vercel.app https://web-nasaem.vercel.app \
-            http://localhost:3000 http://localhost:8081 http://localhost:5000 http://localhost https://localhost capacitor://localhost ionic://localhost \
-            https://api.nasaem-alharamain.com https://admin.nasaem-alharamain.com https://app.nasaem-alharamain.com https://evil.example; do
-            A=$(curl -sS -m 30 -o /dev/null -D - -H "Origin: $O" "$API/health" | grep -i "^access-control-allow-origin" | tr -d '\r' || true)
-            printf "%-62s → %s\n" "$O" "${A:-NOT ALLOWED}"
-          done
+          curl -sS -m 30 -o /dev/null -w "logo-dark-384.webp → %{http_code} %{size_download} bytes\n" "$SITE/logo-dark-384.webp"
+          curl -sS -m 30 "$SITE/" -o home.html
+          printf "home has «الإصدار الأول»: %s\n" "$(grep -c 'الإصدار الأول' home.html || true)"
+          printf "home has test-data strip in first HTML: %s\n" "$(grep -c 'data-testid=\"test-data-notice\"' home.html || true)"
+          npm init -y >/dev/null && npm i --no-save playwright@1 >/dev/null && npx playwright install --with-deps chromium >/dev/null
+          cat > m.mjs <<'JS'
+          import { chromium } from "playwright";
+          const b = await chromium.launch();
+          for (const w of [390, 1440]) {
+            const p = await (await b.newContext({ viewport: { width: w, height: w < 500 ? 780 : 900 } })).newPage();
+            await p.addInitScript(() => { window.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: "layout-shift", buffered: true }); });
+            await p.goto(process.env.SITE + "/umrah", { waitUntil: "networkidle" }); await p.waitForTimeout(1500);
+            console.log(w, "CLS", (await p.evaluate(() => window.__cls)).toFixed(3), "| step:", await p.locator('[data-testid="wizard-step-label"]').innerText().catch(() => "MISSING"));
+            await p.close();
+          }
+          await b.close();
+          JS
+          node m.mjs
