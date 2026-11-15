@@ -74,6 +74,25 @@ describe("release readiness check", () => {
   });
 });
 
+describe("published items without requirements", () => {
+  test("an active visa type with no active requirement is named; it clears once one is active", async () => {
+    const env = { NODE_ENV: "production", JWT_SECRET: "x".repeat(40), CORS_ORIGIN: "https://example.test" };
+    const code = `VISA-BARE-${Date.now()}`;
+    const visa = await prisma.visaType.create({ data: { code, name: "Bare visa", country: "SA", basePrice: 10, currency: "SAR", active: true } });
+    try {
+      const named = (report) => report.warnings.some((line) => line.includes("بلا أي متطلب") && line.includes(code));
+      assert.equal(named(await collectReadiness({ env })), true);
+      const requirement = await prisma.visaRequirement.create({ data: { visaTypeId: visa.id, name: "جواز السفر", required: true, type: "DOCUMENT", active: false } });
+      assert.equal(named(await collectReadiness({ env })), true, "an inactive requirement does not count");
+      await prisma.visaRequirement.update({ where: { id: requirement.id }, data: { active: true } });
+      assert.equal(named(await collectReadiness({ env })), false);
+    } finally {
+      await prisma.visaRequirement.deleteMany({ where: { visaTypeId: visa.id } });
+      await prisma.visaType.delete({ where: { id: visa.id } });
+    }
+  });
+});
+
 describe("deployment labels", () => {
   test("only the production deployment with owner-approved prices has real prices", async () => {
     const { deploymentName, pricesAreTestData } = await import("../src/config/deployment.js");

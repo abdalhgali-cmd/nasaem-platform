@@ -59,8 +59,12 @@ jobs:
             *) echo "::error::MOBILE_API_BASE_URL must be an https URL ending in /api"; exit 1;;
           esac
           case "$API_BASE_URL" in
-            *staging*|*localhost*) echo "::error::MOBILE_API_BASE_URL points at a non-production host: $API_BASE_URL"; exit 1;;
+            *staging*|*localhost*|*qa-*|*-qa.*|*-qa-*) echo "::error::MOBILE_API_BASE_URL points at a non-production host: $API_BASE_URL"; exit 1;;
           esac
+          # The host must be a live API that calls itself production: a QA or
+          # staging API with an innocent-looking name is refused here.
+          ENVIRONMENT="$(curl -sS -m 30 "$API_BASE_URL/health" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).environment||"")}catch{console.log("")}})')"
+          if [ "$ENVIRONMENT" != "production" ]; then echo "::error::$API_BASE_URL/health reports environment '$ENVIRONMENT', not 'production'"; exit 1; fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
