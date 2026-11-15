@@ -6,3 +6,5 @@
 *.keystore
 *.p12
 nasaem-release*
+scripts/smoke/node_modules
+scripts/smoke/package*.json

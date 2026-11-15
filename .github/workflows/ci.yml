@@ -62,7 +62,10 @@ jobs:
 
   backup_restore:
     name: PostgreSQL backup + restore drill
-    runs-on: ubuntu-latest
+    # Pinned: the drill dumps with the runner's pg_dump and restores into the
+    # PostgreSQL 16 service. ubuntu-latest moved to an image whose client is
+    # newer than 16 and writes `SET transaction_timeout`, which 16 refuses.
+    runs-on: ubuntu-24.04
 
     services:
       postgres:
