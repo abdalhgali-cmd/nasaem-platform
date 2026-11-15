@@ -1,0 +1,52 @@
+name: Production read-only smoke
+
+# Read-only checks of the deployed production website and API, from a GitHub
+# runner. FAILS when the API does not let the website's browser read its
+# answers (CORS), which an HTTP 200 or a server log cannot show.
+# GET/OPTIONS only, public endpoints, no credentials, no secrets, no data
+# is created or changed.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  pull_request:
+    paths:
+      - ".github/workflows/production-readonly-smoke.yml"
+      - "scripts/smoke/**"
+
+permissions:
+  contents: read
+
+env:
+  API: https://nasaem-platform-production.up.railway.app/api
+  SITE: https://nasaem-website-production.up.railway.app
+  # Origins the API must allow (exact). The custom domain stays allowed while
+  # its DNS is being moved.
+  ALLOWED_ORIGINS: "https://nasaem-website-production.up.railway.app https://nasaem-alharamain.com"
+  DENIED_ORIGINS: "https://evil.example https://nasaem-website-production.up.railway.app.evil.example null"
+
+jobs:
+  cors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: CORS headers (GET + preflight), allowed and denied origins
+        run: bash scripts/smoke/cors-check.sh
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright (Chromium)
+        working-directory: scripts/smoke
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save playwright@1 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+      - name: Deployed website in a real browser (read-only)
+        working-directory: scripts/smoke
+        run: node browser-check.mjs
