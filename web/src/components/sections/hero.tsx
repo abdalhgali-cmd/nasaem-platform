@@ -5,12 +5,14 @@ import { siteConfig } from "@/lib/site-config";
 import { getPublicHomepage } from "@/lib/homepage";
 import { getSiteAssetUrls } from "@/lib/site-assets";
 import { getPublicCatalog } from "@/lib/services";
+import { getTestDataFlag } from "@/lib/test-data-flag";
 
 export async function Hero() {
-  const [{ hero }, assetUrls, catalog] = await Promise.all([
+  const [{ hero }, assetUrls, catalog, testData] = await Promise.all([
     getPublicHomepage(),
     getSiteAssetUrls(),
     getPublicCatalog(),
+    getTestDataFlag(),
   ]);
   const heroImageUrl = assetUrls["hero-image"];
   // The agency's own logo for dark surfaces (same source as the header's).
@@ -43,13 +45,15 @@ export async function Hero() {
           whatsapp={siteConfig.whatsapp}
           catalog={catalog}
           logoUrl={logoUrl}
+          // Prices count as approved only when the API says they are not test data.
+          pricesApproved={testData === false}
           defaultTitleNode={
             <>
-              خدمتك أوضح من البداية —{" "}
-              <span className="text-gold-shimmer">العمرة والموافقة الأمنية لمصر</span>
+              رحلتك تبدأ بطلب واضح —{" "}
+              <span className="text-gold-shimmer">العمرة وخدمات السفر</span>
             </>
           }
-          defaultDescription={`${siteConfig.name} تتيح في الإصدار الأول طلب العمرة أو الموافقة الأمنية لمصر، مع المستندات والدفع والمتابعة في مسار واضح.`}
+          defaultDescription={`${siteConfig.name}: العمرة، الموافقة الأمنية لمصر، التأشيرات، وتذاكر الطيران والعبّارات — بمتطلبات واضحة ومتابعة للطلب خطوة بخطوة.`}
         />
       </Container>
     </section>

@@ -26,7 +26,9 @@ type HeroContentProps = {
   description?: string;
   ctaLabel?: string;
   ctaTarget?: string;
-  whatsapp: string;
+  whatsapp?: string;
+  /** True only when the API reports approved (non-test) prices. */
+  pricesApproved?: boolean;
   defaultTitleNode: ReactNode;
   defaultDescription: string;
   catalog: PublicCatalog;
@@ -45,34 +47,34 @@ const rise = (delay: number) => ({
 // Client component so the framer-motion entrance animations survive —
 // Hero itself (the parent) is a server component that fetches admin
 // content, and passes the resolved (or default) values down here.
-export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp, defaultTitleNode, defaultDescription, catalog, logoUrl }: HeroContentProps) {
+export function HeroContent({ title, description, ctaLabel, ctaTarget, defaultTitleNode, defaultDescription, catalog, logoUrl, pricesApproved = false }: HeroContentProps) {
   return (
     <MotionConfig reducedMotion="user">
       <div className="grid w-full items-center gap-10 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-14">
         <div className="flex flex-col items-center text-center lg:items-start lg:text-start">
           <motion.span
             {...rise(0)}
-            className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-white/5 px-4 py-2 text-xs font-bold text-accent backdrop-blur-sm"
+            className="mb-4 inline-flex items-center gap-2 sm:mb-6 rounded-full border border-accent/40 bg-white/5 px-4 py-2 text-xs font-bold text-accent backdrop-blur-sm"
           >
             <span className="size-1.5 rounded-full bg-accent motion-safe:animate-pulse" />
-            العمرة والموافقة الأمنية لمصر
+            العمرة وخدمات السفر
           </motion.span>
 
           <motion.h1
             {...rise(0.08)}
-            className="max-w-3xl text-balance text-4xl font-extrabold leading-[1.15] sm:text-5xl lg:text-[3.5rem]"
+            className="max-w-3xl text-balance text-3xl font-extrabold leading-[1.2] sm:text-5xl sm:leading-[1.15] lg:text-[3.5rem]"
           >
             {title || defaultTitleNode}
           </motion.h1>
 
           <motion.p
             {...rise(0.16)}
-            className="mt-6 max-w-2xl text-balance text-base leading-relaxed text-white/80 sm:text-lg"
+            className="mt-4 max-w-2xl text-balance text-base leading-relaxed text-white/80 sm:mt-6 sm:text-lg"
           >
             {description || defaultDescription}
           </motion.p>
 
-          <motion.div {...rise(0.24)} className="mt-9 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
+          <motion.div {...rise(0.24)} className="mt-6 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
             <Button asChild variant="gold" size="lg" className="shadow-lg shadow-accent/20">
               <Link href={ctaTarget || "#start-request"}>
                 {ctaLabel || "ابدأ طلبك"}
@@ -88,18 +90,13 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
             <Button asChild variant="ghost" className="text-white/85 hover:bg-white/10 hover:text-white">
               <Link href="/track">تتبع طلبك</Link>
             </Button>
-            <Button asChild variant="ghost" className="text-white/85 hover:bg-white/10 hover:text-white">
-              <a href={`https://wa.me/${whatsapp}`} target="_blank" rel="noopener noreferrer">
-                تواصل واتساب
-              </a>
-            </Button>
           </motion.div>
 
           <motion.ul
             data-testid="homepage-trust-signals"
             aria-label="مزايا بدء الطلب من الموقع"
             {...rise(0.32)}
-            className="mt-7 grid w-full max-w-2xl gap-2 sm:grid-cols-3"
+            className="mt-7 hidden w-full max-w-2xl gap-2 sm:grid sm:grid-cols-3"
           >
             {trustSignals.map(({ icon: Icon, label }) => (
               <li
@@ -120,24 +117,24 @@ export function HeroContent({ title, description, ctaLabel, ctaTarget, whatsapp,
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
-        className="mt-12 w-full"
+        className="mt-8 w-full sm:mt-12"
       >
-        <BookingSearchWidget initialCatalog={catalog} />
+        <BookingSearchWidget initialCatalog={catalog} pricesApproved={pricesApproved} />
       </motion.div>
 
-      <motion.dl
+      <motion.ol
+        aria-label="خطوات الطلب"
         {...rise(0.5)}
         className="mt-14 grid w-full max-w-3xl grid-cols-2 gap-4 border-t border-white/10 pt-8 sm:grid-cols-4"
       >
         {journeySteps.map(({ icon: Icon, value, label }) => (
-          <div key={label} className="flex flex-col items-center gap-1.5">
-            <Icon className="size-5 text-accent" />
-            <dt className="sr-only">{label}</dt>
-            <dd className="text-xl font-extrabold sm:text-2xl">{value}</dd>
+          <li key={label} className="flex flex-col items-center gap-1.5">
+            <Icon className="size-5 text-accent" aria-hidden="true" />
+            <span className="text-xl font-extrabold sm:text-2xl" aria-hidden="true">{value}</span>
             <span className="text-xs text-white/70">{label}</span>
-          </div>
+          </li>
         ))}
-      </motion.dl>
+      </motion.ol>
     </MotionConfig>
   );
 }
@@ -151,7 +148,8 @@ function HeroEmblem({ logoUrl }: { logoUrl: string }) {
       initial={{ opacity: 0, scale: 0.94 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.8, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-      className="relative mx-auto order-first aspect-square w-44 sm:w-64 lg:order-none lg:w-full lg:max-w-[26rem]"
+      // Phones already show the logo in the header: the emblem starts at sm.
+      className="relative mx-auto order-first hidden aspect-square sm:block sm:w-64 lg:order-none lg:w-full lg:max-w-[26rem]"
       data-testid="hero-emblem"
     >
       <div
@@ -166,6 +164,9 @@ function HeroEmblem({ logoUrl }: { logoUrl: string }) {
         {/* eslint-disable-next-line @next/next/no-img-element -- admin-replaceable backend asset or the bundled logo; same reasoning as logo.tsx. */}
         <img
           src={logoUrl}
+          // The bundled logo ships as small WebP copies (the 1536px PNG is
+          // ~670 KB); an admin-uploaded logo is served as uploaded.
+          {...(logoUrl === "/logo-dark.png" ? { srcSet: "/logo-dark-384.webp 384w, /logo-dark-768.webp 768w", sizes: "(min-width: 1024px) 330px, (min-width: 640px) 200px, 140px" } : {})}
           alt="نسائم الحرمين للسفر والسياحة"
           width={1536}
           height={1024}

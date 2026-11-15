@@ -61,9 +61,38 @@ test.describe.serial("customer UX — Umrah and Egypt", () => {
     await expect(page.locator(".animate-spin")).toHaveCount(0);
   });
 
+  test("Umrah: «إعادة المحاولة» reloads the catalog after a failure; the step is named and counted", async ({ page }) => {
+    let fail = true;
+    await page.route("**/api/services/public/packages", (route) => fail ? route.fulfill({ status: 503, contentType: "application/json", body: "{}" }) : route.continue());
+    await page.goto("/umrah");
+    const error = page.getByTestId("catalog-error");
+    await expect(error).toBeVisible({ timeout: 15_000 });
+    fail = false;
+    await error.getByRole("button", { name: "إعادة المحاولة" }).click();
+    await expect(error).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "اختر الباقة", exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("wizard-step-label")).toHaveText(/الخطوة 1 من \d+: اختيار الباقة/);
+  });
+
+  test("Umrah: the page does not jump while the packages load (CLS ≤ 0.1, slow catalog)", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    await page.addInitScript(() => {
+      (window as unknown as { __cls: number }).__cls = 0;
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as unknown as Array<{ value: number; hadRecentInput: boolean }>) if (!entry.hadRecentInput) (window as unknown as { __cls: number }).__cls += entry.value;
+      }).observe({ type: "layout-shift", buffered: true });
+    });
+    await page.route("**/api/services/public/packages", async (route) => { await new Promise((done) => setTimeout(done, 1200)); await route.continue(); });
+    await page.goto("/umrah");
+    await expect(page.getByTestId("wizard-skeleton")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "اختر الباقة", exact: true })).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (window as unknown as { __cls: number }).__cls)).toBeLessThanOrEqual(0.1);
+  });
+
   test("Umrah and Egypt forms: the floating WhatsApp button never covers the form on phones; it stays on desktop", async ({ page }) => {
     const floating = page.getByRole("link", { name: "تواصل معنا عبر واتساب" });
-    for (const url of ["/umrah", "/visas/egypt-security-approval"]) {
+    for (const url of ["/umrah", "/visas/egypt-security-approval", "/track", "/contact"]) {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(url);
       await expect(floating).toBeHidden();
@@ -72,7 +101,7 @@ test.describe.serial("customer UX — Umrah and Egypt", () => {
     }
     // Other pages keep it on phones.
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/track");
+    await page.goto("/");
     await expect(floating).toBeVisible();
   });
 });

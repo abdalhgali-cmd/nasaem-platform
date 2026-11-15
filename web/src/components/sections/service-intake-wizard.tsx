@@ -22,6 +22,7 @@ import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
 import { UMRAH_KIND_LABELS, isValidContactPhone, umrahPackageDetails } from "@/lib/umrah-package";
 import { customerErrorMessage } from "@/lib/network-error";
+import { WizardSkeleton } from "@/components/sections/wizard-skeleton";
 import { duplicatePassportIndexes, mrzSexToGender, passportValidityWarning } from "@/lib/passport-review";
 import {
   RequestPaymentStep,
@@ -289,6 +290,7 @@ export function ServiceIntakeWizard({
   const [step, setStep] = React.useState(0);
   const [loadingCatalog, setLoadingCatalog] = React.useState(true);
   const [catalogError, setCatalogError] = React.useState("");
+  const [catalogAttempt, setCatalogAttempt] = React.useState(0);
   const [services, setServices] = React.useState<PublicService[]>([]);
   const [visaTypes, setVisaTypes] = React.useState<PublicVisaType[]>([]);
 
@@ -803,7 +805,7 @@ export function ServiceIntakeWizard({
     return () => {
       ignore = true;
     };
-  }, [service, visaCategory, serviceCatalog]);
+  }, [service, visaCategory, serviceCatalog, catalogAttempt]);
 
   const packageServices = React.useMemo(
     () => serviceCatalog === "services" ? services.filter(s => s.code === initialServiceCode) : services.filter(s => s.category === "UMRAH_PACKAGE"),
@@ -1805,23 +1807,33 @@ export function ServiceIntakeWizard({
     );
   }
 
-  if (loadingCatalog) {
-    return (
-      <div className="flex justify-center py-16">
-        <Loader2 className="size-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  if (loadingCatalog) return <WizardSkeleton />;
 
+  // A failed load is said as such, with a retry that keeps everything the
+  // customer already entered (the wizard's state and saved draft are untouched).
   if (catalogError) {
     return (
-      <div className="mx-auto max-w-md rounded-2xl border border-red-500/30 bg-red-500/5 p-6 text-center text-sm text-red-600 dark:text-red-400">
-        {catalogError}
+      <div role="alert" data-testid="catalog-error" className="mx-auto grid max-w-md justify-items-center gap-4 rounded-2xl border border-red-500/30 bg-red-500/5 p-6 text-center text-sm text-red-600 dark:text-red-400">
+        <p>{catalogError}</p>
+        <Button type="button" variant="outline" onClick={() => { setCatalogError(""); setLoadingCatalog(true); setCatalogAttempt((n) => n + 1); }}>
+          إعادة المحاولة
+        </Button>
+        <a href={`https://wa.me/${siteConfig.whatsapp}`} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-foreground underline">
+          إن استمرت المشكلة، تواصل معنا عبر واتساب
+        </a>
       </div>
     );
   }
 
   const current = steps[step];
+  const stepNames: Record<string, string> = {
+    select: service === "package" ? (serviceCatalog === "services" ? "الخدمة المختارة" : "اختيار الباقة") : "نوع التأشيرة",
+    trip: needsGuarantor ? "موعد العمرة" : "تفاصيل الرحلة",
+    customer: needsGuarantor ? "مقدم الطلب والضامن" : "بيانات العميل",
+    details: isAppointment ? "بيانات المتقدمين" : needsGuarantor ? "المعتمرون" : "بيانات الخدمة",
+    documents: "المستندات المطلوبة",
+    review: "مراجعة الطلب",
+  };
 
   return (
     <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-8">
@@ -1843,7 +1855,10 @@ export function ServiceIntakeWizard({
           {resumable ? "تمت استعادة بيانات الطلب؛ راجع المستندات المحفوظة قبل الإرسال." : "تمت استعادة بياناتك. أعد اختيار المستندات للمتابعة."}
         </div>
       ) : null}
-      <div className="mb-2 flex items-center gap-2" dir="ltr">
+      <p className="mb-2 text-sm font-bold text-foreground" data-testid="wizard-step-label">
+        <span className="text-muted-foreground">الخطوة {step + 1} من {steps.length}:</span> {stepNames[current] ?? ""}
+      </p>
+      <div className="mb-2 flex items-center gap-2" aria-hidden>
         {steps.map((s, index) => (
           <div
             key={s}

@@ -3,6 +3,7 @@
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { ServiceIntakeWizard } from "@/components/sections/service-intake-wizard";
+import { WizardSkeleton } from "@/components/sections/wizard-skeleton";
 
 // Umrah has its own section (not a visa type in the visa lists). The request
 // runs through the shared intake wizard on the Umrah packages: package →
@@ -17,7 +18,7 @@ function UmrahBookingContent() {
 
 export function UmrahBookingSection() {
   return (
-    <Suspense fallback={<div className="min-h-40 animate-pulse rounded-3xl border border-border bg-muted/30" />}>
+    <Suspense fallback={<WizardSkeleton />}>
       <UmrahBookingContent />
     </Suspense>
   );

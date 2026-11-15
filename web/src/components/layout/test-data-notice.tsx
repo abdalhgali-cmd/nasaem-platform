@@ -19,8 +19,10 @@ function loadTestDataFlag() {
   return cached;
 }
 
-export function TestDataNotice({ audience }: { audience: "customer" | "staff" }) {
-  const [show, setShow] = React.useState(false);
+// `initial` is the server's reading (layout.tsx): the strip is then in the
+// first paint instead of appearing after load and shifting the page.
+export function TestDataNotice({ audience, initial = null }: { audience: "customer" | "staff"; initial?: boolean | null }) {
+  const [show, setShow] = React.useState(initial === true);
   React.useEffect(() => {
     let active = true;
     void loadTestDataFlag().then((value) => { if (active) setShow(value); });
