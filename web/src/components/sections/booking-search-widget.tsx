@@ -52,12 +52,12 @@ function itemHref(item: CatalogItem) {
   return resolveServiceHref(item);
 }
 
-export function BookingSearchWidget({ initialCatalog }: { initialCatalog: PublicCatalog }) {
+export function BookingSearchWidget({ initialCatalog, pricesApproved = false }: { initialCatalog: PublicCatalog; pricesApproved?: boolean }) {
   const reduceMotion = useReducedMotion();
   const [catalog, setCatalog] = React.useState(initialCatalog);
   const [path, setPath] = React.useState<PathKey>("umrah");
   const [selectedCode, setSelectedCode] = React.useState("");
-  const [requirementResult, setRequirementResult] = React.useState<{ key: string; items: PublicRequirement[] }>({ key: "", items: [] });
+  const [requirementResult, setRequirementResult] = React.useState<{ key: string; items: PublicRequirement[]; failed?: boolean }>({ key: "", items: [] });
 
   React.useEffect(() => {
     let active = true;
@@ -76,7 +76,10 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
   }, []);
 
   const choices = React.useMemo(() => itemsForPath(path, catalog), [catalog, path]);
-  const selected = choices.find((item) => item.code === selectedCode) ?? choices[0] ?? null;
+  // Opens on a fixed-price option only once prices are approved and that
+  // option's price is published; otherwise on the catalog's first option.
+  const preferred = pricesApproved ? choices.find((item) => item.pricingMode === "FIXED" && hasPublishedPrice(item.basePrice)) : undefined;
+  const selected = choices.find((item) => item.code === selectedCode) ?? preferred ?? choices[0] ?? null;
   const selectedId = selected?.id;
   const selectedKind = selected?.kind;
 
@@ -86,7 +89,7 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
     const key = `${selectedKind}:${selectedId}`;
     const scope = selectedKind === "visaType" ? "visa-types" : "services";
     fetch(`${API_URL}/${scope}/${selectedId}/requirements/public`, { cache: "no-store" })
-      .then((response) => response.ok ? response.json() : null)
+      .then((response) => { if (!response.ok) throw new Error(`requirements ${response.status}`); return response.json(); })
       .then((payload) => {
         if (!active) return;
         const items = Array.isArray(payload?.data) ? payload.data : [];
@@ -95,7 +98,8 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
           items: items.filter((item: PublicRequirement) => item.required && (!item.type || item.type === "DOCUMENT")).slice(0, 4),
         });
       })
-      .catch(() => active && setRequirementResult({ key, items: [] }));
+      // A failed load is not "no documents": say it could not be shown.
+      .catch(() => active && setRequirementResult({ key, items: [], failed: true }));
     return () => { active = false; };
   }, [selectedId, selectedKind]);
 
@@ -104,11 +108,12 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
   const requirementKey = selected ? `${selected.kind}:${selected.id}` : "";
   const loadingRequirements = Boolean(selected && requirementResult.key !== requirementKey);
   const requirements = requirementResult.key === requirementKey ? requirementResult.items : [];
+  const requirementsFailed = requirementResult.key === requirementKey && requirementResult.failed === true;
 
   return (
     <div id="start-request" className="bg-glass w-full max-w-5xl scroll-mt-24 rounded-[2rem] border border-white/20 p-3 text-right shadow-2xl shadow-primary/20 sm:p-5">
       <div className="px-2 pb-4 sm:px-3">
-        <p className="text-lg font-extrabold text-foreground">ابدأ بإحدى خدمتي الإصدار الأول</p>
+        <p className="text-lg font-extrabold text-foreground">ابدأ طلبك من هنا</p>
         <p className="mt-1 text-sm text-muted-foreground">الأسعار والمستندات تأتي من كتالوج نسائم الحرمين مباشرة.</p>
       </div>
 
@@ -208,6 +213,8 @@ export function BookingSearchWidget({ initialCatalog }: { initialCatalog: Public
                     </li>
                   ))}
                 </ul>
+              ) : requirementsFailed ? (
+                <p className="mt-3 text-sm leading-6 text-muted-foreground" data-testid="homepage-documents-unavailable">تعذّر عرض المستندات الآن؛ تظهر كاملة داخل الطلب.</p>
               ) : (
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">لا توجد مستندات أساسية منشورة لهذا الخيار.</p>
               )}

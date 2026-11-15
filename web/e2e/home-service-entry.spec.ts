@@ -113,4 +113,25 @@ test.describe("Homepage — primary service entry", () => {
     const ringAnimation = await page.getByTestId("hero-emblem").locator("div").first().evaluate((el) => getComputedStyle(el).animationName);
     expect(ringAnimation).toBe("none");
   });
+
+  test("phone hero is short: no repeated logo, no «الإصدار الأول», the service entry starts within two screens", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    await page.goto("/");
+    await expect(page.getByTestId("hero-emblem")).toBeHidden();
+    await expect(page.getByText("الإصدار الأول")).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("العمرة");
+    const top = await page.locator("#start-request").evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+    expect(top).toBeLessThan(780 * 1.1);
+    // Larger screens keep the emblem.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId("hero-emblem")).toBeVisible();
+  });
+
+  test("a failed requirements load is not shown as «no documents»", async ({ page }) => {
+    await page.route("**/requirements/public", (route) => route.fulfill({ status: 503, contentType: "application/json", body: "{}" }));
+    await page.goto("/");
+    const entry = page.locator("#start-request");
+    await expect(entry.getByTestId("homepage-documents-unavailable")).toBeVisible({ timeout: 15_000 });
+    await expect(entry.getByText("لا توجد مستندات أساسية منشورة لهذا الخيار.")).toHaveCount(0);
+  });
 });
