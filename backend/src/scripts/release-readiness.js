@@ -100,6 +100,17 @@ export async function collectReadiness({ db = prisma, env = process.env } = {}) 
   const otherUmrah = umrah.filter((row) => row.active && row.code !== "SVC-UMRAH" && !UMRAH_APPROVED_CODES.includes(row.code));
   if (otherUmrah.length) warnings.push(`باقات عمرة أخرى مفعّلة خارج الثلاث المعتمدة: ${otherUmrah.map((row) => row.code).join("، ")}.`);
 
+  // Published items a customer can open with no active requirement at all
+  // (seen on production: the work visa). The agency decides the list; this
+  // only says which items still need one, set from «التأشيرات» / «الخدمات».
+  const withoutRequirements = { active: true, requirements: { none: { active: true } } };
+  const [bareVisas, bareServices] = await Promise.all([
+    db.visaType.findMany({ where: withoutRequirements, select: { code: true }, orderBy: { code: "asc" } }),
+    db.service.findMany({ where: withoutRequirements, select: { code: true }, orderBy: { code: "asc" } }),
+  ]);
+  const unconfigured = [...bareVisas, ...bareServices].map((row) => row.code);
+  if (unconfigured.length) warnings.push(`خدمات منشورة بلا أي متطلب مفعّل (يراها العميل دون مستندات أو أسئلة): ${unconfigured.join("، ")}.`);
+
   // ---- money: exchange rates and receiving accounts
   const rates = await getCurrencyRateStatuses();
   const accounts = await db.paymentAccount.groupBy({ by: ["currency"], where: { active: true }, _count: { _all: true } });
