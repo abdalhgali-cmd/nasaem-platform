@@ -1,51 +1,24 @@
 name: Production CORS read-only probe
-
-# One-off, read-only evidence for a disputed finding (2026-11-15): does the
-# production API let the production website read its public responses?
-# GET/OPTIONS only, public endpoints only, no credentials, no secrets,
-# nothing is created or changed. Runs only on pushes to this probe branch.
-
+# One-off, read-only: which candidate origins does the production API allow?
+# GET only, public endpoint, no credentials, no secrets.
 on:
   push:
     branches: [probe/production-cors-readonly-20261115]
-
 permissions:
   contents: read
-
 jobs:
   probe:
     runs-on: ubuntu-latest
     env:
       API: https://nasaem-platform-production.up.railway.app/api
     steps:
-      - name: CORS headers the browser would see, per website origin
+      - name: Allowed origins among candidates
         run: |
-          for ORIGIN in https://nasaem-website-production.up.railway.app https://nasaem-alharamain.com https://www.nasaem-alharamain.com https://evil.example; do
-            echo "================ Origin: $ORIGIN"
-            for path in /services/public/packages /health; do
-              echo "--- GET $path"
-              curl -sS -m 30 -o /dev/null -D - -H "Origin: $ORIGIN" "$API$path" | grep -iE "^HTTP|^access-control-allow-(origin|credentials)|^vary" || true
-            done
-            echo "--- OPTIONS /auth/login (preflight)"
-            curl -sS -m 30 -o /dev/null -D - -X OPTIONS -H "Origin: $ORIGIN" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type,x-requested-with" "$API/auth/login" | grep -iE "^HTTP|^access-control-allow-(origin|credentials|headers)" || true
-            echo "--- OPTIONS /tracking/request-code (preflight)"
-            curl -sS -m 30 -o /dev/null -D - -X OPTIONS -H "Origin: $ORIGIN" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type,x-requested-with" "$API/tracking/request-code" | grep -iE "^HTTP|^access-control-allow-origin" || true
-          done
-      - name: Which API the production website build calls
-        run: |
-          SITE=https://nasaem-website-production.up.railway.app
-          for p in / /umrah /track; do printf "%-8s → " "$p"; curl -sS -m 30 -o /dev/null -w "%{http_code}\n" "$SITE$p"; done
-          curl -sS -m 30 "$SITE/umrah" -o umrah.html
-          hosts=""
-          for c in $(grep -oE '/_next/static/[^"]+\.js' umrah.html | sort -u | head -60); do
-            body=$(curl -sS -m 30 "$SITE$c" || true)
-            for h in nasaem-platform-production.up.railway.app adaptable-quietude-staging.up.railway.app localhost:5000 api.nasaem-alharamain.com; do
-              case "$body" in *"$h/api"*) hosts="$hosts $h/api";; esac
-            done
-          done
-          echo "API base URLs in the website build:$(echo "$hosts" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-      - name: Custom domain status
-        run: |
-          for u in https://nasaem-alharamain.com https://www.nasaem-alharamain.com; do
-            printf "%-40s → " "$u"; curl -sS -m 30 -o body.txt -w "%{http_code}" "$u" || true; echo " $(head -c 120 body.txt | tr -d '\n')"
+          for O in https://nasaem-website-production.up.railway.app https://nasaem-alharamain.com https://www.nasaem-alharamain.com http://nasaem-alharamain.com \
+            https://nasaem-platform-production.up.railway.app https://nasaem-website-staging-staging.up.railway.app https://adaptable-quietude-staging.up.railway.app \
+            https://nasaem-platform.vercel.app https://nasaem-alharamain.vercel.app https://nasaem.vercel.app https://nasaem-website.vercel.app https://web-nasaem.vercel.app \
+            http://localhost:3000 http://localhost:8081 http://localhost:5000 http://localhost https://localhost capacitor://localhost ionic://localhost \
+            https://api.nasaem-alharamain.com https://admin.nasaem-alharamain.com https://app.nasaem-alharamain.com https://evil.example; do
+            A=$(curl -sS -m 30 -o /dev/null -D - -H "Origin: $O" "$API/health" | grep -i "^access-control-allow-origin" | tr -d '\r' || true)
+            printf "%-62s → %s\n" "$O" "${A:-NOT ALLOWED}"
           done
