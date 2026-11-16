@@ -141,6 +141,20 @@ test.describe.serial("Umrah Case Workspace", () => {
     expect(failures).toEqual([]);
   });
 
+  test("an employee claims an unassigned case before seeing the document request form", async ({ browser }) => {
+    const employee = await staffPage(browser, admin, "EMPLOYEE");
+    try {
+      await employee.page.goto(`${WEB}/admin/cases?requestId=${requestId}&tab=umrah`);
+      await expect(employee.page.getByTestId("umrah-claim")).toBeVisible();
+      await expect(employee.page.getByTestId("umrah-document-request")).toHaveCount(0);
+      await employee.page.getByTestId("umrah-claim").click();
+      await expect(employee.page.getByTestId("umrah-document-request")).toBeVisible();
+      await expect(employee.page.getByTestId("umrah-claim")).toHaveCount(0);
+    } finally {
+      await employee.context.close();
+    }
+  });
+
   test("the existing workflow end to end: receipt → payment review → documents → execution → final file → closed, with its log", async ({ page, browser }) => {
     // Customer uploads the receipt through the payment link, against the invoice version it shows.
     const access = { Origin: WEB, "x-payment-access": paymentToken };

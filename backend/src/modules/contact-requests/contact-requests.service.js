@@ -679,10 +679,13 @@ export async function getContactRequestById(id, organizationId, { role } = {}) {
     },
   });
   if (!contactRequest) return null;
+  const progress = deriveRequestProgress(contactRequest);
+  const umrahQueue = umrahStaffQueue(contactRequest, progress);
   return {
     ...contactRequest,
     readiness: computeReadiness(contactRequest),
-    progress: deriveRequestProgress(contactRequest),
+    progress,
+    ...(umrahQueue ? { umrahQueue } : {}),
     // What this staff member may do now (same policy the server enforces).
     allowedActions: allowedActions(contactRequest, { audience: "staff", role }),
   };

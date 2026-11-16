@@ -2,14 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
-const SCRIPT = new URL("../scripts/verify-release-cert.sh", import.meta.url).pathname;
+const SCRIPT = fileURLToPath(new URL("../scripts/verify-release-cert.sh", import.meta.url));
+const gitBash = `${process.env.ProgramFiles || "C:/Program Files"}/Git/bin/bash.exe`;
+const bash = process.platform === "win32" && existsSync(gitBash) ? gitBash : "bash";
 const DEBUG = "cd7447b277c7d1dbefcac2aa4751993bca3027afdec8d9bfb7a644ad9464fc72";
 const RELEASE = "0123456789abcdef".repeat(4);
 const OTHER = "fedcba9876543210".repeat(4);
 
 function run(...args) {
-  const result = spawnSync("bash", [SCRIPT, ...args], { encoding: "utf8" });
+  const result = spawnSync(bash, [SCRIPT.replaceAll("\\", "/"), ...args], { encoding: "utf8" });
+  if (result.error) throw result.error;
   return { code: result.status, out: result.stdout.trim(), err: result.stderr };
 }
 

@@ -3,6 +3,8 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import prisma from "../src/config/database.js";
 import { collectReadiness } from "../src/scripts/release-readiness.js";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 // Other suites price (or unprice) the Egypt variants, so the order tests run
 // in must not decide these results: the check reads the real database except
@@ -21,6 +23,21 @@ const unpricedEgyptDb = new Proxy(prisma, {
 
 // The read-only readiness check run on staging/production before a release.
 describe("release readiness check", () => {
+  test("the CLI runs as a file path and returns a machine-readable report", async () => {
+    const script = fileURLToPath(new URL("../src/scripts/release-readiness.js", import.meta.url));
+    const child = spawn(process.execPath, [script, "--json"], { env: process.env });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const code = await new Promise((resolve, reject) => { child.on("error", reject); child.on("close", resolve); });
+    assert.ok(code === 0 || code === 1, stderr);
+    const report = JSON.parse(stdout);
+    assert.ok(report.checkedAt);
+    assert.ok(Array.isArray(report.blockers));
+    assert.equal(code, report.blockers.length ? 1 : 0);
+    assert.ok(report.migrations.applied >= 74);
+  });
   test("never prints a secret value; reports secrets as present / missing", async () => {
     const env = {
       NODE_ENV: "production",
