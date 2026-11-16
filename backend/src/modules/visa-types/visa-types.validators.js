@@ -26,7 +26,10 @@ export const createVisaTypeSchema = z.object({
   sortOrder: z.coerce.number().int().optional(),
 });
 
-export const updateVisaTypeSchema = createVisaTypeSchema.partial();
+export const updateVisaTypeSchema = createVisaTypeSchema.partial().extend({
+  currency: createVisaTypeSchema.shape.currency.removeDefault().optional(),
+  category: createVisaTypeSchema.shape.category.removeDefault().optional(),
+});
 
 export const reorderVisaTypesSchema = z.object({
   order: z.array(z.string().min(1)).min(1),

@@ -12,4 +12,7 @@ export const createOfferSchema = z.object({
   status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).default("DRAFT"),
 });
 
-export const updateOfferSchema = createOfferSchema.partial();
+export const updateOfferSchema = createOfferSchema.partial().extend({
+  currency: createOfferSchema.shape.currency.removeDefault().optional(),
+  status: createOfferSchema.shape.status.removeDefault().optional(),
+});

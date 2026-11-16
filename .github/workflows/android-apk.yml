@@ -40,6 +40,8 @@ jobs:
 
       - name: Install mobile dependencies
         run: npm install --no-audit --no-fund
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Validate bundled JavaScript (no syntax errors)
         run: npm run check
