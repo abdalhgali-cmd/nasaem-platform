@@ -10,6 +10,22 @@ const WEB = "http://localhost:3000";
 // Signed out, the shell sends staff to the unified admin's sign-in page.
 const STAFF_LOGIN = /\/admin\/login/;
 
+test("legacy operations tabs wait for authentication and bindings before accepting clicks", async ({ page }) => {
+  await loginAsSeededAdmin(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/auth/me", async (route) => { await gate; await route.continue(); });
+  await page.goto(`${BACKEND}/admin-dashboard.html`);
+  const requests = page.locator("#tabbtn-requests");
+  await expect(requests).toBeDisabled();
+  await expect(page.locator("#tabs")).toHaveAttribute("aria-busy", "true");
+  release();
+  await expect(requests).toBeEnabled();
+  await expect(page.locator("#tabs")).toHaveAttribute("aria-busy", "false");
+  await requests.click();
+  await expect(page.locator("#cr-search")).toBeVisible();
+});
+
 async function resolvedPrimary(page: Page, container: string) {
   return page.evaluate((sel) => {
     const probe = document.createElement("span");

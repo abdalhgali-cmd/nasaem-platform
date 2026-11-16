@@ -31,7 +31,7 @@ export function SiteChrome({ children, logoUrls, publicSettings, testData = null
     <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:start-4 focus:z-[100] focus:rounded-full focus:bg-primary focus:px-5 focus:py-3 focus:text-primary-foreground">تخطَّ إلى المحتوى الرئيسي</a>
     <TestDataNotice audience="customer" initial={testData} />
     <SiteHeader logoUrls={logoUrls} contactPhone={publicSettings.phone} />
-    <main id="main-content" className="flex-1">{children}</main>
+    <main id="main-content" tabIndex={-1} className="flex-1">{children}</main>
     <SiteFooter logoUrls={logoUrls} publicSettings={publicSettings} />
     <WhatsAppButton whatsapp={publicSettings.whatsapp} hideOnPhones={bookingForm} />
   </>;

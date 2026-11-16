@@ -1,0 +1,22 @@
+{
+  "syntheticOnly": true,
+  "databaseTablesCompared": 57,
+  "rowsCompared": 214,
+  "tableDataDigestsMatch": true,
+  "referencedFilesCompared": 7,
+  "fileBytesMatch": true,
+  "unvalidatedForeignKeys": 0,
+  "documentOwnershipErrors": 0,
+  "deliverableOwnershipErrors": 0,
+  "migrations": 74,
+  "request": {
+    "pilgrims": 2,
+    "total": 100,
+    "currency": "SAR",
+    "status": "CLOSED",
+    "paymentStatus": "CONFIRMED",
+    "visas": 2
+  },
+  "backupSha256": "7ca30345725232d46548e3fcc2389fefc127813dff999e91a0ef1b16fcca240a",
+  "uploadsSha256": "877a73e1d3fe2440d5ea98849809ed2104a060dd4069703a835d4d8e2a6a9ee3"
+}

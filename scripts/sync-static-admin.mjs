@@ -73,7 +73,8 @@ function listFiles(dir, base = dir) {
   });
 }
 
-function transform(relativePath, content) {
+export function transform(relativePath, content) {
+  content = content.replaceAll("\r\n", "\n");
   if (relativePath.endsWith(".html")) {
     return content.replace(/^<!doctype html>\n/i, (doctype) => `${doctype}<!-- ${BANNER_TEXT} -->\n`);
   }
@@ -109,7 +110,7 @@ export function checkSync() {
   const outdated = outputs
     .filter(({ relativePath, content }) => {
       const target = path.join(TARGET_DIR, relativePath);
-      return !fs.existsSync(target) || fs.readFileSync(target, "utf8") !== content;
+      return !fs.existsSync(target) || fs.readFileSync(target, "utf8").replaceAll("\r\n", "\n") !== content;
     })
     .map((o) => o.relativePath);
   return { outdated, stale: staleGeneratedFiles(outputs) };

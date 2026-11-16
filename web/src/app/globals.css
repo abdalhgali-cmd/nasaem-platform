@@ -44,7 +44,8 @@
   --color-accent: #e2bf55;
   --color-accent-foreground: #1a1405;
 
-  --color-button: var(--color-primary);
+  /* Action surfaces need 4.5:1 against white; text accents stay lighter. */
+  --color-button: #2369c1;
   --color-button-foreground: var(--color-primary-foreground);
 
   --color-success: #22c55e;

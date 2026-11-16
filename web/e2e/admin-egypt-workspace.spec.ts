@@ -121,7 +121,7 @@ test.describe.serial("Egypt Case Workspace", () => {
     await assertNoHorizontalOverflow(page);
     await row.click();
     await expect(page).toHaveURL(new RegExp(`/admin/cases\\?requestId=${requestId}&tab=egypt`));
-    await expect(page.getByRole("button", { name: "الموافقة الأمنية" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "الموافقة الأمنية", exact: true })).toBeVisible();
     await expect(page.locator("#egypt-workspace")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId("egypt-stage")).toHaveText(serverRow.stageLabel);
     await expect(page.locator("[data-egypt-next]")).toHaveText(serverRow.nextAction);
