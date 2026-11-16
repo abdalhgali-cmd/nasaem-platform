@@ -14,7 +14,11 @@ export const createPaymentAccountSchema = z.object({
   acceptsForeignInvoices: z.boolean().default(false),
 });
 
-export const updatePaymentAccountSchema = createPaymentAccountSchema.partial();
+export const updatePaymentAccountSchema = createPaymentAccountSchema.partial().extend({
+  active: createPaymentAccountSchema.shape.active.removeDefault().optional(),
+  sortOrder: createPaymentAccountSchema.shape.sortOrder.removeDefault().optional(),
+  acceptsForeignInvoices: createPaymentAccountSchema.shape.acceptsForeignInvoices.removeDefault().optional(),
+});
 
 export const FOREIGN_SETTLEMENT_CURRENCY = "SDG";
 

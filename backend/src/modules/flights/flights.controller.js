@@ -154,10 +154,19 @@ export async function patchRates(req, res, next) {
 export async function importExcel(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: "Excel file is required" });
-    const workbook = XLSX.read(req.file.buffer, { type: "buffer", cellDates: true });
+    let workbook;
+    try {
+      // One header + 1001 data rows lets us reject, never silently truncate,
+      // an import above the limit before making any database writes.
+      workbook = XLSX.read(req.file.buffer, { type: "buffer", cellDates: true, sheetRows: 1002 });
+    } catch {
+      return res.status(400).json({ success: false, message: "تعذّر قراءة ملف Excel. تأكد من سلامة الملف ثم أعد رفعه." });
+    }
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    if (!sheet) return res.status(400).json({ success: false, message: "Excel file is empty" });
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
     if (!rows.length) return res.status(400).json({ success: false, message: "Excel file is empty" });
+    if (rows.length > 1000) return res.status(400).json({ success: false, message: "الحد الأقصى للاستيراد 1000 رحلة في الملف الواحد. قسّم الملف ثم أعد المحاولة." });
 
     const results = { imported: 0, failed: 0, errors: [] };
     for (let index = 0; index < rows.length; index += 1) {

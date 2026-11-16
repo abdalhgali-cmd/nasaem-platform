@@ -24,4 +24,6 @@ export const createScheduleSchema = z.object({
   sortOrder: z.coerce.number().int().optional(),
 });
 
-export const updateScheduleSchema = createScheduleSchema.partial();
+export const updateScheduleSchema = createScheduleSchema.partial().extend({
+  currency: createScheduleSchema.shape.currency.removeDefault().optional(),
+});

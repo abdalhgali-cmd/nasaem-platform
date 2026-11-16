@@ -24,7 +24,10 @@ export const createServiceSchema = z.object({
   processingTime: z.string().trim().max(100).optional().nullable(),
 });
 
-export const updateServiceSchema = createServiceSchema.partial();
+// PATCH must not apply creation defaults to omitted fields (Zod 4).
+export const updateServiceSchema = createServiceSchema.partial().extend({
+  currency: createServiceSchema.shape.currency.removeDefault().optional(),
+});
 
 export const reorderServicesSchema = z.object({
   order: z.array(z.string().min(1)).min(1),
