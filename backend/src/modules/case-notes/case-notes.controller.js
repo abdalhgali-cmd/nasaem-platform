@@ -1,11 +1,13 @@
 import { createCaseNoteSchema } from "./case-notes.validators.js";
 import { createCaseNote, listCaseNotes } from "./case-notes.service.js";
+import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
 
 const ERROR_RESPONSES = {
   NOT_FOUND: { status: 404, message: "Contact request not found" },
 };
 
 function respondToError(res, result) {
+  if (result.refusal) return sendRefusal(res, result.refusal);
   const mapped = ERROR_RESPONSES[result.error];
   if (!mapped) return null;
   return res.status(mapped.status).json({ success: false, message: mapped.message });

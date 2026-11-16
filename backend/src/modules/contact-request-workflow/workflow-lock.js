@@ -12,6 +12,8 @@
 import prismaPackage from "@prisma/client";
 import prisma from "../../config/database.js";
 import { redactSensitive } from "../../utils/activityLog.js";
+import { staffScopeForRequest } from "./staff-request-scope.js";
+import { isUmrahRequest } from "../umrah/umrah-delivery.js";
 
 const { Prisma } = prismaPackage;
 
@@ -55,15 +57,24 @@ export function setAfterMutationHook(fn) {
 }
 
 export async function withLockedRequest(id, scope, work) {
+  const staff = staffScopeForRequest(id);
   try {
     const result = await prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw`SELECT id FROM "ContactRequest" WHERE id = ${id} FOR UPDATE`;
       if (locked.length === 0) return { error: "NOT_FOUND" };
       const request = await tx.contactRequest.findFirst({ where: { id, ...(scope || {}) }, include: WORKFLOW_INCLUDE });
       if (!request) return { error: "NOT_FOUND" };
+      // Middleware's earlier read is not authorization for a later write:
+      // a manager may have reassigned the case while this transaction waited.
+      if (staff && request.organizationId !== staff.organizationId) return { error: "NOT_FOUND" };
+      if (staff?.role === "EMPLOYEE" && isUmrahRequest(request) && request.assignedUserId !== staff.userId) {
+        refuseWith(request.assignedUserId
+          ? { status: 403, code: "ASSIGNED_TO_OTHER", message: "هذا الطلب مُسند إلى موظف آخر. يعيد المدير إسناده إذا لزم." }
+          : { status: 409, code: "CLAIM_REQUIRED", message: "هذا الطلب غير مُسند لأحد. استلمه أولًا ثم تابع العمل عليه." });
+      }
       return work(tx, request);
     });
-    if (afterMutation && !result?.error) Promise.resolve(afterMutation(id)).catch(() => {});
+    if (afterMutation && !result?.error && !result?.refusal) Promise.resolve(afterMutation(id)).catch(() => {});
     return result;
   } catch (error) {
     if (error instanceof WorkflowRefusal) return { refusal: error.refusal };

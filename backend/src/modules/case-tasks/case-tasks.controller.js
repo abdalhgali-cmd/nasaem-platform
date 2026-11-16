@@ -1,5 +1,6 @@
 import { createCaseTaskSchema } from "./case-tasks.validators.js";
 import { completeCaseTask, createManualTask, listCaseTasks } from "./case-tasks.service.js";
+import { sendRefusal } from "../contact-request-workflow/workflow-lock.js";
 
 const ERROR_RESPONSES = {
   NOT_FOUND: { status: 404, message: "Contact request not found" },
@@ -9,6 +10,7 @@ const ERROR_RESPONSES = {
 };
 
 function respondToError(res, result) {
+  if (result.refusal) return sendRefusal(res, result.refusal);
   const mapped = ERROR_RESPONSES[result.error];
   if (!mapped) return null;
   return res.status(mapped.status).json({ success: false, message: mapped.message });

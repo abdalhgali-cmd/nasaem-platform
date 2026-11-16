@@ -1,6 +1,7 @@
 import prisma from "../../config/database.js";
 import { safeUserSelect } from "../../utils/safeSelects.js";
 import { logActivity } from "../../utils/activityLog.js";
+import { auditInTransaction, withLockedRequest } from "../contact-request-workflow/workflow-lock.js";
 
 // Smart Case Operations — Release E (internal work management). Lightweight
 // case tasks and a deterministic SLA state. Deliberately not a BPM engine:
@@ -125,61 +126,53 @@ export async function listCaseTasks(contactRequestId, organizationId) {
 }
 
 export async function createManualTask(contactRequestId, { title, type, assignedUserId, dueAt }, userId, organizationId) {
-  const contactRequest = await prisma.contactRequest.findFirst({
-    where: { id: contactRequestId, organizationId },
-    select: { id: true },
-  });
-  if (!contactRequest) return { error: "NOT_FOUND" };
+  return withLockedRequest(contactRequestId, { organizationId }, async (tx) => {
+    // An assignee must be real, active staff in this same organization —
+    // same rule as case assignment (contact-requests.service.js).
+    if (assignedUserId) {
+      const assignee = await tx.user.findFirst({
+        where: { id: assignedUserId, organizationId, status: "ACTIVE" },
+        select: { id: true },
+      });
+      if (!assignee) return { error: "ASSIGNEE_NOT_FOUND" };
+    }
 
-  // An assignee must be real, active staff in this same organization —
-  // same rule as case assignment (contact-requests.service.js).
-  if (assignedUserId) {
-    const assignee = await prisma.user.findFirst({
-      where: { id: assignedUserId, organizationId, status: "ACTIVE" },
-      select: { id: true },
+    const task = await tx.caseTask.create({
+      data: {
+        contactRequestId,
+        type: type || "OTHER",
+        title,
+        source: "MANUAL",
+        assignedUserId: assignedUserId || null,
+        dueAt: dueAt ? new Date(dueAt) : null,
+        createdByUserId: userId,
+      },
+      include: TASK_INCLUDE,
     });
-    if (!assignee) return { error: "ASSIGNEE_NOT_FOUND" };
-  }
 
-  const task = await prisma.caseTask.create({
-    data: {
-      contactRequestId,
-      type: type || "OTHER",
-      title,
-      source: "MANUAL",
-      assignedUserId: assignedUserId || null,
-      dueAt: dueAt ? new Date(dueAt) : null,
-      createdByUserId: userId,
-    },
-    include: TASK_INCLUDE,
+    await auditInTransaction(tx, { userId, action: "TASK_CREATED", entityId: contactRequestId, organizationId });
+
+    return { task };
   });
-
-  logActivity({ userId, action: "TASK_CREATED", entity: "ContactRequest", entityId: contactRequestId, organizationId });
-
-  return { task };
 }
 
 export async function completeCaseTask(contactRequestId, taskId, userId, organizationId) {
-  const contactRequest = await prisma.contactRequest.findFirst({
-    where: { id: contactRequestId, organizationId },
-    select: { id: true },
+  return withLockedRequest(contactRequestId, { organizationId }, async (tx) => {
+    // Scoped by contactRequestId too — never taskId alone.
+    const existing = await tx.caseTask.findFirst({ where: { id: taskId, contactRequestId } });
+    if (!existing) return { error: "TASK_NOT_FOUND" };
+    if (existing.status !== "OPEN") return { error: "TASK_NOT_OPEN" };
+
+    const task = await tx.caseTask.update({
+      where: { id: taskId },
+      data: { status: "COMPLETED", completedAt: new Date(), completedByUserId: userId },
+      include: TASK_INCLUDE,
+    });
+
+    await auditInTransaction(tx, { userId, action: "TASK_COMPLETED", entityId: contactRequestId, organizationId });
+
+    return { task };
   });
-  if (!contactRequest) return { error: "NOT_FOUND" };
-
-  // Scoped by contactRequestId too — never taskId alone.
-  const existing = await prisma.caseTask.findFirst({ where: { id: taskId, contactRequestId } });
-  if (!existing) return { error: "TASK_NOT_FOUND" };
-  if (existing.status !== "OPEN") return { error: "TASK_NOT_OPEN" };
-
-  const task = await prisma.caseTask.update({
-    where: { id: taskId },
-    data: { status: "COMPLETED", completedAt: new Date(), completedByUserId: userId },
-    include: TASK_INCLUDE,
-  });
-
-  logActivity({ userId, action: "TASK_COMPLETED", entity: "ContactRequest", entityId: contactRequestId, organizationId });
-
-  return { task };
 }
 
 export { TASK_TITLES };

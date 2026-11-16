@@ -28,10 +28,11 @@ describe("deriveSlaState() — deterministic, never invented", () => {
   });
 
   test("classifies past/today/future against calendar days", () => {
-    const now = new Date("2026-08-31T12:00:00Z");
-    assert.equal(deriveSlaState(new Date("2026-08-30T23:00:00Z"), now), "OVERDUE");
-    assert.equal(deriveSlaState(new Date("2026-08-31T01:00:00Z"), now), "DUE_TODAY");
-    assert.equal(deriveSlaState(new Date("2026-09-02T00:00:00Z"), now), "ON_TIME");
+    // SLA uses local calendar days; UTC literals cross midnight in Khartoum.
+    const now = new Date(2026, 7, 31, 12);
+    assert.equal(deriveSlaState(new Date(2026, 7, 30, 23), now), "OVERDUE");
+    assert.equal(deriveSlaState(new Date(2026, 7, 31, 1), now), "DUE_TODAY");
+    assert.equal(deriveSlaState(new Date(2026, 8, 2), now), "ON_TIME");
   });
 });
 
@@ -138,6 +139,19 @@ describe("case task API", () => {
       `/api/contact-requests/${caseB.id}/tasks/${created.body.data.id}/complete`
     );
     assert.equal(crossRes.status, 404);
+  });
+
+  test("two simultaneous completions commit one decision and one audit entry", async () => {
+    const contactRequest = await createCase();
+    const created = await agent.post(`/api/contact-requests/${contactRequest.id}/tasks`).send({ title: "TEST concurrent task" });
+    assert.equal(created.status, 201);
+    const taskId = created.body.data.id;
+    const responses = await Promise.all([0, 1].map(() => agent.patch(`/api/contact-requests/${contactRequest.id}/tasks/${taskId}/complete`)));
+    assert.deepEqual(responses.map((r) => r.status).sort(), [200, 409]);
+    assert.equal(await prisma.activityLog.count({ where: { entityId: contactRequest.id, action: "TASK_COMPLETED" } }), 1);
+    const task = await prisma.caseTask.findUnique({ where: { id: taskId } });
+    assert.equal(task.status, "COMPLETED");
+    assert.ok(task.completedByUserId);
   });
 
   test("rejects a manual task assigned to someone outside the organization", async () => {
