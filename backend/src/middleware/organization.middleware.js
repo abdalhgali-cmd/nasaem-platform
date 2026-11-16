@@ -1,5 +1,6 @@
 import prisma from "../config/database.js";
 import { SERVICE_KIND_FILTERS } from "../modules/contact-requests/contact-requests.service.js";
+import { withStaffRequestScope } from "../modules/contact-request-workflow/staff-request-scope.js";
 
 // Staff resource routes fail closed with 404 when the id belongs to another
 // organization. Returning the same response as a nonexistent id avoids
@@ -14,7 +15,7 @@ export async function requireContactRequestOrganization(req, res, next) {
     return res.status(404).json({ success: false, message: "Contact request not found" });
   }
 
-  return enforceUmrahAssignment(req, res, next, contactRequest);
+  return enforceUmrahAssignment(req, res, () => READ_METHODS.has(req.method) ? next() : withStaffRequestScope(contactRequest.id, req.user, next), contactRequest);
 }
 
 // Same organization check, no assignment gate: only for the claim route, which

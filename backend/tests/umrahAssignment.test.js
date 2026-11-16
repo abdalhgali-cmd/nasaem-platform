@@ -10,6 +10,7 @@ import prisma from "../src/config/database.js";
 import { app, request, uniqueSuffix } from "./helpers/api.js";
 import { createOrganization, createStaffUser, staffClient } from "./helpers/staff.js";
 import { testPhone, PDF } from "./helpers/workflow.js";
+import { staffScopeForRequest, withStaffRequestScope } from "../src/modules/contact-request-workflow/staff-request-scope.js";
 
 let admin;
 let adminUser;
@@ -63,6 +64,59 @@ const work = [
 ];
 
 describe("assignment gate for EMPLOYEE on Umrah requests", () => {
+  for (const [label, send] of [
+    ["status", (id) => employee.patch(`/api/contact-requests/${id}/status`).send({ status: "CONTACTED" })],
+    ["note", (id) => employee.post(`/api/contact-requests/${id}/notes`).send({ body: "TEST forbidden after reassignment" })],
+    ["task", (id) => employee.post(`/api/contact-requests/${id}/tasks`).send({ title: "TEST forbidden after reassignment" })],
+    ["document review", async (id) => {
+      const doc = await prisma.contactRequestDocument.findFirst({ where: { contactRequestId: id } });
+      return employee.patch(`/api/contact-requests/${id}/documents/${doc.id}/status`).send({ status: "ACCEPTED" });
+    }],
+  ]) test(`reassignment while ${label} waits for its row lock revokes the old employee`, async () => {
+    const id = await umrahRequest();
+    await prisma.contactRequest.update({ where: { id }, data: { assignedUserId: employeeUser.id } });
+    let pending;
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "ContactRequest" WHERE id = ${id} FOR UPDATE`;
+      const [{ pid: blocker }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`;
+      pending = Promise.resolve(send(id));
+      // Prove the HTTP request passed middleware and is actually waiting on
+      // this lock; a timing-only sleep would not reproduce the race reliably.
+      let blocked = false;
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        const [{ count }] = await prisma.$queryRaw`SELECT count(*)::int AS count FROM pg_stat_activity WHERE ${blocker} = ANY(pg_blocking_pids(pid))`;
+        if (count > 0) { blocked = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.equal(blocked, true, "the employee must be waiting on the request lock");
+      await tx.contactRequest.update({ where: { id }, data: { assignedUserId: colleagueUser.id } });
+    }, { timeout: 10000 });
+    const result = await pending;
+    assert.equal(result.status, 403, JSON.stringify(result.body));
+    assert.equal(result.body.code, "ASSIGNED_TO_OTHER");
+    const stored = await prisma.contactRequest.findUnique({ where: { id } });
+    assert.equal(stored.status, "NEW", "the old employee's write must not commit");
+    assert.equal(stored.assignedUserId, colleagueUser.id);
+    assert.equal(await prisma.caseNote.count({ where: { contactRequestId: id } }), 0);
+    assert.equal(await prisma.caseTask.count({ where: { contactRequestId: id, source: "MANUAL" } }), 0);
+    assert.equal(await prisma.contactRequestDocument.count({ where: { contactRequestId: id, status: "ACCEPTED" } }), 0);
+  });
+
+  test("authenticated scope stays isolated across simultaneous requests and is cleared afterwards", async () => {
+    const run = (id, user) => withStaffRequestScope(id, user, async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.equal(staffScopeForRequest(id).userId, user.id);
+      assert.equal(staffScopeForRequest(`${id}-other`), null);
+      return staffScopeForRequest(id).organizationId;
+    });
+    assert.deepEqual(await Promise.all([
+      run("one", { id: "employee-one", role: "EMPLOYEE", organizationId: "org-one" }),
+      run("two", { id: "employee-two", role: "EMPLOYEE", organizationId: "org-two" }),
+    ]), ["org-one", "org-two"]);
+    assert.equal(staffScopeForRequest("one"), null);
+  });
+
   test("reading is open; every work mutation on an unassigned request says «claim first»", async () => {
     const id = await umrahRequest();
     assert.equal((await employee.get(`/api/contact-requests/${id}`)).status, 200, "staff can read an unassigned request");
