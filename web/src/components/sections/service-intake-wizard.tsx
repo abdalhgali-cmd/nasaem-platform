@@ -2571,7 +2571,7 @@ function PackageOptionDetails({ item }: { item: PublicService }) {
       ) : null}
       {price > 0 && item.currency !== "SDG" ? (
         item.priceSdg != null ? (
-          <span className="font-bold text-primary" data-testid="package-price-sdg">
+          <span className="font-bold text-primary dark:text-secondary" data-testid="package-price-sdg">
             يعادل {Math.round(item.priceSdg).toLocaleString("en-US")} جنيه سوداني
           </span>
         ) : fixed ? (

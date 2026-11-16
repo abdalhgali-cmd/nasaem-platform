@@ -3,7 +3,15 @@ import "./env.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { checkSync, expectedOutputs } from "../../scripts/sync-static-admin.mjs";
+import { checkSync, expectedOutputs, transform } from "../../scripts/sync-static-admin.mjs";
+
+test("Windows checkouts preserve generated HTML banners and produce the same output", () => {
+  const source = '<!doctype html>\n<html lang="ar"><body>اختبار</body></html>\n';
+  const lf = transform("login.html", source);
+  const crlf = transform("login.html", source.replaceAll("\n", "\r\n"));
+  assert.equal(crlf, lf);
+  assert.match(lf, /<!-- GENERATED from backend\/public/);
+});
 
 // The staff back-office has one maintained source (backend/public). The
 // Vercel copy under web/public is generated from it; this fails CI whenever

@@ -105,3 +105,39 @@ test.describe.serial("customer UX — Umrah and Egypt", () => {
     await expect(floating).toBeVisible();
   });
 });
+test("keyboard skip link moves focus into the main content", async ({ page }) => {
+  for (const path of ["/umrah", "/track"]) {
+    await page.goto(path);
+    await page.keyboard.press("Tab");
+    const skip = page.getByRole("link", { name: "تخطَّ إلى المحتوى الرئيسي" });
+    await expect(skip).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#main-content")).toBeFocused();
+  }
+});
+
+test("dark primary actions keep readable text contrast", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "تفعيل الوضع الداكن" }).first().click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  const action = page.locator(".bg-button").first();
+  await expect(action).toBeVisible();
+  const ratio = await action.evaluate(async (el) => {
+    getComputedStyle(el).getPropertyValue("color");
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    await Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished.catch(() => {})));
+    const style = getComputedStyle(el);
+    const luminance = (color: string) => {
+      const rgb = color.match(/[\d.]+/g)!.slice(0, 3).map(Number).map((c) => {
+        const value = c / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+    };
+    const foreground = luminance(style.color);
+    const background = luminance(style.backgroundColor);
+    return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+  });
+  expect(ratio).toBeGreaterThanOrEqual(4.5);
+});

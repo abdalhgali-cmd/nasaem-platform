@@ -308,6 +308,7 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
   // Staff find the request the way they would: search by the traveler's name.
   async function openStaffRequest(id: string, travelerName: string, expectedMatches = 1) {
     await office.goto(`${BACKEND}/admin-dashboard.html`);
+    await expect(office.locator("#tabs")).toHaveAttribute("aria-busy", "false");
     await office.locator("#tabbtn-requests").click();
     await office.fill("#cr-search", travelerName);
     const row = office.locator(`#cr-body tr[data-cr-id="${id}"]`);

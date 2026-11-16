@@ -75,6 +75,8 @@ async function bootstrap() {
   migrateLegacyQueryLink();
   applyRoute();
   window.addEventListener("hashchange", applyRoute);
+  document.querySelectorAll("#tabs [data-tab]").forEach((btn) => { btn.disabled = false; });
+  el("tabs").setAttribute("aria-busy", "false");
 }
 
 function setupTabVisibility() {

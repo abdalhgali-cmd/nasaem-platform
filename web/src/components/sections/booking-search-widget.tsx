@@ -129,7 +129,7 @@ export function BookingSearchWidget({ initialCatalog, pricesApproved = false }: 
             className={cn(
               "flex min-h-14 items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-sm font-bold transition",
               path === key
-                ? "border-primary bg-primary text-primary-foreground shadow-md"
+                ? "border-primary bg-primary text-primary-foreground shadow-md dark:bg-button"
                 : "border-border bg-background text-foreground hover:border-primary/40 hover:bg-primary/5"
             )}
           >
