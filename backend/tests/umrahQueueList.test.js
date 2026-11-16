@@ -78,6 +78,22 @@ describe("GET /contact-requests?serviceKind=UMRAH&sort=queue", () => {
 
   const list = (qs) => admin.get(`/api/contact-requests?serviceKind=UMRAH&search=TEST-QUEUE-${tag}&${qs}`);
 
+  test("detail returns the same live next action as the queue after a payment change", async () => {
+    const queued = await list("sort=queue&limit=20");
+    const detail = await admin.get(`/api/contact-requests/${ids[0]}`);
+    assert.equal(detail.status, 200);
+    assert.deepEqual(detail.body.data.umrahQueue, queued.body.data.find((r) => r.id === ids[0]).umrahQueue);
+    assert.equal(detail.body.data.umrahQueue.rank, 0);
+    await prisma.contactRequest.update({ where: { id: ids[0] }, data: { paymentStatus: "AWAITING_TRANSFER" } });
+    try {
+      const changed = await admin.get(`/api/contact-requests/${ids[0]}`);
+      assert.equal(changed.status, 200);
+      assert.notEqual(changed.body.data.umrahQueue.nextAction, detail.body.data.umrahQueue.nextAction);
+    } finally {
+      await prisma.contactRequest.update({ where: { id: ids[0] }, data: { paymentStatus: "UNDER_REVIEW" } });
+    }
+  });
+
   test("default order is newest first; sort=queue brings the oldest-but-urgent request to page 1", async () => {
     const newest = await list("limit=1");
     assert.equal(newest.body.data[0].id, ids[2]);

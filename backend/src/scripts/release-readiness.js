@@ -10,6 +10,7 @@
 // Exit code 1 when a blocker is found, 0 otherwise.
 import fs from "node:fs";
 import prisma from "../config/database.js";
+import { pathToFileURL } from "node:url";
 import { getCurrencyRateStatuses } from "../modules/flights/flights.service.js";
 import { intakeScope } from "../modules/service-scope/intake-scope.js";
 import { deploymentName, pricesAreTestData } from "../config/deployment.js";
@@ -161,7 +162,7 @@ export async function collectReadiness({ db = prisma, env = process.env } = {}) 
   };
 }
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
+const isMain = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   try {
     const report = await collectReadiness();

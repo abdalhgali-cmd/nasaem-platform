@@ -277,6 +277,8 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
   const [paymentFilter, setPaymentFilter] = React.useState("ALL");
   const [fromDate, setFromDate] = React.useState("");
   const [toDate, setToDate] = React.useState("");
+  const [page, setPage] = React.useState(1);
+  const [pagination, setPagination] = React.useState({ total: 0, totalPages: 1, truncated: false });
   const [selectedId, setSelectedId] = React.useState<string | null>(initialRequestId);
   // A request opened from a link (notification, ?requestId=) that is not in
   // the loaded list (older than the first page, or outside the filters) is
@@ -300,9 +302,9 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
 
     (async () => {
       try {
-        // The Umrah queue is re-ordered "needs action first" below, so it
-        // loads the largest page the API allows.
-        const params = new URLSearchParams({ limit: serviceKindFilter === "UMRAH" ? "100" : "50" });
+        const params = new URLSearchParams({ limit: "50", page: String(page) });
+        // Rank the complete matching set on the server before pagination.
+        if (serviceKindFilter === "UMRAH") params.set("sort", "queue");
         if (ownerFilter !== "ALL") params.set("assignedUserId", ownerFilter);
         if (serviceKindFilter !== "ALL") params.set("serviceKind", serviceKindFilter);
         if (paymentFilter !== "ALL") params.set("paymentStatus", paymentFilter);
@@ -317,6 +319,7 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
         const summaryPayload = await readJson(summaryRes);
         if (cancelled) return;
         setCases(listPayload.data ?? []);
+        setPagination({ total: listPayload.meta?.total ?? 0, totalPages: listPayload.meta?.totalPages ?? 1, truncated: Boolean(listPayload.meta?.truncated) });
         setSummary(summaryPayload.data ?? null);
         setError("");
       } catch (err) {
@@ -329,7 +332,7 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
     return () => {
       cancelled = true;
     };
-  }, [ownerFilter, serviceKindFilter, paymentFilter, fromDate, toDate, reloadToken]);
+  }, [ownerFilter, serviceKindFilter, paymentFilter, fromDate, toDate, reloadToken, page]);
 
   // Loaded once, and separately from the case list: the staff roster changes
   // far less often than the queues, and a failure to load it must only cost
@@ -346,19 +349,7 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
     })();
   }, []);
 
-  const visible = React.useMemo(() => {
-    const rows = queueFilter === "ALL" ? cases : cases.filter((row) => row.readiness?.queue === queueFilter);
-    if (serviceKindFilter !== "UMRAH") return rows;
-    // Umrah: the request needing staff soonest first, then the nearest
-    // preferred travel date (none last), then the oldest.
-    const dateKey = (row: CaseRow) => row.umrahQueue?.preferredTravelDate || "9999-12-31";
-    return [...rows].sort(
-      (a, b) =>
-        (a.umrahQueue?.rank ?? 9) - (b.umrahQueue?.rank ?? 9) ||
-        dateKey(a).localeCompare(dateKey(b)) ||
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-  }, [cases, queueFilter, serviceKindFilter]);
+  const visible = React.useMemo(() => queueFilter === "ALL" ? cases : cases.filter((row) => row.readiness?.queue === queueFilter), [cases, queueFilter]);
 
   const listed = visible.find((row) => row.id === selectedId) ?? null;
   // The open case always comes from its own endpoint: lists mask passport
@@ -424,10 +415,10 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
           <div className="min-w-0 rounded-3xl border border-border bg-card p-4 shadow-sm">
             {/* Wraps on a phone: the heading and both filters never force sideways scrolling. */}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="w-full text-sm font-black sm:w-auto">الحالات ({visible.length})</h2>
+              <h2 className="w-full text-sm font-black sm:w-auto">الحالات ({visible.length} من {pagination.total})</h2>
               <select
                 value={serviceKindFilter}
-                onChange={(e) => setServiceKindFilter(e.target.value)}
+                onChange={(e) => { setServiceKindFilter(e.target.value); setPage(1); setLoading(true); }}
                 aria-label="تصفية حسب الخدمة"
                 data-testid="case-service-filter"
                 className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none sm:flex-none"
@@ -440,7 +431,7 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
               </select>
               <select
                 value={ownerFilter}
-                onChange={(e) => setOwnerFilter(e.target.value)}
+                onChange={(e) => { setOwnerFilter(e.target.value); setPage(1); setLoading(true); }}
                 aria-label="تصفية حسب الموظف"
                 className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none sm:flex-none"
               >
@@ -456,7 +447,7 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
             <div className="mt-2 grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2">
               <select
                 value={paymentFilter}
-                onChange={(e) => setPaymentFilter(e.target.value)}
+                onChange={(e) => { setPaymentFilter(e.target.value); setPage(1); setLoading(true); }}
                 aria-label="تصفية حسب حالة الدفع"
                 data-testid="case-payment-filter"
                 className="col-span-2 h-9 rounded-lg border border-border bg-background px-2 text-xs font-semibold outline-none sm:col-span-1 lg:col-span-2"
@@ -470,15 +461,17 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
               </select>
               <label className="flex flex-col gap-1 text-[11px] font-bold text-muted-foreground">
                 من تاريخ
-                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} data-testid="case-from-date" className="h-9 w-full min-w-0 rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground outline-none" />
+                <input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setPage(1); setLoading(true); }} data-testid="case-from-date" className="h-9 w-full min-w-0 rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground outline-none" />
               </label>
               <label className="flex flex-col gap-1 text-[11px] font-bold text-muted-foreground">
                 إلى تاريخ
-                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} data-testid="case-to-date" className="h-9 w-full min-w-0 rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground outline-none" />
+                <input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setPage(1); setLoading(true); }} data-testid="case-to-date" className="h-9 w-full min-w-0 rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground outline-none" />
               </label>
             </div>
 
-            <ul className="mt-3 flex max-h-[36rem] flex-col gap-2 overflow-y-auto">
+            {queueFilter !== "ALL" ? <p role="status" className="mt-3 text-xs text-muted-foreground">تصنيف الجاهزية يرشّح الصفحة الحالية؛ تنقّل بين الصفحات لرؤية بقية الحالات. العدادات أعلاه تشمل جميع الطلبات.</p> : null}
+            {pagination.truncated ? <p role="alert" className="mt-3 text-xs font-bold text-destructive">قائمة الأولوية مؤقتة أثناء تجهيز الفهرس؛ قد توجد طلبات أخرى خارج النتائج.</p> : null}
+            <ul className="mt-3 flex max-h-[36rem] flex-col gap-2 overflow-y-auto" aria-busy={loading}>
               {loading && cases.length === 0 ? (
                 <li className="py-8 text-center text-sm text-muted-foreground">جاري التحميل…</li>
               ) : null}
@@ -537,6 +530,11 @@ export function CaseWorkspace({ initialRequestId = null, initialTab = null }: { 
                 </li>
               ))}
             </ul>
+            <nav aria-label="صفحات الحالات" className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={loading || page <= 1} onClick={() => { setLoading(true); setPage((p) => p - 1); }}>السابق</Button>
+              <span role="status" className="text-xs text-muted-foreground">الصفحة {page} من {pagination.totalPages}</span>
+              <Button type="button" variant="outline" size="sm" disabled={loading || page >= pagination.totalPages} onClick={() => { setLoading(true); setPage((p) => p + 1); }}>التالي</Button>
+            </nav>
           </div>
 
           {selected ? (
@@ -592,8 +590,7 @@ function QueueSummaryCards({
         ))}
       </section>
 
-      {/* Clicking a queue filters the list to it — the counts and the list
-          come from the same readiness computation, so they always agree. */}
+      {/* Counts cover the organization; the classification filters the current page. */}
       <section className="mt-3 flex flex-wrap gap-2">
         {QUEUE_ORDER.map((key) => (
           <button

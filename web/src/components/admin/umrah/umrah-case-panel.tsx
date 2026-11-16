@@ -127,23 +127,8 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
   const isManager = me ? ["SUPER_ADMIN", "ADMIN"].includes(me.role) : false;
   const canWork = Boolean(me) && (isManager || (me!.role === "EMPLOYEE" && assignee?.id === me!.id));
   const canClaim = Boolean(me) && !assignee && ["SUPER_ADMIN", "ADMIN", "EMPLOYEE"].includes(me!.role) && caseRow.status !== "CLOSED";
-  // The staff next step (umrah-staff-queue.js) is computed for list rows only,
-  // so it is read from the request's own row of GET /contact-requests.
-  const [queue, setQueue] = React.useState<{ for: string; value: UmrahListRow["umrahQueue"] } | null>(null);
-  const version = `${caseRow.id}:${caseRow.updatedAt}:${caseRow.paymentStatus}:${caseRow.documents.map((d) => d.status).join(",")}`;
-  React.useEffect(() => {
-    let cancelled = false;
-    const params = new URLSearchParams({ serviceKind: "UMRAH", search: caseRow.id, limit: "1" });
-    fetch(`${API_URL}/contact-requests?${params}`, { credentials: "include" })
-      .then((r) => r.json())
-      .then((payload) => {
-        const row = (payload?.data as UmrahListRow[] | undefined)?.find((r) => r.id === caseRow.id);
-        if (!cancelled) setQueue({ for: version, value: row?.umrahQueue ?? null });
-      })
-      .catch(() => { if (!cancelled) setQueue({ for: version, value: null }); });
-    return () => { cancelled = true; };
-  }, [caseRow.id, version]);
-  const umrahQueue = caseRow.umrahQueue ?? (queue?.for === version ? queue.value : null);
+  // Detail and queue use the same server calculation and response snapshot.
+  const umrahQueue = caseRow.umrahQueue;
   const progress = caseRow.progress || {};
   const kind = packageKind(caseRow);
   const signal = umrahRowSignal(caseRow, now);
@@ -168,7 +153,7 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
           <div><dt className="text-xs font-bold text-muted-foreground">الباقة</dt><dd className="font-bold">{caseRow.serviceRef?.name || "—"}<span className="block text-xs font-normal text-muted-foreground" data-testid="umrah-kind">{kind.label || "النوع غير محدد"}</span></dd></div>
           <div><dt className="text-xs font-bold text-muted-foreground">السفر المفضل</dt><dd className="font-bold">{travel.preferredDate ? <><span dir="ltr">{travel.preferredDate}</span><span className="block text-xs font-normal text-muted-foreground">مبدئي، ليس حجزًا</span></> : travel.preferredDateMissing ? <span className="text-[var(--nh-warning-ink)]">لم يُحدد</span> : "غير مطلوب لهذه الباقة"}</dd></div>
           <div><dt className="text-xs font-bold text-muted-foreground">الدفع</dt><dd className="font-bold" data-testid="umrah-payment">{paymentLabel(caseRow.paymentStatus)}{amount ? <span className="block text-xs font-normal tabular-nums text-muted-foreground" dir="ltr">{amount}</span> : null}</dd></div>
-          <div><dt className="text-xs font-bold text-muted-foreground">الإجراء التالي</dt><dd className="font-bold text-[var(--nh-primary-ink)]" data-umrah-next="1">{umrahQueue?.nextAction || (queue?.for === version ? "—" : "…")}</dd></div>
+          <div><dt className="text-xs font-bold text-muted-foreground">الإجراء التالي</dt><dd className="font-bold text-[var(--nh-primary-ink)]" data-umrah-next="1">{umrahQueue?.nextAction || "تعذّر تحديد الإجراء؛ حدّث الطلب."}</dd></div>
         </dl>
         <p className="mt-2 text-xs text-muted-foreground" data-testid="umrah-assignee">المسؤول: {assignee?.fullName || "غير مُسند"}{caseRow.dueAt ? ` · موعد الإنجاز ${formatDay(caseRow.dueAt)}` : ""}</p>
         {canClaim ? (
@@ -254,7 +239,7 @@ export function UmrahCasePanel({ caseRow, onOpenTab }: { caseRow: UmrahCase; onO
         </ul>
       </Section>
 
-      {caseRow.status !== "CLOSED" && (caseRow.requirementsSnapshot || []).length ? (
+      {canWork && caseRow.status !== "CLOSED" && (caseRow.requirementsSnapshot || []).length ? (
         <Section title="طلب مستند محدد من العميل" icon={<FileText className="size-4 text-[var(--nh-gold-700)]" aria-hidden="true" />} testId="umrah-request-document">
           <DocumentRequestForm caseRow={caseRow} />
         </Section>
