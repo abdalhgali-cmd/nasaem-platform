@@ -30,7 +30,7 @@
 2. في GitHub: Settings → Secrets and variables → Actions:
    - Secrets: `ANDROID_KEYSTORE_BASE64` (`base64 -w0 nasaem-release.keystore`)، `ANDROID_KEYSTORE_PASSWORD`، `ANDROID_KEY_ALIAS`، `ANDROID_KEY_PASSWORD`.
    - Variables: `MOBILE_API_BASE_URL` (عنوان **الإنتاج**، يبدأ بـhttps وينتهي بـ`/api`)، `ANDROID_RELEASE_CERT_SHA256` (البصمة التي طبعها السكربت — **إلزامي**)، و`ANDROID_VERSION_CODE_BASE` (اختياري، الافتراضي 100).
-3. لا يوجد عنوان إنتاج في الكود: القيمة الحالية في `mobile/www/js/config.js` هي **staging**. الـworkflow يرفض البناء إن بقي العنوان staging/localhost.
+3. لا يوجد عنوان إنتاج في الكود: القيمة الحالية في `mobile/www/js/config.js` هي خادم **QA**. مسار الإصدار يستبدلها بـ`MOBILE_API_BASE_URL`، ويرفض أي عنوان staging/QA/localhost أو خادم لا يعلن `environment: production`.
 
 ## تنفيذ الإصدار
 
@@ -38,6 +38,32 @@ Actions → «Android Release» → Run workflow → اكتب `version_name` ب�
 - `Nasaem-AlHaramain-<version>.apk` للتثبيت المباشر.
 - `Nasaem-AlHaramain-<version>.aab` للنشر في Google Play (يلزم حساب مطوّر، وتفعيل Play App Signing وفق إرشادات Google).
 - `SHA256SUMS.txt` و`BUILD-INFO.txt` (versionCode، بصمة الشهادة، عنوان الـAPI).
+
+### رابط التنزيل المباشر
+
+ملفات Artifacts لا تصلح رابطًا للعملاء: تحتاج تسجيل دخول GitHub، وتنزل ملف ZIP لا APK، وتُحذف بعد مدة. لذلك ينشئ المسار أيضًا **مسودة إصدار** (`android-v<version>`) مرفقًا بها الـAPK و`SHA256SUMS.txt` و`BUILD-INFO.txt`:
+
+1. GitHub → Releases → افتح المسودة وراجع الملاحظات وبصمة الشهادة.
+2. اضغط «Publish release». قبل ذلك لا يستطيع أحد تنزيلها.
+3. الرابط المباشر يظهر في ملخص التشغيل وصيغته:
+   `https://github.com/abdalhgali-cmd/nasaem-platform/releases/download/android-v<version>/Nasaem-AlHaramain-<version>.apk`
+
+يرفض المسار إعادة استعمال رقم إصدار موجود: التحديث فوق التطبيق المثبت يتطلب رقمًا أعلى.
+
+### نسخة الاختبار (QA)
+
+مسار «Android Release APK» يبني نسخة QA تتصل بخادم QA وموقّعة بمفتاح QA. للحصول على رابط مباشر للمختبِرين: Actions → «Android Release APK» → Run workflow → فعّل `publish_qa_link`. ينشر ذلك إصدارًا تجريبيًا `qa-v0.3.<n>` بعنوان «اختبار فقط» ولا يصير «Latest». نسخة QA لا تُحدَّث إلى النسخة الرسمية (مفتاحا التوقيع مختلفان): احذفها من الهاتف قبل تثبيت الرسمية.
+
+## دخول Google في التطبيق
+
+التطبيق يستعمل Credential Manager. يلزم في مشروع Google Cloud نفسه الذي يحوي Web Client (قيمة `GOOGLE_CLIENT_ID` في الخادم) عميل OAuth من نوع **Android** لكل مفتاح توقيع:
+
+| النسخة | الحزمة | SHA-1 للشهادة |
+|---|---|---|
+| QA | `com.nasaemalharamain.app` | `2A:A5:27:25:6C:70:12:48:00:B5:BE:33:33:F2:F8:DD:62:6D:23:B5` |
+| الرسمية | `com.nasaemalharamain.app` | يطبعه `keytool -list -v` لمفتاح الوكالة (أو `apksigner verify --print-certs` للـAPK الرسمي) |
+
+بدون عميل Android المطابق يظهر زر Google لكنه يفشل. إن نُشر التطبيق عبر Google Play مع Play App Signing فتُضاف أيضًا بصمة مفتاح Google Play من Play Console.
 
 ## الفحص اليدوي قبل التوزيع (على هاتف حقيقي)
 

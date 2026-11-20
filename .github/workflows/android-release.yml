@@ -21,6 +21,10 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # contents: write only to create the DRAFT release below; nothing is
+    # published until the owner presses «Publish release» on GitHub.
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: mobile
@@ -164,3 +168,33 @@ jobs:
           name: Nasaem-AlHaramain-release-${{ inputs.version_name }}
           path: mobile/dist/*
           if-no-files-found: error
+
+      # A GitHub Actions artifact needs a GitHub login, arrives as a ZIP and
+      # expires: a phone cannot install it from a link. A release asset is the
+      # .apk itself at a stable address. The release is created as a DRAFT:
+      # nobody can download it until the owner reviews and publishes it.
+      - name: Draft GitHub release with the APK (direct download once published)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: android-v${{ inputs.version_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists: choose a new version_name (users can only update to a higher version)."
+            exit 1
+          fi
+          {
+            echo "نسخة Android الرسمية $VERSION_NAME (versionCode $VERSION_CODE)."
+            echo
+            echo "- الخادم: $API_BASE_URL"
+            echo "- بصمة شهادة التوقيع (SHA-256): \`$CERT_SHA256\`"
+            echo "- الملف: Nasaem-AlHaramain-$VERSION_NAME.apk — تحقق من SHA256SUMS.txt بعد التنزيل."
+            echo
+            echo "مسودة: لا يمكن تنزيلها حتى ينشرها المالك."
+          } > release-notes.md
+          gh release create "$TAG" --draft --target "$GITHUB_SHA" \
+            --title "Nasaem Al-Haramain Android $VERSION_NAME" --notes-file release-notes.md \
+            "dist/Nasaem-AlHaramain-$VERSION_NAME.apk" dist/SHA256SUMS.txt dist/BUILD-INFO.txt
+          echo "### Draft release $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "After publishing, the direct link is:" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/Nasaem-AlHaramain-$VERSION_NAME.apk" >> "$GITHUB_STEP_SUMMARY"

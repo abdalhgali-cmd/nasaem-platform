@@ -2,6 +2,11 @@ name: Android Release APK
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_qa_link:
+        description: "Also publish a QA pre-release with a direct .apk link for testers (QA server, QA key — not for customers)"
+        type: boolean
+        default: false
   push:
     branches:
       - codex/nasaem-capacitor-integration
@@ -141,3 +146,37 @@ jobs:
           path: mobile/dist/Nasaem-AlHaramain-release.apk
           if-no-files-found: error
           retention-days: 30
+
+  # Testers on phones cannot install a GitHub artifact (login, ZIP, 30-day
+  # expiry). On request only, the same verified APK is published as a QA
+  # pre-release: a direct .apk link, clearly marked QA, never "latest".
+  publish-qa-link:
+    needs: build-apk
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_qa_link
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Nasaem-AlHaramain-release-apk
+      - name: QA pre-release with a direct APK link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: 0.3.${{ github.run_number }}
+        run: |
+          TAG="qa-v$VERSION"
+          FILE="Nasaem-AlHaramain-QA-$VERSION.apk"
+          mv Nasaem-AlHaramain-release.apk "$FILE"
+          sha256sum "$FILE" | tee SHA256SUMS.txt
+          printf '%s\n\n%s\n%s\n' \
+            "نسخة اختبار QA $VERSION — تتصل بخادم QA وموقّعة بمفتاح QA. ليست نسخة العملاء." \
+            "- التثبيت: نزّل الملف من الهاتف واسمح بالتثبيت من هذا المصدر." \
+            "- لا تُرقّى هذه النسخة إلى النسخة الرسمية: مفتاحا التوقيع مختلفان، فاحذفها قبل تثبيت الرسمية." > notes.md
+          gh release create "$TAG" --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "QA Android $VERSION (اختبار فقط)" --notes-file notes.md "$FILE" SHA256SUMS.txt
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$FILE"
+          echo "Direct QA APK link: $URL"
+          echo "### QA APK (direct link)" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
