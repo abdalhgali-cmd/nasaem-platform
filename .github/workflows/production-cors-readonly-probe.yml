@@ -1,5 +1,8 @@
-name: Production deploy read-only probe
-# One-off, read-only: is the new website build live? GET only, no secrets.
+name: Launch readiness read-only probe
+# Read-only facts for the 2026-11-20 launch review. GET only, except one
+# tracking-code request with a synthetic number that the API answers before
+# writing anything when no channel is configured (OTP_CHANNEL_UNAVAILABLE).
+# No credentials, no secrets, no customer data.
 on:
   push:
     branches: [probe/production-cors-readonly-20261115]
@@ -8,28 +11,19 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    env:
-      SITE: https://nasaem-website-production.up.railway.app
     steps:
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - name: New build markers
+      - name: APIs (production, QA, staging)
         run: |
-          curl -sS -m 30 -o /dev/null -w "logo-dark-384.webp → %{http_code} %{size_download} bytes\n" "$SITE/logo-dark-384.webp"
-          curl -sS -m 30 "$SITE/" -o home.html
-          printf "home has «الإصدار الأول»: %s\n" "$(grep -c 'الإصدار الأول' home.html || true)"
-          printf "home has test-data strip in first HTML: %s\n" "$(grep -c 'data-testid=\"test-data-notice\"' home.html || true)"
-          npm init -y >/dev/null && npm i --no-save playwright@1 >/dev/null && npx playwright install --with-deps chromium >/dev/null
-          cat > m.mjs <<'JS'
-          import { chromium } from "playwright";
-          const b = await chromium.launch();
-          for (const w of [390, 1440]) {
-            const p = await (await b.newContext({ viewport: { width: w, height: w < 500 ? 780 : 900 } })).newPage();
-            await p.addInitScript(() => { window.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: "layout-shift", buffered: true }); });
-            await p.goto(process.env.SITE + "/umrah", { waitUntil: "networkidle" }); await p.waitForTimeout(1500);
-            console.log(w, "CLS", (await p.evaluate(() => window.__cls)).toFixed(3), "| step:", await p.locator('[data-testid="wizard-step-label"]').innerText().catch(() => "MISSING"));
-            await p.close();
-          }
-          await b.close();
-          JS
-          node m.mjs
+          for API in https://nasaem-platform-production.up.railway.app/api https://qa-backend-qa-ae86.up.railway.app/api https://adaptable-quietude-staging.up.railway.app/api; do
+            echo "================ $API"
+            printf "health          → "; curl -sS -m 30 "$API/health" | head -c 260; echo
+            printf "google challenge→ "; curl -sS -m 30 "$API/customer-auth/google/challenge" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const d=j.data||j;console.log(JSON.stringify({success:j.success,enabled:d.enabled,clientIdSet:!!d.clientId,clientIdSuffix:d.clientId?String(d.clientId).slice(-28):null,keys:Object.keys(d||{})}))}catch{console.log(s.slice(0,200))}})'
+            printf "tracking code   → "; curl -sS -m 30 -X POST -H "Content-Type: application/json" -H "X-Requested-With: XMLHttpRequest" -H "Origin: https://nasaem-website-production.up.railway.app" --data '{"phone":"+249900000001"}' "$API/tracking/request-code" | head -c 300; echo
+            printf "packages        → "; curl -sS -m 30 "$API/services/public/packages" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const r=JSON.parse(s).data||[];console.log(r.length+" published: "+r.map(x=>x.code+":"+x.pricingMode+(x.basePrice?"="+x.basePrice+x.currency:"")).join(", "))}catch{console.log(s.slice(0,200))}})'
+          done
+      - name: Websites
+        run: |
+          for SITE in https://nasaem-website-production.up.railway.app https://nasaem-website-staging-staging.up.railway.app https://nasaem-alharamain.com; do
+            echo "================ $SITE"
+            for p in / /umrah /track /admin/login /account; do printf "%-14s → " "$p"; curl -sS -m 30 -o /dev/null -w "%{http_code}\n" "$SITE$p" || echo unreachable; done
+          done
