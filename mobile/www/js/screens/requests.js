@@ -529,10 +529,10 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
       <div id="trackingActionPanel"></div>
 
       ${request.timeline?.length ? `
-        <div class="detail-block">
-          <h4>سجل الطلب</h4>
+        <details class="detail-block request-history">
+          <summary>سجل الطلب</summary>
           ${request.timeline.map((entry) => `<div class="timeline-row">${icon("check-circle", { size: 14 })}<span>${esc(timelineLabel(entry.action))}</span></div>`).join("")}
-        </div>` : ""}
+        </details>` : ""}
     `;
 
     const panel = bodyEl.querySelector("#trackingActionPanel");

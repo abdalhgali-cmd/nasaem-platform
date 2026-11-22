@@ -93,15 +93,15 @@ export async function renderHomeScreen({ bodyEl }) {
       </button>
     </section>
 
-    <section class="section home-journey" aria-label="كيف يعمل طلبك">
-      <div class="section-head"><h2>خطوات واضحة من البداية</h2></div>
+    <details class="section home-journey">
+      <summary>كيف أقدّم طلب؟</summary>
       <ol class="home-journey-grid">
         <li><span>١</span><strong>اختر الخدمة</strong></li>
         <li><span>٢</span><strong>أرسل المتطلبات</strong></li>
         <li><span>٣</span><strong>ادفع للحساب المعتمد</strong></li>
         <li><span>٤</span><strong>تابع حتى التسليم</strong></li>
       </ol>
-    </section>
+    </details>
 
     <section class="section">
       <a class="help-strip" id="helpStrip" href="#">
@@ -277,15 +277,15 @@ async function loadActivitySection(bodyEl) {
   try {
     const [overviewRes, requestsRes, notificationsRes] = await Promise.all([
       api("/customer/overview").catch(() => ({ data: {} })),
-      api("/customer/requests?limit=1").catch(() => ({ data: [] })),
+      api("/customer/requests?limit=20").catch(() => ({ data: [] })),
       api("/customer/notifications?limit=10").catch(() => ({ data: [] })),
     ]);
     if (!list.isConnected) return;
     const cards = [];
     let hasCurrentRequest = false;
 
-    const latestOrder = overviewRes.data?.recentOrders?.[0] || null;
-    const latestRequest = requestsRes.data?.[0] || null;
+    const latestOrder = overviewRes.data?.recentOrders?.find((order) => !["COMPLETED", "REJECTED", "CANCELLED"].includes(order.status)) || null;
+    const latestRequest = requestsRes.data?.find((request) => request.status !== "CLOSED") || null;
     const orderTime = latestOrder ? new Date(latestOrder.updatedAt || latestOrder.createdAt).getTime() : -1;
     const requestTime = latestRequest ? new Date(latestRequest.updatedAt || latestRequest.createdAt).getTime() : -1;
     let openLatest = null;
@@ -316,8 +316,9 @@ async function loadActivitySection(bodyEl) {
         <button class="last-order-card" id="lastOrderBtn">
           <div class="last-order-icon">${icon("requests", { size: 22 })}</div>
           <div class="last-order-body">
-            <small>آخر طلب</small>
+            <small>متابعة الطلب</small>
             <strong>${esc(title)}</strong>
+            ${useRequest && latestRequest.nextAction ? `<p>${esc(latestRequest.nextAction)}</p>` : ""}
             <span class="last-order-meta"><span class="status-pill">${esc(statusText)}</span>${updatedText ? `<time datetime="${esc(updatedAt)}">آخر تحديث ${esc(updatedText)}</time>` : ""}</span>
           </div>
           <span class="chevron">${icon("chevron-start", { size: 18 })}</span>

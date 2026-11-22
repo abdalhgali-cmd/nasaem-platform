@@ -82,9 +82,9 @@ export async function renderServicesScreen({ bodyEl }) {
         ${groups.map((group) => `
           <section class="svc-group" aria-label="${esc(group.title)}">
             <h2 class="svc-group-title"><span class="svc-group-diamond" aria-hidden="true"></span>${esc(group.title)}</h2>
-            <ol class="svc-flow svc-group-list">
-              ${group.items.map((item, index) => serviceRow(item, index)).join("")}
-            </ol>
+            <ul class="svc-flow svc-group-list">
+              ${group.items.map(serviceRow).join("")}
+            </ul>
           </section>`).join("")}
       </div>`;
     bodyEl.querySelectorAll("[data-id]").forEach((row) => {
@@ -96,14 +96,14 @@ export async function renderServicesScreen({ bodyEl }) {
   }
 }
 
-function serviceRow(item, index) {
+function serviceRow(item) {
   const price = startingPrice(item);
   const duration = durationOf(item);
   const description = shortDescription(item);
   return `
     <li class="svc-step">
-      <span class="svc-node">${icon(iconForService(item), { size: 20 })}</span>
       <button class="svc-card" data-id="${esc(item.id)}" aria-label="عرض تفاصيل ${esc(item.name)}">
+        <span class="svc-node" aria-hidden="true">${icon(iconForService(item), { size: 20 })}</span>
         <span class="svc-head"><strong>${esc(item.name)}</strong>${item.country ? `<small>${esc(item.country)}</small>` : ""}</span>
         ${description ? `<span class="svc-desc">${esc(description)}</span>` : ""}
         <span class="svc-meta">

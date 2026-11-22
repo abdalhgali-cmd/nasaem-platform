@@ -15,10 +15,10 @@ test("home presents the two release journeys directly without a fake search or g
 });
 
 test("guest-first navigation describes actions instead of implying registration", () => {
-  assert.match(shellSource, />ابدأ طلب</);
-  assert.match(shellSource, />متابعة</);
-  assert.match(shellSource, />المزيد</);
-  assert.doesNotMatch(shellSource, />حسابي</);
+  assert.match(shellSource, />الخدمات</);
+  assert.match(shellSource, />طلباتي</);
+  assert.match(shellSource, />حسابي</);
+  assert.match(shellSource, /data-tab="home"/);
   assert.match(accountSource, /<h2>الحساب اختياري<\/h2>/);
   assert.match(accountSource, /دون تسجيل/);
 });
