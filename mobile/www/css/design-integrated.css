@@ -400,3 +400,15 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus {outline:none;}
   border-radius: .875rem;
   color: var(--navy);
 }
+
+.svc-group-list .svc-card {
+  display:grid;
+  grid-template-columns:44px minmax(0,1fr);
+  width:100%;
+  padding:14px;
+  column-gap:12px;
+}
+.svc-group-list .svc-card > * {grid-column:2;}
+.svc-group-list .svc-card > .svc-node {grid-column:1;grid-row:1 / span 4;margin:0;}
+.request-history summary {min-height:48px;align-content:center;cursor:pointer;font-weight:700;}
+.request-summary .request-next-action {border-inline-start:4px solid var(--gold);padding-inline-start:12px;}

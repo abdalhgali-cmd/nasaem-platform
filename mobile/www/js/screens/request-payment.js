@@ -72,12 +72,12 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
   try {
     summary = (await api(paymentPath(params.id), { headers })).data;
   } catch (error) {
+    const refused = [401, 403, 404, 410].includes(error?.status);
     bodyEl.innerHTML = `
-      ${errorState(error.message)}
+      ${errorState(error.message, { title: "تعذر تحميل بيانات الدفع", onRetry: refused ? undefined : () => replace("requestPayment", params, { title: "الدفع" }) })}
       <button type="button" class="secondary" id="paymentLaterBtn">متابعة بدون الدفع الآن</button>`;
     // Only a definitive refusal of the payment link drops the resume; offline,
     // rate-limited or a server error leave it for later.
-    const refused = [401, 403, 404, 410].includes(error?.status);
     bodyEl.querySelector("#paymentLaterBtn").addEventListener("click", () => finish(params, null, { keepPending: !refused }));
     return;
   }
@@ -103,21 +103,22 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
   const underReview = summary.paymentStatus === "UNDER_REVIEW";
   const confirmed = summary.paymentStatus === "CONFIRMED";
 
+  const canTransfer = Boolean(summary.paymentOpen) && !paymentDone;
   bodyEl.innerHTML = `
     ${egyptPayment ? egyptStepsHtml(3, esc) : ""}
     <div class="detail-block payment-step" data-testid="direct-payment-step">
       ${paymentJourneyHtml(summary)}
       ${params.resumed ? `<p class="field-hint" id="paymentResumed">طلبك محفوظ مسبقًا ولن يُرسل مرة أخرى؛ أكمل الدفع من هنا.</p>` : ""}
-      <p class="field-hint">طلبك محفوظ برقم <code id="requestReference" dir="ltr">${esc(summary.id)}</code>. حوّل المبلغ إلى أحد الحسابات المعتمدة ثم ارفع إشعار التحويل.</p>
+      <p class="field-hint">طلبك محفوظ برقم <code id="requestReference" dir="ltr">${esc(summary.id)}</code>. ${canTransfer && options.length ? "حوّل المبلغ إلى أحد الحسابات المعتمدة ثم ارفع إشعار التحويل." : ""}</p>
       <h4>الدفع بالتحويل البنكي</h4>
-      ${paymentSafetyHtml()}
+      ${canTransfer && options.length ? paymentSafetyHtml() : ""}
       <p class="payment-amount">قيمة الفاتورة: <strong id="directPaymentAmount"><bdi>${esc(amountText)}</bdi></strong></p>
       ${sdgText ? `<p class="field-hint">ما يعادل <bdi>${esc(sdgText)}</bdi> بسعر الصرف المثبّت على الفاتورة وقت تأكيد الطلب</p>`
-        : summary.currency && summary.currency !== "SDG" ? `<p class="field-hint" id="paymentSdgUnavailable">المقابل بالجنيه السوداني غير متاح لهذه الفاتورة؛ حوّل بالعملة الظاهرة.</p>` : ""}
+        : summary.currency && summary.currency !== "SDG" ? `<p class="field-hint" id="paymentSdgUnavailable">المقابل بالجنيه السوداني غير متاح لهذه الفاتورة.</p>` : ""}
       ${summary.rejectionReason ? `<p class="field-error" role="alert">لم يُقبل الإشعار السابق: ${esc(summary.rejectionReason)}</p>` : ""}
       ${underReview ? `<p class="status-note" id="paymentUnderReview" role="status"><b>بانتظار مراجعة الدفع</b> — وصل إشعار التحويل، ويؤكد موظف الوكالة استلام المبلغ بعد مطابقته مع البنك.</p>` : ""}
       ${confirmed ? `<p class="status-note status-success" id="paymentConfirmed" role="status"><b>تم تأكيد الدفع</b> — لا تحتاج إلى إجراء آخر الآن. طلبك في انتظار بدء التنفيذ من فريق الوكالة.</p>` : ""}
-      ${summary.paymentOpen && !underReview
+      ${canTransfer
         ? options.length
           ? `
           <p class="field-hint">اختر الحساب الذي ستحوّل إليه، وحوّل المبلغ الظاهر عليه بالضبط.</p>
@@ -132,11 +133,11 @@ export async function renderRequestPaymentScreen({ bodyEl, params }) {
       ${!underReview && !confirmed ? `<button type="button" class="secondary" id="paymentLaterBtn">${summary.paymentOpen ? options.length ? "سأحوّل لاحقًا" : "متابعة بدون دفع الآن" : "متابعة"}</button>` : ""}
       <button type="button" class="secondary" id="trackRequestNowBtn">عرض مراحل الطلب في طلباتي</button>
       <p class="field-hint">يمكنك متابعة مراحل الطلب من «طلباتي» بعد التحقق من رقم الهاتف، حتى لو لم تدفع بعد.</p>
-      ${summary.paymentOpen && !underReview ? `<p class="field-hint">يبقى «أكمل الدفع» ظاهرًا في الرئيسية حتى ترفع الإشعار.</p>` : ""}
+      ${canTransfer ? `<p class="field-hint">يبقى «أكمل الدفع» ظاهرًا في الرئيسية حتى ترفع الإشعار.</p>` : ""}
     </div>`;
 
   bindCopyButtons(bodyEl, toast);
-  bodyEl.querySelector("#paymentLaterBtn")?.addEventListener("click", () => finish(paymentParams, summary, { keepPending: Boolean(summary.paymentOpen) && !underReview }));
+  bodyEl.querySelector("#paymentLaterBtn")?.addEventListener("click", () => finish(paymentParams, summary, { keepPending: canTransfer }));
   bodyEl.querySelector("#trackRequestNowBtn").addEventListener("click", () => {
     if (params.phone) setTrackingPrefill(params.phone);
     goToTab("requests", "requests", { title: "طلباتي" });
