@@ -372,3 +372,31 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus {outline:none;}
 .umrah-visa-reason {margin:6px 0 0;font-size:.85rem;line-height:1.6;}
 .umrah-files {display:grid;gap:6px;}
 .umrah-files-empty {margin:6px 0 0;color:var(--text-faint);font-size:.8rem;}
+
+/* Shared customer surfaces and navigation for the Arabic mobile shell. */
+.screen[data-chrome="1"] .screen-head {
+  background: var(--surface);
+  color: var(--navy);
+  border-block-end: 1px solid var(--border);
+}
+.screen .home-current-request .last-order-card {
+  border-inline-start: 4px solid var(--gold);
+  border-radius: 18px;
+  background: var(--surface);
+}
+.last-order-body p {
+  margin-block: .375rem;
+  color: var(--text);
+  line-height: 1.65;
+}
+.home-journey summary {
+  min-height: 48px;
+  padding: .75rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+.bottom-nav button[aria-current="page"] {
+  background: #edf2f7;
+  border-radius: .875rem;
+  color: var(--navy);
+}
