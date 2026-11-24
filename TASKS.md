@@ -1,5 +1,39 @@
 # Nasaem Platform — Release Tasks
 
+## Main verification and legacy PR audit — 2026-11-24 (verification only; nothing fixed, merged, closed, deployed or migrated)
+
+- **Tested SHA:** `main` = `2c40487d22e8a4ebd67a9fdf8e7eb0d175ed5480` (merge of #208, after #209). All results below are from this run on this SHA; none are copied from earlier entries.
+- **Environment:** cloud container, local disposable PostgreSQL 16.15 (`localhost`), two fresh databases created for this run (`nasaem_platform_test` for backend tests, `nasaem_platform_dev` for E2E), `prisma migrate deploy` + seed on each. No `DATABASE_URL` or Railway variables existed in the container before the run; no staging/production host was contacted. CI-equivalent env (`ci.yml`): test-only `JWT_SECRET`, `SEED_ADMIN_PASSWORD`, rate limits, `PUBLIC_INTAKE_SCOPE=ALL` for E2E (as in CI). Node 22.23, Chromium from `/opt/pw-browsers`. Network: `cdn.sheetjs.com` had to be allowed for `backend` `npm install` (the `xlsx` tarball in `package.json`); lockfile unchanged.
+
+| Check | Result |
+|---|---|
+| Backend `npm test` (193 files) | **1220/1220 pass**, 0 fail, 0 skipped (417 s) — includes RBAC matrix, CSRF + native-app CSRF, customer/organization/tracking/flight-booking isolation, payment review, FX, Umrah, Egypt variants, intake scope |
+| `npm audit --omit=dev --audit-level=high` | backend 0, web 0 vulnerabilities |
+| Mobile unit `node --test tests/*.test.mjs` | **154/154** |
+| Web: `tsc --noEmit`, `eslint`, CI unit tests (`draft-document-state`, `api-proxy`, `service-routes`), `next build` | pass, pass, **11/11**, pass |
+| Playwright, the 4 CI projects in one run | **211/211 pass**, 0 fail, 0 skipped, 0 flaky (19.9 min): `mobile-web` 8, `mobile-frontend` 2, `platform3` 168, `mobile-app` **33** |
+| The 3 tests repaired in `9e91ad5` | pass: `mobile-app.spec.ts:148` (exchange rate on the Umrah chooser), `pricing-progress.spec.ts:155` (fixed price), `service-journeys.spec.ts:336` (flights journey) |
+| Static skips | only `admin-unified.spec.ts:26` `test.skip(!SEED_ADMIN_PASSWORD)` — the password was set, so it ran |
+
+**Findings (new in this audit)**
+
+| # | Severity | Status | Finding |
+|---|---|---|---|
+| F1 | Medium (test coverage) | CONFIRMED | `web/e2e/payment-settlement.spec.ts` (#132: USD invoice paid in SDG into an agency-approved account, staff confirm, invoice stays USD) matches **no** Playwright project, so CI never runs it. Run once via a temporary config with the `mobile-app` settings: test 1 pass, test 2 **fail**, test 3 not run (serial). Cause: the test waits for the removed submitted-screen element `#submittedPaymentStatus`; the app correctly stays on the payment screen and shows «بانتظار مراجعة الدفع» (behaviour since `9f236eb`). Not a product bug. The same flow on the website is covered and green (`website-payment-settlement.spec.ts`, `platform3`). Fix needs approval: update the spec to the current payment screen and add it to the `mobile-app` project. |
+| F2 | Low (docs) | CONFIRMED | Conflicting docs on `PUBLIC_INTAKE_SCOPE`: code default (`intake-scope.js`, owner widened 2026-11-10) = UMRAH, EGYPT_CLEARANCE, FLIGHT, FERRY, FAMILY_VISIT, VISA, GENERAL (hotels postponed); `docs/release/STAGING-UNIFIED-ADMIN-ar.md:23` and `docs/release/CODEX-REVIEW-BRIEF.md:27` still say "unset = Umrah + Egypt only". `docs/ENVIRONMENT-VARIABLES.md` matches the code. |
+| F3 | Low | POTENTIAL | Display-only SDG equivalents are not rounded (`services.service.js withSdgEquivalent`, `flights.service.js convertToSdg`); amounts that are charged use `computeSdgSnapshot` (rounded to 0.01, frozen on the invoice), so no payment impact. |
+| F4 | Open decision | — | Hotels on the website home/footer: still NOT DECIDED (entry of 2026-11-11). App: hotels hidden; server default scope excludes HOTEL. |
+
+Known, already documented (not new): public QA/debug Android key in the repo (`docs/ANDROID-DEBUG-KEY-RISK.md`; release workflow refuses it); production prices are test data (`pricesAreTestData: true`); WhatsApp OTP provider missing; no production Android build; custom domain still on Vercel; staging 16 days behind (`LAUNCH-STATUS-2026-11-20.md`). Cookies are `SameSite=None` in production by design (cross-site website ↔ API) and covered by the CSRF tests above.
+
+**Legacy PRs #147–#151 — all still OPEN, all already in `main`**
+
+- Every head is an ancestor of `main`: #147 `f5e24ae`, #148 `315250e`, #149 `e2f8a6c`, #150 `1cb8967`, #151 `7697ceb`, and their base `fix/egypt-intake-staging-20261024` `bd7e3b9` (also #146, #152, #153 heads). They arrived through #155 (merge `f762a00`, 2026-11-02). GitHub keeps them open only because their base is a legacy branch, not `main`; their diffs against that base are already applied.
+- #147 (5 commits, 19 files): 15 files are byte-identical in `main`; 4 have since evolved in `main` (`admin-shell.tsx` +123/−35, `admin-theme.css` +27/−1, `admin-shell.spec.ts`, `playwright.config.ts`). No unique change missing from `main`; nothing reverted. Rebasing or merging it would at best be a no-op and at worst re-apply the older versions of those 4 files over newer code (regression risk). The base branch is 355 commits behind `main`.
+- **Recommendation: close #147 (and #148–#151) as obsolete — "already included in main via #155"** — no migration or rebase needed. Not done: needs owner approval.
+
+**NEXT (all need owner approval):** (1) close #147–#151 as already merged; (2) repair `payment-settlement.spec.ts` to the current payment screen and add it to the `mobile-app` project (F1); (3) correct the two stale docs (F2); (4) the launch blockers in `LAUNCH-STATUS-2026-11-20.md` are unchanged by this audit.
+
 ## Production release — 2026-11-12 (owner-approved, all production data is test data per owner)
 
 - MERGED: PR #197 (`chore/security-deps-20261111` → `main`, merge commit `8795547a3ef364820bbe1f887161ec7585689ee1`) carrying #191–#196. Its tree equals the CI-verified head `739c8f5` (Backend, Frontend build, Playwright E2E, build-apk, backup drill all green). #192–#196 remain open only because their bases were intermediate branches.
