@@ -29,7 +29,10 @@ const CUSTOMER = new Set(Array.from({ length: 7 }, (_, i) => id(10 + i * 20))); 
 
 before(async () => {
   admin = await loginAsSuperAdmin();
-  staffId = (await prisma.user.findFirst({ where: { organizationId, role: "SUPER_ADMIN" }, select: { id: true } })).id;
+  // «mine» is the signed-in staff member (other suites add more super admins).
+  const me = await admin.get("/api/auth/me");
+  assert.equal(me.status, 200, JSON.stringify(me.body));
+  staffId = me.body.data.id;
   const created = await admin.post("/api/services").send({ code: `TEST-${tag}`, name: `TEST-${tag}`, category: "UMRAH_PACKAGE", basePrice: 100, currency: "SAR", active: true, pricingMode: "FIXED", priceUnit: "PER_TRAVELER", features: ["KIND: VISA_ONLY"] });
   assert.equal(created.status, 201, JSON.stringify(created.body));
   service = created.body.data;
