@@ -141,7 +141,12 @@ test.describe.serial("Next.js admin: request workflow in /admin/cases, /admin/pa
       await form.locator(`input[name="travelerIds"][value="${traveler.id}"]`).check();
       await expect(form.locator('input[name="publish"]')).toBeChecked();
       await form.getByRole("button", { name: "رفع" }).click();
-      await expect(workflow.getByRole("status")).toContainText("تم رفع الملف ونشره");
+      // Nothing reaches the customer before staff see the file and whom it is for.
+      const confirm = workflow.getByTestId("publish-confirm");
+      await expect(confirm.getByTestId("publish-confirm-travelers")).toHaveText(`يخص: ${traveler.fullName}`);
+      await expect(confirm.getByTestId("publish-confirm-preview").locator("iframe")).toBeVisible();
+      await confirm.getByTestId("publish-confirm-submit").click();
+      await expect(workflow.getByRole("status")).toContainText("تم نشر الملف للعميل");
     };
     await deliver(travelers[0]);
     await expect(workflow.getByTestId("workflow-label")).toHaveText("جارٍ استخراج التأشيرة");
@@ -193,6 +198,8 @@ test.describe.serial("Next.js admin: request workflow in /admin/cases, /admin/pa
     await form.locator('input[name="label"]').fill("التأشيرة الصادرة");
     await form.locator('input[name="file"]').setInputFiles({ name: "visa.pdf", mimeType: "application/pdf", buffer: PDF });
     await form.getByRole("button", { name: "رفع" }).click();
+    await expect(workflow.getByTestId("publish-confirm-travelers")).toHaveText("يخص: الطلب كاملًا");
+    await workflow.getByTestId("publish-confirm-submit").click();
     await expect(workflow.getByTestId("workflow-label")).toHaveText("تم إنجاز طلبك بنجاح", { timeout: 15_000 });
   });
 
