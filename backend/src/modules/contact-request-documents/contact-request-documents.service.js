@@ -291,10 +291,19 @@ export async function updateContactRequestDocumentStatus(
       message,
       type: updated.status === "ACCEPTED" ? "CONTACT_REQUEST_DOCUMENT_ACCEPTED" : "CONTACT_REQUEST_DOCUMENT_REJECTED",
     });
-    sendWhatsAppMessage(contactRequest.phoneNormalized, message);
+    // Outside the platform only the fact and the reference: the file's name
+    // and the reviewer's reason are read after signing in.
+    sendWhatsAppMessage(contactRequest.phoneNormalized, externalDocumentNotice(contactRequest, updated.status));
   }
 
   return { document: updated };
+}
+
+export function externalDocumentNotice(contactRequest, status) {
+  const reference = String(contactRequest?.id || "").slice(-8).toUpperCase();
+  if (status === "ACCEPTED") return `نسائم الحرمين: تم قبول أحد مستندات طلبك ${reference}.`;
+  const what = status === "REQUESTED" ? "مطلوب مستند لطلبك" : "مطلوب تصحيح مستند في طلبك";
+  return `نسائم الحرمين: ${what} ${reference}. افتح التطبيق أو صفحة «تتبع الطلب» لمعرفة المستند والسبب.`;
 }
 
 // Staff ask the customer for one specific document: a requirement of this
@@ -325,6 +334,6 @@ export async function requestContactRequestDocument(contactRequestId, { requirem
   const who = item.travelerName ? ` — ${item.travelerName}` : "";
   const message = `مطلوب منك رفع المستند "${item.label}${who}" لطلبك (${describeRequest(request)}).${reason ? ` ملاحظة الوكالة: ${reason}` : ""} ارفعه من صفحة الطلب.`;
   await notifyRequestCustomer(request, { title: "مطلوب مستند لطلبك", message, type: "CONTACT_REQUEST_DOCUMENT_REQUESTED" });
-  sendWhatsAppMessage(request.phoneNormalized, message);
+  sendWhatsAppMessage(request.phoneNormalized, externalDocumentNotice(request, "REQUESTED"));
   return { requested: { requirementId, travelerId: item.travelerId || null, label: item.label, state: item.state, note: reason || null } };
 }

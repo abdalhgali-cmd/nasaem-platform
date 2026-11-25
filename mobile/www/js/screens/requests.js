@@ -608,7 +608,23 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   }
 
   await load();
+  // Opened from a «مستند مرفوض» notification: straight to the file to replace,
+  // with its reason, once (not on every refresh).
+  if (params.focus === "rejectedDocument") focusRejectedDocument(bodyEl);
   startStatusRefresh(bodyEl, (stillIdle) => load({ quiet: true, applyIf: stillIdle }));
+}
+
+export function focusRejectedDocument(root) {
+  // A rejected file first, else the first required file still missing.
+  const row = root.querySelector(".check-row.check-rejected") || root.querySelector(".check-row.check-missing");
+  if (!row) return false;
+  row.classList.add("check-focus");
+  row.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  // The file input itself (inside «رفع بديل») when it can be replaced here.
+  const control = row.querySelector('input[type="file"]');
+  if (control) control.focus?.({ preventScroll: true });
+  else { row.setAttribute("tabindex", "-1"); row.focus?.({ preventScroll: true }); }
+  return true;
 }
 
 function checklistBlock(request) {

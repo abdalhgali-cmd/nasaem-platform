@@ -317,7 +317,7 @@ describe("auto-completion + customer WhatsApp notifications", () => {
     assert.equal(acceptRes.status, 200);
     newCalls = whatsapp.calls.slice(beforeCalls);
     assert.equal(newCalls.length, 1, JSON.stringify(newCalls));
-    assert.ok(newCalls[0].body.text.body.includes("تم قبول المستند"));
+    assert.ok(newCalls[0].body.text.body.includes("تم قبول أحد مستندات طلبك"));
 
     // (10) Upload a second document and reject it -> one notification
     // that includes the staff-authored reason.
@@ -335,8 +335,17 @@ describe("auto-completion + customer WhatsApp notifications", () => {
     assert.equal(rejectRes.status, 200);
     newCalls = whatsapp.calls.slice(beforeCalls);
     assert.equal(newCalls.length, 1, JSON.stringify(newCalls));
-    assert.ok(newCalls[0].body.text.body.includes("تم رفض المستند"));
-    assert.ok(newCalls[0].body.text.body.includes("الصورة غير واضحة"));
+    // Outside the platform: the fact and the reference only; the file and
+    // the reviewer's reason are read after signing in (in-app notification).
+    assert.ok(newCalls[0].body.text.body.includes("مطلوب تصحيح مستند في طلبك"));
+    assert.ok(newCalls[0].body.text.body.includes(contactRequestId.slice(-8).toUpperCase()));
+    assert.ok(!newCalls[0].body.text.body.includes("الصورة غير واضحة"));
+    assert.ok(!newCalls[0].body.text.body.includes("الصورة الشخصية"));
+    // The signed-in tracking view carries the exact file and the reason.
+    const tracked = (await customerAgent.get("/api/tracking/requests")).body.data.find((r) => r.id === contactRequestId);
+    const rejected = tracked.documents.find((d) => d.id === secondDocumentId);
+    assert.equal(rejected.status, "REJECTED");
+    assert.equal(rejected.reviewNote, "الصورة غير واضحة");
 
     // (12) A genuine change, but the WhatsApp API itself fails — the
     // status-change request must still succeed.
