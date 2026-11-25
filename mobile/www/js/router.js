@@ -105,6 +105,12 @@ export async function goToTab(tabName, rootScreen, { title = "" } = {}) {
   await render(entry, { isRoot: true });
 }
 
+/** The screen on top: { name, params, tab }, or null. */
+export function currentEntry() {
+  const entry = stack[stack.length - 1];
+  return entry ? { name: entry.name, params: { ...(entry.params || {}) }, tab: entry.tab || null } : null;
+}
+
 export function currentTab() {
   return stack[stack.length - 1]?.tab || null;
 }

@@ -110,6 +110,15 @@ export const BIOMETRIC_SUPPORT_LABELS = Object.freeze({
 // backwards counts as expired — the safe answer.
 export const INACTIVITY_LOCK_MS = 5 * 60 * 1000;
 
+// The request the customer had open when the inactivity lock closed it: after
+// the account is unlocked again the app returns there (the server still
+// decides access when the request is loaded). Anything else resumes at the
+// tab's root.
+export function resumeTarget(entry) {
+  const requestId = entry?.name === "requestDetail" ? entry.params?.requestId : null;
+  return typeof requestId === "string" && requestId ? { requestId } : null;
+}
+
 export function inactivityExpired(lastActiveMs, nowMs = Date.now(), limitMs = INACTIVITY_LOCK_MS) {
   if (!Number.isFinite(lastActiveMs)) return false;
   return nowMs < lastActiveMs || nowMs - lastActiveMs >= limitMs;

@@ -106,3 +106,12 @@ test("inactivity lock: 5 minutes idle or in the background; a clock that went ba
   assert.equal(inactivityExpired(t, t - 1000), true, "clock moved backwards");
   assert.equal(inactivityExpired(undefined, t), false);
 });
+
+test("after an inactivity lock the app resumes the request that was open, nothing else", async () => {
+  const { resumeTarget } = await import("../www/js/session-core.js");
+  assert.deepEqual(resumeTarget({ name: "requestDetail", params: { requestId: "cm123" }, tab: "requests" }), { requestId: "cm123" });
+  assert.equal(resumeTarget({ name: "requests", params: {}, tab: "requests" }), null);
+  assert.equal(resumeTarget({ name: "requestDetail", params: {} }), null);
+  assert.equal(resumeTarget({ name: "requestDetail", params: { requestId: 42 } }), null);
+  assert.equal(resumeTarget(null), null);
+});
