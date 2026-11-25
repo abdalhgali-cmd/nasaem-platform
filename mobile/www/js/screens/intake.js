@@ -111,7 +111,7 @@ async function fetchRequirements(item) {
 // `showSelection`: false when the choice is already visible on the same screen (Umrah).
 // `requireChecklist`: the service cannot be requested without documents
 // (Umrah): an empty checklist is a configuration gap, not "nothing needed".
-export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null, fallbackRequirementsItem = null, initialTravelers = 1, showSelection = true, requireChecklist = false }) {
+export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null, fallbackRequirementsItem = null, initialTravelers = 1, showSelection = true, requireChecklist = false, umrahSteps = false }) {
   setTitle(`طلب ${item.name}`);
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل متطلبات الخدمة…</p></div>`;
 
@@ -223,6 +223,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   bodyEl.innerHTML = `
     <div class="intake intake-single">
       ${selection && showSelection ? `<section class="selection-card"><h3>${icon("check-circle", { size: 18 })} اختيارك</h3><p>${esc(selection.summary)}</p></section>` : ""}
+      ${umrahSteps ? `<p class="umrah-step" data-umrah-step="2">الخطوة 2 من 3 — المعتمرون والضامن</p>` : ""}
       ${restored ? `<p class="draft-note" id="draftNote">${icon("info", { size: 15 })} استعدنا ما كتبته سابقًا. الملفات تُختار من جديد. <button type="button" class="link-btn" id="discardDraftBtn">ابدأ من جديد</button></p>` : ""}
       <div id="stepBody"></div>
       <p class="step-errors" id="stepErrors" role="alert" hidden></p>
@@ -354,6 +355,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     const summary = fixedTotalSummary(current, state.values.travelers.length);
     return `
       <section class="form-section review total-review" id="fixedTotalReview" aria-labelledby="fixedTotalTitle">
+        ${umrahSteps ? `<p class="umrah-step" data-umrah-step="3">الخطوة 3 من 3 — المراجعة والإرسال</p>` : ""}
         <h3 id="fixedTotalTitle">الإجمالي النهائي</h3>
         <div class="review-row"><span>${current.priceUnit === "PER_TRAVELER"
           ? `<bdi>${esc(summary.unitPriceText)}</bdi> × ${summary.units} ${needsGuarantor ? (summary.units === 1 ? "معتمر" : "معتمرين") : summary.units === 1 ? "مسافر" : "مسافرين"}`

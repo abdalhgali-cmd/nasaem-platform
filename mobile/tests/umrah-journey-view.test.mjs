@@ -106,3 +106,12 @@ test("delayed and rejected pilgrims show their reason, the follow-up day and tha
   assert.ok(!html.includes("<السفارة>") && html.includes("&lt;السفارة&gt;"));
   assert.equal((html.match(/المتابعة القادمة/g) || []).length, 1, "a follow-up day is shown for the delayed pilgrim only");
 });
+
+test("the Umrah screen offers only the three approved package types", async () => {
+  const { isApprovedUmrahPackage } = await import("../www/js/umrah-view.js");
+  assert.equal(isApprovedUmrahPackage({ category: "UMRAH_PACKAGE", features: ["KIND: VISA_ONLY"] }), true);
+  assert.equal(isApprovedUmrahPackage({ category: "UMRAH_PACKAGE", features: ["KIND: AIR"] }), true);
+  assert.equal(isApprovedUmrahPackage({ category: "UMRAH_PACKAGE", features: ["KIND: SEA"] }), true);
+  assert.equal(isApprovedUmrahPackage({ category: "UMRAH_PACKAGE", code: "SVC-UMRAH-GROUP", features: [] }), false, "an older package without a type");
+  assert.equal(isApprovedUmrahPackage({ category: "family", features: ["KIND: AIR"] }), false);
+});

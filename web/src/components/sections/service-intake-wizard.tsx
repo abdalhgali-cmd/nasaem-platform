@@ -237,6 +237,18 @@ function StepShell({
   );
 }
 
+// A review card's title with its «تعديل» link back to the step that holds it.
+function ReviewHeading({ title, onEdit }: { title: string; onEdit: () => void }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="font-bold text-foreground">{title}</span>
+      <button type="button" onClick={onEdit} className="min-h-11 rounded-lg px-3 text-sm font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        تعديل<span className="sr-only"> {title}</span>
+      </button>
+    </div>
+  );
+}
+
 function StepNav({
   onBack,
   onNext,
@@ -272,6 +284,7 @@ export function ServiceIntakeWizard({
   initialServiceCode,
   serviceCatalog = "packages",
   visaCategory,
+  umrahFlow = false,
 }: {
   service: IntakeServiceKind;
   /** Deep-link into a specific package/visa type by its Service/VisaType code (e.g. from a package card's CTA). */
@@ -286,6 +299,11 @@ export function ServiceIntakeWizard({
    * International Visas flow, not a client-side exclusion list.
    */
   visaCategory?: string;
+  /**
+   * The Umrah page: only the approved package types (visa only, flights,
+   * sea) and three customer steps — package; pilgrims and guarantor; review.
+   */
+  umrahFlow?: boolean;
 }) {
   const [step, setStep] = React.useState(0);
   const [loadingCatalog, setLoadingCatalog] = React.useState(true);
@@ -721,7 +739,10 @@ export function ServiceIntakeWizard({
     setExtraContactName(draft.extraContactName || "");
     setExtraContactPhone(draft.extraContactPhone || "");
     setAnswers(draft.answers || {});
-    setStep(Math.max(0, draft.step || 0));
+    // The Umrah flow restores to «المعتمرون والضامن» at most (a draft saved by
+    // the older six-step form carries a different index); review is reached
+    // again with one tap, so nothing is skipped unchecked.
+    setStep(umrahFlow ? Math.min(1, Math.max(0, draft.step || 0)) : Math.max(0, draft.step || 0));
     setDraftAvailable(false);
     setDraftRestored(true);
     // The documents are not in the browser: they come back from the server draft.
@@ -808,8 +829,10 @@ export function ServiceIntakeWizard({
   }, [service, visaCategory, serviceCatalog, catalogAttempt]);
 
   const packageServices = React.useMemo(
-    () => serviceCatalog === "services" ? services.filter(s => s.code === initialServiceCode) : services.filter(s => s.category === "UMRAH_PACKAGE"),
-    [services, serviceCatalog, initialServiceCode]
+    () => serviceCatalog === "services"
+      ? services.filter(s => s.code === initialServiceCode)
+      : services.filter(s => s.category === "UMRAH_PACKAGE" && (!umrahFlow || Boolean(umrahPackageDetails(s.features).kind))),
+    [services, serviceCatalog, initialServiceCode, umrahFlow]
   );
   const umrahService = React.useMemo(
     () => services.find((s) => s.category === "umrah"),
@@ -1216,11 +1239,26 @@ export function ServiceIntakeWizard({
   // package first, then supplies the expected travel date and party size;
   // this matches the way Umrah packages are presented immediately above the
   // wizard and keeps the selected package as the context for every later step.
-  const steps = service === "umrah"
+  const flatSteps = service === "umrah"
     ? ["customer", "details", "documents", "review"]
     : service === "package"
       ? isAppointment ? ["select", "customer", "details", "documents", "review"] : ["select", "customer", "trip", "details", "documents", "review"]
       : ["select", "customer", "details", "documents", "review"];
+  // Each step shows one or more sections. The Umrah page groups them into
+  // three: the package; the trip and party size, applicant and guarantor,
+  // pilgrims and their documents (in this order on the page); the review.
+  const stepGroups: string[][] = umrahFlow && service === "package" && !isAppointment
+    ? [["select"], ["trip", "customer", "details", "documents"], ["review"]]
+    : flatSteps.map((key) => [key]);
+  const steps = stepGroups.map((group) => group.join("+"));
+  const stepIndex = Math.min(step, stepGroups.length - 1);
+  const shows = (key: string) => stepGroups[stepIndex].includes(key);
+  // Only the last section of a step carries the «السابق / التالي» buttons.
+  const endsStep = (key: string) => stepGroups[stepIndex][stepGroups[stepIndex].length - 1] === key;
+  const goToSection = (key: string) => {
+    const index = stepGroups.findIndex((group) => group.includes(key));
+    if (index >= 0) setStep(index);
+  };
 
   // Documents are tied to a traveler's place in the list; removing that traveler
   // or clearing the name must not leave a file attached to someone else.
@@ -1429,7 +1467,10 @@ export function ServiceIntakeWizard({
   }
 
   function canGoNext() {
-    const current = steps[step];
+    return stepGroups[stepIndex].every(canLeave);
+  }
+
+  function canLeave(current: string) {
 
     if (current === "select") {
       return service === "package" ? Boolean(effectiveServiceId) : Boolean(effectiveVisaTypeId);
@@ -1825,8 +1866,10 @@ export function ServiceIntakeWizard({
     );
   }
 
-  const current = steps[step];
+  const current = steps[stepIndex];
   const stepNames: Record<string, string> = {
+    "trip+customer+details+documents": "المعتمرون والضامن",
+    review_umrah: "المراجعة والإرسال",
     select: service === "package" ? (serviceCatalog === "services" ? "الخدمة المختارة" : "اختيار الباقة") : "نوع التأشيرة",
     trip: needsGuarantor ? "موعد العمرة" : "تفاصيل الرحلة",
     customer: needsGuarantor ? "مقدم الطلب والضامن" : "بيانات العميل",
@@ -1856,13 +1899,13 @@ export function ServiceIntakeWizard({
         </div>
       ) : null}
       <p className="mb-2 text-sm font-bold text-foreground" data-testid="wizard-step-label">
-        <span className="text-muted-foreground">الخطوة {step + 1} من {steps.length}:</span> {stepNames[current] ?? ""}
+        <span className="text-muted-foreground">الخطوة {stepIndex + 1} من {steps.length}:</span> {(umrahFlow && current === "review" ? stepNames.review_umrah : stepNames[current]) ?? ""}
       </p>
       <div className="mb-2 flex items-center gap-2" aria-hidden>
         {steps.map((s, index) => (
           <div
             key={s}
-            className={`h-1.5 flex-1 rounded-full ${index <= step ? "bg-accent" : "bg-border"}`}
+            className={`h-1.5 flex-1 rounded-full ${index <= stepIndex ? "bg-accent" : "bg-border"}`}
           />
         ))}
       </div>
@@ -1876,11 +1919,11 @@ export function ServiceIntakeWizard({
         {autosaveState === "offline" ? "تعذّر الحفظ على الخادم — تقدمك محفوظ في هذا المتصفح فقط." : null}
       </p>
 
-      {documentsNotice && current !== "documents" ? (
+      {documentsNotice && !shows("documents") ? (
         <p role="alert" className="mb-4 rounded-lg border border-destructive/40 p-2 text-xs font-semibold text-destructive" data-testid="documents-notice-global">{documentsNotice}</p>
       ) : null}
 
-      {current === "select" ? (
+      {shows("select") ? (
         <StepShell
           title={service === "package" ? serviceCatalog === "services" ? "الخدمة المختارة" : "اختر الباقة" : "اختر نوع التأشيرة"}
         >
@@ -1925,16 +1968,18 @@ export function ServiceIntakeWizard({
               );
             })}
           </div>
+          {endsStep("select") ? (
           <StepNav
             backDisabled
             onBack={() => {}}
             onNext={() => setStep((s) => s + 1)}
             nextDisabled={!canGoNext()}
           />
+          ) : null}
         </StepShell>
       ) : null}
 
-      {current === "trip" ? (
+      {shows("trip") ? (
         <StepShell
           title={needsGuarantor ? "متى ترغب في أداء العمرة؟" : "تفاصيل الرحلة"}
           description={
@@ -1977,16 +2022,18 @@ export function ServiceIntakeWizard({
               />
             </div>
           </div>
+          {endsStep("trip") ? (
           <StepNav
             onBack={() => setStep((s) => s - 1)}
             backDisabled={step === 0}
             onNext={() => setStep((s) => s + 1)}
             nextDisabled={!canGoNext()}
           />
+          ) : null}
         </StepShell>
       ) : null}
 
-      {current === "customer" ? (
+      {shows("customer") ? (
         <StepShell
           title={needsGuarantor ? "بيانات مقدم الطلب والضامن" : "بيانات العميل"}
           description={needsGuarantor ? "بيانات التواصل معك ومع الضامن المقيم في السعودية." : "سنستخدمها للتواصل معك بخصوص طلبك."}
@@ -2072,16 +2119,18 @@ export function ServiceIntakeWizard({
               </>
             ) : null}
           </div>
+          {endsStep("customer") ? (
           <StepNav
             onBack={() => setStep((s) => s - 1)}
             backDisabled={step === 0}
             onNext={() => setStep((s) => s + 1)}
             nextDisabled={!canGoNext()}
           />
+          ) : null}
         </StepShell>
       ) : null}
 
-      {current === "details" ? (
+      {shows("details") ? (
         <StepShell title={isAppointment ? "بيانات المتقدمين" : "بيانات الخدمة"} description={isAppointment ? "أدخل الأسماء كما تظهر في جوازات السفر." : "أخبرنا بتفاصيل رحلتك."}>
           <div className="flex flex-col gap-4">
             {service !== "package" || isAppointment ? <div className="flex flex-col gap-1.5">
@@ -2207,15 +2256,17 @@ export function ServiceIntakeWizard({
               />
             </div>
           </div>
+          {endsStep("details") ? (
           <StepNav
             onBack={() => setStep((s) => s - 1)}
             onNext={() => setStep((s) => s + 1)}
             nextDisabled={!canGoNext()}
           />
+          ) : null}
         </StepShell>
       ) : null}
 
-      {current === "documents" ? (
+      {shows("documents") ? (
         <StepShell
           title="المستندات المطلوبة"
           description={needsGuarantor ? "ارفع جواز سفر لكل معتمر وإقامة الضامن قبل إرسال الطلب." : "يمكنك رفعها الآن لتسريع مراجعة طلبك، أو إرسال الطلب بدونها ورفعها لاحقًا من صفحة تتبع الطلب."}
@@ -2355,19 +2406,32 @@ export function ServiceIntakeWizard({
               <p className="text-sm text-muted-foreground">لا توجد مستندات مطلوبة مسبقًا لهذه الخدمة.</p>
             ) : null}
           </div>
+          {endsStep("documents") ? (
           <StepNav
             onBack={() => setStep((s) => s - 1)}
             onNext={() => setStep((s) => s + 1)}
             nextDisabled={!canGoNext()}
           />
+          ) : null}
         </StepShell>
       ) : null}
 
-      {current === "review" ? (
+      {shows("review") ? (
         <StepShell title="مراجعة الطلب" description="تأكد من صحة بياناتك قبل الإرسال.">
           <div className="flex flex-col gap-4 text-sm">
+            {umrahFlow && selectedPackage ? (
+              <div className="rounded-xl border border-border/70 p-4" data-testid="review-package">
+                <ReviewHeading title="الباقة" onEdit={() => goToSection("select")} />
+                <div className="mt-2 flex flex-col gap-1 text-muted-foreground">
+                  <span className="font-semibold text-foreground">{selectedPackage.name}</span>
+                  {umrahPackageDetails(selectedPackage.features).included.length ? (
+                    <span>يشمل: {umrahPackageDetails(selectedPackage.features).included.join("، ")}</span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <div className="rounded-xl border border-border/70 p-4">
-              <span className="font-bold text-foreground">بيانات العميل</span>
+              {umrahFlow ? <ReviewHeading title="بيانات العميل" onEdit={() => goToSection("customer")} /> : <span className="font-bold text-foreground">بيانات العميل</span>}
               <div className="mt-2 flex flex-col gap-1 text-muted-foreground">
                 <span>{name}</span>
                 <span dir="ltr">{phone}</span>
@@ -2386,7 +2450,7 @@ export function ServiceIntakeWizard({
               </div>
             </div>
             <div className="rounded-xl border border-border/70 p-4">
-              <span className="font-bold text-foreground">تفاصيل الرحلة</span>
+              {umrahFlow ? <ReviewHeading title="المعتمرون والسفر" onEdit={() => goToSection("details")} /> : <span className="font-bold text-foreground">تفاصيل الرحلة</span>}
               <div className="mt-2 flex flex-col gap-1 text-muted-foreground">
                 {travelDate ? (
                   <span data-testid="review-travel-date">

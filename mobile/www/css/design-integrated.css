@@ -216,6 +216,7 @@ button.hc-egypt-option:active {transform:scale(.98);background:#e5f2ee;border-co
 
 .umrah-choose {padding-top:12px!important;}
 .umrah-title {font-size:1.125rem;font-weight:700;color:#0f1f3a;margin:0 0 2px;}
+.umrah-step {margin:0 0 4px;font-size:.8125rem;font-weight:700;color:#8a6a1f;}
 .package-card {position:relative;align-items:flex-start;min-height:48px;border-width:1.5px;cursor:pointer;transition:transform .18s ease-out,border-color .18s ease-out,box-shadow .18s ease-out,background-color .18s ease-out;}
 .package-card:not([disabled]):active {transform:scale(.985);}
 .package-card .package-body {flex:1;min-width:0;display:grid;gap:2px;}

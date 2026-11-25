@@ -1,6 +1,6 @@
 import { esc, toast, skeletonList, confirmDialog } from "../ui.js";
 import { startingPrice, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE, shortDescription, durationOf } from "../service-view.js";
-import { isUmrahPackage, umrahLoadState, umrahPackageSummary, umrahPriceText, UMRAH_PRICE_MISSING } from "../umrah-view.js";
+import { isApprovedUmrahPackage, isUmrahPackage, umrahLoadState, umrahPackageSummary, umrahPriceText, UMRAH_PRICE_MISSING } from "../umrah-view.js";
 import { icon } from "../icons.js";
 import { loadCatalog, loadPackages } from "../catalog.js";
 import { loadAgency, whatsappLink } from "../agency.js";
@@ -24,6 +24,7 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   const { packageId = null } = params;
   bodyEl.innerHTML = `
     <section class="section umrah-choose">
+      <p class="umrah-step" data-umrah-step="1">الخطوة 1 من 3</p>
       <h2 class="umrah-title" id="umrahChooseTitle">اختر باقة العمرة</h2>
       <div class="info-trust info-trust-inline" aria-label="ما نلتزم به قبل بدء الطلب">
         <span>${icon("wallet", { size: 17 })}<b>السعر الظاهر للباقة هو الإجمالي الذي تؤكده قبل الإرسال</b></span>
@@ -41,7 +42,7 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   let item;
   let loadError = null;
   try {
-    [packages, item] = await Promise.all([loadPackages().then((list) => list.filter(isUmrahPackage)), umrahBaseItem(params.item)]);
+    [packages, item] = await Promise.all([loadPackages().then((list) => list.filter(isApprovedUmrahPackage)), umrahBaseItem(params.item)]);
   } catch (error) {
     loadError = error;
   }
@@ -139,7 +140,7 @@ function mountIntake(bodyEl, item, baseItem = null) {
     summary: `الباقة المختارة: ${item.name} — ${fixed}`,
     details: { type: "UMRAH_PACKAGE", packageId: item.id, name: item.name, basePrice: startingPrice(item)?.amount ?? null, currency: startingPrice(item)?.currency ?? null },
   };
-  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection, fallbackRequirementsItem: baseItem, showSelection: false, requireChecklist: true })
+  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection, fallbackRequirementsItem: baseItem, showSelection: false, requireChecklist: true, umrahSteps: true })
     .then(() => mount.scrollIntoView({ behavior: "smooth", block: "start" }))
     .catch((error) => toast(error.message, { tone: "error" }));
 }
