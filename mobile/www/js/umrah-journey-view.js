@@ -81,7 +81,7 @@ export function umrahJourneyHtml(journey, esc, icon, { detailsHtml = "" } = {}) 
 
       <div class="umrah-pilgrims" id="umrahPilgrims" tabindex="-1">
         <h4>المعتمرون${journey.servicesIncluded ? " والخدمات" : ""}</h4>
-        <p class="umrah-count">صدرت ${esc(String(journey.visasIssued))} من ${esc(String(journey.pilgrims.length))} تأشيرات${journey.servicesIncluded ? ` — سُلّمت خدمات ${esc(String(journey.servicesDelivered ?? 0))} من ${esc(String(journey.pilgrims.length))}` : ""}</p>
+        <p class="umrah-count">${esc(journey.visaSummary || `صدرت ${journey.visasIssued} من ${journey.pilgrims.length} تأشيرات`)}${journey.servicesIncluded ? ` — سُلّمت خدمات ${esc(String(journey.servicesDelivered ?? 0))} من ${esc(String(journey.pilgrims.length))}` : ""}</p>
         <ul>
           ${journey.pilgrims.map((pilgrim) => `
             <li class="umrah-pilgrim">

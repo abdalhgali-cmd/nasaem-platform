@@ -1,6 +1,7 @@
 import { evaluateReadiness } from "../contact-request-workflow/workflow-policy.js";
 import { evaluateUmrahDelivery, isUmrahRequest, umrahTicketBooking } from "./umrah-delivery.js";
 import { umrahObligations } from "./umrah-packages.js";
+import { visaCountText } from "./umrah-visa-count.js";
 
 // «رحلتي إلى الحرمين»: everything the customer's Umrah screen shows, derived
 // on the server from the same facts as the progress steps (request-progress.js),
@@ -102,6 +103,7 @@ export function umrahJourney(request, progress) {
     updatedAt: request.updatedAt || null,
     servicesIncluded: delivery.servicesRequired,
     visasIssued: delivery.visas.coveredTravelerIds.length,
+    visaSummary: visaCountText(delivery.visas.coveredTravelerIds.length, travelers.length),
     servicesDelivered: delivery.services ? delivery.services.coveredTravelerIds.length : null,
     pilgrims,
     stages,

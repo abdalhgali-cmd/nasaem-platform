@@ -23,6 +23,7 @@ export type UmrahJourney = {
   updatedAt: string | null;
   servicesIncluded: boolean;
   visasIssued: number;
+  visaSummary?: string;
   servicesDelivered: number | null;
   stages: { key: string; label: string; state: StageState; status: string }[];
   pilgrims: {
@@ -226,7 +227,7 @@ export function UmrahJourneySection({ requestId, journey, onActionComplete }: { 
       <div id={`umrah-pilgrims-${requestId}`} className="scroll-mt-24" data-testid="umrah-pilgrims">
         <h4 className="text-sm font-bold text-primary">المعتمرون{journey.servicesIncluded ? " والخدمات" : ""}</h4>
         <p className="mb-2 text-xs text-muted-foreground">
-          صدرت {journey.visasIssued} من {journey.pilgrims.length} تأشيرات
+          <span data-testid="umrah-visa-count">{journey.visaSummary || `صدرت ${journey.visasIssued} من ${journey.pilgrims.length} تأشيرات`}</span>
           {journey.servicesIncluded ? ` — سُلّمت خدمات ${journey.servicesDelivered ?? 0} من ${journey.pilgrims.length}` : ""}
         </p>
         <ul className="grid gap-2">
