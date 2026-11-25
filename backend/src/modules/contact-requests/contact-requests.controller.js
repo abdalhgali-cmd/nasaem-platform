@@ -21,6 +21,7 @@ import {
   createOrUpdateInvoice,
   getOperationsQueueSummary,
   listContactRequests,
+  umrahFocusSummary,
   updateContactRequestStatus,
   getContactRequestById,
 } from "./contact-requests.service.js";
@@ -169,6 +170,36 @@ export async function getContactRequest(req, res, next) {
   }
 }
 
+// The list filters shared by the staff list and its Umrah manager counts.
+function listFilters(req) {
+  const str = (value, max) => (typeof value === "string" ? value.slice(0, max) : undefined);
+  return {
+    organizationId: req.user.organizationId,
+    // "mine" is resolved to the acting staff member, never trusted from the client.
+    assignedUserId: req.query.assignedUserId === "mine" ? req.user.id : str(req.query.assignedUserId, 40),
+    status: req.query.status,
+    search: str(req.query.search, 100),
+    paymentStatus: req.query.paymentStatus,
+    serviceId: str(req.query.serviceId, 40),
+    createdFrom: req.query.createdFrom,
+    createdTo: req.query.createdTo,
+    stage: str(req.query.stage, 40),
+    packageKind: str(req.query.packageKind, 20),
+  };
+}
+
+// Umrah manager views (unassigned, overdue with the agency, waiting on the
+// customer, partially issued, receipts to review), counted over all matching
+// requests under the list's own filters.
+export async function getUmrahFocusSummary(req, res, next) {
+  try {
+    const data = await umrahFocusSummary(listFilters(req));
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getContactRequests(req, res, next) {
   try {
     // Smart Case Operations — Release C groundwork. `assignedUserId=mine`
@@ -177,24 +208,13 @@ export async function getContactRequests(req, res, next) {
     // to mean "me" (that's just the plain assignedUserId=<id> filter,
     // already scoped to this organization by listContactRequests' where
     // clause below).
-    const assignedUserId =
-      req.query.assignedUserId === "mine" ? req.user.id : req.query.assignedUserId;
-
     const { data, meta } = await listContactRequests({
       ...parsePagination(req.query),
-      status: req.query.status,
-      organizationId: req.user.organizationId,
-      assignedUserId,
-      search: typeof req.query.search === "string" ? req.query.search.slice(0, 100) : undefined,
-      paymentStatus: req.query.paymentStatus,
-      serviceId: req.query.serviceId,
+      ...listFilters(req),
       category: req.query.category,
       serviceKind: req.query.serviceKind,
-      createdFrom: req.query.createdFrom,
-      createdTo: req.query.createdTo,
       sort: typeof req.query.sort === "string" ? req.query.sort : undefined,
-      stage: typeof req.query.stage === "string" ? req.query.stage.slice(0, 40) : undefined,
-      packageKind: typeof req.query.packageKind === "string" ? req.query.packageKind.slice(0, 20) : undefined,
+      focus: typeof req.query.focus === "string" ? req.query.focus : undefined,
     });
 
     return res.status(200).json({

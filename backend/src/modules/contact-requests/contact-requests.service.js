@@ -15,7 +15,7 @@ import { createNotification, notifyRequestCustomer } from "../../utils/notificat
 import { sdgSnapshot } from "../finance/fx-snapshot.js";
 import { deriveRequestProgress } from "../contact-request-progress/request-progress.js";
 import { arrangeUmrahQueue, UMRAH_QUEUE_CAP, UMRAH_QUEUE_SORTS } from "../umrah/umrah-queue-list.js";
-import { entryData, QUEUE_ENTRY_MAX_AGE_MS, QUEUE_HEAL_BATCH, QUEUE_STALE_BATCH, queueOrderBy, sameEntry } from "../umrah/umrah-queue-index.js";
+import { attentionFacts, entryData, focusMatches, focusWhere, QUEUE_ENTRY_MAX_AGE_MS, QUEUE_HEAL_BATCH, QUEUE_STALE_BATCH, queueOrderBy, sameEntry, UMRAH_FOCUS } from "../umrah/umrah-queue-index.js";
 import { buildUmrahPackageSnapshot, resolveUmrahContacts, resolveUmrahTravel } from "../umrah/umrah-packages.js";
 import { umrahStaffQueue } from "../umrah/umrah-staff-queue.js";
 import { ACTIONS, autoCompletes, checkAction, completionBlockers, evaluateDelivery, evaluateReadiness, deliveryDeliverables, allowedActions, hasCurrentReceipt, confirmWithoutReceiptRefusal } from "../contact-request-workflow/workflow-policy.js";
@@ -609,7 +609,7 @@ export const SERVICE_KIND_FILTERS = Object.freeze({
   },
 });
 
-export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId, search, paymentStatus, serviceId, category, serviceKind, createdFrom, createdTo, sort, stage, packageKind }) {
+function contactRequestListWhere({ status, organizationId, assignedUserId, search, paymentStatus, serviceId, category, serviceKind, createdFrom, createdTo }) {
   const from = parseDay(createdFrom, false);
   const to = parseDay(createdTo, true);
   const where = {
@@ -628,6 +628,12 @@ export async function listContactRequests({ page, limit, skip, status, organizat
         : {}),
     ...contactRequestSearchWhere(search),
   };
+  return where;
+}
+
+export async function listContactRequests({ page, limit, skip, status, organizationId, assignedUserId, search, paymentStatus, serviceId, category, serviceKind, createdFrom, createdTo, sort, stage, packageKind, focus }) {
+  const where = contactRequestListWhere({ status, organizationId, assignedUserId, search, paymentStatus, serviceId, category, serviceKind, createdFrom, createdTo });
+  if (!UMRAH_FOCUS.includes(focus)) focus = undefined;
 
   // Umrah queue views order or filter by facts derived from the whole case
   // (next step, stage, package type). They are decided in SQL over the
@@ -635,8 +641,8 @@ export async function listContactRequests({ page, limit, skip, status, organizat
   // there is no row limit. Only while entries are still missing (a database
   // not yet rebuilt) does the list use the bounded in-memory sweep, and it
   // says so (meta.queueIndex.status BUILDING, meta.truncated).
-  if (serviceKind === "UMRAH" && (UMRAH_QUEUE_SORTS.has(sort) || stage || packageKind)) {
-    return listUmrahQueue({ where, organizationId, page, limit, skip, sort, stage, packageKind });
+  if (serviceKind === "UMRAH" && (UMRAH_QUEUE_SORTS.has(sort) || stage || packageKind || focus)) {
+    return listUmrahQueue({ where, organizationId, page, limit, skip, sort, stage, packageKind, focus });
   }
 
   const [data, total] = await Promise.all([
@@ -1261,7 +1267,8 @@ export async function refreshUmrahQueueEntry(contactRequestId) {
 setAfterMutationHook(refreshUmrahQueueEntry);
 
 async function healMissingEntries(organizationId) {
-  const missingWhere = { organizationId, AND: [SERVICE_KIND_FILTERS.UMRAH], umrahQueueEntry: null };
+  // Missing, or written before the attention facts existed (waitingOn null).
+  const missingWhere = { organizationId, AND: [SERVICE_KIND_FILTERS.UMRAH], OR: [{ umrahQueueEntry: { is: null } }, { umrahQueueEntry: { is: { waitingOn: null } } }] };
   const missing = await prisma.contactRequest.count({ where: missingWhere });
   if (!missing) return 0;
   const batch = await prisma.contactRequest.findMany({ where: missingWhere, select: { id: true }, take: QUEUE_HEAL_BATCH, orderBy: { createdAt: "desc" } });
@@ -1269,14 +1276,34 @@ async function healMissingEntries(organizationId) {
   return prisma.contactRequest.count({ where: missingWhere });
 }
 
-async function listUmrahQueue({ where, organizationId, page, limit, skip, sort, stage, packageKind }) {
+// Index not complete: the bounded sweep (newest UMRAH_QUEUE_CAP requests),
+// derived in memory with the same rules, openly flagged as truncated.
+async function sweepUmrahQueue(where) {
+  const rows = await prisma.contactRequest.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: UMRAH_QUEUE_CAP + 1, include: CONTACT_REQUEST_CASE_INCLUDE });
+  const items = rows.slice(0, UMRAH_QUEUE_CAP).map((row) => {
+    const derived = deriveUmrah(row);
+    return { row, ...derived, facts: attentionFacts(row, derived.progress) };
+  });
+  return { items, truncated: rows.length > UMRAH_QUEUE_CAP };
+}
+
+function umrahEntryWhere({ where, organizationId, stage, packageKind, focus }) {
+  const scoped = focus ? focusWhere(focus) : null;
+  return {
+    organizationId,
+    contactRequest: scoped ? { AND: [where, scoped.request] } : where,
+    ...(stage ? { stage } : {}),
+    ...(packageKind ? { packageKind } : {}),
+    ...(scoped ? scoped.entry : {}),
+  };
+}
+
+async function listUmrahQueue({ where, organizationId, page, limit, skip, sort, stage, packageKind, focus }) {
   const stillMissing = await healMissingEntries(organizationId);
   if (stillMissing > 0) {
-    // Index not complete: the bounded sweep, openly flagged. Rebuild with
-    // backend/src/scripts/rebuild-umrah-queue.js to remove this state.
-    const rows = await prisma.contactRequest.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: UMRAH_QUEUE_CAP + 1, include: CONTACT_REQUEST_CASE_INCLUDE });
-    const truncated = rows.length > UMRAH_QUEUE_CAP;
-    const items = rows.slice(0, UMRAH_QUEUE_CAP).map((row) => ({ row, ...deriveUmrah(row) }));
+    // Rebuild with backend/src/scripts/rebuild-umrah-queue.js to remove this state.
+    const { items: swept, truncated } = await sweepUmrahQueue(where);
+    const items = focus ? swept.filter((item) => focusMatches(focus, item.row, item.facts)) : swept;
     const arranged = arrangeUmrahQueue(items, { sort, stage, packageKind });
     return {
       data: arranged.slice(skip, skip + limit).map(({ row, progress, queue }) => shapeUmrahRow(row, progress, queue)),
@@ -1284,7 +1311,7 @@ async function listUmrahQueue({ where, organizationId, page, limit, skip, sort, 
     };
   }
 
-  const entryWhere = { organizationId, contactRequest: where, ...(stage ? { stage } : {}), ...(packageKind ? { packageKind } : {}) };
+  const entryWhere = umrahEntryWhere({ where, organizationId, stage, packageKind, focus });
   const [entries, total] = await Promise.all([
     prisma.umrahQueueEntry.findMany({ where: entryWhere, orderBy: queueOrderBy(sort), skip, take: limit, include: { contactRequest: { include: CONTACT_REQUEST_CASE_INCLUDE } } }),
     prisma.umrahQueueEntry.count({ where: entryWhere }),
@@ -1310,6 +1337,29 @@ async function listUmrahQueue({ where, organizationId, page, limit, skip, sort, 
     .catch(() => {});
 
   return { data, meta: { ...buildPaginationMeta(page, limit, total), truncated: false, queueIndex: { status: "READY", repaired } } };
+}
+
+// How many open Umrah requests need each manager view, under the same list
+// filters (search, status, payment, assignee, package, dates, stage, package
+// type) that the list itself applies — so a count opens exactly its list.
+export async function umrahFocusSummary({ organizationId, stage, packageKind, ...filters }) {
+  const where = contactRequestListWhere({ ...filters, organizationId, serviceKind: "UMRAH" });
+  const stillMissing = await healMissingEntries(organizationId);
+  const counts = {};
+  if (stillMissing > 0) {
+    const { items, truncated } = await sweepUmrahQueue(where);
+    const kept = arrangeUmrahQueue(items, { stage, packageKind });
+    for (const focus of UMRAH_FOCUS) counts[focus] = kept.filter((item) => focusMatches(focus, item.row, item.facts)).length;
+    counts.PAYMENT_REVIEW = kept.filter((item) => item.row.status !== "CLOSED" && item.progress?.stage === "PAYMENT_REVIEW").length;
+    return { counts, truncated, queueIndex: { status: "BUILDING", missing: stillMissing } };
+  }
+  await Promise.all(UMRAH_FOCUS.map(async (focus) => {
+    counts[focus] = await prisma.umrahQueueEntry.count({ where: umrahEntryWhere({ where, organizationId, stage, packageKind, focus }) });
+  }));
+  counts.PAYMENT_REVIEW = stage && stage !== "PAYMENT_REVIEW" ? 0 : await prisma.umrahQueueEntry.count({
+    where: { ...umrahEntryWhere({ where: { AND: [where, { status: { not: "CLOSED" } }] }, organizationId, packageKind }), stage: "PAYMENT_REVIEW" },
+  });
+  return { counts, truncated: false, queueIndex: { status: "READY" } };
 }
 
 // Compares (and, with dryRun false, recreates) the whole cache. Derived data

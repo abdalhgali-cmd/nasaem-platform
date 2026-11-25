@@ -24,6 +24,7 @@ import {
   getContactRequests,
   getContactRequest,
   getQueueSummary,
+  getUmrahFocusSummary,
   patchContactRequestAssignment,
   patchContactRequestStatus,
   previewPricing,
@@ -145,6 +146,12 @@ router.get(
 );
 // Smart Case Operations — Release G. Declared before "/:id/..." routes so
 // "queue-summary" is never captured as a contact-request id.
+router.get(
+  "/umrah-focus",
+  requireAuth,
+  requireRole("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "ACCOUNTANT"),
+  getUmrahFocusSummary
+);
 router.get(
   "/queue-summary",
   requireAuth,

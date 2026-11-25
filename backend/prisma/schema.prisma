@@ -1278,12 +1278,18 @@ model UmrahQueueEntry {
   packageKind         String
   preferredTravelDate String?
   requestCreatedAt    DateTime
+  // Manager attention facts (umrah-queue-index.js attentionFacts). Null
+  // waitingOn = an entry written before these existed; the list re-derives it.
+  waitingOn           String?
+  partialVisas        Boolean        @default(false)
+  delayedVisa         Boolean        @default(false)
   derivedAt           DateTime       @default(now())
   contactRequest      ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, rank, preferredTravelDate, requestCreatedAt])
   @@index([organizationId, preferredTravelDate, rank, requestCreatedAt])
   @@index([organizationId, stage])
+  @@index([organizationId, waitingOn])
   @@index([derivedAt])
 }
 

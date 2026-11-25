@@ -95,51 +95,53 @@ export function umrahRowSignal(row: UmrahListRow, now = Date.now()): Signal | nu
   return null;
 }
 
-export const ALERTS = {
-  LATE: "متأخرة عن الموعد",
-  DUE_TODAY: "تستحق اليوم",
-  PAYMENT_REVIEW: "إيصالات للمراجعة",
-  STALLED: "بلا نشاط 24 ساعة+",
-  MISSING_INFO: "هاتف الضامن أو تاريخ السفر ناقص",
+// Manager views (backend umrah-queue-index.js focusWhere), counted by the
+// server over every matching request — never one page — under the same
+// filters as the list (GET /contact-requests/umrah-focus). PAYMENT_REVIEW is
+// the payment-review stage.
+export const FOCUS = {
   UNASSIGNED: "بلا موظف",
+  AGENCY_OVERDUE: "متأخرة لدى الوكالة",
+  WAITING_CUSTOMER: "بانتظار العميل",
+  PARTIAL_VISAS: "صدر بعض تأشيراتها",
+  PAYMENT_REVIEW: "إيصالات للمراجعة",
 } as const;
-export type AlertKey = keyof typeof ALERTS;
-
-export function alertMatches(key: AlertKey, row: UmrahListRow, now = Date.now()) {
-  if (row.status === "CLOSED") return false;
-  switch (key) {
-    case "LATE": return row.readiness?.sla === "OVERDUE";
-    case "DUE_TODAY": return row.readiness?.sla === "DUE_TODAY";
-    case "PAYMENT_REVIEW": return row.progress?.stage === "PAYMENT_REVIEW";
-    case "STALLED": return !waitingOnCustomer(row) && idleHours(row, now) >= 24;
-    case "MISSING_INFO": return Boolean(row.intakeData?.umrahContacts?.guarantorPhoneMissing || row.intakeData?.umrahTravel?.preferredDateMissing);
-    case "UNASSIGNED": return !row.assignedUser;
-  }
-}
+export type FocusKey = keyof typeof FOCUS;
+export const FOCUS_HELP: Record<FocusKey, string> = {
+  UNASSIGNED: "طلبات مفتوحة لم يستلمها موظف بعد.",
+  AGENCY_OVERDUE: "الإجراء على الوكالة، وتجاوز الطلب موعد الإنجاز أو عليه تأشيرة متأخرة.",
+  WAITING_CUSTOMER: "الإجراء التالي على العميل: مستندات أو دفع.",
+  PARTIAL_VISAS: "صدرت تأشيرة واحدة على الأقل ولم تصدر كل التأشيرات.",
+  PAYMENT_REVIEW: "إيصالات تحويل بانتظار المراجعة.",
+};
 
 export type SortKey = "action" | "travel" | "newest";
 export const SORT_AR: Record<SortKey, string> = { action: "الإجراء المطلوب أولًا", travel: "أقرب تاريخ سفر", newest: "الأحدث أولًا" };
 
-export function sortRows(rows: UmrahListRow[], key: SortKey) {
-  const travel = (r: UmrahListRow) => r.umrahQueue?.preferredTravelDate || "9999-12-31";
-  const created = (r: UmrahListRow) => r.createdAt;
-  return [...rows].sort((a, b) => {
-    if (key === "newest") return created(b).localeCompare(created(a));
-    if (key === "travel") return travel(a).localeCompare(travel(b)) || (a.umrahQueue?.rank ?? 9) - (b.umrahQueue?.rank ?? 9);
-    // Same order as /admin/cases' Umrah view: rank, then the nearest preferred date.
-    return (a.umrahQueue?.rank ?? 9) - (b.umrahQueue?.rank ?? 9) || travel(a).localeCompare(travel(b)) || created(b).localeCompare(created(a));
-  });
-}
-
-export type ServerFilters = { search: string; status: string; paymentStatus: string; assignedUserId: string; serviceId: string; createdFrom: string; createdTo: string; page: number };
-export const EMPTY_SERVER_FILTERS: ServerFilters = { search: "", status: "", paymentStatus: "", assignedUserId: "", serviceId: "", createdFrom: "", createdTo: "", page: 1 };
+export type ServerFilters = { search: string; status: string; paymentStatus: string; assignedUserId: string; serviceId: string; createdFrom: string; createdTo: string; stage: string; packageKind: string; page: number };
+export const EMPTY_SERVER_FILTERS: ServerFilters = { search: "", status: "", paymentStatus: "", assignedUserId: "", serviceId: "", createdFrom: "", createdTo: "", stage: "", packageKind: "", page: 1 };
 export const PAGE_SIZE = 100; // the API's maximum
 
-export function listQuery(filters: ServerFilters) {
-  const params = new URLSearchParams({ serviceKind: "UMRAH", limit: String(PAGE_SIZE), page: String(filters.page) });
-  for (const key of ["search", "status", "paymentStatus", "assignedUserId", "serviceId", "createdFrom", "createdTo"] as const) {
+const FILTER_KEYS = ["search", "status", "paymentStatus", "assignedUserId", "serviceId", "createdFrom", "createdTo", "stage", "packageKind"] as const;
+
+/** The filters alone: the list and its manager counts use exactly these. */
+export function filterQuery(filters: ServerFilters) {
+  const params = new URLSearchParams();
+  for (const key of FILTER_KEYS) {
     const value = filters[key].trim();
     if (value) params.set(key, value);
   }
+  return params;
+}
+
+/** One page of the list; the view and order are applied by the server before paging. */
+export function listQuery(filters: ServerFilters, focus: FocusKey | "" = "", sort: SortKey = "action") {
+  const params = filterQuery(filters);
+  params.set("serviceKind", "UMRAH");
+  params.set("limit", String(PAGE_SIZE));
+  params.set("page", String(filters.page));
+  if (focus === "PAYMENT_REVIEW") params.set("stage", "PAYMENT_REVIEW");
+  else if (focus) params.set("focus", focus);
+  if (sort !== "newest") params.set("sort", sort === "travel" ? "travel" : "queue");
   return params.toString();
 }
