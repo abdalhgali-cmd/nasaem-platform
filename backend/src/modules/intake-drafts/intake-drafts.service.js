@@ -333,7 +333,7 @@ class DraftChanged extends Error {}
 // Everything runs in one transaction: either the request exists with all
 // its travelers and documents attached, or nothing changed and the
 // customer's draft is still intact to retry.
-export async function submitDraft(token, { submissionKey, message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone, preferredTravelDate, departureCity, arrivalAirport, entryPort } = {}) {
+export async function submitDraft(token, { submissionKey, message, acceptedTotal, acceptedCurrency, guarantorPhone, extraContactName, extraContactPhone, preferredTravelDate, departureCity, arrivalAirport, entryPort } = {}, { customer = null } = {}) {
   const found = await findMutableDraft(token);
   if (found.error) return found;
 
@@ -449,6 +449,9 @@ export async function submitDraft(token, { submissionKey, message, acceptedTotal
       data: {
         name: draft.name,
         organizationId: draft.organizationId,
+        // The authenticated customer who submits it (same as a direct
+        // submission); never inferred from the phone number.
+        customerId: customer && customer.organizationId === draft.organizationId ? customer.id : null,
         phone: draft.phone,
         phoneNormalized: normalizePhone(draft.phone),
         email: draft.email || null,
@@ -525,7 +528,7 @@ export async function submitDraft(token, { submissionKey, message, acceptedTotal
   if (contactRequest === "CHANGED") return { error: "DRAFT_CHANGED" };
   if (!contactRequest) return { error: "ALREADY_SUBMITTED" };
 
-  await announceNewContactRequest(contactRequest, { documentCount: draft.documents.length });
+  await announceNewContactRequest(contactRequest, { documentCount: draft.documents.length, customerId: contactRequest.customerId || null });
 
   return { contactRequest };
 }

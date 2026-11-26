@@ -108,7 +108,8 @@ export function uploadDraftDocument({
       if (xhr.status >= 200 && xhr.status < 300 && payload?.data?.id) resolve({ id: payload.data.id, fileName: payload.data.fileName });
       else reject(new Error(payload?.message || "تعذّر رفع المستند"));
     };
-    xhr.onerror = () => reject(new Error("انقطع الاتصال أثناء الرفع"));
+    // What was uploaded before stays saved on the server draft.
+    xhr.onerror = () => reject(new Error("انقطع الاتصال أثناء رفع هذا الملف. ما رفعته قبله محفوظ؛ اضغط «إعادة المحاولة» عند عودة الاتصال."));
     xhr.onabort = () => reject(new Error("أُلغي الرفع"));
     xhr.send(body);
   });

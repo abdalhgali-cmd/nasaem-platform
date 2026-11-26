@@ -36,6 +36,11 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
   }
 }
 
+/** The signed-in customer's bearer header (none when signed out). */
+export function customerAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return authHeaders(extra);
+}
+
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const token = readCustomerToken();
   return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;

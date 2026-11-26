@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Check, Download, Landmark, Package, Stamp } from "lucide-react";
 import { API_URL } from "@/lib/api-url";
+import { customerApi } from "@/lib/customer-api";
 
 // «رحلتي إلى الحرمين» on the website. Renders the server's journey object
 // (progress.umrah, backend umrah-journey.js) as is — the same one the app
@@ -88,13 +89,18 @@ function formatUpdated(value: string | null) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("ar", { day: "numeric", month: "long", hour: "numeric", minute: "2-digit" });
 }
 
-function FileLinks({ requestId, files }: { requestId: string; files: JourneyFile[] }) {
+// Which session reads the files and books tickets: the phone-verified
+// tracking session (/track) or the signed-in account (/account).
+export type JourneyChannel = "tracking" | "account";
+const CHANNEL_BASE: Record<JourneyChannel, string> = { tracking: "tracking", account: "customer" };
+
+function FileLinks({ requestId, files, channel }: { requestId: string; files: JourneyFile[]; channel: JourneyChannel }) {
   return (
     <>
       {files.map((file) => (
         <a
           key={file.id}
-          href={`${API_URL}/tracking/requests/${requestId}/deliverables/${file.id}/file`}
+          href={`${API_URL}/${CHANNEL_BASE[channel]}/requests/${requestId}/deliverables/${file.id}/file`}
           className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm font-semibold text-primary outline-none transition hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-primary"
           data-testid="umrah-file"
         >
@@ -106,7 +112,7 @@ function FileLinks({ requestId, files }: { requestId: string; files: JourneyFile
   );
 }
 
-export function UmrahJourneySection({ requestId, journey, onActionComplete }: { requestId: string; journey: UmrahJourney; onActionComplete?: () => void }) {
+export function UmrahJourneySection({ requestId, journey, onActionComplete, channel = "tracking" }: { requestId: string; journey: UmrahJourney; onActionComplete?: () => void; channel?: JourneyChannel }) {
   const [bookingPending, setBookingPending] = React.useState(false);
   const [bookingMessage, setBookingMessage] = React.useState("");
   const [inquiryId, setInquiryId] = React.useState<string | null>(null);
@@ -139,12 +145,17 @@ export function UmrahJourneySection({ requestId, journey, onActionComplete }: { 
     setBookingPending(true);
     setBookingMessage("");
     try {
-      const response = await fetch(`${API_URL}/tracking/requests/${requestId}/umrah/tickets`, {
-        method: "POST", credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" }, signal: AbortSignal.timeout(20_000),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.message || "تعذّر إرسال طلب الحجز؛ حاول مجددًا.");
-      setInquiryId(payload.data.inquiryId);
+      if (channel === "account") {
+        const data = await customerApi<{ inquiryId: string }>(`/customer/requests/${encodeURIComponent(requestId)}/umrah/tickets`, { method: "POST" });
+        setInquiryId(data.inquiryId);
+      } else {
+        const response = await fetch(`${API_URL}/tracking/requests/${requestId}/umrah/tickets`, {
+          method: "POST", credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" }, signal: AbortSignal.timeout(20_000),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.message || "تعذّر إرسال طلب الحجز؛ حاول مجددًا.");
+        setInquiryId(payload.data.inquiryId);
+      }
       onActionComplete?.();
     } catch (error) {
       setBookingMessage(error instanceof Error ? error.message : "تعذّر الاتصال؛ يمكنك إعادة المحاولة دون تكرار الطلب.");
@@ -255,8 +266,8 @@ export function UmrahJourneySection({ requestId, journey, onActionComplete }: { 
               ) : null}
               {pilgrim.visaFiles.length || pilgrim.serviceFiles?.length ? (
                 <div className="flex flex-wrap gap-2">
-                  <FileLinks requestId={requestId} files={pilgrim.visaFiles} />
-                  <FileLinks requestId={requestId} files={pilgrim.serviceFiles ?? []} />
+                  <FileLinks requestId={requestId} files={pilgrim.visaFiles} channel={channel} />
+                  <FileLinks requestId={requestId} files={pilgrim.serviceFiles ?? []} channel={channel} />
                 </div>
               ) : null}
             </li>

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { attachOptionalCustomer } from "../customer-auth/customer-auth.middleware.js";
 import rateLimit from "express-rate-limit";
 import { resolvePublicContactLimit } from "../contact-requests/public-contact-limit.js";
 
@@ -83,6 +84,7 @@ router.get("/:token", autosaveLimiter, getDraft);
 router.patch("/:token", autosaveLimiter, patchDraft);
 router.post("/:token/documents", autosaveLimiter, handleUpload, storeDraftDocument);
 router.delete("/:token/documents/:documentId", autosaveLimiter, destroyDraftDocument);
-router.post("/:token/submit", submitDraftLimiter, submitDraftController);
+// A signed-in customer (optional) gets the request under their account.
+router.post("/:token/submit", submitDraftLimiter, attachOptionalCustomer, submitDraftController);
 
 export default router;

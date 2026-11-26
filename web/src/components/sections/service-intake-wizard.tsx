@@ -22,6 +22,7 @@ import { API_URL } from "@/lib/api-url";
 import { siteConfig } from "@/lib/site-config";
 import { UMRAH_KIND_LABELS, isValidContactPhone, umrahPackageDetails } from "@/lib/umrah-package";
 import { customerErrorMessage } from "@/lib/network-error";
+import { customerAuthHeaders } from "@/lib/customer-api";
 import { WizardSkeleton } from "@/components/sections/wizard-skeleton";
 import { duplicatePassportIndexes, mrzSexToGender, passportValidityWarning } from "@/lib/passport-review";
 import {
@@ -1573,13 +1574,21 @@ export function ServiceIntakeWizard({
         travelers: travelers.map((t, i) => ({ ...t, isPrimary: i === firstFilled })),
       }),
     });
+    // 409 on saving: the draft was already submitted — a retry after the
+    // first attempt's answer was lost. Nothing to save; the submit below
+    // carries the same submissionKey, so the server answers with the request
+    // the first attempt created (never a second one, never a dead end).
     if (!saved.ok) {
       const body = await saved.json().catch(() => null);
-      throw new Error(body?.message || "تعذّر حفظ بيانات الطلب، حاول مرة أخرى");
+      if (!(saved.status === 409 && body?.code === "ALREADY_SUBMITTED")) {
+        throw new Error(body?.message || "تعذّر حفظ بيانات الطلب، حاول مرة أخرى");
+      }
     }
+    // A signed-in customer's request is filed under their account (the
+    // server links it only to an authenticated session, never by phone).
     const response = await fetch(draftUrl(API_URL, "/submit"), {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...draftAuth(token) },
+      headers: customerAuthHeaders({ "Content-Type": "application/json", ...draftAuth(token) }),
       body: JSON.stringify({
         message: notes.trim() || `طلب ${SERVICE_TITLES[service]} عبر نموذج الحجز الإلكتروني`,
         submissionKey: submissionKeyRef.current,
@@ -1722,6 +1731,7 @@ export function ServiceIntakeWizard({
 
       const response = await fetch(`${API_URL}/contact-requests`, {
         method: "POST",
+        headers: customerAuthHeaders(),
         body: formData,
       });
 
