@@ -230,11 +230,18 @@ test("two pilgrims: interrupted upload, resume, lost answer and retry, targeted 
     await expect(pilgrims.nth(1).getByTestId("umrah-file")).toHaveCount(0);
     await expect(journey.getByTestId("umrah-now-message")).not.toBeEmpty();
     await expect(journey.getByTestId("umrah-action")).toHaveText("تحميل التأشيرة");
-    const href = await pilgrims.nth(0).getByTestId("umrah-file").getAttribute("href");
-    expect(href).toContain(`/customer/requests/${requestId}/deliverables/`);
-    const download = await page.request.get(href!);
-    expect(download.status(), "the customer downloads pilgrim 1's visa from the account").toBe(200);
-    expect((await download.body()).subarray(0, 5).toString()).toBe("%PDF-");
+    // The download carries the account's bearer token: with the API cookie gone
+    // (a browser that blocks it, as across the production domains) it still works.
+    await page.context().clearCookies({ name: "customerAccessToken" });
+    const fileButton = pilgrims.nth(0).getByTestId("umrah-file");
+    expect(await fileButton.getAttribute("data-file-url")).toContain(`/customer/requests/${requestId}/deliverables/`);
+    const fileRequest = page.waitForRequest((r) => r.url().includes(`/customer/requests/${requestId}/deliverables/`));
+    const downloadEvent = page.waitForEvent("download");
+    await fileButton.click();
+    expect((await fileRequest).headers()["authorization"] ?? "", "sent with the bearer token").toMatch(/^Bearer /);
+    const saved = await (await downloadEvent).path();
+    expect(fs.readFileSync(saved!).subarray(0, 5).toString(), "the customer downloads pilgrim 1's visa from the account").toBe("%PDF-");
+    await expect(journey.getByRole("alert")).toHaveCount(0);
 
     const final = await detailOf();
     expect(final.id).toBe(requestId);

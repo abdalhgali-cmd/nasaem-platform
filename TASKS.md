@@ -1,5 +1,13 @@
 # Nasaem Platform — Release Tasks
 
+## Umrah round 3 — 2026-11-26 (Codex review of c00ae71, PR #211)
+
+- VERIFIED (fixed): account visa downloads now send the stored bearer token (fetch + blob) instead of a plain link that had no session when the API's cookie is blocked across domains. `umrah-recovery-journey` removes the cookie and downloads in the browser: Authorization: Bearer sent, PDF saved.
+- VERIFIED (type-checked, no dedicated e2e): the account journey is keyed by request id, so a booking reference from request A is no longer shown on request B.
+- Local: tsc and eslint clean; Playwright umrah-recovery-journey, account-correction, umrah-acceptance (3), umrah-payment-journey VISA_ONLY/AIR/SEA, platform3 Umrah (4) all pass. CI and QA on the pushed SHA: see PR #211.
+- NOT TESTED: physical Android device (camera/gallery, hardware back through the 3 steps, lock + biometric + resume, notification tap opening the exact row, file open); WhatsApp OTP and app Google sign-in on QA.
+- NEXT: owner review of #211; merge into main and Production only with owner approval.
+
 ## Umrah round 2 — 2026-11-26 (same branch, PR #211 kept open)
 
 - Website account: a correction notification opens the exact pilgrim's file (Notification.requirementId/travelerId, additive migration `20261126090000_notification_document_target`); each checklist row is replaced on its own requirement and pilgrim (the old untargeted upload replaced nothing).

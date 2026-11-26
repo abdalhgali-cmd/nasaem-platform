@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Check, Download, Landmark, Package, Stamp } from "lucide-react";
 import { API_URL } from "@/lib/api-url";
-import { customerApi } from "@/lib/customer-api";
+import { customerApi, customerAuthHeaders } from "@/lib/customer-api";
 
 // «رحلتي إلى الحرمين» on the website. Renders the server's journey object
 // (progress.umrah, backend umrah-journey.js) as is — the same one the app
@@ -94,20 +94,66 @@ function formatUpdated(value: string | null) {
 export type JourneyChannel = "tracking" | "account";
 const CHANNEL_BASE: Record<JourneyChannel, string> = { tracking: "tracking", account: "customer" };
 
+const FILE_LINK_CLASS = "inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm font-semibold text-primary outline-none transition hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60";
+
+function fileUrl(channel: JourneyChannel, requestId: string, fileId: string) {
+  return `${API_URL}/${CHANNEL_BASE[channel]}/requests/${requestId}/deliverables/${fileId}/file`;
+}
+
+// The signed-in account reads files with the stored bearer token: the site and
+// the API are on different domains in production, so a plain link would carry
+// no session where the browser blocks the API's cookie.
+function AccountFileButton({ requestId, file }: { requestId: string; file: JourneyFile }) {
+  const [pending, setPending] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const url = fileUrl("account", requestId, file.id);
+
+  const download = async () => {
+    if (pending) return;
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch(url, { credentials: "include", headers: customerAuthHeaders() });
+      if (!response.ok) throw new Error(String(response.status));
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = file.label;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch {
+      setError("تعذّر تحميل الملف. حدّث الصفحة وحاول مرة أخرى.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <span className="inline-flex flex-col gap-1">
+      <button type="button" onClick={() => void download()} disabled={pending} aria-busy={pending} className={FILE_LINK_CLASS} data-testid="umrah-file" data-file-url={url}>
+        <Download className="size-4" aria-hidden />
+        {file.label}
+      </button>
+      {error ? <span role="alert" className="text-xs text-red-700">{error}</span> : null}
+    </span>
+  );
+}
+
 function FileLinks({ requestId, files, channel }: { requestId: string; files: JourneyFile[]; channel: JourneyChannel }) {
   return (
     <>
-      {files.map((file) => (
-        <a
-          key={file.id}
-          href={`${API_URL}/${CHANNEL_BASE[channel]}/requests/${requestId}/deliverables/${file.id}/file`}
-          className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm font-semibold text-primary outline-none transition hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-primary"
-          data-testid="umrah-file"
-        >
-          <Download className="size-4" aria-hidden />
-          {file.label}
-        </a>
-      ))}
+      {files.map((file) =>
+        channel === "account" ? (
+          <AccountFileButton key={file.id} requestId={requestId} file={file} />
+        ) : (
+          <a key={file.id} href={fileUrl(channel, requestId, file.id)} className={FILE_LINK_CLASS} data-testid="umrah-file">
+            <Download className="size-4" aria-hidden />
+            {file.label}
+          </a>
+        ),
+      )}
     </>
   );
 }

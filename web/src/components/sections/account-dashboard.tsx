@@ -782,7 +782,7 @@ function RequestsTab({ focus = null }: { focus?: RequestFocus | null }) {
             // «رحلتي إلى الحرمين» in the account too: each pilgrim's visa, the
             // partial-issuance sentence, the files beside their pilgrim and
             // the one action now (same server object as /track).
-            <UmrahJourneySection requestId={detail.id} journey={detail.progress.umrah} channel="account" onActionComplete={() => void openRequest(detail.id)} />
+            <UmrahJourneySection key={detail.id} requestId={detail.id} journey={detail.progress.umrah} channel="account" onActionComplete={() => void openRequest(detail.id)} />
           ) : (
             <div className="mt-4 rounded-xl border border-accent/30 bg-accent/5 p-4 text-sm"><strong>الخطوة التالية:</strong><p className="mt-1 text-muted-foreground">{detail.nextAction}</p></div>
           )}
