@@ -1,5 +1,15 @@
 # Nasaem Platform — Release Tasks
 
+## Umrah round 2 — 2026-11-26 (same branch, PR #211 kept open)
+
+- Website account: a correction notification opens the exact pilgrim's file (Notification.requirementId/travelerId, additive migration `20261126090000_notification_document_target`); each checklist row is replaced on its own requirement and pilgrim (the old untargeted upload replaced nothing).
+- Android: the Umrah flow is three steps (package; pilgrims and guarantor; review and send) with «السابق», «تعديل» and the phone's back button keeping every field and picked file. Merges cleanly with #210.
+- VERIFIED (GitHub Actions on `5fbfcfa`): Backend, Frontend, Playwright E2E, build-apk, backup drill — all success.
+- VERIFIED locally: backend `umrahCorrectionTarget` (two pilgrims; replacing pilgrim 2's passport keeps pilgrim 1's passport, the receipt, payment state and the reference); Playwright `account-correction` (same through the website); mobile-app project with Back/Edit round trips; mobile 158/158. Local `egypt-pricing` fails on main code too (local data state; green in CI).
+- QA: `qa-backend` and `qa-website` SUCCESS on `5fbfcfa`. QA APK `qa-v0.3.221`: direct download 200, SHA-256 `a5192213742e30072d3bcf8bcd7b42457ccaa9a158854d503bbc82176f977a0a` = SHA256SUMS, QA API, appVersion 0.3.221, three-step code inside, QA certificate.
+- NOT TESTED (physical phone): camera/gallery, hardware back through the three steps, biometric lock + resume, notification tap → exact row, file open.
+- Probe branch `probe/qa-umrah-acceptance-20261126`: unused (no PR), but this session cannot delete branches; delete it from GitHub.
+
 ## Umrah journey acceptance — 2026-11-26 (branch `feat/umrah-journey-acceptance-20261125`, draft PR #211)
 
 - VERIFIED (GitHub Actions on `593b9ef`): Backend tests, Frontend typecheck + build, Playwright E2E, build-apk, backup + restore drill — all success. `Vercel` is the known external «Account is blocked».
