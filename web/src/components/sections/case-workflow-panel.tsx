@@ -71,6 +71,9 @@ function postJson(path: string, body: unknown) {
 // itself (previewed), whom it is for and, for an Umrah visa, what the group
 // looks like afterwards — partial issuance is said, never implied.
 type PendingPublish = {
+  // Which file this confirmation is for: a late preview of another file never
+  // lands here (a draft's id, or a fresh id for a new upload).
+  id: string;
   label: string;
   kind: string;
   travelerIds: string[];
@@ -126,6 +129,9 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
   const [confirmReason, setConfirmReason] = React.useState("");
   const [pendingPublish, setPendingPublish] = React.useState<PendingPublish | null>(null);
   const deliverableForm = React.useRef<HTMLFormElement | null>(null);
+  // The confirmation on screen now; a late preview response checks it.
+  const openPublishId = React.useRef<string | null>(null);
+  React.useEffect(() => { openPublishId.current = pendingPublish?.id ?? null; }, [pendingPublish]);
   // The preview is a local object URL: released when the confirmation closes.
   React.useEffect(() => () => { if (pendingPublish?.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(pendingPublish.previewUrl); }, [pendingPublish]);
 
@@ -302,11 +308,21 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${d.publishedAt ? "bg-emerald-500/10 text-emerald-700" : "bg-muted text-muted-foreground"}`}>{d.publishedAt ? "منشور للعميل" : "مسودة"}</span>
                 <span className="text-xs text-muted-foreground">يخص: {d.travelerIds.length ? d.travelerIds.map(nameOf).join("، ") : detail.travelers.length > 1 ? "غير مُسند" : "الطلب كاملًا"}</span>
                 {!d.publishedAt && can("PUBLISH_DELIVERABLE") ? <Button type="button" size="sm" variant="outline" disabled={busy || Boolean(pendingPublish)} data-testid="deliverable-publish" onClick={() => {
-                  setPendingPublish({ label: d.label, kind: d.kind || "GENERAL", travelerIds: d.travelerIds, previewUrl: null, mimeType: "", submit: () => postJson(`${base}/deliverables/${encodeURIComponent(d.id)}/publish`, {}) });
+                  const id = `draft:${d.id}`;
+                  openPublishId.current = id;
+                  setPendingPublish({ id, label: d.label, kind: d.kind || "GENERAL", travelerIds: d.travelerIds, previewUrl: null, mimeType: "", submit: () => postJson(`${base}/deliverables/${encodeURIComponent(d.id)}/publish`, {}) });
                   fetch(`${API_URL}${base}/deliverables/${encodeURIComponent(d.id)}/file`, { credentials: "include" })
                     .then(async (r) => { if (!r.ok) throw new Error(); const blob = await r.blob(); return { url: URL.createObjectURL(blob), type: blob.type }; })
-                    .then(({ url, type }) => setPendingPublish((p) => (p ? { ...p, previewUrl: url, mimeType: type } : p)))
-                    .catch(() => { setPendingPublish(null); setError("تعذر تحميل معاينة الملف؛ لا يُنشر ملف دون معاينته."); });
+                    .then(({ url, type }) => {
+                      // This confirmation was closed or replaced meanwhile: drop the preview.
+                      if (openPublishId.current !== id) { URL.revokeObjectURL(url); return; }
+                      setPendingPublish((p) => (p?.id === id ? { ...p, previewUrl: url, mimeType: type } : p));
+                    })
+                    .catch(() => {
+                      if (openPublishId.current !== id) return;
+                      setPendingPublish(null);
+                      setError("تعذر تحميل معاينة الملف؛ لا يُنشر ملف دون معاينته.");
+                    });
                 }}>نشر</Button> : null}
               </li>
             ))}
@@ -355,7 +371,7 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
               const submit = () => call(`${base}/deliverables`, { method: "POST", body: data });
               if (publish) {
                 // Published only after staff see the file and whom it is for.
-                setPendingPublish({ label, kind: detail.progress.umrah ? kind || "VISA" : "GENERAL", travelerIds, previewUrl: URL.createObjectURL(file), mimeType: file.type, submit });
+                setPendingPublish({ id: `upload:${Date.now()}`, label, kind: detail.progress.umrah ? kind || "VISA" : "GENERAL", travelerIds, previewUrl: URL.createObjectURL(file), mimeType: file.type, submit });
                 return;
               }
               void run(submit, "تم حفظ الملف مسودة.").then(() => formEl.reset());

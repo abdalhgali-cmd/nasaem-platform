@@ -132,8 +132,9 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         <p>${esc(error?.code === "NO_CHECKLIST" ? "لم تُحدِّد الوكالة مستندات هذه الخدمة بعد؛ تواصل معنا أو أعد المحاولة لاحقًا." : error?.status === 0 ? "تحقق من اتصالك بالإنترنت ثم أعد المحاولة." : "حدث خطأ في الخادم. أعد المحاولة بعد قليل.")} لن نعرض النموذج قبل التأكد من المستندات المطلوبة لهذه الخدمة.</p>
         <button type="button" class="primary" id="retryRequirementsBtn">إعادة المحاولة</button>
       </div>`;
+    // Every option is carried over, so a retried Umrah form keeps its steps.
     bodyEl.querySelector("#retryRequirementsBtn").addEventListener("click", () =>
-      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist })
+      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist, umrahSteps, onEditPackage, onController })
     );
     return;
   }

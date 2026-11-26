@@ -424,6 +424,36 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
     }
   });
 
+  test("Umrah: the checklist fails to load once; «إعادة المحاولة» brings back the three steps", async ({ page }) => {
+    const api = await staff(page);
+    const services = (await (await api.get(`${BACKEND}/api/services?limit=200`)).json()).data as Array<{ id: string; code: string; pricingMode?: string; basePrice?: string | number | null; currency?: string; priceUnit?: string; active?: boolean }>;
+    const pkg = services.find((s) => s.code === "SVC-UMRAH-VISA")!;
+    const original = { pricingMode: pkg.pricingMode ?? "QUOTE", basePrice: pkg.basePrice ?? null, currency: pkg.currency ?? "SAR", priceUnit: pkg.priceUnit ?? "PER_REQUEST", active: pkg.active ?? true };
+    expect((await api.patch(`${BACKEND}/api/services/${pkg.id}`, { data: { pricingMode: "FIXED", basePrice: 450, currency: "SAR", priceUnit: "PER_TRAVELER", active: true } })).ok()).toBeTruthy();
+    try {
+      let failures = 0;
+      await page.route("**/requirements/public", async (route) => {
+        if (failures++ === 0) await route.abort("internetdisconnected");
+        else await route.continue();
+      });
+      await skipOnboarding(page);
+      await page.locator(`[data-package-id="${pkg.id}"]`).click();
+      await expect(page.locator("#requirementsError")).toBeVisible({ timeout: 15_000 });
+      await page.locator("#retryRequirementsBtn").click();
+      await expect(page.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "2", { timeout: 15_000 });
+      await expect(page.locator("#prevStepBtn")).toBeVisible();
+      await expect(page.locator("#nextStepBtn")).toHaveText("التالي: المراجعة");
+      // Step 1 and back again from the retried form.
+      await page.locator("#prevStepBtn").click();
+      await expect(page.locator("#umrahChooseSection")).toBeVisible();
+      await page.locator(`.package-card[data-id="${pkg.id}"]`).click();
+      await expect(page.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "2");
+    } finally {
+      await page.unroute("**/requirements/public");
+      await api.patch(`${BACKEND}/api/services/${pkg.id}`, { data: original });
+    }
+  });
+
   test("staff review -> replaced document; price (frozen SDG) -> approval -> payment accounts -> receipt -> rejected with a reason -> accepted", async ({ page }) => {
     const api = await staff(page);
     const before = await staffRequest(api, family.id);
@@ -534,9 +564,10 @@ test.describe.serial("customer app: Umrah packages", () => {
     await expect(page.locator("#umrahLoadError")).toContainText("502");
     await page.unroute("**/api/services/public/packages");
     await page.locator("#umrahRetryBtn").click();
-    // Back to the server's real answer (packages listed, or a stated reason).
+    // Back to the server's real answer: packages listed, a stated reason, or
+    // (one bookable package) that package already chosen as step 1.
     await expect(page.locator("#umrahLoadError")).toHaveCount(0);
-    await expect(page.locator(".package-card, #umrahUnavailable").first()).toBeVisible();
+    await expect(page.locator(".package-card:visible, #umrahUnavailable, #umrahChosen:visible").first()).toBeVisible();
   });
 
   test("the three types at the agency's fixed price; a flight package needs the preferred date; request reaches the staff queue", async ({ page }) => {

@@ -618,7 +618,11 @@ export function focusRejectedDocument(root, targetRow = null) {
   // The exact row the notification names (requirement + pilgrim); without
   // one, a rejected file first, else the first required file still missing.
   const exact = targetRow ? [...root.querySelectorAll(".check-row[data-row]")].find((el) => el.dataset.row === targetRow) : null;
-  const row = exact || root.querySelector(".check-row.check-rejected") || root.querySelector(".check-row.check-missing");
+  // Fallback (a notification without a target): a rejected document first,
+  // else a required document still missing — never an optional one or a question.
+  const row = exact
+    || root.querySelector('.check-row.check-rejected[data-kind="DOCUMENT"]')
+    || root.querySelector('.check-row.check-missing[data-kind="DOCUMENT"][data-required="1"]');
   if (!row) return false;
   row.classList.add("check-focus");
   row.scrollIntoView?.({ behavior: "smooth", block: "center" });
@@ -640,7 +644,7 @@ function checklistBlock(request) {
         <div class="check-group">
           <h5>${esc(group.title)}</h5>
           ${group.items.map((item) => `
-            <div class="check-row check-${esc(String(item.state).toLowerCase())}" data-row="${esc(item.requirementId)}::${esc(item.travelerId || "")}">
+            <div class="check-row check-${esc(String(item.state).toLowerCase())}" data-row="${esc(item.requirementId)}::${esc(item.travelerId || "")}" data-kind="${esc(item.kind || "DOCUMENT")}" data-required="${item.required ? "1" : "0"}">
               <div class="check-main">
                 <span>${esc(item.label)}${item.required ? "" : " <small>(اختياري)</small>"}</span>
                 ${item.kind === "ANSWER" && item.answer ? `<small>${esc(item.answer)}</small>` : ""}
