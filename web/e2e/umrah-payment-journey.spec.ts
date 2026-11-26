@@ -92,9 +92,19 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     await expect(card.getByTestId("package-included")).toContainText(type.included);
     await expect(card.getByTestId("package-excluded")).toContainText("السكن");
     await expect(card).not.toContainText("يبدأ من");
+    await expect(page.getByTestId("wizard-step-label")).toHaveText("الخطوة 1 من 3: اختيار الباقة");
     await page.getByRole("button", { name: "التالي" }).click();
 
-    // Applicant and guarantor first, then the trip, then the pilgrims.
+    // Step 2 of 3 on one page: the trip, applicant and guarantor, the pilgrims
+    // and their documents, with one «التالي» at the end.
+    await expect(page.getByTestId("wizard-step-label")).toHaveText("الخطوة 2 من 3: المعتمرون والضامن");
+    await expect(page.getByRole("button", { name: "التالي" })).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: "متى ترغب في أداء العمرة؟" })).toBeVisible();
+    await page.locator('input[type="number"]').fill("2");
+    // Preferred travel date: provisional, required for flight/sea, optional for visa only.
+    await expect(page.getByTestId("wizard-travel-date-note")).toHaveText("تاريخ مبدئي وليس حجزًا مؤكدًا.");
+    const preferredDate = new Date(Date.now() + 45 * 86_400_000).toISOString().slice(0, 10);
+    if (type.kind !== "VISA_ONLY") await page.getByTestId("wizard-travel-date").fill(preferredDate);
     await page.getByPlaceholder("اسمك الكامل").fill(customer);
     await page.getByPlaceholder("+249 9XX XXX XXX").fill(`+2499${stamp}`);
     const next = page.getByRole("button", { name: "التالي" });
@@ -102,23 +112,8 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     await page.getByTestId("umrah-guarantor-phone").fill("+966 50 123 4567");
     await page.getByTestId("umrah-extra-contact-name").fill("قريب المعتمر");
     await page.getByTestId("umrah-extra-contact-phone").fill("0912345678");
-    await next.click();
-    await expect(page.getByRole("heading", { name: "متى ترغب في أداء العمرة؟" })).toBeVisible();
-    await page.locator('input[type="number"]').fill("2");
-    // Preferred travel date: provisional, required for flight/sea, optional for visa only.
-    await expect(page.getByTestId("wizard-travel-date-note")).toHaveText("تاريخ مبدئي وليس حجزًا مؤكدًا.");
-    const preferredDate = new Date(Date.now() + 45 * 86_400_000).toISOString().slice(0, 10);
-    if (type.kind === "VISA_ONLY") {
-      await expect(page.getByRole("button", { name: "التالي" })).toBeEnabled();
-    } else {
-      await expect(page.getByRole("button", { name: "التالي" })).toBeDisabled();
-      await page.getByTestId("wizard-travel-date").fill(preferredDate);
-      await expect(page.getByRole("button", { name: "التالي" })).toBeEnabled();
-    }
-    await page.getByRole("button", { name: "التالي" }).click();
     await page.getByPlaceholder("اسم المسافر 1").fill(customer);
     await page.getByPlaceholder("اسم المسافر 2").fill(`${customer} الثاني`);
-    await page.getByRole("button", { name: "التالي" }).click();
 
     // Documents from the admin checklist: passport + guarantor residence, no personal photo.
     await expect(page.getByText("إقامة الضامن").first()).toBeVisible();
@@ -165,10 +160,17 @@ for (const type of KINDS) test(`Umrah ${type.kind}: package → pilgrims + guara
     expect(await page.getByTestId("draft-doc").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-document-id")).sort())).toEqual(documentIds);
     await page.getByRole("button", { name: "التالي" }).click();
 
-    // Summary with the final price; going back keeps what was entered.
+    // Summary with the final price; going back, or «تعديل» on a card, keeps what was entered.
+    await expect(page.getByTestId("wizard-step-label")).toHaveText("الخطوة 3 من 3: المراجعة والإرسال");
     await expect(page.getByTestId("fixed-total")).toHaveText("2,500 SAR");
+    await expect(page.getByTestId("review-package")).toContainText(packageName);
     await page.getByRole("button", { name: "السابق" }).click();
     await page.getByRole("button", { name: "التالي" }).click();
+    await page.getByRole("button", { name: "تعديل الباقة" }).click();
+    await expect(page.getByTestId("wizard-step-label")).toHaveText("الخطوة 1 من 3: اختيار الباقة");
+    await page.getByRole("button", { name: "التالي" }).click();
+    await page.getByRole("button", { name: "التالي" }).click();
+    await expect(page.getByTestId("fixed-total")).toHaveText("2,500 SAR");
     await expect(page.getByText(customer).first()).toBeVisible();
     await expect(page.getByTestId("review-guarantor-phone")).toContainText("+966 50 123 4567");
     const send = page.getByRole("button", { name: "تأكيد ومتابعة إلى الدفع" });

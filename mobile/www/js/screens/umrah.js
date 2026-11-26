@@ -1,10 +1,11 @@
 import { esc, toast, skeletonList, confirmDialog } from "../ui.js";
 import { startingPrice, sdgText, sdgUnavailable, SDG_UNAVAILABLE_NOTICE, shortDescription, durationOf } from "../service-view.js";
-import { isUmrahPackage, umrahLoadState, umrahPackageSummary, umrahPriceText, UMRAH_PRICE_MISSING } from "../umrah-view.js";
+import { isApprovedUmrahPackage, isUmrahPackage, umrahLoadState, umrahPackageSummary, umrahPriceText, UMRAH_PRICE_MISSING } from "../umrah-view.js";
 import { icon } from "../icons.js";
 import { loadCatalog, loadPackages } from "../catalog.js";
 import { loadAgency, whatsappLink } from "../agency.js";
 import { renderIntakeScreen } from "./intake.js";
+import { setBackInterceptor } from "../router.js";
 
 // Umrah in two moves on one screen: choose the package (each with its exact
 // fixed price, the server's SDG equivalent and what it includes), then the
@@ -23,7 +24,12 @@ async function umrahBaseItem(item) {
 export async function renderUmrahScreen({ bodyEl, params }) {
   const { packageId = null } = params;
   bodyEl.innerHTML = `
-    <section class="section umrah-choose">
+    <div class="umrah-chosen" id="umrahChosen" hidden>
+      <p class="umrah-step" data-umrah-step="1">الخطوة 1 من 3 — الباقة</p>
+      <div class="review-head"><b id="umrahChosenName"></b><button type="button" class="link-btn" id="umrahChangePackage">تعديل<span class="sr-only"> الباقة</span></button></div>
+    </div>
+    <section class="section umrah-choose" id="umrahChooseSection">
+      <p class="umrah-step" data-umrah-step="1">الخطوة 1 من 3</p>
       <h2 class="umrah-title" id="umrahChooseTitle">اختر باقة العمرة</h2>
       <div class="info-trust info-trust-inline" aria-label="ما نلتزم به قبل بدء الطلب">
         <span>${icon("wallet", { size: 17 })}<b>السعر الظاهر للباقة هو الإجمالي الذي تؤكده قبل الإرسال</b></span>
@@ -41,7 +47,7 @@ export async function renderUmrahScreen({ bodyEl, params }) {
   let item;
   let loadError = null;
   try {
-    [packages, item] = await Promise.all([loadPackages().then((list) => list.filter(isUmrahPackage)), umrahBaseItem(params.item)]);
+    [packages, item] = await Promise.all([loadPackages().then((list) => list.filter(isApprovedUmrahPackage)), umrahBaseItem(params.item)]);
   } catch (error) {
     loadError = error;
   }
@@ -74,9 +80,41 @@ export async function renderUmrahScreen({ bodyEl, params }) {
 
   packagesList.innerHTML = packages.map((pkg) => packageCard(pkg)).join("");
 
+  // Three steps on this screen: the package (step 1), then the form (step 2)
+  // and its review (step 3, inside the form). Steps only show or hide parts,
+  // so «السابق», «تعديل» and the phone's back button keep what was typed and
+  // every picked file.
+  const chooseSection = bodyEl.querySelector("#umrahChooseSection");
+  const chosenBar = bodyEl.querySelector("#umrahChosen");
+  const intakeMount = bodyEl.querySelector("#umrahIntakeMount");
+  let intake = null;
+  const showPackageStep = () => {
+    chooseSection.hidden = false;
+    chosenBar.hidden = true;
+    intakeMount.hidden = true;
+    chooseSection.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  };
+  const showFormStep = (pkg) => {
+    bodyEl.querySelector("#umrahChosenName").textContent = `${pkg.name} — ${umrahPriceText(pkg) || ""}`;
+    chooseSection.hidden = true;
+    chosenBar.hidden = false;
+    intakeMount.hidden = false;
+  };
+  bodyEl.querySelector("#umrahChangePackage").addEventListener("click", showPackageStep);
+  setBackInterceptor(() => {
+    if (intake?.back()) return true; // review → form
+    if (currentId && intakeMount.hidden === false) { showPackageStep(); return true; } // form → package
+    return false;
+  });
+
   let currentId = null;
   const choose = (pkg) => {
-    if (pkg.id === currentId) return;
+    if (pkg.id === currentId) {
+      // The same package again (after «تعديل»): back to the form as it was.
+      showFormStep(pkg);
+      intake?.showDetails();
+      return;
+    }
     // Another package starts a new form: files already picked would be lost.
     if (currentId && bodyEl.querySelector("#umrahIntakeMount .slot-ok") && !confirmDialog("تغيير الباقة يمسح الملفات التي رفعتها. هل تريد المتابعة؟")) return;
     currentId = pkg.id;
@@ -85,7 +123,9 @@ export async function renderUmrahScreen({ bodyEl, params }) {
       card.classList.toggle("selected", selected);
       card.setAttribute("aria-checked", String(selected));
     });
-    mountIntake(bodyEl, pkg, item);
+    intake = null;
+    mountIntake(bodyEl, pkg, item, { onEditPackage: showPackageStep, onController: (controller) => { intake = controller; } });
+    showFormStep(pkg);
   };
   packagesList.querySelectorAll(".package-card:not([disabled])").forEach((card) => {
     card.addEventListener("click", () => {
@@ -129,7 +169,7 @@ function packageCard(pkg) {
 // `baseItem` (the Umrah service) supplies the checklist when the chosen package
 // has none of its own. The package's own fixed price is the total; the form
 // shows it beside the send button.
-function mountIntake(bodyEl, item, baseItem = null) {
+function mountIntake(bodyEl, item, baseItem = null, { onEditPackage = null, onController = null } = {}) {
   // A fresh container per choice: an earlier choice still loading finishes
   // into its own detached container and can never replace this form.
   const mount = document.createElement("div");
@@ -139,7 +179,7 @@ function mountIntake(bodyEl, item, baseItem = null) {
     summary: `الباقة المختارة: ${item.name} — ${fixed}`,
     details: { type: "UMRAH_PACKAGE", packageId: item.id, name: item.name, basePrice: startingPrice(item)?.amount ?? null, currency: startingPrice(item)?.currency ?? null },
   };
-  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection, fallbackRequirementsItem: baseItem, showSelection: false, requireChecklist: true })
+  renderIntakeScreen({ bodyEl: mount, setTitle: () => {}, item, selection, fallbackRequirementsItem: baseItem, showSelection: false, requireChecklist: true, umrahSteps: true, onEditPackage, onController })
     .then(() => mount.scrollIntoView({ behavior: "smooth", block: "start" }))
     .catch((error) => toast(error.message, { tone: "error" }));
 }

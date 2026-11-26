@@ -111,7 +111,7 @@ async function fetchRequirements(item) {
 // `showSelection`: false when the choice is already visible on the same screen (Umrah).
 // `requireChecklist`: the service cannot be requested without documents
 // (Umrah): an empty checklist is a configuration gap, not "nothing needed".
-export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null, fallbackRequirementsItem = null, initialTravelers = 1, showSelection = true, requireChecklist = false }) {
+export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers = true, selection = null, fallbackRequirementsItem = null, initialTravelers = 1, showSelection = true, requireChecklist = false, umrahSteps = false, onEditPackage = null, onController = null }) {
   setTitle(`طلب ${item.name}`);
   bodyEl.innerHTML = `<div class="loading-block">${icon("clock", { size: 28 })}<p>جارٍ تحميل متطلبات الخدمة…</p></div>`;
 
@@ -132,8 +132,9 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
         <p>${esc(error?.code === "NO_CHECKLIST" ? "لم تُحدِّد الوكالة مستندات هذه الخدمة بعد؛ تواصل معنا أو أعد المحاولة لاحقًا." : error?.status === 0 ? "تحقق من اتصالك بالإنترنت ثم أعد المحاولة." : "حدث خطأ في الخادم. أعد المحاولة بعد قليل.")} لن نعرض النموذج قبل التأكد من المستندات المطلوبة لهذه الخدمة.</p>
         <button type="button" class="primary" id="retryRequirementsBtn">إعادة المحاولة</button>
       </div>`;
+    // Every option is carried over, so a retried Umrah form keeps its steps.
     bodyEl.querySelector("#retryRequirementsBtn").addEventListener("click", () =>
-      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist })
+      renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist, umrahSteps, onEditPackage, onController })
     );
     return;
   }
@@ -223,6 +224,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   bodyEl.innerHTML = `
     <div class="intake intake-single">
       ${selection && showSelection ? `<section class="selection-card"><h3>${icon("check-circle", { size: 18 })} اختيارك</h3><p>${esc(selection.summary)}</p></section>` : ""}
+      ${umrahSteps ? `<p class="umrah-step" id="umrahStepLabel" data-umrah-step="2">الخطوة 2 من 3 — المعتمرون والضامن</p>` : ""}
       ${restored ? `<p class="draft-note" id="draftNote">${icon("info", { size: 15 })} استعدنا ما كتبته سابقًا. الملفات تُختار من جديد. <button type="button" class="link-btn" id="discardDraftBtn">ابدأ من جديد</button></p>` : ""}
       <div id="stepBody"></div>
       <p class="step-errors" id="stepErrors" role="alert" hidden></p>
@@ -237,7 +239,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     if (submitting) return;
     dropDraft();
     revokeAllPreviews();
-    renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist });
+    renderIntakeScreen({ bodyEl, setTitle, item, allowMultipleTravelers, selection, fallbackRequirementsItem, initialTravelers, showSelection, requireChecklist, umrahSteps, onEditPackage, onController });
   });
 
   function showErrors(messages) {
@@ -433,19 +435,93 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
           <label class="field"><span>ملاحظات (اختياري)</span><textarea name="notes" rows="3">${esc(v.notes)}</textarea></label>
           <p class="field-hint">السعر النهائي وتعليمات الدفع تصلك بعد مراجعة الوكالة.</p>
         </section>`}
+      ${umrahSteps ? `<section class="form-section review umrah-review" id="umrahReview" aria-labelledby="umrahReviewTitle" hidden></section>` : ""}
       ${totalReviewHtml()}
       <div id="uploadProgressWrap" class="upload-progress-wrap" role="progressbar" aria-label="رفع المستندات" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
         <div class="upload-progress-bar"><div id="uploadProgressFill" class="upload-progress-fill"></div></div>
         <span id="uploadProgressLabel">0%</span>
       </div>`;
     stepBody.dataset.visible = visibleSignature();
+    applyPhase();
     renderActions();
   }
 
+  // ---- Umrah: step 2 (the form) and step 3 (review and send) on the same
+  // form. Only visibility changes between them, so nothing typed and no file
+  // picked is lost going back or editing.
+  let phase = "details";
+  function umrahReviewHtml() {
+    const v = state.values;
+    const list = slots();
+    const fileLine = (slot) => `${esc(slot.requirement.name)}: ${state.files.has(slot.key) ? `<b>${esc(state.files.get(slot.key).name)}</b>` : "<b>لم يُرفع</b>"}`;
+    const edit = (target, label) => `<button type="button" class="link-btn" data-review-edit="${target}">تعديل<span class="sr-only"> ${esc(label)}</span></button>`;
+    return `
+      <h3 id="umrahReviewTitle">راجع طلبك قبل الإرسال</h3>
+      ${selection?.summary ? `<div class="review-block" data-review="package"><div class="review-head"><b>الباقة</b>${onEditPackage ? edit("package", "الباقة") : ""}</div><p>${esc(selection.summary.replace(/^الباقة المختارة: /, ""))}</p></div>` : ""}
+      <div class="review-block" data-review="travelers"><div class="review-head"><b>المعتمرون (${v.travelers.length})</b>${edit("travelersSection", "المعتمرين")}</div>
+        <ul>${v.travelers.map((traveler, index) => `<li><b>${esc(traveler.fullName || `المعتمر ${index + 1}`)}</b><br>${list.filter((slot) => slot.travelerIndex === index).map(fileLine).join("<br>")}</li>`).join("")}</ul></div>
+      <div class="review-block" data-review="guarantor"><div class="review-head"><b>الضامن</b>${edit("umrahContactsSection", "الضامن")}</div>
+        <p>الهاتف: <bdi dir="ltr">${esc(v.guarantorPhone || "—")}</bdi></p>${list.filter((slot) => slot.travelerIndex === null).map((slot) => `<p>${fileLine(slot)}</p>`).join("")}</div>
+      <div class="review-block" data-review="travel"><div class="review-head"><b>موعد السفر</b>${edit("umrahTravelSection", "موعد السفر")}</div><p>${esc(v.preferredTravelDate || "غير محدد")}</p></div>
+      <div class="review-block" data-review="contact"><div class="review-head"><b>مقدم الطلب</b>${edit("contactSection", "مقدم الطلب")}</div><p>${esc(v.name)} — <bdi dir="ltr">${esc(v.phone)}</bdi></p></div>`;
+  }
+  function applyPhase() {
+    if (!umrahSteps) return;
+    const review = phase === "review";
+    stepBody.querySelectorAll(":scope > .form-section").forEach((section) => {
+      section.hidden = section.id === "umrahReview" || section.id === "fixedTotalReview" ? !review : review;
+    });
+    const label = bodyEl.querySelector("#umrahStepLabel");
+    if (label) {
+      label.dataset.umrahStep = review ? "3" : "2";
+      label.textContent = review ? "الخطوة 3 من 3 — المراجعة والإرسال" : "الخطوة 2 من 3 — المعتمرون والضامن";
+    }
+    const box = stepBody.querySelector("#umrahReview");
+    if (review && box) {
+      box.innerHTML = umrahReviewHtml();
+      box.querySelectorAll("[data-review-edit]").forEach((button) => button.addEventListener("click", () => {
+        const target = button.dataset.reviewEdit;
+        if (target === "package") { onEditPackage?.(); return; }
+        setPhase("details", target);
+      }));
+    }
+  }
+  function setPhase(next, focusSection = null) {
+    phase = next;
+    showErrors([]);
+    applyPhase();
+    renderActions();
+    const target = focusSection ? stepBody.querySelector(`#${focusSection}`) : bodyEl.querySelector("#umrahStepLabel");
+    target?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
+  function goToReview() {
+    if (submitting) return;
+    const messages = validateAll();
+    if (state.analyzing.size) messages.push("انتظر انتهاء فحص صورة الجواز ثم تابع.");
+    showErrors(messages);
+    if (messages.length) return;
+    setPhase("review");
+  }
+  // «رجوع» inside the form: from the review back to the form (true), else
+  // the caller decides (to the package step).
+  onController?.({
+    back: () => (umrahSteps && phase === "review" && !submitting ? (setPhase("details"), true) : false),
+    // Back from the package step: the form as it was (step 2).
+    showDetails: () => { if (umrahSteps && !submitting && phase !== "details") setPhase("details"); },
+    phase: () => phase,
+  });
+
   function renderActions() {
+    if (umrahSteps && phase === "details") {
+      stepActions.innerHTML = `${onEditPackage ? `<button type="button" class="secondary" id="prevStepBtn">السابق</button>` : ""}<button type="button" class="primary" id="nextStepBtn">التالي: المراجعة</button>`;
+      stepActions.querySelector("#prevStepBtn")?.addEventListener("click", () => onEditPackage?.());
+      stepActions.querySelector("#nextStepBtn").addEventListener("click", goToReview);
+      return;
+    }
     const current = pricing();
     const total = current ? fixedTotalSummary(current, state.values.travelers.length).totalText : "";
-    stepActions.innerHTML = `<button type="button" class="primary" id="nextStepBtn" ${pricingBlocked ? "disabled" : ""}>${current ? `تأكيد الطلب بإجمالي <bdi>${esc(total)}</bdi>` : "إرسال الطلب للوكالة"}</button>`;
+    stepActions.innerHTML = `${umrahSteps ? `<button type="button" class="secondary" id="prevStepBtn">السابق</button>` : ""}<button type="button" class="primary" id="nextStepBtn" ${pricingBlocked ? "disabled" : ""}>${current ? `تأكيد الطلب بإجمالي <bdi>${esc(total)}</bdi>` : "إرسال الطلب للوكالة"}</button>`;
+    stepActions.querySelector("#prevStepBtn")?.addEventListener("click", () => setPhase("details"));
     stepActions.querySelector("#nextStepBtn").addEventListener("click", submit);
   }
 

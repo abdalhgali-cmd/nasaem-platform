@@ -212,7 +212,8 @@ describe("«رحلتي إلى الحرمين» — the full Umrah journey", () =
     assert.equal(journey.pilgrims[0].visaFiles.length, 1);
     assert.equal(journey.pilgrims[1].visaFiles.length, 0, "a visa is linked to its own pilgrim only");
     assert.equal(stage(journey, "VISAS").state, "current");
-    assert.match(stage(journey, "VISAS").status, /1 من 3/);
+    assert.equal(stage(journey, "VISAS").status, "صدرت تأشيرة واحدة من أصل 3 تأشيرات؛ البقية قيد الإجراءات.");
+    assert.equal(journey.visaSummary, "صدرت تأشيرة واحدة من أصل 3 تأشيرات.");
     assert.equal(journey.primaryAction.key, "DOWNLOAD_VISAS");
     assert.ok((await notificationTypes(id)).includes("UMRAH_VISA_ISSUED"));
     assert.equal((await notificationTypes(id)).filter((type) => type === "UMRAH_VISA_ISSUED").length, 1, "one notification per published visa (written with the publish, not duplicated after it)");

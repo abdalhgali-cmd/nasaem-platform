@@ -67,6 +67,59 @@ function postJson(path: string, body: unknown) {
   return call(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
+// What staff confirm before a final file reaches the customer: the file
+// itself (previewed), whom it is for and, for an Umrah visa, what the group
+// looks like afterwards — partial issuance is said, never implied.
+type PendingPublish = {
+  // Which file this confirmation is for: a late preview of another file never
+  // lands here (a draft's id, or a fresh id for a new upload).
+  id: string;
+  label: string;
+  kind: string;
+  travelerIds: string[];
+  previewUrl: string | null;
+  mimeType: string;
+  submit: () => Promise<unknown>;
+};
+
+const VISA_KINDS = new Set(["VISA", "GENERAL"]);
+
+function PublishConfirm({ pending, detail, busy, onConfirm, onCancel }: { pending: PendingPublish; detail: Detail; busy: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const nameOf = (id: string) => detail.travelers.find((t) => t.id === id)?.fullName ?? "—";
+  const whole = !pending.travelerIds.length;
+  const visa = Boolean(detail.progress.umrah) && VISA_KINDS.has(pending.kind || "GENERAL");
+  const covered = new Set(detail.deliverables.filter((d) => d.publishedAt && VISA_KINDS.has(d.kind || "GENERAL")).flatMap((d) => d.travelerIds));
+  for (const id of pending.travelerIds) covered.add(id);
+  if (whole && detail.travelers.length <= 1) detail.travelers.forEach((t) => covered.add(t.id));
+  const remaining = detail.travelers.filter((t) => !covered.has(t.id));
+  return (
+    <div role="dialog" aria-modal="false" aria-labelledby="publish-confirm-title" className="mt-3 rounded-xl border-2 border-[#d6aa4b] bg-[#d6aa4b]/5 p-3" data-testid="publish-confirm">
+      <p id="publish-confirm-title" className="font-black">تأكيد النشر للعميل</p>
+      <p className="mt-1 text-sm"><b>{pending.label}</b>{visa ? " — تأشيرة" : ""}</p>
+      <p className="text-sm" data-testid="publish-confirm-travelers">يخص: {whole ? (detail.travelers.length > 1 ? "غير مُسند" : "الطلب كاملًا") : pending.travelerIds.map(nameOf).join("، ")}</p>
+      {visa && detail.travelers.length > 1 ? (
+        <p className="mt-1 text-sm font-bold" data-testid="publish-confirm-partial">
+          {remaining.length ? `بعد النشر: تبقى تأشيرة ${remaining.map((t) => t.fullName).join("، ")}؛ يبقى الطلب مفتوحًا.` : "بعد النشر: تكتمل تأشيرات جميع المعتمرين."}
+        </p>
+      ) : null}
+      <div className="mt-2 overflow-hidden rounded-lg border border-border bg-background" data-testid="publish-confirm-preview">
+        {!pending.previewUrl ? (
+          <p className="p-3 text-xs text-muted-foreground"><Loader2 className="me-1 inline size-3 animate-spin" />جارٍ تحميل المعاينة…</p>
+        ) : pending.mimeType.startsWith("image/") ? (
+          // eslint-disable-next-line @next/next/no-img-element -- a local blob preview, not a site image
+          <img src={pending.previewUrl} alt={`معاينة ${pending.label}`} className="max-h-72 w-full object-contain" />
+        ) : (
+          <iframe src={pending.previewUrl} title={`معاينة ${pending.label}`} className="h-72 w-full" />
+        )}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button type="button" size="sm" disabled={busy || !pending.previewUrl} onClick={onConfirm} data-testid="publish-confirm-submit">{busy ? <Loader2 className="size-4 animate-spin" /> : null}تأكيد النشر</Button>
+        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onCancel}>إلغاء</Button>
+      </div>
+    </div>
+  );
+}
+
 export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onChanged: () => void }) {
   const [detail, setDetail] = React.useState<Detail | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -74,6 +127,13 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
   const [message, setMessage] = React.useState("");
   const [error, setError] = React.useState("");
   const [confirmReason, setConfirmReason] = React.useState("");
+  const [pendingPublish, setPendingPublish] = React.useState<PendingPublish | null>(null);
+  const deliverableForm = React.useRef<HTMLFormElement | null>(null);
+  // The confirmation on screen now; a late preview response checks it.
+  const openPublishId = React.useRef<string | null>(null);
+  React.useEffect(() => { openPublishId.current = pendingPublish?.id ?? null; }, [pendingPublish]);
+  // The preview is a local object URL: released when the confirmation closes.
+  React.useEffect(() => () => { if (pendingPublish?.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(pendingPublish.previewUrl); }, [pendingPublish]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -247,7 +307,23 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
                 {detail.progress.umrah && d.kind ? <span className="rounded-full bg-[#d6aa4b]/15 px-2 py-0.5 text-[11px] font-black text-[#8a6417]" data-kind={d.kind}>{UMRAH_KIND_LABEL[d.kind] || d.kind}</span> : null}
                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${d.publishedAt ? "bg-emerald-500/10 text-emerald-700" : "bg-muted text-muted-foreground"}`}>{d.publishedAt ? "منشور للعميل" : "مسودة"}</span>
                 <span className="text-xs text-muted-foreground">يخص: {d.travelerIds.length ? d.travelerIds.map(nameOf).join("، ") : detail.travelers.length > 1 ? "غير مُسند" : "الطلب كاملًا"}</span>
-                {!d.publishedAt && can("PUBLISH_DELIVERABLE") ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void run(() => postJson(`${base}/deliverables/${encodeURIComponent(d.id)}/publish`, {}), "تم نشر الملف للعميل.")}>نشر</Button> : null}
+                {!d.publishedAt && can("PUBLISH_DELIVERABLE") ? <Button type="button" size="sm" variant="outline" disabled={busy || Boolean(pendingPublish)} data-testid="deliverable-publish" onClick={() => {
+                  const id = `draft:${d.id}`;
+                  openPublishId.current = id;
+                  setPendingPublish({ id, label: d.label, kind: d.kind || "GENERAL", travelerIds: d.travelerIds, previewUrl: null, mimeType: "", submit: () => postJson(`${base}/deliverables/${encodeURIComponent(d.id)}/publish`, {}) });
+                  fetch(`${API_URL}${base}/deliverables/${encodeURIComponent(d.id)}/file`, { credentials: "include" })
+                    .then(async (r) => { if (!r.ok) throw new Error(); const blob = await r.blob(); return { url: URL.createObjectURL(blob), type: blob.type }; })
+                    .then(({ url, type }) => {
+                      // This confirmation was closed or replaced meanwhile: drop the preview.
+                      if (openPublishId.current !== id) { URL.revokeObjectURL(url); return; }
+                      setPendingPublish((p) => (p?.id === id ? { ...p, previewUrl: url, mimeType: type } : p));
+                    })
+                    .catch(() => {
+                      if (openPublishId.current !== id) return;
+                      setPendingPublish(null);
+                      setError("تعذر تحميل معاينة الملف؛ لا يُنشر ملف دون معاينته.");
+                    });
+                }}>نشر</Button> : null}
               </li>
             ))}
           </ul>
@@ -255,8 +331,21 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
         {detail.travelers.length > 1 && detail.executionStartedAt && detail.progress.delivery.missingTravelerIds.length ? (
           <p className="mt-2 text-xs text-muted-foreground">بانتظار ملف منشور لـ: {detail.progress.delivery.missingTravelerIds.map(nameOf).join("، ")}</p>
         ) : null}
+        {pendingPublish ? (
+          <PublishConfirm
+            pending={pendingPublish}
+            detail={detail}
+            busy={busy}
+            onCancel={() => setPendingPublish(null)}
+            onConfirm={() => {
+              const pending = pendingPublish;
+              void run(pending.submit, "تم نشر الملف للعميل.").then(() => { setPendingPublish(null); deliverableForm.current?.reset(); });
+            }}
+          />
+        ) : null}
         {can("PREPARE_DELIVERABLE") ? (
           <form
+            ref={deliverableForm}
             // Remount when the release conditions change, so "publish now"
             // reflects them (defaultChecked only applies on first render).
             key={`${detail.paymentStatus}-${detail.executionStartedAt ?? "none"}`}
@@ -279,7 +368,13 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
               data.append("publish", publish ? "true" : "false");
               const kind = String(form.get("kind") || "");
               if (detail.progress.umrah && kind) data.append("kind", kind);
-              void run(() => call(`${base}/deliverables`, { method: "POST", body: data }), publish ? "تم رفع الملف ونشره للعميل." : "تم حفظ الملف مسودة.").then(() => formEl.reset());
+              const submit = () => call(`${base}/deliverables`, { method: "POST", body: data });
+              if (publish) {
+                // Published only after staff see the file and whom it is for.
+                setPendingPublish({ id: `upload:${Date.now()}`, label, kind: detail.progress.umrah ? kind || "VISA" : "GENERAL", travelerIds, previewUrl: URL.createObjectURL(file), mimeType: file.type, submit });
+                return;
+              }
+              void run(submit, "تم حفظ الملف مسودة.").then(() => formEl.reset());
             }}
           >
             <div className="flex flex-wrap items-end gap-2">
@@ -304,7 +399,7 @@ export function CaseWorkflowPanel({ caseId, onChanged }: { caseId: string; onCha
               <input type="checkbox" name="publish" value="true" defaultChecked={can("PUBLISH_DELIVERABLE") || (detail.paymentStatus === "CONFIRMED" && Boolean(detail.executionStartedAt))} disabled={!(detail.paymentStatus === "CONFIRMED" && detail.executionStartedAt)} />
               نشره للعميل الآن (بعد قبول الدفع وبدء التنفيذ؛ وإلا يُحفظ مسودة)
             </label>
-            <div><Button type="submit" size="sm" disabled={busy}>{busy ? <Loader2 className="size-4 animate-spin" /> : null}رفع</Button></div>
+            <div><Button type="submit" size="sm" disabled={busy || Boolean(pendingPublish)}>{busy ? <Loader2 className="size-4 animate-spin" /> : null}رفع</Button></div>
           </form>
         ) : null}
       </section>

@@ -216,6 +216,16 @@ button.hc-egypt-option:active {transform:scale(.98);background:#e5f2ee;border-co
 
 .umrah-choose {padding-top:12px!important;}
 .umrah-title {font-size:1.125rem;font-weight:700;color:#0f1f3a;margin:0 0 2px;}
+.umrah-step {margin:0 0 4px;font-size:.8125rem;font-weight:700;color:#8a6a1f;}
+/* Umrah three-step flow (screens/umrah.js, screens/intake.js) */
+.umrah-chosen {margin:0 0 12px;padding:12px 14px;border:1px solid #e6dcc4;border-radius:12px;background:#fffaf0;}
+.review-head {display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.umrah-review .review-block {padding:10px 0;border-bottom:1px solid #f0f2f5;font-size:.875rem;line-height:1.7;}
+.umrah-review .review-block:last-child {border-bottom:0;}
+.umrah-review ul {margin:4px 0 0;padding-inline-start:18px;}
+.umrah-review .link-btn, .umrah-chosen .link-btn {min-height:44px;padding:0 8px;}
+.step-actions:has(#prevStepBtn) {display:flex;gap:10px;}
+.step-actions:has(#prevStepBtn) > button {flex:1;}
 .package-card {position:relative;align-items:flex-start;min-height:48px;border-width:1.5px;cursor:pointer;transition:transform .18s ease-out,border-color .18s ease-out,box-shadow .18s ease-out,background-color .18s ease-out;}
 .package-card:not([disabled]):active {transform:scale(.985);}
 .package-card .package-body {flex:1;min-width:0;display:grid;gap:2px;}

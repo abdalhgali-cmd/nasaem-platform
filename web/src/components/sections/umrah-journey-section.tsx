@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Check, Download, Landmark, Package, Stamp } from "lucide-react";
 import { API_URL } from "@/lib/api-url";
+import { customerApi, customerAuthHeaders } from "@/lib/customer-api";
 
 // «رحلتي إلى الحرمين» on the website. Renders the server's journey object
 // (progress.umrah, backend umrah-journey.js) as is — the same one the app
@@ -23,6 +24,7 @@ export type UmrahJourney = {
   updatedAt: string | null;
   servicesIncluded: boolean;
   visasIssued: number;
+  visaSummary?: string;
   servicesDelivered: number | null;
   stages: { key: string; label: string; state: StageState; status: string }[];
   pilgrims: {
@@ -87,25 +89,76 @@ function formatUpdated(value: string | null) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("ar", { day: "numeric", month: "long", hour: "numeric", minute: "2-digit" });
 }
 
-function FileLinks({ requestId, files }: { requestId: string; files: JourneyFile[] }) {
+// Which session reads the files and books tickets: the phone-verified
+// tracking session (/track) or the signed-in account (/account).
+export type JourneyChannel = "tracking" | "account";
+const CHANNEL_BASE: Record<JourneyChannel, string> = { tracking: "tracking", account: "customer" };
+
+const FILE_LINK_CLASS = "inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm font-semibold text-primary outline-none transition hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60";
+
+function fileUrl(channel: JourneyChannel, requestId: string, fileId: string) {
+  return `${API_URL}/${CHANNEL_BASE[channel]}/requests/${requestId}/deliverables/${fileId}/file`;
+}
+
+// The signed-in account reads files with the stored bearer token: the site and
+// the API are on different domains in production, so a plain link would carry
+// no session where the browser blocks the API's cookie.
+function AccountFileButton({ requestId, file }: { requestId: string; file: JourneyFile }) {
+  const [pending, setPending] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const url = fileUrl("account", requestId, file.id);
+
+  const download = async () => {
+    if (pending) return;
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch(url, { credentials: "include", headers: customerAuthHeaders() });
+      if (!response.ok) throw new Error(String(response.status));
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = file.label;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch {
+      setError("تعذّر تحميل الملف. حدّث الصفحة وحاول مرة أخرى.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <span className="inline-flex flex-col gap-1">
+      <button type="button" onClick={() => void download()} disabled={pending} aria-busy={pending} className={FILE_LINK_CLASS} data-testid="umrah-file" data-file-url={url}>
+        <Download className="size-4" aria-hidden />
+        {file.label}
+      </button>
+      {error ? <span role="alert" className="text-xs text-red-700">{error}</span> : null}
+    </span>
+  );
+}
+
+function FileLinks({ requestId, files, channel }: { requestId: string; files: JourneyFile[]; channel: JourneyChannel }) {
   return (
     <>
-      {files.map((file) => (
-        <a
-          key={file.id}
-          href={`${API_URL}/tracking/requests/${requestId}/deliverables/${file.id}/file`}
-          className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm font-semibold text-primary outline-none transition hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-primary"
-          data-testid="umrah-file"
-        >
-          <Download className="size-4" aria-hidden />
-          {file.label}
-        </a>
-      ))}
+      {files.map((file) =>
+        channel === "account" ? (
+          <AccountFileButton key={file.id} requestId={requestId} file={file} />
+        ) : (
+          <a key={file.id} href={fileUrl(channel, requestId, file.id)} className={FILE_LINK_CLASS} data-testid="umrah-file">
+            <Download className="size-4" aria-hidden />
+            {file.label}
+          </a>
+        ),
+      )}
     </>
   );
 }
 
-export function UmrahJourneySection({ requestId, journey, onActionComplete }: { requestId: string; journey: UmrahJourney; onActionComplete?: () => void }) {
+export function UmrahJourneySection({ requestId, journey, onActionComplete, channel = "tracking" }: { requestId: string; journey: UmrahJourney; onActionComplete?: () => void; channel?: JourneyChannel }) {
   const [bookingPending, setBookingPending] = React.useState(false);
   const [bookingMessage, setBookingMessage] = React.useState("");
   const [inquiryId, setInquiryId] = React.useState<string | null>(null);
@@ -138,12 +191,17 @@ export function UmrahJourneySection({ requestId, journey, onActionComplete }: { 
     setBookingPending(true);
     setBookingMessage("");
     try {
-      const response = await fetch(`${API_URL}/tracking/requests/${requestId}/umrah/tickets`, {
-        method: "POST", credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" }, signal: AbortSignal.timeout(20_000),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.message || "تعذّر إرسال طلب الحجز؛ حاول مجددًا.");
-      setInquiryId(payload.data.inquiryId);
+      if (channel === "account") {
+        const data = await customerApi<{ inquiryId: string }>(`/customer/requests/${encodeURIComponent(requestId)}/umrah/tickets`, { method: "POST" });
+        setInquiryId(data.inquiryId);
+      } else {
+        const response = await fetch(`${API_URL}/tracking/requests/${requestId}/umrah/tickets`, {
+          method: "POST", credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" }, signal: AbortSignal.timeout(20_000),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.message || "تعذّر إرسال طلب الحجز؛ حاول مجددًا.");
+        setInquiryId(payload.data.inquiryId);
+      }
       onActionComplete?.();
     } catch (error) {
       setBookingMessage(error instanceof Error ? error.message : "تعذّر الاتصال؛ يمكنك إعادة المحاولة دون تكرار الطلب.");
@@ -226,7 +284,7 @@ export function UmrahJourneySection({ requestId, journey, onActionComplete }: { 
       <div id={`umrah-pilgrims-${requestId}`} className="scroll-mt-24" data-testid="umrah-pilgrims">
         <h4 className="text-sm font-bold text-primary">المعتمرون{journey.servicesIncluded ? " والخدمات" : ""}</h4>
         <p className="mb-2 text-xs text-muted-foreground">
-          صدرت {journey.visasIssued} من {journey.pilgrims.length} تأشيرات
+          <span data-testid="umrah-visa-count">{journey.visaSummary || `صدرت ${journey.visasIssued} من ${journey.pilgrims.length} تأشيرات`}</span>
           {journey.servicesIncluded ? ` — سُلّمت خدمات ${journey.servicesDelivered ?? 0} من ${journey.pilgrims.length}` : ""}
         </p>
         <ul className="grid gap-2">
@@ -254,8 +312,8 @@ export function UmrahJourneySection({ requestId, journey, onActionComplete }: { 
               ) : null}
               {pilgrim.visaFiles.length || pilgrim.serviceFiles?.length ? (
                 <div className="flex flex-wrap gap-2">
-                  <FileLinks requestId={requestId} files={pilgrim.visaFiles} />
-                  <FileLinks requestId={requestId} files={pilgrim.serviceFiles ?? []} />
+                  <FileLinks requestId={requestId} files={pilgrim.visaFiles} channel={channel} />
+                  <FileLinks requestId={requestId} files={pilgrim.serviceFiles ?? []} channel={channel} />
                 </div>
               ) : null}
             </li>

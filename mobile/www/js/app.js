@@ -1,6 +1,6 @@
 import { icon } from "./icons.js";
 import { offlineBanner, confirmDialog, toast } from "./ui.js";
-import { registerScreen, initRouter, go, goToTab, back, stackDepth, currentTab } from "./router.js";
+import { registerScreen, initRouter, go, goToTab, back, stackDepth, currentTab, currentEntry, interceptBack } from "./router.js";
 import * as auth from "./auth.js";
 
 import { renderWelcomeScreen, renderLoginScreen, renderRegisterScreen, renderForgotPasswordScreen, renderResetPasswordScreen, setOnAuthenticated } from "./screens/auth-screens.js";
@@ -23,7 +23,7 @@ import { renderAboutScreen } from "./screens/about.js";
 import { renderLegalScreen } from "./screens/legal.js";
 import { renderServiceInfoScreen } from "./screens/service-info.js";
 import { launchRoute } from "./experience-core.js";
-import { inactivityExpired } from "./session-core.js";
+import { inactivityExpired, resumeTarget } from "./session-core.js";
 import { tapFeedback } from "./motion.js";
 import { CONFIG } from "./config.js";
 import { showEnvironmentBadge } from "./environment.js";
@@ -121,8 +121,20 @@ async function startFromStoredSession() {
 
 // Account state changed (verified, locked, expired, signed out): re-draw the
 // account-dependent tab the customer is looking at, if they are on its root.
+// The request to reopen once the account is unlocked (set by the inactivity lock).
+let resumeAfterUnlock = null;
+
 function wireAccountStateRefresh() {
   auth.onAccountStateChange(() => {
+    if (resumeAfterUnlock && auth.isAccountUnlocked()) {
+      const { requestId } = resumeAfterUnlock;
+      resumeAfterUnlock = null;
+      goToTab("requests", "requests", { title: TAB_TITLES.requests ?? "" })
+        .then(() => go("requestDetail", { requestId }, { title: "تفاصيل الطلب", tab: "requests" }));
+      return;
+    }
+    // Signed out or expired: nothing to resume into.
+    if (resumeAfterUnlock && [auth.SessionState.EXPIRED, auth.SessionState.NO_SESSION].includes(auth.getSessionState())) resumeAfterUnlock = null;
     const tab = currentTab();
     if (navEl.hidden || stackDepth() !== 1 || !ACCOUNT_DEPENDENT_TABS.has(tab)) return;
     goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
@@ -153,6 +165,9 @@ function wireBackButton() {
   const AppPlugin = window.Capacitor?.Plugins?.App;
   if (!AppPlugin) return;
   AppPlugin.addListener("backButton", () => {
+    // A screen with its own steps goes back one step first (nothing typed or
+    // picked is lost).
+    if (interceptBack()) return;
     if (stackDepth() > 1) {
       back();
       return;
@@ -179,7 +194,9 @@ function wireInactivityLock() {
   refreshLockable();
   auth.onAccountStateChange(refreshLockable);
   const lock = async () => {
+    const target = resumeTarget(currentEntry());
     if (!(await auth.lockAfterInactivity())) return;
+    resumeAfterUnlock = target;
     const tab = currentTab();
     if (!navEl.hidden && (tab === "account" || tab === "requests")) goToTab(tab, tab, { title: TAB_TITLES[tab] ?? "" });
   };

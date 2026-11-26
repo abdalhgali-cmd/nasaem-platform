@@ -961,6 +961,10 @@ model Notification {
   customerId       String?
   orderId          String?
   contactRequestId String?
+  // A correction notification's target: the requirement (and pilgrim) whose
+  // file the customer is asked to replace. Opened straight at that row.
+  requirementId    String?
+  travelerId       String?
   readAt           DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -1278,12 +1282,18 @@ model UmrahQueueEntry {
   packageKind         String
   preferredTravelDate String?
   requestCreatedAt    DateTime
+  // Manager attention facts (umrah-queue-index.js attentionFacts). Null
+  // waitingOn = an entry written before these existed; the list re-derives it.
+  waitingOn           String?
+  partialVisas        Boolean        @default(false)
+  delayedVisa         Boolean        @default(false)
   derivedAt           DateTime       @default(now())
   contactRequest      ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, rank, preferredTravelDate, requestCreatedAt])
   @@index([organizationId, preferredTravelDate, rank, requestCreatedAt])
   @@index([organizationId, stage])
+  @@index([organizationId, waitingOn])
   @@index([derivedAt])
 }
 

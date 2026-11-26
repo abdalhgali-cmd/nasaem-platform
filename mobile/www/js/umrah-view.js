@@ -58,6 +58,12 @@ export function isUmrahPackage(pkg) {
 
 export const UMRAH_KIND_ORDER = Object.freeze(["VISA_ONLY", "AIR", "SEA"]);
 
+// The Umrah screen offers only the three approved package types (visa only,
+// flights, sea); an older Umrah package without a type is not offered.
+export function isApprovedUmrahPackage(pkg) {
+  return isUmrahPackage(pkg) && Boolean(umrahPackageDetails(pkg).kind);
+}
+
 // Umrah is booked only at a fixed price: a package without one is unavailable.
 export const UMRAH_UNAVAILABLE = "غير متاحة للحجز حاليًا";
 // A published package whose fixed price the agency has not set yet.

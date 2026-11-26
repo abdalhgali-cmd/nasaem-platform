@@ -22,7 +22,23 @@ export function initRouter({ screenElement, navElement, emptyStackHandler }) {
 // direction: "forward" (go), "back" (back), "fade" (tab switch / new root).
 // The animation itself is pure CSS (css/motion.css) on transform/opacity and
 // is switched off under prefers-reduced-motion.
+// A screen with steps of its own (the Umrah flow) answers «رجوع» one step at
+// a time: it returns true while it handled it. Cleared on every navigation.
+let backInterceptor = null;
+export function setBackInterceptor(fn) {
+  backInterceptor = typeof fn === "function" ? fn : null;
+}
+/** True when the current screen took the back press (one step back inside it). */
+export function interceptBack() {
+  try {
+    return Boolean(backInterceptor?.());
+  } catch {
+    return false;
+  }
+}
+
 async function render(entry, { isRoot = false, direction = "fade" } = {}) {
+  backInterceptor = null;
   const definition = screens.get(entry.name);
   if (!definition) {
     console.error(`[router] unknown screen: ${entry.name}`);
@@ -103,6 +119,12 @@ export async function goToTab(tabName, rootScreen, { title = "" } = {}) {
   const entry = { name: rootScreen, params: {}, title, tab: tabName };
   stack.push(entry);
   await render(entry, { isRoot: true });
+}
+
+/** The screen on top: { name, params, tab }, or null. */
+export function currentEntry() {
+  const entry = stack[stack.length - 1];
+  return entry ? { name: entry.name, params: { ...(entry.params || {}) }, tab: entry.tab || null } : null;
 }
 
 export function currentTab() {

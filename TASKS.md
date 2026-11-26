@@ -1,5 +1,34 @@
 # Nasaem Platform — Release Tasks
 
+## Umrah round 3 — 2026-11-26 (Codex review of c00ae71, PR #211)
+
+- VERIFIED (fixed): account visa downloads now send the stored bearer token (fetch + blob) instead of a plain link that had no session when the API's cookie is blocked across domains. `umrah-recovery-journey` removes the cookie and downloads in the browser: Authorization: Bearer sent, PDF saved.
+- VERIFIED (type-checked, no dedicated e2e): the account journey is keyed by request id, so a booking reference from request A is no longer shown on request B.
+- Local: tsc and eslint clean; Playwright umrah-recovery-journey, account-correction, umrah-acceptance (3), umrah-payment-journey VISA_ONLY/AIR/SEA, platform3 Umrah (4) all pass. CI and QA on the pushed SHA: see PR #211.
+- NOT TESTED: physical Android device (camera/gallery, hardware back through the 3 steps, lock + biometric + resume, notification tap opening the exact row, file open); WhatsApp OTP and app Google sign-in on QA.
+- NEXT: owner review of #211; merge into main and Production only with owner approval.
+
+## Umrah round 2 — 2026-11-26 (same branch, PR #211 kept open)
+
+- Website account: a correction notification opens the exact pilgrim's file (Notification.requirementId/travelerId, additive migration `20261126090000_notification_document_target`); each checklist row is replaced on its own requirement and pilgrim (the old untargeted upload replaced nothing).
+- Android: the Umrah flow is three steps (package; pilgrims and guarantor; review and send) with «السابق», «تعديل» and the phone's back button keeping every field and picked file. Merges cleanly with #210.
+- VERIFIED (GitHub Actions on `5fbfcfa`): Backend, Frontend, Playwright E2E, build-apk, backup drill — all success.
+- VERIFIED locally: backend `umrahCorrectionTarget` (two pilgrims; replacing pilgrim 2's passport keeps pilgrim 1's passport, the receipt, payment state and the reference); Playwright `account-correction` (same through the website); mobile-app project with Back/Edit round trips; mobile 158/158. Local `egypt-pricing` fails on main code too (local data state; green in CI).
+- QA: `qa-backend` and `qa-website` SUCCESS on `5fbfcfa`. QA APK `qa-v0.3.221`: direct download 200, SHA-256 `a5192213742e30072d3bcf8bcd7b42457ccaa9a158854d503bbc82176f977a0a` = SHA256SUMS, QA API, appVersion 0.3.221, three-step code inside, QA certificate.
+- NOT TESTED (physical phone): camera/gallery, hardware back through the three steps, biometric lock + resume, notification tap → exact row, file open.
+- Probe branch `probe/qa-umrah-acceptance-20261126`: unused (no PR), but this session cannot delete branches; delete it from GitHub.
+
+## Umrah journey acceptance — 2026-11-26 (branch `feat/umrah-journey-acceptance-20261125`, draft PR #211)
+
+- VERIFIED (GitHub Actions on `593b9ef`): Backend tests, Frontend typecheck + build, Playwright E2E, build-apk, backup + restore drill — all success. `Vercel` is the known external «Account is blocked».
+- VERIFIED locally (PostgreSQL 16, synthetic data): backend full suite 1227/1227 on a clean database; mobile 158/158; Playwright `umrah-acceptance` 3/3, `mobile-app` 33/33, Umrah/admin/security specs green.
+- VERIFIED on QA (`nasaem-qa-umrah`, synthetic data; GitHub Actions probe run 45756360555): API health 200 (`environment: staging`, `pricesAreTestData: true`); `/umrah-focus` and `/tracking/requests` refuse without a session (401); QA website `https://qa-website-qa.up.railway.app` `/umrah` offers exactly 3 packages with «الخطوة 1 من 3»; `/admin/login`, `/track` 200; no API error in the page; same-origin `/api` proxy works. Synthetic two-pilgrim visa-only request created through the website: `cmwx2a6ze0001s72bc6u76otk`.
+- QA config: `qa-backend` follows the branch (additive migration `20261125090000_umrah_queue_attention` applied on QA); new `qa-website` service (root `/web`) with `NEXT_PUBLIC_API_URL=/api` + `INTERNAL_API_URL` (QA API); new `CSRF_TRUSTED_ORIGINS` on `qa-backend` = the QA website. `CORS_ORIGIN` was not changed.
+- VERIFIED QA APK `qa-v0.3.217` (prerelease, «اختبار فقط»): direct download without login (200, APK), SHA-256 `637b0aca1f93eb98f40141f5ca4496241c2a05b32efb7151cafa5c56b8631e79` = published SHA256SUMS, points at the QA API, `appVersion` 0.3.217, QA signing certificate.
+- NOT TESTED: real Android device (camera/picker, inactivity lock + biometric unlock + resume, notification tap → file row, file open); Google sign-in on QA (Android OAuth client); WhatsApp delivery (no provider); staff steps on QA (owner holds the QA admin account).
+- KNOWN GAPS: website account notifications do not deep-link (the app does); the app's Umrah screen is one page with three labelled parts (full three screens after #210).
+- NEXT: owner runs the QA test script on a real phone; owner decision to merge #211 (not merged, not on Production).
+
 ## Production release — 2026-11-12 (owner-approved, all production data is test data per owner)
 
 - MERGED: PR #197 (`chore/security-deps-20261111` → `main`, merge commit `8795547a3ef364820bbe1f887161ec7585689ee1`) carrying #191–#196. Its tree equals the CI-verified head `739c8f5` (Backend, Frontend build, Playwright E2E, build-apk, backup drill all green). #192–#196 remain open only because their bases were intermediate branches.

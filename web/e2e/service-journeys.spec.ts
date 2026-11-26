@@ -90,7 +90,13 @@ const JOURNEYS: Journey[] = [
     start: async (app, umrahVisaId) => {
       // The Umrah card opens the package chooser directly (no details page).
       await app.locator("#homeUmrahBtn").click();
-      await app.locator(`.package-card[data-id="${umrahVisaId}"]`).click();
+      // Step 1: the package. With one bookable package the app picks it and
+      // moves to step 2 by itself; otherwise the customer taps it.
+      const card = app.locator(`.package-card[data-id="${umrahVisaId}"]`);
+      await expect(card).toHaveAttribute("aria-checked", /true|false/);
+      if ((await card.getAttribute("aria-checked")) !== "true") await card.click();
+      await expect(card).toHaveAttribute("aria-checked", "true");
+      await expect(app.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "2");
     },
   },
   {
@@ -265,6 +271,11 @@ test.describe.serial("service journeys: customer app and back-office, in the bro
     }
     // Passport photos are checked on the device first; wait until all are in.
     await expect(app.locator(".slot.slot-ok")).toHaveCount(await app.locator(".slot").count(), { timeout: 15_000 });
+    // Umrah: step 2 → the review (step 3) first.
+    if (await app.locator("#umrahStepLabel").count()) {
+      await send();
+      await expect(app.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "3");
+    }
     // A fixed price is confirmed once, here, beside the send button.
     if (await app.locator("#confirmTotal").count()) await app.locator("#confirmTotal").check();
     await send();

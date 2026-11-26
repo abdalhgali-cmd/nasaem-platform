@@ -1,4 +1,5 @@
 import { umrahObligations } from "../umrah/umrah-packages.js";
+import { visaCountText } from "../umrah/umrah-visa-count.js";
 import { evaluateUmrahDelivery } from "../umrah/umrah-delivery.js";
 import { umrahJourney } from "../umrah/umrah-journey.js";
 import { isEgyptClearanceCode } from "../egypt-clearance/egypt-clearance-variants.js";
@@ -272,7 +273,7 @@ export function deriveRequestProgress(request) {
       : umrah.visas.complete
         ? "صدرت تأشيرات جميع المعتمرين."
         : umrah.visas.coveredTravelerIds.length
-          ? `صدرت ${umrah.visas.coveredTravelerIds.length} من ${(request.travelers || []).length} تأشيرات؛ البقية قيد الإجراءات.`
+          ? `${visaCountText(umrah.visas.coveredTravelerIds.length, (request.travelers || []).length).replace(/\.$/, "")}؛ البقية قيد الإجراءات.`
           : executionStartedAt ? "التأشيرات قيد الإجراءات لدى الوكالة." : "تبدأ إجراءات التأشيرة بعد قبول الدفع واعتماد المستندات.",
     SERVICES: !umrah?.services
       ? ""

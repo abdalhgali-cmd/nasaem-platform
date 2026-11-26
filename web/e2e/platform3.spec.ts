@@ -721,7 +721,7 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
     const updatedName = `باقة عمرة محدثة E2E ${suffix}`;
     const created: string[] = [];
 
-    async function createPackage(code: string, name: string, sortOrder: number) {
+    async function createPackage(code: string, name: string, sortOrder: number, typed = true) {
       const response = await admin.post(`${BACKEND_URL}/api/services`, {
         data: {
           code,
@@ -732,7 +732,7 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
           currency: "SAR",
           active: true,
           sortOrder,
-          features: ["DURATION: 10 أيام", "INCLUDED: النقل"],
+          features: [...(typed ? ["KIND: AIR"] : []), "DURATION: 10 أيام", "INCLUDED: النقل"],
         },
       });
       expect(response.ok(), await response.text()).toBeTruthy();
@@ -744,6 +744,10 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
     try {
       await createPackage(firstCode, firstName, 10);
       await createPackage(secondCode, secondName, 20);
+      // /umrah offers only the three approved package types: an Umrah
+      // package without a type is managed in the admin but not offered.
+      const untypedName = `باقة عمرة بلا نوع E2E ${suffix}`;
+      await createPackage(`E2E-UMRAH-UNTYPED-${suffix}`, untypedName, 15, false);
 
       // /umrah renders the shared intake wizard on the Umrah packages: each
       // package is a selectable button whose name carries
@@ -751,6 +755,7 @@ test.describe("Umrah Packages — admin data reflects publicly", () => {
       await page.goto("/umrah", { waitUntil: "networkidle" });
       await expect(page.locator("button").filter({ hasText: firstName })).toBeVisible({ timeout: 15_000 });
       await expect(page.locator("button").filter({ hasText: secondName })).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator("button").filter({ hasText: untypedName })).toHaveCount(0);
       const initialCards = await page.getByTestId("intake-option-name").allTextContents();
       expect(initialCards.indexOf(firstName)).toBeGreaterThanOrEqual(0);
       expect(initialCards.indexOf(firstName)).toBeLessThan(initialCards.indexOf(secondName));

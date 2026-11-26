@@ -608,7 +608,29 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   }
 
   await load();
+  // Opened from a «مستند مرفوض» notification: straight to the file to replace,
+  // with its reason, once (not on every refresh).
+  if (params.focus === "rejectedDocument") focusRejectedDocument(bodyEl, params.focusRow);
   startStatusRefresh(bodyEl, (stillIdle) => load({ quiet: true, applyIf: stillIdle }));
+}
+
+export function focusRejectedDocument(root, targetRow = null) {
+  // The exact row the notification names (requirement + pilgrim); without
+  // one, a rejected file first, else the first required file still missing.
+  const exact = targetRow ? [...root.querySelectorAll(".check-row[data-row]")].find((el) => el.dataset.row === targetRow) : null;
+  // Fallback (a notification without a target): a rejected document first,
+  // else a required document still missing — never an optional one or a question.
+  const row = exact
+    || root.querySelector('.check-row.check-rejected[data-kind="DOCUMENT"]')
+    || root.querySelector('.check-row.check-missing[data-kind="DOCUMENT"][data-required="1"]');
+  if (!row) return false;
+  row.classList.add("check-focus");
+  row.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  // The file input itself (inside «رفع بديل») when it can be replaced here.
+  const control = row.querySelector('input[type="file"]');
+  if (control) control.focus?.({ preventScroll: true });
+  else { row.setAttribute("tabindex", "-1"); row.focus?.({ preventScroll: true }); }
+  return true;
 }
 
 function checklistBlock(request) {
@@ -622,7 +644,7 @@ function checklistBlock(request) {
         <div class="check-group">
           <h5>${esc(group.title)}</h5>
           ${group.items.map((item) => `
-            <div class="check-row check-${esc(String(item.state).toLowerCase())}" data-row="${esc(item.requirementId)}::${esc(item.travelerId || "")}">
+            <div class="check-row check-${esc(String(item.state).toLowerCase())}" data-row="${esc(item.requirementId)}::${esc(item.travelerId || "")}" data-kind="${esc(item.kind || "DOCUMENT")}" data-required="${item.required ? "1" : "0"}">
               <div class="check-main">
                 <span>${esc(item.label)}${item.required ? "" : " <small>(اختياري)</small>"}</span>
                 ${item.kind === "ANSWER" && item.answer ? `<small>${esc(item.answer)}</small>` : ""}

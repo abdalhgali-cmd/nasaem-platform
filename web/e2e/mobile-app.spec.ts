@@ -75,6 +75,14 @@ async function uploadAllSlots(page: Page) {
   return keys;
 }
 
+// Umrah step 2 → step 3: «التالي: المراجعة», then the review with the total.
+async function toUmrahReview(page: Page) {
+  await expect(page.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "2");
+  await page.locator("#nextStepBtn").click();
+  await expect(page.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "3");
+  await expect(page.locator("#umrahReview")).toBeVisible();
+}
+
 async function submitFromReview(page: Page): Promise<string> {
   await page.locator("#nextStepBtn").click();
   const reference = page.locator("#requestReference");
@@ -401,6 +409,7 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
       await expect(page.locator(`.package-card[data-id="${pkg!.id}"]`)).toHaveAttribute("aria-checked", "true");
       await fillData(page, { name: "محمد أحمد", phone: localPhone(), travelers: ["محمد أحمد", "آمنة سعيد"] });
       await uploadAllSlots(page);
+      await toUmrahReview(page);
       await expect(page.locator("#fixedTotalAmount")).toContainText("SAR");
       await page.locator("#confirmTotal").check();
       const reference = await submitFromReview(page);
@@ -412,6 +421,36 @@ test.describe.serial("customer app: requests, documents, price and payment", () 
       expect(byTraveler.size).toBe(2);
     } finally {
       await api.patch(`${BACKEND}/api/services/${pkg!.id}`, { data: original });
+    }
+  });
+
+  test("Umrah: the checklist fails to load once; «إعادة المحاولة» brings back the three steps", async ({ page }) => {
+    const api = await staff(page);
+    const services = (await (await api.get(`${BACKEND}/api/services?limit=200`)).json()).data as Array<{ id: string; code: string; pricingMode?: string; basePrice?: string | number | null; currency?: string; priceUnit?: string; active?: boolean }>;
+    const pkg = services.find((s) => s.code === "SVC-UMRAH-VISA")!;
+    const original = { pricingMode: pkg.pricingMode ?? "QUOTE", basePrice: pkg.basePrice ?? null, currency: pkg.currency ?? "SAR", priceUnit: pkg.priceUnit ?? "PER_REQUEST", active: pkg.active ?? true };
+    expect((await api.patch(`${BACKEND}/api/services/${pkg.id}`, { data: { pricingMode: "FIXED", basePrice: 450, currency: "SAR", priceUnit: "PER_TRAVELER", active: true } })).ok()).toBeTruthy();
+    try {
+      let failures = 0;
+      await page.route("**/requirements/public", async (route) => {
+        if (failures++ === 0) await route.abort("internetdisconnected");
+        else await route.continue();
+      });
+      await skipOnboarding(page);
+      await page.locator(`[data-package-id="${pkg.id}"]`).click();
+      await expect(page.locator("#requirementsError")).toBeVisible({ timeout: 15_000 });
+      await page.locator("#retryRequirementsBtn").click();
+      await expect(page.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "2", { timeout: 15_000 });
+      await expect(page.locator("#prevStepBtn")).toBeVisible();
+      await expect(page.locator("#nextStepBtn")).toHaveText("التالي: المراجعة");
+      // Step 1 and back again from the retried form.
+      await page.locator("#prevStepBtn").click();
+      await expect(page.locator("#umrahChooseSection")).toBeVisible();
+      await page.locator(`.package-card[data-id="${pkg.id}"]`).click();
+      await expect(page.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "2");
+    } finally {
+      await page.unroute("**/requirements/public");
+      await api.patch(`${BACKEND}/api/services/${pkg.id}`, { data: original });
     }
   });
 
@@ -525,9 +564,10 @@ test.describe.serial("customer app: Umrah packages", () => {
     await expect(page.locator("#umrahLoadError")).toContainText("502");
     await page.unroute("**/api/services/public/packages");
     await page.locator("#umrahRetryBtn").click();
-    // Back to the server's real answer (packages listed, or a stated reason).
+    // Back to the server's real answer: packages listed, a stated reason, or
+    // (one bookable package) that package already chosen as step 1.
     await expect(page.locator("#umrahLoadError")).toHaveCount(0);
-    await expect(page.locator(".package-card, #umrahUnavailable").first()).toBeVisible();
+    await expect(page.locator(".package-card:visible, #umrahUnavailable, #umrahChosen:visible").first()).toBeVisible();
   });
 
   test("the three types at the agency's fixed price; a flight package needs the preferred date; request reaches the staff queue", async ({ page }) => {
@@ -574,11 +614,45 @@ test.describe.serial("customer app: Umrah packages", () => {
       await fillData(page, { name: "عميل عمرة جوية", phone, travelers: ["عميل عمرة جوية"] });
       await expect(page.locator("#umrahTravelDateNote")).toContainText("ليس حجزًا مؤكدًا");
       await uploadAllSlots(page);
-      await page.locator("#confirmTotal").check();
+      // Step 2 refuses to move on while the required date is missing.
       await page.locator("#nextStepBtn").click();
       await expect(page.getByRole("alert").filter({ hasText: "حدّد تاريخ السفر المفضل لهذه الباقة." })).toBeVisible();
+      await expect(page.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "2");
       const date = new Date(Date.now() + 50 * 86_400_000).toISOString().slice(0, 10);
       await page.fill('[name="preferredTravelDate"]', date);
+      await toUmrahReview(page);
+      const filesBefore = await page.locator(".slot.slot-ok").count();
+      expect(filesBefore).toBeGreaterThan(0);
+      await expect(page.locator("#umrahReview")).toContainText("عميل عمرة جوية");
+      await expect(page.locator("#umrahReview")).toContainText(date);
+
+      // «تعديل» opens step 2 with everything as typed and every file kept.
+      await page.locator('[data-review-edit="travelersSection"]').click();
+      await expect(page.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "2");
+      await expect(page.locator('[name="t_name_0"]')).toHaveValue("عميل عمرة جوية");
+      await expect(page.locator('[name="guarantorPhone"]')).toHaveValue("+966501234567");
+      await expect(page.locator('[name="preferredTravelDate"]')).toHaveValue(date);
+      await expect(page.locator(".slot.slot-ok")).toHaveCount(filesBefore);
+      // «السابق» to the package (step 1), the same package again: still all there.
+      await page.locator("#prevStepBtn").click();
+      await expect(page.locator("#umrahChooseSection")).toBeVisible();
+      await expect(page.locator("#umrahIntakeMount")).toBeHidden();
+      await page.locator(`.package-card[data-id="${rows[1]!.id}"]`).click();
+      await expect(page.locator("#umrahChosen")).toBeVisible();
+      await expect(page.locator('[name="t_name_0"]')).toHaveValue("عميل عمرة جوية");
+      await expect(page.locator(".slot.slot-ok")).toHaveCount(filesBefore);
+      // From the review, «تعديل» on the package and back the same way.
+      await toUmrahReview(page);
+      await page.locator('[data-review-edit="package"]').click();
+      await expect(page.locator("#umrahChooseSection")).toBeVisible();
+      await page.locator(`.package-card[data-id="${rows[1]!.id}"]`).click();
+      await toUmrahReview(page);
+      // «السابق» in the review returns to the form; forward again and send.
+      await page.locator("#prevStepBtn").click();
+      await expect(page.locator("#umrahStepLabel")).toHaveAttribute("data-umrah-step", "2");
+      await expect(page.locator(".slot.slot-ok")).toHaveCount(filesBefore);
+      await toUmrahReview(page);
+      await page.locator("#confirmTotal").check();
       const reference = await submitFromReview(page);
       const request = await staffRequest(api, reference);
       expect(request.pricingMode).toBe("FIXED");
@@ -651,6 +725,7 @@ test.describe.serial("customer app: Umrah at the approved prices", () => {
         const date = c.date ? new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10) : null;
         if (date) await page.fill('[name="preferredTravelDate"]', date);
         await uploadAllSlots(page);
+        await toUmrahReview(page);
         await expect(page.locator("#fixedTotalAmount")).toContainText(`${(APPROVED[c.code] * c.pilgrims).toLocaleString("en-US")} SAR`);
         await page.locator("#confirmTotal").check();
         // A double tap on send creates one request.

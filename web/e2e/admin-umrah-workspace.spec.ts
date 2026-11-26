@@ -109,6 +109,18 @@ test.describe.serial("Umrah Case Workspace", () => {
     await expect(row).toContainText(preferredDate);
     await expect(row).toContainText("1,250 SAR");
 
+    // Manager views: counted by the server under the same filters, and each opens its list.
+    const unassigned = page.locator('[data-umrah-alert="UNASSIGNED"]');
+    await expect(unassigned.locator("[data-umrah-count]")).toHaveText("1");
+    await expect(page.locator('[data-umrah-alert="PARTIAL_VISAS"] [data-umrah-count]')).toHaveText("0");
+    await unassigned.click();
+    await expect(unassigned).toHaveAttribute("aria-pressed", "true");
+    await expect(row).toBeVisible();
+    await page.locator('[data-umrah-alert="PARTIAL_VISAS"]').click();
+    await expect(page.getByText("لا توجد طلبات مطابقة.")).toBeVisible();
+    await page.locator('[data-umrah-alert="PARTIAL_VISAS"]').click();
+    await expect(row).toBeVisible();
+
     // Server filters and within-page filters.
     await page.getByLabel("الدفع", { exact: true }).selectOption("CONFIRMED");
     await expect(page.getByText("لا توجد طلبات مطابقة.")).toBeVisible();

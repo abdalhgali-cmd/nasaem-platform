@@ -85,7 +85,7 @@ test("three pilgrims: one visa issued is not all visas issued", () => {
   assert.equal(p.umrah.visasIssued, 2);
   assert.notEqual(p.stage, "DELIVERED");
   assert.equal(p.steps.find((s) => s.key === "VISAS").state, "current");
-  assert.match(p.steps.find((s) => s.key === "VISAS").status, /2 من 3/);
+  assert.equal(p.steps.find((s) => s.key === "VISAS").status, "صدرت تأشيرتان من أصل 3 تأشيرات؛ البقية قيد الإجراءات.");
   assert.equal(evaluateDelivery(request({ travelers: [T1, T2, T3], deliverables: [file("v1", "VISA", ["t1"])] })).complete, false);
   // A draft (not published) visa never counts.
   const draft = deriveRequestProgress(request({ travelers: [T1, T2], deliverables: [file("v1", "VISA", ["t1"]), file("v2", "VISA", ["t2"], false)] }));

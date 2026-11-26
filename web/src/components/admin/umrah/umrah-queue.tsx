@@ -7,28 +7,28 @@ import { API_URL } from "@/lib/api-url";
 import { formatAmount, formatDay, paymentLabel, type StaffRole } from "@/components/admin/operations/ops-model";
 import { Card, Notice, SignalBadge, btn, cx } from "@/components/admin/operations/ops-ui";
 import {
-  ALERTS,
   EMPTY_SERVER_FILTERS,
-  PAGE_SIZE,
+  FOCUS,
+  FOCUS_HELP,
   REQUEST_STATUS_AR,
   SORT_AR,
   STAGE_AR,
-  alertMatches,
+  filterQuery,
   listQuery,
   packageKind,
-  sortRows,
   stageLabel,
   umrahRowSignal,
-  type AlertKey,
+  type FocusKey,
   type ServerFilters,
   type SortKey,
   type UmrahListRow,
 } from "./umrah-model";
 
-// Umrah requests, read from GET /contact-requests?serviceKind=UMRAH. Server
-// filters: search, request status, payment status, assignee, package,
-// submission dates (paged, 100 per page — the API maximum). Within the page:
-// stage, package type, alert and sort. Stage and next step are the server's.
+// Umrah requests, read from GET /contact-requests?serviceKind=UMRAH. Every
+// filter, manager view and order is applied by the server over all matching
+// requests before paging (100 per page — the API maximum), and the view counts
+// come from GET /contact-requests/umrah-focus under the same filters, so a
+// count always opens exactly its list. Stage and next step are the server's.
 //
 // Roles (backend contact-requests.routes.js): SUPER_ADMIN, ADMIN and EMPLOYEE
 // work requests and open the case; ACCOUNTANT may only read the list (payment
@@ -89,11 +89,10 @@ export function UmrahQueue() {
   const [role, setRole] = React.useState<StaffRole | null>(null);
   const [filters, setFilters] = React.useState<ServerFilters>(EMPTY_SERVER_FILTERS);
   const [search, setSearch] = React.useState("");
-  const [stage, setStage] = React.useState("");
-  const [kind, setKind] = React.useState("");
-  const [alert, setAlert] = React.useState<AlertKey | "">("");
+  const [focus, setFocus] = React.useState<FocusKey | "">("");
   const [sort, setSort] = React.useState<SortKey>("action");
   const [rows, setRows] = React.useState<UmrahListRow[] | null>(null);
+  const [counts, setCounts] = React.useState<Record<FocusKey, number> | null>(null);
   // When the rows were loaded: the reference time for «24 h without activity».
   const [loadedAt, setLoadedAt] = React.useState(0);
   const [meta, setMeta] = React.useState<{ total: number; totalPages: number } | null>(null);
@@ -113,9 +112,9 @@ export function UmrahQueue() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Ordering is decided by the server over the whole result set (not only this page).
-  const sortParam = sort === "action" ? "queue" : sort === "travel" ? "travel" : "";
-  const query = listQuery(filters) + (sortParam ? `&sort=${sortParam}` : "");
+  // View, filters and order are decided by the server over the whole result set.
+  const query = listQuery(filters, focus, sort);
+  const countsQuery = filterQuery(filters).toString();
   const requestKey = `${query}#${reload}`;
   const loading = settledKey !== requestKey;
 
@@ -151,23 +150,21 @@ export function UmrahQueue() {
     return () => { cancelled = true; };
   }, [query, requestKey]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_URL}/contact-requests/umrah-focus?${countsQuery}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((payload) => { if (!cancelled && payload?.success) setCounts(payload.data.counts); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [countsQuery, reload]);
+
   const set = (key: keyof ServerFilters) => (event: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => setFilters({ ...filters, [key]: event.target.value, page: 1 });
   const canOpen = role ? CASE_ROLES.includes(role) : false;
   const now = loadedAt;
-  const visible = React.useMemo(() => {
-    if (!rows) return [];
-    const kept = rows.filter((row) =>
-      (!stage || row.progress?.stage === stage) &&
-      (!kind || packageKind(row).kind === kind) &&
-      (!alert || alertMatches(alert, row, now)));
-    return sortRows(kept, sort);
-  }, [rows, stage, kind, alert, sort, now]);
-  const stages = React.useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const row of rows || []) { const s = row.progress?.stage; if (s) counts.set(s, (counts.get(s) || 0) + 1); }
-    return counts;
-  }, [rows]);
-  const filtered = Boolean(search || stage || kind || alert || Object.entries(filters).some(([key, value]) => key !== "page" && value));
+  const visible = rows || [];
+  const filtered = Boolean(search || focus || Object.entries(filters).some(([key, value]) => key !== "page" && value));
+  const chooseFocus = (key: FocusKey) => { setFocus(focus === key ? "" : key); setFilters((current) => (current.page === 1 ? current : { ...current, page: 1 })); };
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -189,30 +186,28 @@ export function UmrahQueue() {
 
       {role === "ACCOUNTANT" ? <Notice tone="info">عرض للاطلاع فقط: مراجعة إيصالات الدفع وقبولها تتم من صفحة «مراجعة الدفعات».</Notice> : null}
 
-      {rows ? (
-        <div className="flex flex-wrap gap-2" aria-label="تنبيهات">
-          {(Object.keys(ALERTS) as AlertKey[]).map((key) => {
-            const count = rows.filter((row) => alertMatches(key, row, now)).length;
-            const active = alert === key;
-            return (
-              <button key={key} type="button" data-umrah-alert={key} aria-pressed={active} onClick={() => setAlert(active ? "" : key)}
-                className={cx("inline-flex h-9 items-center gap-2 rounded-[10px] border px-3 text-[13px] font-bold transition",
-                  count && key === "LATE" ? "border-transparent bg-[var(--nh-danger-soft)] text-[var(--nh-danger-ink)]" : count ? "border-transparent bg-[var(--nh-warning-soft)] text-[var(--nh-warning-ink)]" : "border-border bg-card text-muted-foreground",
-                  active && "ring-2 ring-ring")}>
-                {ALERTS[key]}<span className="tabular-nums">{count}</span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+      <div className="flex flex-wrap gap-2" role="group" aria-label="متابعة المدير">
+        {(Object.keys(FOCUS) as FocusKey[]).map((key) => {
+          const count = counts ? counts[key] ?? 0 : null;
+          const active = focus === key;
+          return (
+            <button key={key} type="button" data-umrah-alert={key} aria-pressed={active} title={FOCUS_HELP[key]} onClick={() => chooseFocus(key)}
+              className={cx("inline-flex h-9 items-center gap-2 rounded-[10px] border px-3 text-[13px] font-bold transition",
+                count && key === "AGENCY_OVERDUE" ? "border-transparent bg-[var(--nh-danger-soft)] text-[var(--nh-danger-ink)]" : count ? "border-transparent bg-[var(--nh-warning-soft)] text-[var(--nh-warning-ink)]" : "border-border bg-card text-muted-foreground",
+                active && "ring-2 ring-ring")}>
+              {FOCUS[key]}<span className="tabular-nums" data-umrah-count>{count ?? "…"}</span>
+            </button>
+          );
+        })}
+      </div>
 
-      <Card title="الفلاتر" icon={<Search className="size-4 text-muted-foreground" aria-hidden="true" />} aside={filtered ? <button type="button" className={cx(btn.base, btn.ghost, btn.sm)} onClick={() => { setSearch(""); setStage(""); setKind(""); setAlert(""); setFilters(EMPTY_SERVER_FILTERS); }}>مسح الفلاتر</button> : null}>
+      <Card title="الفلاتر" icon={<Search className="size-4 text-muted-foreground" aria-hidden="true" />} aside={filtered ? <button type="button" className={cx(btn.base, btn.ghost, btn.sm)} onClick={() => { setSearch(""); setFocus(""); setFilters(EMPTY_SERVER_FILTERS); }}>مسح الفلاتر</button> : null}>
         <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
           <label className="text-xs font-bold text-muted-foreground">بحث<input aria-label="بحث" type="search" value={search} onChange={(e) => setSearch(e.target.value)} maxLength={100} placeholder="الاسم أو الهاتف أو المرجع" className={cx(control, "font-normal")} /></label>
           <label className="text-xs font-bold text-muted-foreground">الترتيب<select aria-label="الترتيب" value={sort} onChange={(e) => { setSort(e.target.value as SortKey); setFilters((current) => (current.page === 1 ? current : { ...current, page: 1 })); }} className={control}>{(Object.keys(SORT_AR) as SortKey[]).map((key) => <option key={key} value={key}>{SORT_AR[key]}</option>)}</select></label>
-          <label className="text-xs font-bold text-muted-foreground">المرحلة<select aria-label="المرحلة" value={stage} onChange={(e) => setStage(e.target.value)} className={control}>
+          <label className="text-xs font-bold text-muted-foreground">المرحلة<select aria-label="المرحلة" value={filters.stage} onChange={set("stage")} className={control}>
             <option value="">كل المراحل</option>
-            {Object.entries(STAGE_AR).filter(([key]) => stages.has(key) || key === stage).map(([key, label]) => <option key={key} value={key}>{label} ({stages.get(key) || 0})</option>)}
+            {Object.entries(STAGE_AR).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
           <label className="text-xs font-bold text-muted-foreground">حالة الطلب<select aria-label="حالة الطلب" value={filters.status} onChange={set("status")} className={control}><option value="">الكل</option>{Object.entries(REQUEST_STATUS_AR).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
           <label className="text-xs font-bold text-muted-foreground">الدفع<select aria-label="الدفع" value={filters.paymentStatus} onChange={set("paymentStatus")} className={control}><option value="">الكل</option>{["AWAITING_TRANSFER", "UNDER_REVIEW", "CONFIRMED", "NOT_REQUIRED"].map((key) => <option key={key} value={key}>{paymentLabel(key)}</option>)}</select></label>
@@ -221,7 +216,7 @@ export function UmrahQueue() {
             {[...staff].map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select></label>
           <label className="text-xs font-bold text-muted-foreground">الباقة<select aria-label="الباقة" value={filters.serviceId} onChange={set("serviceId")} className={control}><option value="">كل الباقات</option>{[...packages].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-          <label className="text-xs font-bold text-muted-foreground">نوع الباقة<select aria-label="نوع الباقة" value={kind} onChange={(e) => setKind(e.target.value)} className={control}><option value="">الكل</option><option value="VISA_ONLY">تأشيرة فقط</option><option value="AIR">مع خدمات الطيران</option><option value="SEA">مع خدمات البحر</option></select></label>
+          <label className="text-xs font-bold text-muted-foreground">نوع الباقة<select aria-label="نوع الباقة" value={filters.packageKind} onChange={set("packageKind")} className={control}><option value="">الكل</option><option value="VISA_ONLY">تأشيرة فقط</option><option value="AIR">مع خدمات الطيران</option><option value="SEA">مع خدمات البحر</option></select></label>
           <label className="text-xs font-bold text-muted-foreground">تاريخ التقديم من<input aria-label="تاريخ التقديم من" type="date" value={filters.createdFrom} onChange={set("createdFrom")} className={control} /></label>
           <label className="text-xs font-bold text-muted-foreground">تاريخ التقديم إلى<input aria-label="تاريخ التقديم إلى" type="date" value={filters.createdTo} min={filters.createdFrom || undefined} onChange={set("createdTo")} className={control} /></label>
         </div>
@@ -230,7 +225,7 @@ export function UmrahQueue() {
       {error ? <Notice tone="error">{error}</Notice> : null}
 
       <Card title="الطلبات" icon={<Users className="size-4 text-[var(--nh-gold-700)]" aria-hidden="true" />}
-        aside={meta ? <span className="text-xs font-bold text-muted-foreground">{visible.length} معروض · {meta.total} طلب{meta.totalPages > 1 ? ` · صفحة ${filters.page} من ${meta.totalPages}` : ""}</span> : null}>
+        aside={meta ? <span className="text-xs font-bold text-muted-foreground" data-umrah-total={meta.total}>{focus ? `${FOCUS[focus]} · ` : ""}{meta.total} طلب{meta.totalPages > 1 ? ` · صفحة ${filters.page} من ${meta.totalPages}` : ""}</span> : null}>
         {loading && !rows ? (
           <p className="flex items-center gap-2 p-5 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />جارٍ التحميل…</p>
         ) : visible.length ? (
@@ -246,7 +241,7 @@ export function UmrahQueue() {
         {meta && meta.totalPages > 1 ? (
           <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
             <button type="button" className={cx(btn.base, btn.secondary, btn.sm)} disabled={filters.page <= 1} onClick={() => setFilters({ ...filters, page: filters.page - 1 })}><ChevronRight aria-hidden="true" />السابق</button>
-            <span className="text-xs text-muted-foreground">التنبيهات والترتيب والمرحلة تُحسب على الصفحة المعروضة ({PAGE_SIZE} طلب كحد أقصى).</span>
+            <span className="text-xs text-muted-foreground">الترتيب والفلاتر محسوبة على كل الطلبات المطابقة قبل تقسيمها إلى صفحات.</span>
             <button type="button" className={cx(btn.base, btn.secondary, btn.sm)} disabled={filters.page >= meta.totalPages} onClick={() => setFilters({ ...filters, page: filters.page + 1 })}>التالي<ChevronLeft aria-hidden="true" /></button>
           </div>
         ) : null}

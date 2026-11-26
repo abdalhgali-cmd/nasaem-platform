@@ -38,6 +38,7 @@
   "GET /api/contact-requests/egypt/alert-settings": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/contact-requests/egypt/queue": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/contact-requests/queue-summary": ["ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
+  "GET /api/contact-requests/umrah-focus": ["ACCOUNTANT", "ADMIN", "EMPLOYEE", "SUPER_ADMIN"],
   "GET /api/coupons": ["ADMIN", "SUPER_ADMIN"],
   "GET /api/coupons/:id": ["ADMIN", "SUPER_ADMIN"],
   "GET /api/coupons/:id/usages": ["ADMIN", "SUPER_ADMIN"],

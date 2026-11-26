@@ -201,7 +201,7 @@ export async function submitDraftController(req, res, next) {
     if (await newApplicationRefusal(draft)) {
       return res.status(403).json({ success: false, code: "SERVICE_NOT_OFFERED", message: SERVICE_NOT_OFFERED_MESSAGE });
     }
-    const result = await submitDraft(req.params.token, parsed.data);
+    const result = await submitDraft(req.params.token, parsed.data, { customer: req.customer || null });
     if (result.error === "ALREADY_SUBMITTED") {
       const replay = await replayIfSameSubmission(res, req.params.token, parsed.data.submissionKey);
       if (replay) return replay;
