@@ -610,13 +610,15 @@ export async function renderRequestDetailScreen({ bodyEl, setTitle, params }) {
   await load();
   // Opened from a «مستند مرفوض» notification: straight to the file to replace,
   // with its reason, once (not on every refresh).
-  if (params.focus === "rejectedDocument") focusRejectedDocument(bodyEl);
+  if (params.focus === "rejectedDocument") focusRejectedDocument(bodyEl, params.focusRow);
   startStatusRefresh(bodyEl, (stillIdle) => load({ quiet: true, applyIf: stillIdle }));
 }
 
-export function focusRejectedDocument(root) {
-  // A rejected file first, else the first required file still missing.
-  const row = root.querySelector(".check-row.check-rejected") || root.querySelector(".check-row.check-missing");
+export function focusRejectedDocument(root, targetRow = null) {
+  // The exact row the notification names (requirement + pilgrim); without
+  // one, a rejected file first, else the first required file still missing.
+  const exact = targetRow ? [...root.querySelectorAll(".check-row[data-row]")].find((el) => el.dataset.row === targetRow) : null;
+  const row = exact || root.querySelector(".check-row.check-rejected") || root.querySelector(".check-row.check-missing");
   if (!row) return false;
   row.classList.add("check-focus");
   row.scrollIntoView?.({ behavior: "smooth", block: "center" });

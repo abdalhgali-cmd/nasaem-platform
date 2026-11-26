@@ -27,7 +27,7 @@ export async function renderNotificationsScreen({ bodyEl }) {
         return;
       }
       listEl.innerHTML = items.map((notification) => `
-        <button class="list-item notification-row ${notification.readAt ? "" : "unread"}" data-id="${esc(notification.id)}" data-order-id="${esc(notification.orderId || "")}" data-request-id="${esc(notification.contactRequestId || "")}" data-type="${esc(notification.type || "")}">
+        <button class="list-item notification-row ${notification.readAt ? "" : "unread"}" data-id="${esc(notification.id)}" data-order-id="${esc(notification.orderId || "")}" data-request-id="${esc(notification.contactRequestId || "")}" data-type="${esc(notification.type || "")}" data-target-row="${esc(notification.requirementId ? `${notification.requirementId}::${notification.travelerId || ""}` : "")}">
           <div class="list-item-icon">${icon("bell", { size: 18 })}</div>
           <div class="list-item-body">
             <strong>${esc(notification.title)}</strong>
@@ -46,7 +46,7 @@ export async function renderNotificationsScreen({ bodyEl }) {
           if (row.dataset.requestId) {
             // A rejected or requested document opens that file's row, not just the request.
             const focus = ["CONTACT_REQUEST_DOCUMENT_REJECTED", "CONTACT_REQUEST_DOCUMENT_REQUESTED"].includes(row.dataset.type) ? "rejectedDocument" : undefined;
-            go("requestDetail", { requestId: row.dataset.requestId, ...(focus ? { focus } : {}) }, { title: "تفاصيل الطلب", tab: "notifications" });
+            go("requestDetail", { requestId: row.dataset.requestId, ...(focus ? { focus, focusRow: row.dataset.targetRow || null } : {}) }, { title: "تفاصيل الطلب", tab: "notifications" });
           } else if (row.dataset.orderId) {
             go("orderDetail", { orderId: row.dataset.orderId }, { title: "تفاصيل الطلب", tab: "notifications" });
           } else {

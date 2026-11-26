@@ -290,6 +290,8 @@ export async function updateContactRequestDocumentStatus(
       title: updated.status === "ACCEPTED" ? "تم قبول مستند" : "مستند مرفوض أو ناقص",
       message,
       type: updated.status === "ACCEPTED" ? "CONTACT_REQUEST_DOCUMENT_ACCEPTED" : "CONTACT_REQUEST_DOCUMENT_REJECTED",
+      requirementId: updated.requirementId,
+      travelerId: updated.travelerId,
     });
     // Outside the platform only the fact and the reference: the file's name
     // and the reviewer's reason are read after signing in.
@@ -333,7 +335,7 @@ export async function requestContactRequestDocument(contactRequestId, { requirem
   const { request, item, reason } = result;
   const who = item.travelerName ? ` — ${item.travelerName}` : "";
   const message = `مطلوب منك رفع المستند "${item.label}${who}" لطلبك (${describeRequest(request)}).${reason ? ` ملاحظة الوكالة: ${reason}` : ""} ارفعه من صفحة الطلب.`;
-  await notifyRequestCustomer(request, { title: "مطلوب مستند لطلبك", message, type: "CONTACT_REQUEST_DOCUMENT_REQUESTED" });
+  await notifyRequestCustomer(request, { title: "مطلوب مستند لطلبك", message, type: "CONTACT_REQUEST_DOCUMENT_REQUESTED", requirementId, travelerId: item.travelerId });
   sendWhatsAppMessage(request.phoneNormalized, externalDocumentNotice(request, "REQUESTED"));
   return { requested: { requirementId, travelerId: item.travelerId || null, label: item.label, state: item.state, note: reason || null } };
 }
