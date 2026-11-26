@@ -1,0 +1,15 @@
+import { chromium, devices } from "playwright";
+const web = process.env.QA_WEB;
+const browser = await chromium.launch();
+const page = await (await browser.newContext({ ...devices["Pixel 5"] })).newPage();
+const failed = [];
+page.on("response", (r) => { if (r.url().includes("/api/") && r.status() >= 400) failed.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+await page.goto(`${web}/umrah`, { waitUntil: "networkidle", timeout: 90_000 });
+await page.getByTestId("wizard-step-label").waitFor({ timeout: 30_000 });
+console.log("step label:", await page.getByTestId("wizard-step-label").innerText());
+const names = await page.getByTestId("intake-option-name").allTextContents();
+console.log("packages offered:", names.length, JSON.stringify(names));
+console.log("API errors seen by the page:", JSON.stringify(failed));
+await page.goto(`${web}/admin/login`, { waitUntil: "networkidle" });
+console.log("admin login form:", await page.locator('input[type="password"]').count() > 0 ? "present" : "missing");
+await browser.close();

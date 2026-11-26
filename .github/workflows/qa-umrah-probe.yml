@@ -1,0 +1,32 @@
+name: QA Umrah probe (read-only checks + one synthetic request)
+# One-off, on a probe branch that is never merged. Talks only to the QA
+# environment (nasaem-qa-umrah); no credentials are used or printed.
+on:
+  push:
+    branches: [probe/qa-umrah-acceptance-20261126]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      QA_API: https://qa-backend-qa-ae86.up.railway.app/api
+      QA_WEB: https://qa-website-qa.up.railway.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Endpoints
+        run: |
+          for u in "$QA_API/health" "$QA_API/contact-requests/umrah-focus" "$QA_API/tracking/requests" "$QA_WEB/healthz" "$QA_WEB/umrah" "$QA_WEB/admin/login" "$QA_WEB/track" "$QA_WEB/api/health"; do
+            printf '%s -> ' "$u"; curl -sS -m 40 -o /tmp/b -w '%{http_code}\n' "$u" || echo unreachable
+          done
+          echo "health body:"; curl -sS -m 30 "$QA_API/health" | head -c 400; echo
+      - name: Browser checks on the QA website
+        run: |
+          npm i --no-save --no-audit --no-fund playwright@1 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+          node scripts/qa-probe/browser.mjs
+      - name: One synthetic two-pilgrim visa-only request (through the website proxy)
+        run: node scripts/qa-probe/submit.mjs
