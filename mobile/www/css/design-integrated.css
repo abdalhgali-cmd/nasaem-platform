@@ -373,3 +373,12 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus {outline:none;}
 .umrah-visa-reason {margin:6px 0 0;font-size:.85rem;line-height:1.6;}
 .umrah-files {display:grid;gap:6px;}
 .umrah-files-empty {margin:6px 0 0;color:var(--text-faint);font-size:.8rem;}
+/* Umrah three-step flow (screens/umrah.js, screens/intake.js) */
+.umrah-chosen {margin:0 0 12px;padding:12px 14px;border:1px solid #e6dcc4;border-radius:12px;background:#fffaf0;}
+.review-head {display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.umrah-review .review-block {padding:10px 0;border-bottom:1px solid #f0f2f5;font-size:.875rem;line-height:1.7;}
+.umrah-review .review-block:last-child {border-bottom:0;}
+.umrah-review ul {margin:4px 0 0;padding-inline-start:18px;}
+.umrah-review .link-btn, .umrah-chosen .link-btn {min-height:44px;padding:0 8px;}
+.step-actions:has(#prevStepBtn) {display:flex;gap:10px;}
+.step-actions:has(#prevStepBtn) > button {flex:1;}

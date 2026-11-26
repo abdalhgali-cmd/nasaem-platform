@@ -1,6 +1,6 @@
 import { icon } from "./icons.js";
 import { offlineBanner, confirmDialog, toast } from "./ui.js";
-import { registerScreen, initRouter, go, goToTab, back, stackDepth, currentTab, currentEntry } from "./router.js";
+import { registerScreen, initRouter, go, goToTab, back, stackDepth, currentTab, currentEntry, interceptBack } from "./router.js";
 import * as auth from "./auth.js";
 
 import { renderWelcomeScreen, renderLoginScreen, renderRegisterScreen, renderForgotPasswordScreen, renderResetPasswordScreen, setOnAuthenticated } from "./screens/auth-screens.js";
@@ -165,6 +165,9 @@ function wireBackButton() {
   const AppPlugin = window.Capacitor?.Plugins?.App;
   if (!AppPlugin) return;
   AppPlugin.addListener("backButton", () => {
+    // A screen with its own steps goes back one step first (nothing typed or
+    // picked is lost).
+    if (interceptBack()) return;
     if (stackDepth() > 1) {
       back();
       return;
