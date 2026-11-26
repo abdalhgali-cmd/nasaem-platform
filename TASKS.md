@@ -1,5 +1,16 @@
 # Nasaem Platform — Release Tasks
 
+## Umrah journey acceptance — 2026-11-26 (branch `feat/umrah-journey-acceptance-20261125`, draft PR #211)
+
+- VERIFIED (GitHub Actions on `593b9ef`): Backend tests, Frontend typecheck + build, Playwright E2E, build-apk, backup + restore drill — all success. `Vercel` is the known external «Account is blocked».
+- VERIFIED locally (PostgreSQL 16, synthetic data): backend full suite 1227/1227 on a clean database; mobile 158/158; Playwright `umrah-acceptance` 3/3, `mobile-app` 33/33, Umrah/admin/security specs green.
+- VERIFIED on QA (`nasaem-qa-umrah`, synthetic data; GitHub Actions probe run 45756360555): API health 200 (`environment: staging`, `pricesAreTestData: true`); `/umrah-focus` and `/tracking/requests` refuse without a session (401); QA website `https://qa-website-qa.up.railway.app` `/umrah` offers exactly 3 packages with «الخطوة 1 من 3»; `/admin/login`, `/track` 200; no API error in the page; same-origin `/api` proxy works. Synthetic two-pilgrim visa-only request created through the website: `cmwx2a6ze0001s72bc6u76otk`.
+- QA config: `qa-backend` follows the branch (additive migration `20261125090000_umrah_queue_attention` applied on QA); new `qa-website` service (root `/web`) with `NEXT_PUBLIC_API_URL=/api` + `INTERNAL_API_URL` (QA API); new `CSRF_TRUSTED_ORIGINS` on `qa-backend` = the QA website. `CORS_ORIGIN` was not changed.
+- VERIFIED QA APK `qa-v0.3.217` (prerelease, «اختبار فقط»): direct download without login (200, APK), SHA-256 `637b0aca1f93eb98f40141f5ca4496241c2a05b32efb7151cafa5c56b8631e79` = published SHA256SUMS, points at the QA API, `appVersion` 0.3.217, QA signing certificate.
+- NOT TESTED: real Android device (camera/picker, inactivity lock + biometric unlock + resume, notification tap → file row, file open); Google sign-in on QA (Android OAuth client); WhatsApp delivery (no provider); staff steps on QA (owner holds the QA admin account).
+- KNOWN GAPS: website account notifications do not deep-link (the app does); the app's Umrah screen is one page with three labelled parts (full three screens after #210).
+- NEXT: owner runs the QA test script on a real phone; owner decision to merge #211 (not merged, not on Production).
+
 ## Production release — 2026-11-12 (owner-approved, all production data is test data per owner)
 
 - MERGED: PR #197 (`chore/security-deps-20261111` → `main`, merge commit `8795547a3ef364820bbe1f887161ec7585689ee1`) carrying #191–#196. Its tree equals the CI-verified head `739c8f5` (Backend, Frontend build, Playwright E2E, build-apk, backup drill all green). #192–#196 remain open only because their bases were intermediate branches.
