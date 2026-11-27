@@ -5,6 +5,7 @@ import * as auth from "./auth.js";
 
 import { renderWelcomeScreen, renderLoginScreen, renderRegisterScreen, renderForgotPasswordScreen, renderResetPasswordScreen, setOnAuthenticated } from "./screens/auth-screens.js";
 import { renderHomeScreen } from "./screens/home.js";
+import { renderSmartGuideScreen } from "./screens/smart-guide.js";
 import { renderServicesScreen, renderVisasHubScreen, renderServiceDetailScreen } from "./screens/services.js";
 import { renderUmrahScreen } from "./screens/umrah.js";
 import { renderFlightsScreen } from "./screens/flights.js";
@@ -50,6 +51,7 @@ function registerAllScreens() {
   registerScreen("resetPassword", renderResetPasswordScreen);
 
   registerScreen("home", renderHomeScreen, { chrome: false });
+  registerScreen("smartGuide", renderSmartGuideScreen);
   registerScreen("services", renderServicesScreen);
   registerScreen("visasHub", renderVisasHubScreen);
   registerScreen("serviceInfo", renderServiceInfoScreen);
