@@ -218,6 +218,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   // While sending, the form is frozen (one payload per submission key). After
   // a «fixed price no longer available» refusal it stays closed.
   let submitting = false;
+  let checkingBeforeSubmit = false;
   let pricingBlocked = false;
   let priceCheckState = pricing() || fixedOnly ? "checking" : "not_required";
   let priceCheckGeneration = 0;
@@ -491,7 +492,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     const current = pricing();
     const total = current ? fixedTotalSummary(current, state.values.travelers.length).totalText : "";
     const needsPriceCheck = Boolean(current) || fixedOnly;
-    const canConfirm = !pricingBlocked && (!needsPriceCheck || priceCheckState === "verified" || priceCheckState === "changed");
+    const canConfirm = !submitting && !checkingBeforeSubmit && !pricingBlocked && (!needsPriceCheck || priceCheckState === "verified" || priceCheckState === "changed");
     const label = current ? `تأكيد الطلب بإجمالي <bdi>${esc(total)}</bdi>` : "إرسال الطلب للوكالة";
     const messages = {
       checking: "جاري تحديث السعر من الخادم…",
@@ -626,16 +627,30 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   }
 
   async function submit() {
-    if (submitting || pricingBlocked || (pricing() && priceCheckState !== "verified" && priceCheckState !== "changed")) return;
+    if (submitting || checkingBeforeSubmit || pricingBlocked ||
+        ((pricing() || fixedOnly) && priceCheckState !== "verified" && priceCheckState !== "changed")) return;
     const messages = validateAll();
-    const fixed = pricing() ? fixedTotalSummary(pricing(), state.values.travelers.length) : null;
+    let fixed = pricing() ? fixedTotalSummary(pricing(), state.values.travelers.length) : null;
     if (fixed && !stepBody.querySelector("#confirmTotal")?.checked) messages.push("أكّد الإجمالي النهائي قبل إرسال الطلب.");
     if (state.analyzing.size) messages.push("انتظر انتهاء فحص صورة الجواز ثم أرسل.");
     showErrors(messages);
     if (messages.length) return;
-    // Revalidate immediately before any upload/create call. The backend does
-    // another authoritative atomic check to close the remaining race.
-    if (fixed && !(await refreshPrice())) return;
+    // Freeze all traveler/total edits while doing the final network check;
+    // avoid two simultaneous submissions and stale totals after async work.
+    if (fixed || fixedOnly) {
+      checkingBeforeSubmit = true;
+      stepBody.setAttribute("inert", "");
+      renderActions();
+      try {
+        if (!(await refreshPrice())) return;
+      } finally {
+        checkingBeforeSubmit = false;
+        stepBody.removeAttribute("inert");
+        renderActions();
+      }
+      if (pricingBlocked || !pricing()) return;
+      fixed = fixedTotalSummary(pricing(), state.values.travelers.length);
+    }
 
     // An immutable snapshot of what is sent; the form is frozen meanwhile.
     const v = JSON.parse(JSON.stringify(state.values));
