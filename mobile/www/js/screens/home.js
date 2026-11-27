@@ -3,6 +3,7 @@ import { esc, skeletonGrid } from "../ui.js";
 import { icon, iconForService } from "../icons.js";
 import { getCustomer, isAccountUnlocked } from "../auth.js";
 import { loadCatalog, loadPackages } from "../catalog.js";
+import { catalogDisplayMode } from "../catalog-display-policy.js";
 import { go, goToTab } from "../router.js";
 import { openServiceById, openServiceItem, VISAS_HUB_CODE } from "./services.js";
 import { homeBentoTiles, hubVisaTypes, serviceCountText } from "../service-view.js";
@@ -224,7 +225,25 @@ async function loadCatalogSection(bodyEl) {
   const bento = bodyEl.querySelector("#homeBento");
   try {
     const catalog = await loadCatalog();
-    bodyEl.querySelector("#catalogStale").hidden = !catalog.stale;
+    if (!bodyEl.isConnected) return;
+    const needsRefresh = catalogDisplayMode(catalog) === "REFRESH_REQUIRED";
+    bodyEl.querySelector("#catalogStale").hidden = !needsRefresh;
+    if (needsRefresh) {
+      // A cached card can contain a once-valid price; do not show it or
+      // leave an enabled booking shortcut next to the stale-data notice.
+      bento.innerHTML = `
+        <div class="empty-state" id="homeCatalogOffline" role="status">
+          ${icon("wifi-off", { size: 25 })}
+          <h3>الأسعار تحتاج تحديث</h3>
+          <p>تعذر الاتصال بالوكالة للتحقق من الأسعار والخدمات المتاحة. لن نعرض سعراً قديماً.</p>
+          <button type="button" class="primary" id="homeCatalogRetry">إعادة المحاولة لتحديث الأسعار</button>
+        </div>`;
+      bento.querySelector("#homeCatalogRetry")?.addEventListener("click", () => {
+        bento.innerHTML = skeletonGrid(4);
+        loadCatalogSection(bodyEl);
+      });
+      return;
+    }
 
     // Bento in priority order: Umrah feature, flights, ferries, the visas hub
     // (with its live count), Egypt clearance, family visit, then every
@@ -268,7 +287,17 @@ async function loadCatalogSection(bodyEl) {
     });
 
   } catch (error) {
-    bento.innerHTML = `<p class="field-hint">تعذر تحميل الخدمات: ${esc(error.message)}</p>`;
+    if (!bodyEl.isConnected) return;
+    bento.innerHTML = `<div class="empty-state" id="homeCatalogError" role="alert">
+      ${icon("wifi-off", { size: 25 })}
+      <h3>تعذر تحديث الخدمات والأسعار</h3>
+      <p>تحقق من اتصالك بالإنترنت، ثم أعد المحاولة لعرض الأسعار الحالية.</p>
+      <button type="button" class="primary" id="homeCatalogRetry">إعادة المحاولة</button>
+    </div>`;
+    bento.querySelector("#homeCatalogRetry")?.addEventListener("click", () => {
+      bento.innerHTML = skeletonGrid(4);
+      loadCatalogSection(bodyEl);
+    });
   }
 }
 
