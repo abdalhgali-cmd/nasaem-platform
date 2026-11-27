@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { isEgyptClearanceItem } from "./egypt-view.js";
+import { recoverCatalogOnFailure } from "./catalog-cache-policy.js";
 
 const CATALOG_CACHE_KEY = "nasaem.catalog.cache.v3";
 
@@ -26,7 +27,6 @@ function writeCache(data) {
 // something to show right now" pass fresh:false; screens that must reflect
 // a confirmed server state (e.g. after creating an order) pass fresh:true.
 export async function loadCatalog({ fresh = false } = {}) {
-  if (!fresh && memoryCatalog) return memoryCatalog;
   if (!fresh) {
     const cached = readCache();
     if (cached) memoryCatalog = cached;
@@ -39,8 +39,7 @@ export async function loadCatalog({ fresh = false } = {}) {
     // Offline / server down: the last saved catalog, marked as possibly
     // outdated (screens say so). Without a saved copy, the error stands.
     const saved = memoryCatalog || readCache();
-    if (saved) return { ...saved, stale: true };
-    throw error;
+    return recoverCatalogOnFailure(error, saved, { fresh });
   }
   // Tagged once, here, at the source — every downstream screen (intake.js's
   // requirement-scope lookup especially) reads `isVisaType` instead of
