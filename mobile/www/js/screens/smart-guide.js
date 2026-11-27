@@ -1,4 +1,6 @@
-import { loadCatalog } from "../catalog.js";
+import { loadCatalog, loadPackages } from "../catalog.js";
+import { egyptVariantOptions } from "../egypt-view.js";
+import { umrahKindOffers, UMRAH_UNAVAILABLE } from "../umrah-view.js";
 import { loadAgency, whatsappLink } from "../agency.js";
 import { esc } from "../ui.js";
 import { icon } from "../icons.js";
@@ -27,6 +29,8 @@ export async function renderSmartGuideScreen({ bodyEl }) {
       <a class="help-strip" id="smartGuideHelp" href="#" hidden><span class="help-strip-icon">${icon("chat", { size: 20 })}</span><span class="help-strip-body"><b>تواصل مع موظف الوكالة</b><small>استفسر عن خدمة غير منشورة</small></span></a>
     </section>`;
   const status = bodyEl.querySelector("#smartGuideMessage");
+  const choicesMount = bodyEl.querySelector("#smartGuideChoices");
+  let selectionGeneration = 0;
   const help = bodyEl.querySelector("#smartGuideHelp");
   let active = true;
   loadAgency().then((agency) => {
@@ -35,29 +39,85 @@ export async function renderSmartGuideScreen({ bodyEl }) {
       help.hidden = false;
     }
   }).catch(() => { if (active) status.textContent = "التواصل المباشر غير متاح الآن."; });
+  // Render only fresh, published options. The original service screens are the
+  // authority for payment, required documents, eligibility and final totals.
+  function showOptions(options, onSelect) {
+    if (!active) return;
+    choicesMount.innerHTML = options.map((option, index) => `
+      <button type="button" class="package-card" data-guide-option="${index}" ${option.enabled ? "" : 'disabled aria-disabled="true"'}>
+        <span class="service-card-icon">${icon("check-circle", { size: 21 })}</span>
+        <span><b>${esc(option.label)}</b><small>${esc(option.description)}</small></span>
+        <span class="chevron">${icon("chevron-start", { size: 16 })}</span>
+      </button>`).join("") + `<button type="button" class="secondary" id="smartGuideBack">اختيار خدمة أخرى</button>`;
+    choicesMount.querySelectorAll("[data-guide-option]").forEach((element) => {
+      element.addEventListener("click", () => {
+        const option = options[Number(element.dataset.guideOption)];
+        if (option?.enabled && active) onSelect(option);
+      });
+    });
+    choicesMount.querySelector("#smartGuideBack")?.addEventListener("click", () => {
+      // Back to the original choices without preserving any personal data.
+      renderSmartGuideScreen({ bodyEl });
+    });
+  }
+
   bodyEl.querySelectorAll("[data-guide]").forEach((button) => button.addEventListener("click", async () => {
     if (!active) return;
     if (button.dataset.guide === "tracking") {
       goToTab("requests", "requests", { title: "متابعة الطلبات" });
       return;
     }
-    status.textContent = "جاري التحقق من الخدمات المنشورة...";
-    button.disabled = true;
+    const generation = ++selectionGeneration;
+    status.textContent = "جاري التحقق من الخدمات والأسعار المنشورة...";
+    choicesMount.querySelectorAll("[data-guide]").forEach((element) => { element.disabled = true; });
     try {
       const catalog = await loadCatalog({ fresh: true });
-      if (!active) return;
-      const outcome = guideOutcome(button.dataset.guide, catalog);
-      if (outcome.action === "service") {
-        status.textContent = "";
-        openServiceItem(outcome.service);
-      } else {
-        status.textContent = "الخدمة غير منشورة حالياً. تواصل مع موظف الوكالة للتأكد من التوفر.";
+      if (!active || generation !== selectionGeneration) return;
+      if (catalog.stale) throw new Error("stale catalog");
+      if (button.dataset.guide === "egypt") {
+        const options = egyptVariantOptions(catalog).map((item) => ({
+          label: item.name,
+          description: item.bookable ? item.priceText + (item.sdgText ? " — " + item.sdgText : "") : item.priceText,
+          enabled: item.bookable,
+          item,
+        }));
+        status.textContent = options.some((option) => option.enabled)
+          ? "اختر طريقة الدخول. سيتم تأكيد التفاصيل والمبلغ النهائي قبل إرسال الطلب."
+          : "لا توجد طرق دخول متاحة للحجز الآن. يمكن التواصل مع موظف الوكالة.";
+        showOptions(options, (option) => openServiceItem(option.item.item, { variantCode: option.item.code }));
+        return;
       }
+      const outcome = guideOutcome("umrah", catalog);
+      if (outcome.action !== "service") {
+        status.textContent = "العمرة غير منشورة حالياً. تواصل مع موظف الوكالة للتأكد من التوفر.";
+        return;
+      }
+      const packages = await loadPackages();
+      if (!active || generation !== selectionGeneration) return;
+      const offers = umrahKindOffers(packages);
+      if (!offers.length) {
+        status.textContent = "لا توجد باقات عمرة منشورة يمكن عرضها الآن.";
+        return;
+      }
+      const options = offers.map((offer) => ({
+        label: offer.label,
+        description: offer.packageId ? offer.priceText + (offer.sdgText ? " — " + offer.sdgText : "") : UMRAH_UNAVAILABLE,
+        enabled: Boolean(offer.packageId),
+        packageId: offer.packageId,
+      }));
+      status.textContent = options.some((option) => option.enabled)
+        ? "هذه الأسعار منشورة من الوكالة. اختر الباقة لمعرفة تفاصيلها ومتطلباتها."
+        : "الباقات المنشورة لا تتوفر للحجز حالياً.";
+      showOptions(options, (option) => openServiceItem(outcome.service, { packageId: option.packageId }));
     } catch {
-      if (active) status.textContent = "تعذر التحقق من الخدمات الآن. حاول مرة أخرى عند توفر الاتصال.";
+      if (active && generation === selectionGeneration) {
+        status.textContent = "تعذر التحقق من الخدمات والأسعار الآن. تحقق من الاتصال وأعد المحاولة.";
+      }
     } finally {
-      button.disabled = false;
+      if (active && generation === selectionGeneration) {
+        choicesMount.querySelectorAll("[data-guide]").forEach((element) => { element.disabled = false; });
+      }
     }
   }));
-  return { cleanup: () => { active = false; } };
+  return { cleanup: () => { active = false; selectionGeneration += 1; } };
 }
