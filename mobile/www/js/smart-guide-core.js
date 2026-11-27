@@ -11,10 +11,8 @@ export function guideService(catalog, key) {
   if (key === "umrah") {
     return items.find((item) => ["SVC-UMRAH", "VISA-UMRAH"].includes(String(item?.code || "").toUpperCase())) || null;
   }
-  return items.find((item) => {
-    const code = String(item?.code || "").toUpperCase();
-    return code.includes("EGYPT") && (code.includes("SECURITY") || code.includes("CLEARANCE") || code.includes("APPROVAL"));
-  }) || null;
+  const approvedCodes = new Set(["VISA-EGYPT-CLEARANCE-AIR", "VISA-EGYPT-CLEARANCE-BORDER", "VISA-EGYPT-CLEARANCE", "SVC-EGYPT-CLEARANCE"]);
+  return items.find((item) => approvedCodes.has(String(item?.code || "").toUpperCase())) || null;
 }
 
 export function guideOutcome(key, catalog) {
