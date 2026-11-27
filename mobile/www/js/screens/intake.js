@@ -11,6 +11,8 @@ import {
 } from "../intake-core.js";
 import { setTrackingPrefill } from "../tracking.js";
 import { fixedPricing, fixedTotalSummary, withServerPrice } from "../pricing-view.js";
+import { loadCatalog, loadPackages } from "../catalog.js";
+import { findFreshPricedItem, assessLiveFixedPrice } from "../live-price-check.js";
 import { isUmrahPackage, umrahNeedsGuarantor, umrahTravelDateRequired, validateUmrahContacts, validateUmrahTravelDate, UMRAH_TRAVEL_DATE_NOTE } from "../umrah-view.js";
 import { EGYPT_AIR_ROUTE_DEFAULTS, egyptVariantEntryMode, validateEgyptRoute } from "../egypt-view.js";
 import { selectOptions } from "../egypt-view.js";
@@ -217,6 +219,8 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   // a «fixed price no longer available» refusal it stays closed.
   let submitting = false;
   let pricingBlocked = false;
+  let priceCheckState = pricing() ? "checking" : "not_required";
+  let priceCheckGeneration = 0;
   // What is on screen depends on the answers: the questions AND the upload slots.
   const visibleSignature = () => [...answerRequirements().map((requirement) => requirement.id), "|", ...slots().map((slot) => slot.key)].join(",");
 
@@ -442,11 +446,65 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
     renderActions();
   }
 
+  // Price verification never uses cached values. A failed check keeps the
+  // confirmation button disabled and offers a manual retry without erasing
+  // travelers, uploaded document selections or draft answers.
+  async function refreshPrice() {
+    if (submitting || pricingBlocked) return false;
+    const generation = ++priceCheckGeneration;
+    priceCheckState = "checking";
+    renderActions();
+    try {
+      const source = isUmrahPackage(item)
+        ? { packages: await loadPackages() }
+        : { catalog: await loadCatalog({ fresh: true }) };
+      const latest = findFreshPricedItem(item, source);
+      const verdict = assessLiveFixedPrice(pricingItem, latest);
+      if (generation !== priceCheckGeneration || !bodyEl.isConnected) return false;
+      if (verdict.status === "UNAVAILABLE") {
+        pricingBlocked = true;
+        priceCheckState = "unavailable";
+        showErrors(["لم يعد السعر الثابت لهذا الخيار متاحًا. لم يتم إرسال أي طلب. ارجع لاختيار خدمة أخرى."]);
+        renderActions();
+        return false;
+      }
+      if (verdict.status === "CHANGED") {
+        pricingItem = latest;
+        priceCheckState = "changed";
+        renderForm(); // resets the old total-confirmation checkbox
+        showErrors(["تغيّر السعر أو شروط الدفع. راجع الإجمالي الجديد وأكّده مرة أخرى قبل الإرسال."]);
+        return false;
+      }
+      priceCheckState = "verified";
+      renderActions();
+      return true;
+    } catch {
+      if (generation !== priceCheckGeneration || !bodyEl.isConnected) return false;
+      priceCheckState = "failed";
+      renderActions();
+      showErrors(["تعذر تحديث السعر من الخادم. لم يتم إرسال الطلب؛ تحقق من الاتصال ثم اضغط إعادة المحاولة."]);
+      return false;
+    }
+  }
+
   function renderActions() {
     const current = pricing();
     const total = current ? fixedTotalSummary(current, state.values.travelers.length).totalText : "";
-    stepActions.innerHTML = `<button type="button" class="primary" id="nextStepBtn" ${pricingBlocked ? "disabled" : ""}>${current ? `تأكيد الطلب بإجمالي <bdi>${esc(total)}</bdi>` : "إرسال الطلب للوكالة"}</button>`;
+    const needsPriceCheck = Boolean(current) || fixedOnly;
+    const canConfirm = !pricingBlocked && (!needsPriceCheck || priceCheckState === "verified" || priceCheckState === "changed");
+    const label = current ? `تأكيد الطلب بإجمالي <bdi>${esc(total)}</bdi>` : "إرسال الطلب للوكالة";
+    const messages = {
+      checking: "جاري تحديث السعر من الخادم…",
+      failed: "تعذر تحديث السعر؛ التأكيد متوقف حتى ينجح التحديث.",
+      changed: "تغيّر السعر؛ راجع الإجمالي الجديد وأكّده قبل المتابعة.",
+      unavailable: "السعر الثابت لم يعد متاحًا لهذا الخيار.",
+    };
+    stepActions.innerHTML = `
+      ${needsPriceCheck && priceCheckState !== "verified" ? `<p class="field-hint" role="status" aria-live="polite">${esc(messages[priceCheckState] || "")}</p>` : ""}
+      <button type="button" class="primary" id="nextStepBtn" ${canConfirm ? "" : 'disabled aria-disabled="true"'}>${label}</button>
+      ${needsPriceCheck && (priceCheckState === "failed" || priceCheckState === "changed") && !pricingBlocked ? '<button type="button" class="secondary" id="retryPriceBtn">إعادة المحاولة لتحديث السعر</button>' : ""}`;
     stepActions.querySelector("#nextStepBtn").addEventListener("click", submit);
+    stepActions.querySelector("#retryPriceBtn")?.addEventListener("click", refreshPrice);
   }
 
   // One set of listeners for the whole form (it is re-drawn in place).
@@ -568,13 +626,16 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   }
 
   async function submit() {
-    if (submitting || pricingBlocked) return;
+    if (submitting || pricingBlocked || (pricing() && priceCheckState !== "verified" && priceCheckState !== "changed")) return;
     const messages = validateAll();
     const fixed = pricing() ? fixedTotalSummary(pricing(), state.values.travelers.length) : null;
     if (fixed && !stepBody.querySelector("#confirmTotal")?.checked) messages.push("أكّد الإجمالي النهائي قبل إرسال الطلب.");
     if (state.analyzing.size) messages.push("انتظر انتهاء فحص صورة الجواز ثم أرسل.");
     showErrors(messages);
     if (messages.length) return;
+    // Revalidate immediately before any upload/create call. The backend does
+    // another authoritative atomic check to close the remaining race.
+    if (fixed && !(await refreshPrice())) return;
 
     // An immutable snapshot of what is sent; the form is frozen meanwhile.
     const v = JSON.parse(JSON.stringify(state.values));
@@ -652,12 +713,14 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
       // never fall back to a quoted request for them.
       if (error instanceof ApiError && error.code === "PRICING_MODE_CHANGED" && fixedOnly) {
         pricingBlocked = true;
-        submitBtn.disabled = true;
+        priceCheckState = "unavailable";
+        renderActions();
         showErrors(["لم يعد السعر الثابت لهذا الخيار متاحًا، ولم يُرسل طلبك. ارجع واختر من جديد أو تواصل مع الوكالة."]);
         return;
       }
       if (error instanceof ApiError && (error.code === "PRICE_CHANGED" || error.code === "PRICING_MODE_CHANGED")) {
         pricingItem = error.code === "PRICE_CHANGED" ? withServerPrice(pricingItem, error.details) : { ...pricingItem, pricingMode: "QUOTE" };
+        priceCheckState = "changed";
         renderForm();
         showErrors([error.message]);
         return;
@@ -668,6 +731,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   }
 
   renderForm();
+  if (pricing()) refreshPrice();
 }
 
 // Shown only after the server returned the stored request's id (see
