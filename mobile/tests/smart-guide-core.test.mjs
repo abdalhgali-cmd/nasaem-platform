@@ -6,7 +6,7 @@ test("guide choices are restricted to approved journeys and tracking", () => {
   assert.deepEqual(GUIDE_CHOICES.map((choice) => choice.key), ["umrah", "egypt", "tracking"]);
 });
 test("only actual catalog entries can be selected", () => {
-  const catalog = { services: [{ id: "u", code: "SVC-UMRAH" }, { id: "f", code: "SVC-FLIGHT" }, { id: "e", code: "SVC-EGYPT-SECURITY-APPROVAL" }], visaTypes: [] };
+  const catalog = { services: [{ id: "u", code: "SVC-UMRAH" }, { id: "f", code: "SVC-FLIGHT" }, { id: "e", code: "VISA-EGYPT-CLEARANCE-AIR" }], visaTypes: [] };
   assert.equal(guideService(catalog, "umrah").id, "u");
   assert.equal(guideOutcome("egypt", catalog).service.id, "e");
   assert.deepEqual(guideOutcome("tracking", catalog), { action: "track" });
