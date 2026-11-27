@@ -70,7 +70,7 @@ export async function renderHomeScreen({ bodyEl }) {
       </button>` : ""}
     </header>
     <div id="pendingPaymentMount"></div>
-    <section class="section" aria-label="دليل الخدمات الذكي">
+    <section class="section smart-guide-home" aria-label="دليل الخدمات الذكي">
       <button class="track-card" id="homeSmartGuideBtn" type="button">
         <span class="track-card-icon">${icon("chat", { size: 22 })}</span>
         <span class="track-card-body"><b>مساعد نسائم</b><small>اختار خدمتك بخطوات سهلة، من الخيارات المتاحة فعلياً</small></span>
