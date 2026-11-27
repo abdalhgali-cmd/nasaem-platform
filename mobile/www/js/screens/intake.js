@@ -219,7 +219,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   // a «fixed price no longer available» refusal it stays closed.
   let submitting = false;
   let pricingBlocked = false;
-  let priceCheckState = pricing() ? "checking" : "not_required";
+  let priceCheckState = pricing() || fixedOnly ? "checking" : "not_required";
   let priceCheckGeneration = 0;
   // What is on screen depends on the answers: the questions AND the upload slots.
   const visibleSignature = () => [...answerRequirements().map((requirement) => requirement.id), "|", ...slots().map((slot) => slot.key)].join(",");
@@ -731,7 +731,7 @@ export async function renderIntakeScreen({ bodyEl, setTitle, item, allowMultiple
   }
 
   renderForm();
-  if (pricing()) refreshPrice();
+  if (pricing() || fixedOnly) refreshPrice();
 }
 
 // Shown only after the server returned the stored request's id (see
