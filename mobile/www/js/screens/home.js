@@ -70,6 +70,13 @@ export async function renderHomeScreen({ bodyEl }) {
       </button>` : ""}
     </header>
     <div id="pendingPaymentMount"></div>
+    <section class="section" aria-label="دليل الخدمات الذكي">
+      <button class="track-card" id="homeSmartGuideBtn" type="button">
+        <span class="track-card-icon">${icon("chat", { size: 22 })}</span>
+        <span class="track-card-body"><b>مساعد نسائم</b><small>اختار خدمتك بخطوات سهلة، من الخيارات المتاحة فعلياً</small></span>
+        ${icon("chevron-start", { size: 18 })}
+      </button>
+    </section>
 
     <section class="section home-current-request" id="activitySection" hidden>
       <div class="section-head"><h2 id="activityTitle">طلبك الحالي</h2></div>
@@ -117,6 +124,7 @@ export async function renderHomeScreen({ bodyEl }) {
     tapFeedback();
     go("notifications", {}, { title: "الإشعارات", tab: "home" });
   });
+  bodyEl.querySelector("#homeSmartGuideBtn")?.addEventListener("click", () => go("smartGuide", {}, { title: "مساعد نسائم", tab: "home" }));
   bodyEl.querySelector("#homeTrackBtn")?.addEventListener("click", () => goToTab("requests", "requests", { title: "طلباتي" }));
 
   loadCatalogSection(bodyEl);
